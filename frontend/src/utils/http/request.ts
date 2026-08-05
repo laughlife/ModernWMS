@@ -4,9 +4,10 @@ import { emitter } from '@/utils/bus'
 import { router } from '@/router'
 import { hookComponent } from '@/components/system'
 import i18n from '@/languages/i18n'
+import { buildServerUrl } from './serverUrl'
 
 // Basis of axios
-const SERVER_URL = `${ import.meta.env.VITE_BASE_PATH }:${ import.meta.env.VITE_SERVER_PORT }`
+const SERVER_URL = buildServerUrl(import.meta.env.VITE_BASE_PATH, import.meta.env.VITE_SERVER_PORT)
 axios.defaults.baseURL = SERVER_URL
 const http = axios.create({
   baseURL: SERVER_URL,

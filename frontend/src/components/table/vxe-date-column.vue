@@ -7,7 +7,6 @@
 </template>
 
 <script setup lang="tsx">
-import { defineProps, withDefaults } from 'vue'
 import { formatDate } from '@/utils/format/formatSystem'
 
 withDefaults(

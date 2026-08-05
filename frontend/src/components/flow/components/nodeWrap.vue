@@ -8,7 +8,7 @@
         class="node-wrap-box"
         :class="(data.selfNodeConfig.type === 1 ? 'start-node' : '') + (data.selfNodeConfig.error ? 'active error' : '')"
       >
-        <div @click="method.handleClickCard">
+        <div @click="method.handleClickCard()">
           <!-- 卡片头部 -->
           <div class="title" :style="'background: rgb(' + ['87, 106, 149', '6, 135, 165'][data.selfNodeConfig.type - 1] + ');'">
             <span class="editable-title">{{ data.selfNodeConfig.nodeName }}</span>
@@ -43,10 +43,10 @@
           <div v-for="(item, index) in data.selfNodeConfig.conditionNodes" :key="index" class="col-box">
             <div class="condition-node">
               <div class="condition-node-box">
-                <div class="auto-judge" :class="item.error ? 'error active' : ''" @click="method.handleClickCard(index)">
+                <div class="auto-judge" :class="item.error ? 'error active' : ''" @click="method.handleClickCard(Number(index))">
                   <div class="title-wrapper">
                     <span class="editable-title">{{ item.nodeName }}</span>
-                    <i class="el-icon-close close" @click.stop="method.delCardItem(index)"></i>
+                    <i class="el-icon-close close" @click.stop="method.delCardItem(Number(index))"></i>
                   </div>
                   <div class="content">
                     <!-- <span class="placeholder"> 条件</span> -->
@@ -178,7 +178,7 @@ const method = reactive({
     }
     data.selfNodeConfig.conditionNodes[data.indexTiaojian].conditionList[index].conditionChildrenNodes.splice(ind, 1)
   },
-  handleClickCard: (index: number) => {
+  handleClickCard: (index?: number) => {
     console.log('点击卡片')
   },
   // 删除节点

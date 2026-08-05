@@ -61,7 +61,7 @@
 </template>
 
 <script lang="ts" setup>
-import { reactive, computed, watch, withDefaults } from 'vue'
+import { reactive, computed, watch } from 'vue'
 import { hookComponent } from '@/components/system/index'
 import { getMenuAuthorityList } from '@/utils/common'
 import { viewInventoryDetails, confirmPickingDetail } from '@/api/wms/deliveryManagement'
@@ -74,7 +74,7 @@ const props = withDefaults(
   defineProps<{
     showDialog: boolean
     id: number
-    sourceType: string
+    sourceType?: string
   }>(),
   {
     sourceType: ''

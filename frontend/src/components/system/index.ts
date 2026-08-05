@@ -1,8 +1,8 @@
 import '@/assets/css/hookComponent.css' // import hookComponent style
 import { Components } from '@/types/System/HookComponent'
 
-// Use import.meta.globEager to read the files in the components folder, distinguished by the suffix ts
-const componentsList: any = import.meta.globEager('./hookComponent/**')
+// Eagerly read hook components, distinguished by the ts suffix below.
+const componentsList: any = import.meta.glob('./hookComponent/**', { eager: true })
 
 const List: any = {}
 export default function (app: any) {

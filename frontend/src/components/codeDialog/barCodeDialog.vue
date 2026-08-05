@@ -19,7 +19,7 @@
                   :key="index"
                   class="code-container"
                   :class="{ 'code-click': data.clickIndex === index }"
-                  @click.stop="method.setIndex(index)"
+                  @click.stop="method.setIndex(Number(index))"
                 >
                   <svg :id="'printBarCode' + item.id"></svg>
                 </div>

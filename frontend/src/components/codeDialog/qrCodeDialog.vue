@@ -19,7 +19,7 @@
                   :key="index"
                   class="code-container"
                   :class="{ 'code-click': data.clickIndex === index }"
-                  @click.stop="method.setIndex(index)"
+                  @click.stop="method.setIndex(Number(index))"
                 >
                   <div>
                     <vue-qr :key="index" :size="150" :auto-color="true" :dot-scale="1" :text="method.formatPrintData(item)"></vue-qr>

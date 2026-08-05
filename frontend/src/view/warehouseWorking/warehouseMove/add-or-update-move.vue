@@ -128,7 +128,6 @@
 
 <script lang="ts" setup>
 import { reactive, computed, ref, watch } from 'vue'
-import { log } from 'console'
 import i18n from '@/languages/i18n'
 import { hookComponent } from '@/components/system/index'
 import { addStockMove } from '@/api/wms/warehouseMove'
