@@ -59,7 +59,17 @@ npm run build
 subst W: /d
 ```
 
-## 5. 测试
+## 5. Rider 一键启动
+
+使用 Rider 打开 `backend/ModernWMS.sln` 后，顶部启动栏会显示仓库共享的三个启动配置：
+
+- `后端：ModernWMS API`：只启动后端 API。
+- `前端：Vite`：在 `frontend` 目录执行 `npm run dev`。
+- `一键启动：前端 + 后端`：同时启动前端和后端，是日常开发推荐入口。
+
+首次使用时在顶部启动配置下拉框选择 `一键启动：前端 + 后端`，以后直接点击右侧运行按钮即可。前端依赖仍需事先安装；启动配置不会自动执行 `npm ci`。
+
+## 6. 测试
 
 ```powershell
 dotnet restore backend/ModernWMS.sln
