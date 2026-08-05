@@ -5,7 +5,6 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
-using Pomelo.EntityFrameworkCore.MySql;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -13,7 +12,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
-using Microsoft.OpenApi.Models;
+using Microsoft.OpenApi;
 using Swashbuckle.AspNetCore.Filters;
 using System.Reflection;
 using System.Text;
@@ -55,34 +54,17 @@ namespace ModernWMS.Core.Extentions
                 return cache;
             });
 
-            var database_config = configuration.GetSection("Database")["db"];
+            var connectionString = configuration.GetConnectionString("MySqlConn");
+            if (string.IsNullOrWhiteSpace(connectionString))
+            {
+                throw new InvalidOperationException("ConnectionStrings:MySqlConn is required.");
+            }
+
             services.AddDbContextPool<SqlDBContext>(t =>
             {
-                if (database_config.ToUpper() == "SQLLITE")
-                {
-                    var SqlLite_connection = configuration.GetConnectionString("SqlLiteConn");
-                    t.UseSqlite(SqlLite_connection, b => b.MigrationsAssembly("ModernWMS"));
-                }
-                else if (database_config.ToUpper() == "MYSQL")
-                {
-                    var Mysql_connection = configuration.GetConnectionString("MySqlConn");
-                    t.UseMySql(Mysql_connection, new MySqlServerVersion(new Version(8, 0, 26)));
-                }
-                else if (database_config.ToUpper() == "SQLSERVER")
-                {
-                    var SqlServer_connection = configuration.GetConnectionString("SqlServerConn");
-                    t.UseSqlServer(SqlServer_connection);
-                }
-                else if (database_config.ToUpper() == "POSTGRES")
-                {
-                    var Postgre_connection = configuration.GetConnectionString("PostGresConn");
-                    t.UseNpgsql(Postgre_connection);
-                    AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
-                    AppContext.SetSwitch("Npgsql.DisableDateTimeInfinityConversions", true);
-                }
-                t.EnableSensitiveDataLogging();
+                t.UseMySQL(connectionString, b => b.MigrationsAssembly("ModernWMS"));
                 t.UseLoggerFactory(new LoggerFactory(new[] { new DebugLoggerProvider() }));
-            }, 100); ;
+            }, 100);
             services.AddMemoryCache();
             services.AddScoped<MultiTenancy.ITenantProvider, MultiTenancy.TenantProvider>();
             services.AddSwaggerService(configuration, AppContext.BaseDirectory);

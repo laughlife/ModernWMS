@@ -7,7 +7,6 @@ using System.Data.Common;
 using System.Reflection;
 using ModernWMS.Core;
 using static Microsoft.EntityFrameworkCore.DbLoggerCategory.Database;
-using Microsoft.Data.SqlClient;
 using Mapster;
 using Microsoft.AspNetCore.JsonPatch.Internal;
 using ModernWMS.Core.Models;

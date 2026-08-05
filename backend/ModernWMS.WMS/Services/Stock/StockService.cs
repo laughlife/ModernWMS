@@ -20,9 +20,7 @@ using System.Linq;
 using ModernWMS.WMS.Entities.ViewModels.Stock;
 using ModernWMS.Core.Utility;
 using static Microsoft.EntityFrameworkCore.DbLoggerCategory;
-using Pomelo.EntityFrameworkCore.MySql.Storage.Internal;
-using Pomelo.EntityFrameworkCore.MySql.Query.Internal;
-using Microsoft.Extensions.Configuration;
+using MySql.EntityFrameworkCore.Extensions;
 
 namespace ModernWMS.WMS.Services
 {
@@ -43,8 +41,6 @@ namespace ModernWMS.WMS.Services
         /// </summary>
         private readonly IStringLocalizer<ModernWMS.Core.MultiLanguage> _stringLocalizer;
 
-        public IConfiguration Configuration { get; }
-
         #endregion Args
 
         #region constructor
@@ -57,12 +53,10 @@ namespace ModernWMS.WMS.Services
         public StockService(
             SqlDBContext dBContext
           , IStringLocalizer<ModernWMS.Core.MultiLanguage> stringLocalizer
-            , IConfiguration configuration
             )
         {
             this._dBContext = dBContext;
             this._stringLocalizer = stringLocalizer;
-            this.Configuration = configuration;
         }
 
         #endregion constructor
@@ -815,7 +809,6 @@ namespace ModernWMS.WMS.Services
         /// <returns></returns>
         public async Task<(List<StockAgeViewModel> data, int totals)> StockAgePageAsync(StockAgeSearchViewModel input, CurrentUser currentUser)
         {
-            var database_config = Configuration.GetSection("Database")["db"].ToUpper();
             var DbSet = _dBContext.GetDbSet<StockEntity>().Where(t => t.tenant_id.Equals(currentUser.tenant_id));
             var sku_DBSet = _dBContext.GetDbSet<SkuEntity>().AsNoTracking();
             var spu_DBSet = _dBContext.GetDbSet<SpuEntity>().AsNoTracking();
@@ -869,7 +862,9 @@ namespace ModernWMS.WMS.Services
                             expiry_date = sg.expiry_date,
                             price = sg.price,
                             putaway_date = sg.putaway_date,
-                            stock_age = sg.putaway_date == UtilConvert.MinDate ? 0 : database_config == "MYSQL" ? Microsoft.EntityFrameworkCore.MySqlDbFunctionsExtensions.DateDiffDay(EF.Functions, sg.putaway_date.Date, today) : Microsoft.EntityFrameworkCore.SqlServerDbFunctionsExtensions.DateDiffDay(EF.Functions, sg.putaway_date.Date, today),
+                            stock_age = sg.putaway_date == UtilConvert.MinDate
+                                ? 0
+                                : MySQLDbFunctionsExtensions.DateDiffDay(EF.Functions, sg.putaway_date.Date, today),
                         };
 
             if (input.stock_age_from > 0)
