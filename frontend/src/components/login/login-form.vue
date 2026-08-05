@@ -1,11 +1,20 @@
 <template>
   <div class="loginForm">
     <div class="titleText">
-      <h5>{{ $t('login.welcomeTitle') }}</h5>
+      <h2>欢迎登录</h2>
+      <p>南阳有座山物流管理系统</p>
     </div>
     <div class="formContainer">
       <v-form ref="VFormRef" v-model="data.valid" lazy-validation @keydown.enter.prevent="method.login()">
-        <v-text-field v-model="data.userName" required :rules="data.userNameVaildRules" :label="$t('login.userName')" variant="solo"></v-text-field>
+        <v-text-field
+          v-model="data.userName"
+          required
+          :rules="data.userNameVaildRules"
+          :label="$t('login.userName')"
+          prepend-inner-icon="mdi-account-outline"
+          variant="outlined"
+          density="comfortable"
+        ></v-text-field>
         <v-text-field
           v-model="data.password"
           required
@@ -14,17 +23,23 @@
           :append-inner-icon="data.showPassword ? 'mdi-eye' : 'mdi-eye-off'"
           :type="data.showPassword ? 'text' : 'password'"
           :label="$t('login.password')"
-          variant="solo"
+          prepend-inner-icon="mdi-lock-outline"
+          variant="outlined"
+          density="comfortable"
           @click:append-inner="method.handleShowPassword()"
         ></v-text-field>
-        <v-checkbox v-model="data.remember" :label="$t('login.rememberTips')"></v-checkbox>
-        <v-btn color="purple" class="loginBtn" @click="method.login()">{{ $t('login.mainButtonLabel') }}</v-btn>
-        <!-- <v-btn class="mt-2" color="#666" variant="plain" @click="method.openRegisterDialog">
-          {{ i18n.global.t('login.registerTips') }}
-        </v-btn> -->
+        <v-checkbox v-model="data.remember" :label="$t('login.rememberTips')" color="primary"></v-checkbox>
+        <v-btn
+          data-testid="login-submit"
+          color="#1769e8"
+          class="loginBtn"
+          elevation="0"
+          @click="method.login()"
+        >
+          {{ $t('login.mainButtonLabel') }}
+        </v-btn>
       </v-form>
     </div>
-    <!-- <userRegisterForm :show-dialog="data.showDialog" :form="data.dialogForm" @close="method.closeDialog" @saveSuccess="method.saveSuccess" /> -->
   </div>
 </template>
 
@@ -215,47 +230,106 @@ onMounted(() => {
 
 <style scoped lang="less">
 .loginForm {
-  // min-height: ;
-  height: 50%;
   width: 100%;
   box-sizing: border-box;
-  padding: 16px;
+  padding: 50px 44px 42px;
+
   .titleText {
-    box-sizing: border-box;
-    padding: 20px;
-    h5 {
-      font-size: 1.5rem !important;
-      font-weight: 500;
-      line-height: 2rem;
-      letter-spacing: normal !important;
-      font-family: inter, sans-serif, -apple-system, blinkmacsystemfont, Segoe UI, roboto, Helvetica Neue, arial, sans-serif, 'Apple Color Emoji',
-        'Segoe UI Emoji', Segoe UI Symbol !important;
-      text-transform: none !important;
+    margin-bottom: 38px;
+    text-align: center;
+
+    h2 {
+      margin: 0;
+      color: #17243d;
+      font-size: 32px;
+      font-weight: 700;
+      line-height: 1.3;
+      letter-spacing: 1px;
+    }
+
+    p {
+      margin: 12px 0 0;
+      color: #7b8597;
+      font-size: 14px;
     }
   }
+
   .formContainer {
-    box-sizing: border-box;
-    padding: 12px 20px;
+    padding: 0;
+
     .v-btn {
       width: 100%;
     }
+
     .v-text-field {
-      margin-top: 10px;
+      margin-top: 12px;
     }
+
     .v-checkbox {
-      color: #b2b0b5;
-      margin-inline-start: -0.5625rem;
-      margin-top: -10px;
-      height: 60px;
+      height: 58px;
+      margin-top: -4px;
+      color: #6f7a8e;
     }
   }
-  // There is style pollution Or vuetify itself has problems, replace the required verification color manually
+
   :deep(.v-messages) {
     color: #b00020 !important;
+  }
+
+  :deep(.v-field) {
+    min-height: 60px;
+    color: #7d8799;
+    background: #fff;
+    border-radius: 8px;
+  }
+
+  :deep(.v-field__outline) {
+    color: #cbd4e2;
+  }
+
+  :deep(.v-field--focused .v-field__outline) {
+    color: #1769e8;
+  }
+
+  :deep(.v-field__input) {
+    color: #22304a;
+    font-size: 15px;
+  }
+
+  :deep(.v-label) {
+    color: #7d8799;
+  }
+
+  :deep(.v-selection-control__input > .v-icon) {
+    font-size: 22px;
   }
 }
 
 .loginBtn {
-  height: 45px;
+  height: 54px;
+  margin-top: 8px;
+  border-radius: 7px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 8px;
+  box-shadow: 0 10px 22px rgba(23, 105, 232, 0.2) !important;
+}
+
+@media (max-width: 480px) {
+  .loginForm {
+    padding: 38px 24px 32px;
+
+    .titleText {
+      margin-bottom: 28px;
+
+      h2 {
+        font-size: 27px;
+      }
+    }
+
+    :deep(.v-field) {
+      min-height: 56px;
+    }
+  }
 }
 </style>
