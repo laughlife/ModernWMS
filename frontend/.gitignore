@@ -12,6 +12,7 @@ dist
 dist-ssr
 test-results
 playwright-report
+visual-baselines
 *.local
 
 # Editor directories and files

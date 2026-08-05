@@ -101,33 +101,25 @@ function loadRouter() {
 }
 
 // Set the front routing guard
-router.beforeEach((to, from, next) => {
+router.beforeEach((to) => {
   const userStore = useUserStore(pinia)
-  // join system
   if (to.path === '/login') {
     dynamicRouter = []
-    return next()
+    return true
   }
   if (to.path === '/vwms') {
-    next()
+    return true
   }
-  // dont have token, back login
   if (!userStore.token) {
-    return next('/login')
+    return '/login'
   }
 
   if (dynamicRouter.length === 0) {
     loadRouter()
-    return next(to.path)
+    return to.fullPath
   }
 
-  next()
-})
-
-// Route interceptor, after jump
-router.afterEach(() => {
-  // disable back or forward
-  window.history.pushState(null, '', window.location.href)
+  return true
 })
 
 export { router }

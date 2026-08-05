@@ -14,18 +14,43 @@ const persistentKeys: Record<string, string[]> = {
   system: ['language', 'openedMenus', 'currentRouterPath']
 }
 
+function selectPersistentState<T extends StateTree>(storeId: string, state: Partial<T>): Partial<T> {
+  const keys = persistentKeys[storeId] ?? []
+  return Object.fromEntries(
+    keys
+      .filter((key) => Object.prototype.hasOwnProperty.call(state, key))
+      .map((key) => [key, state[key]])
+  ) as Partial<T>
+}
+
+function migrateLegacyState() {
+  const legacyValue = localStorage.getItem('vuex')
+  if (!legacyValue) return
+
+  try {
+    const legacyState = JSON.parse(legacyValue) as Record<string, StateTree>
+    for (const storeId of Object.keys(persistentKeys)) {
+      const storageKey = `${storagePrefix}${storeId}`
+      if (!localStorage.getItem(storageKey) && legacyState[storeId]) {
+        localStorage.setItem(storageKey, JSON.stringify(selectPersistentState(storeId, legacyState[storeId])))
+      }
+    }
+  } catch {
+    // Ignore malformed legacy data and remove it below.
+  } finally {
+    localStorage.removeItem('vuex')
+  }
+}
+
 export function loadPersistedState<T extends StateTree>(storeId: string): Partial<T> | undefined {
   if (typeof localStorage === 'undefined') return undefined
 
+  migrateLegacyState()
   const value = localStorage.getItem(`${storagePrefix}${storeId}`)
-  const legacyValue = localStorage.getItem('vuex')
-  if (!value && !legacyValue) return undefined
+  if (!value) return undefined
 
   try {
-    if (value) return JSON.parse(value) as Partial<T>
-
-    const legacyState = JSON.parse(legacyValue ?? '{}') as Record<string, Partial<T>>
-    return legacyState[storeId]
+    return selectPersistentState(storeId, JSON.parse(value) as Partial<T>)
   } catch {
     localStorage.removeItem(`${storagePrefix}${storeId}`)
     return undefined
@@ -41,7 +66,7 @@ export function persistStorePlugin({ store }: PiniaPluginContext) {
 
   store.$subscribe(
     (_mutation, state) => {
-      const value = Object.fromEntries(keys.map((key) => [key, state[key]]))
+      const value = selectPersistentState(store.$id, state)
       localStorage.setItem(`${storagePrefix}${store.$id}`, JSON.stringify(value))
     },
     { detached: true, flush: 'sync' }

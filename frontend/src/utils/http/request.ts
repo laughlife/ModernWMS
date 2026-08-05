@@ -7,6 +7,7 @@ import { router } from '@/router'
 import { hookComponent } from '@/components/system'
 import i18n from '@/languages/i18n'
 import { buildServerUrl } from './serverUrl'
+import { isRefreshResponseCurrent } from './refreshSession'
 
 // Basis of axios
 const SERVER_URL = buildServerUrl(import.meta.env.VITE_BASE_PATH, import.meta.env.VITE_SERVER_PORT)
@@ -91,6 +92,10 @@ const handleRefreshToken = (token: string) => {
       refreshToken
     })
     .then(({ data: res }) => {
+      if (!isRefreshResponseCurrent(userStore.token, userStore.refreshToken, token, refreshToken)) {
+        resetSubscribes()
+        return
+      }
       if (res.isSuccess) {
         const tokenVo = res.data
         const expiredTime = new Date().getTime() + userStore.effectiveMinutes * 60 * 1000

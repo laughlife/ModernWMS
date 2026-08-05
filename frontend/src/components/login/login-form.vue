@@ -150,7 +150,7 @@ const method = reactive({
 
       // Jump home
       systemStore.setCurrentRouterPath('homepage')
-      router.push('home')
+      router.push('/home')
     } else {
       hookComponent.$message({
         type: 'error',

@@ -40,6 +40,7 @@ export const useUserStore = defineStore('user', {
     },
     clearSession() {
       this.$patch(initialState())
+      if (typeof localStorage !== 'undefined') localStorage.removeItem('vuex')
     }
   }
 })

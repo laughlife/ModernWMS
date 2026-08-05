@@ -7,6 +7,8 @@ import { aliases, mdi } from 'vuetify/iconsets/mdi'
 // Translations provided by Vuetify
 import { zhHans, zhHant, en } from 'vuetify/locale'
 import { getSelcectedLangForVuetify } from './method/index'
+import { loadPersistedState } from '@/store/persistence'
+import type { StateProps } from '@/types/System/Store'
 
 import 'material-design-icons-iconfont/dist/material-design-icons.css'
 import 'vuetify/dist/vuetify.min.css'
@@ -30,7 +32,7 @@ const vuetify = createVuetify({
 
 // get language in storage or default
 function getStorageLang() {
-  const lang = localStorage.getItem('language')
+  const lang = loadPersistedState<StateProps>('system')?.language ?? localStorage.getItem('language')
   if (lang) {
     return getSelcectedLangForVuetify(lang)
   }

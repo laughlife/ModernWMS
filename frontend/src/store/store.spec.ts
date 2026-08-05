@@ -53,4 +53,27 @@ describe('Pinia store behavior', () => {
     expect(systemStore.openedMenus).toEqual([])
     expect(systemStore.currentRouterPath).toBe('')
   })
+
+  it('migrates only approved legacy fields and removes the old vuex payload', () => {
+    localStorage.setItem('vuex', JSON.stringify({
+      user: {
+        token: 'legacy-token',
+        refreshToken: 'legacy-refresh-token',
+        isRefreshingToken: true
+      },
+      system: {
+        language: 'zh',
+        refreshFlag: true
+      }
+    }))
+
+    const userStore = useUserStore()
+    const systemStore = useSystemStore()
+
+    expect(userStore.token).toBe('legacy-token')
+    expect(userStore.isRefreshingToken).toBe(false)
+    expect(systemStore.language).toBe('zh')
+    expect(systemStore.refreshFlag).toBe(false)
+    expect(localStorage.getItem('vuex')).toBeNull()
+  })
 })
