@@ -9,7 +9,7 @@
                 <div>
                   <span class="labelTitle">{{ $t('wms.deliveryManagement.dispatch_no') }}:</span>{{ data.printData.dispatch_no }}
                 </div>
-                <vue-qr :key="data.printText" size="140" :margin="0" :auto-color="true" :dot-scale="1" :text="data.printText"></vue-qr>
+                <vue-qr :key="data.printText" :size="140" :margin="0" :auto-color="true" :dot-scale="1" :text="data.printText"></vue-qr>
               </div>
             </div>
           </div>
@@ -26,7 +26,7 @@
 
 <script setup lang="tsx">
 import { reactive } from 'vue'
-import VueQr from 'vue-qr/src/packages/vue-qr.vue'
+import VueQr from 'vue-qr'
 
 const data = reactive({
   showDialog: false,

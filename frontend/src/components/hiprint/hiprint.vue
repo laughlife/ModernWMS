@@ -74,17 +74,15 @@
   </v-dialog>
 </template>
 <script lang="ts" setup>
-import { reactive, ref, computed, watch, nextTick, getCurrentInstance, ComponentInternalInstance } from 'vue'
+import { reactive, ref, computed, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { listByPath } from '@/api/base/printSolution'
 import { PrintSolutionVO, PrintSolutionGetByPathVo } from '@/types/Base/PrintSolution'
 import i18n from '@/languages/i18n'
 import preViewDialog from './preView.vue'
 import { PRINT_MENU } from '@/constant/print'
+import { createPrintElementTypeGroup, createPrintTemplate, initializePrintElementTypes } from '@/adapters/printing'
 
-const { appContext } = getCurrentInstance() as ComponentInternalInstance
-const proxy = appContext.config.globalProperties
-const { hiprint } = proxy
 interface paperTypeData {
   width: number
   height: number
@@ -176,7 +174,7 @@ const method = reactive({
   },
   provider() {
     const elementList = [
-      new hiprint.PrintElementTypeGroup(i18n.global.t('system.hiprint.routine'), [
+      createPrintElementTypeGroup(i18n.global.t('system.hiprint.routine'), [
         {
           tid: 'providerModule.customText',
           title: i18n.global.t('system.hiprint.text'),
@@ -241,10 +239,10 @@ const method = reactive({
       index += 1
     })
     if (userList.length > 0) {
-      elementList.push(new hiprint.PrintElementTypeGroup(i18n.global.t('system.hiprint.field'), userList))
+      elementList.push(createPrintElementTypeGroup(i18n.global.t('system.hiprint.field'), userList))
     }
     elementList.push(
-      new hiprint.PrintElementTypeGroup(i18n.global.t('system.hiprint.auxiliary'), [
+      createPrintElementTypeGroup(i18n.global.t('system.hiprint.auxiliary'), [
         {
           tid: 'providerModule.hline',
           title: i18n.global.t('system.hiprint.hline'),
@@ -276,15 +274,13 @@ const method = reactive({
     }
   },
   initProvier() {
-    hiprint.init({
-      providers: [method.provider()]
-    })
+    const provider = method.provider()
     // $('.hiprintEpContainer').empty()
     const dom = document.getElementById('hiprintEpContainer')
     if (dom !== null) {
       dom.innerHTML = ''
     }
-    hiprint.PrintElementTypeManager.build('.hiprintEpContainer', 'providerModule')
+    initializePrintElementTypes(provider, '.hiprintEpContainer', 'providerModule')
   },
   initTemplate() {
     // const provider = providers[0]
@@ -293,7 +289,7 @@ const method = reactive({
     if (dom !== null) {
       dom.innerHTML = ''
     }
-    data.hiprintTemplate = new hiprint.PrintTemplate({
+    data.hiprintTemplate = createPrintTemplate({
       template: data.panel,
       dataMode: 1, // 1:getJson 其他：getJsonTid 默认1
       history: false, // 是否需要 撤销重做功能

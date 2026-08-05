@@ -32,16 +32,14 @@
   </v-dialog>
 </template>
 <script lang="ts" setup>
-import { reactive, computed, watch, nextTick, getCurrentInstance, ComponentInternalInstance } from 'vue'
+import { reactive, computed, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import i18n from '@/languages/i18n'
 import { listByPath } from '@/api/base/printSolution'
 import { PrintSolutionVO, PrintSolutionGetByPathVo } from '@/types/Base/PrintSolution'
 import { hookComponent } from '@/components/system/index'
+import { createPrintTemplate } from '@/adapters/printing'
 
-const { appContext } = getCurrentInstance() as ComponentInternalInstance
-const proxy = appContext.config.globalProperties
-const { hiprint } = proxy
 const props = defineProps<{
   form: object
   tabPage: string
@@ -61,7 +59,7 @@ const method = reactive({
     if (dom !== null) {
       dom.innerHTML = ''
     }
-    data.hiprintTemplate = new hiprint.PrintTemplate({
+    data.hiprintTemplate = createPrintTemplate({
       template: data.panel,
       dataMode: 1, // 1:getJson 其他：getJsonTid 默认1
       history: false, // 是否需要 撤销重做功能

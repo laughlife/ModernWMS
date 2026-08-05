@@ -6,7 +6,7 @@
           <div id="printArea" class="printArea">
             <div class="printTopContainer">
               <div>
-                <vue-qr :key="data.printText" size="140" :margin="0" :auto-color="true" :dot-scale="1" :text="data.printText"></vue-qr>
+                <vue-qr :key="data.printText" :size="140" :margin="0" :auto-color="true" :dot-scale="1" :text="data.printText"></vue-qr>
               </div>
 
               <div class="printLabel" style="flex: 1">
@@ -30,7 +30,7 @@
 
 <script setup lang="tsx">
 import { reactive } from 'vue'
-import VueQr from 'vue-qr/src/packages/vue-qr.vue'
+import VueQr from 'vue-qr'
 
 const data = reactive({
   showDialog: false,

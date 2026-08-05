@@ -1,7 +1,5 @@
 import { createApp } from 'vue'
 import './style.css' // Global Styles
-import print from 'vue3-print-nb'
-import { setup } from 'yk-vue-plugin-hiprint'
 import DataVVue3 from '@kjgl77/datav-vue3'
 import { installVxeExportPlugin, setVxeLanguage, VxePCUI, VxeUITable } from '@/plugins/VXETable/index'
 import { vuetify } from '@/plugins/vuetify/index'
@@ -15,13 +13,13 @@ import { pinia } from './store/index'
 import hookComponent from '@/components/system/index'
 
 import VxeDateColumn from '@/components/table/vxe-date-column.vue'
+import { installPrinting } from '@/adapters/printing'
 
 const app = createApp(App)
-app.config.globalProperties.hiprint = setup()
 
 setVxeLanguage(i18n.global.locale.value)
 
-app.use(print)
+installPrinting(app)
 app.use(pinia)
 app.use(router)
 app.use(vuetify)

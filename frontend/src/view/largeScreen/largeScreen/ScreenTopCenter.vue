@@ -16,7 +16,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, onMounted } from 'vue'
+import { reactive, onMounted, onUnmounted } from 'vue'
 import { getStockLocationList } from '@/api/wms/stockManagement'
 import { StockLocationVO } from '@/types/WMS/StockManagement'
 import i18n from '@/languages/i18n'
@@ -40,6 +40,7 @@ const config = reactive({
   columnWidth: [50],
   align: ['center']
 })
+let refreshTimer: ReturnType<typeof setInterval>
 const method = reactive({
   getStockLocationList: async () => {
     const { data: res } = await getStockLocationList({ total: 0, pageIndex: 1, pageSize: 99999 })
@@ -48,10 +49,11 @@ const method = reactive({
 })
 onMounted(() => {
   method.getStockLocationList()
-    setInterval(() => {
+  refreshTimer = setInterval(() => {
     method.getStockLocationList()
   }, 10 * 60 * 1000)
 })
+onUnmounted(() => clearInterval(refreshTimer))
 </script>
 
 <style lang="less" scoped>

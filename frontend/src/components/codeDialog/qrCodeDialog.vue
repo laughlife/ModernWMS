@@ -83,7 +83,7 @@
 
 <script setup lang="ts">
 import { computed, reactive } from 'vue'
-import VueQr from 'vue-qr/src/packages/vue-qr.vue'
+import VueQr from 'vue-qr'
 import { setStorage, getStorage } from '@/utils/common'
 
 const props = defineProps<{

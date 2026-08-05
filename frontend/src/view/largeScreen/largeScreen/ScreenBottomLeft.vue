@@ -16,7 +16,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, onMounted, ref } from 'vue'
+import { reactive, onMounted, onUnmounted, ref } from 'vue'
 import _ from 'lodash'
 import * as echarts from 'echarts'
 import { EChartsOption, EChartsType } from 'echarts'
@@ -26,6 +26,7 @@ import i18n from '@/languages/i18n'
 
 const chatRef = ref()
 let chat: EChartsType
+let refreshTimer: ReturnType<typeof setInterval>
 const chartData = reactive({
   category: [] as Array<string>,
   countData: [] as Array<number>,
@@ -144,9 +145,13 @@ const method = reactive({
 // 生命周期
 onMounted(() => {
   method.getStockAsnList()
-  setInterval(() => {
+  refreshTimer = setInterval(() => {
     method.getStockAsnList()
   }, 10 * 60 * 1000)
+})
+onUnmounted(() => {
+  clearInterval(refreshTimer)
+  chat?.dispose()
 })
 </script>
 
