@@ -33,13 +33,12 @@ namespace ModernWMS.Core.JWT
         /// <param name="options">options</param>
         /// <param name="logger">logger</param>
         /// <param name="encoder">encoder</param>
-        /// <param name="clock"></param>
         /// <param name="tokenManager">tokenManager</param>
-        /// <param name="cacheManager">cacheManagerparam>
-        public ApiResponseHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder, ISystemClock clock
+        /// <param name="cacheManager">cacheManager</param>
+        public ApiResponseHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder
             , ITokenManager tokenManager
             , CacheManager cacheManager)
-            : base(options, logger, encoder, clock)
+            : base(options, logger, encoder)
         {
             this._tokenManager = tokenManager;
             _cacheManager = cacheManager;

@@ -1,45 +1,34 @@
-
-using Microsoft.AspNetCore.Hosting;
+using ModernWMS.Core.Extentions;
+using NLog;
 using NLog.Web;
 
-namespace ModernWMS
-{
-    public class Program
-    {
-        public static void Main(string[] args)
-        {
-            var logger = NLog.Web.NLogBuilder.ConfigureNLog("nlog.config").GetCurrentClassLogger();
-            try
-            {
-                logger.Debug("--- run");
-                CreateHostBuilder(args).Build().Run();
-            }
-            catch (Exception exception)
-            {
-                logger.Error(exception, "---- exception");
-                throw;
-            }
-            finally
-            {
-                NLog.LogManager.Shutdown();
-            }
-        }
+var logger = LogManager.Setup()
+    .LoadConfigurationFromFile("nlog.config")
+    .GetCurrentClassLogger();
 
-        public static IHostBuilder CreateHostBuilder(string[] args) =>
-            Host.CreateDefaultBuilder(args)
-                .ConfigureWebHostDefaults(webBuilder =>
-                {
-                    webBuilder.UseUrls("http://*:5555")
-                    .UseStartup<Startup>()
-                    .UseKestrel(opt => opt.Limits.MaxRequestBodySize = null);
-                }).ConfigureLogging(logging =>
-                {
-                    logging.ClearProviders();
-                    logging.SetMinimumLevel(LogLevel.Trace);
-                }).UseNLog()
-            .UseDefaultServiceProvider(options =>
-            {
-                options.ValidateScopes = false;
-            });
-    }
+try
+{
+    logger.Debug("--- run");
+
+    var builder = WebApplication.CreateBuilder(args);
+    builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = null);
+    builder.Logging.ClearProviders();
+    builder.Logging.SetMinimumLevel(Microsoft.Extensions.Logging.LogLevel.Trace);
+    builder.Host.UseNLog();
+    builder.Services.AddExtensionsService(builder.Configuration, builder.Environment);
+
+    var app = builder.Build();
+    app.UseExtensionsConfigure(app.Environment, app.Services, app.Configuration);
+    app.Run();
 }
+catch (Exception exception)
+{
+    logger.Error(exception, "---- exception");
+    throw;
+}
+finally
+{
+    LogManager.Shutdown();
+}
+
+public partial class Program;

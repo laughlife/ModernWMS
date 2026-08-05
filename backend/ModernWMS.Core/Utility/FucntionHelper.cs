@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.Extensions.Options;
 using ModernWMS.Core.DBContext;
 using ModernWMS.Core.JWT;
 using ModernWMS.Core.Models;
@@ -9,7 +10,6 @@ using System;
 using System.Collections.Generic;
 using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace ModernWMS.Core
@@ -18,12 +18,15 @@ namespace ModernWMS.Core
     {
         private readonly SqlDBContext _dBContext;
         private readonly IHttpContextAccessor _accessor;
+        private readonly IOptions<TokenSettings> _tokenSettings;
 
         public FunctionHelper(SqlDBContext dBContext
-             , IHttpContextAccessor accessor)
+             , IHttpContextAccessor accessor
+             , IOptions<TokenSettings> tokenSettings)
         {
             _dBContext = dBContext;
             _accessor = accessor;
+            _tokenSettings = tokenSettings;
         }
 
         /// <summary>
@@ -45,14 +48,7 @@ namespace ModernWMS.Core
             if (token.Length > 0)
             {
                 var principal = new JwtSecurityTokenHandler().ValidateToken(token,
-                                                                        new TokenValidationParameters
-                                                                        {
-                                                                            ValidateAudience = false,
-                                                                            ValidateIssuer = false,
-                                                                            ValidateIssuerSigningKey = true,
-                                                                            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(GlobalConsts.SigningKey)),
-                                                                            ValidateLifetime = false
-                                                                        },
+                                                                        TokenValidationParametersFactory.Create(_tokenSettings.Value),
                                                                         out var securityToken);
 
                 if (!(securityToken is JwtSecurityToken jwtSecurityToken) ||

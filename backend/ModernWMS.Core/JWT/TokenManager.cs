@@ -58,7 +58,7 @@ namespace ModernWMS.Core.JWT
                                                                                  claims: SetClaims(userClaims),
                                                                                  expires: DateTime.Now.AddMinutes(_tokenSettings.Value.ExpireMinute),
                                                                                  signingCredentials: new SigningCredentials(
-                                                                                                                            new SymmetricSecurityKey(Encoding.UTF8.GetBytes(GlobalConsts.SigningKey)),
+                                                                                                                            new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_tokenSettings.Value.SigningKey)),
                                                                                                                             SecurityAlgorithms.HmacSha256)
                                                                                 ));
 
@@ -83,14 +83,7 @@ namespace ModernWMS.Core.JWT
             if (token.Length > 0)
             {
                 var principal = new JwtSecurityTokenHandler().ValidateToken(token,
-                                                                        new TokenValidationParameters
-                                                                        {
-                                                                            ValidateAudience = false,
-                                                                            ValidateIssuer = false,
-                                                                            ValidateIssuerSigningKey = true,
-                                                                            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(GlobalConsts.SigningKey)),
-                                                                            ValidateLifetime = false
-                                                                        },
+                                                                        TokenValidationParametersFactory.Create(_tokenSettings.Value),
                                                                         out var securityToken);
 
                 if (!(securityToken is JwtSecurityToken jwtSecurityToken) ||
@@ -124,14 +117,7 @@ namespace ModernWMS.Core.JWT
             if (token.Length > 0)
             {
                 var principal = new JwtSecurityTokenHandler().ValidateToken(token,
-                                                                        new TokenValidationParameters
-                                                                        {
-                                                                            ValidateAudience = false,
-                                                                            ValidateIssuer = false,
-                                                                            ValidateIssuerSigningKey = true,
-                                                                            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(GlobalConsts.SigningKey)),
-                                                                            ValidateLifetime = false
-                                                                        },
+                                                                        TokenValidationParametersFactory.Create(_tokenSettings.Value),
                                                                         out var securityToken);
 
                 if (!(securityToken is JwtSecurityToken jwtSecurityToken) ||
