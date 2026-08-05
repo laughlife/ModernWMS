@@ -6,9 +6,31 @@ namespace ModernWMS.Tests.Hosting;
 public class ApplicationStartupTests
 {
     [Fact]
+    public async Task Health_endpoint_is_available_without_database_initialization()
+    {
+        await using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+        using var response = await client.GetAsync("/health");
+
+        response.EnsureSuccessStatusCode();
+        Assert.Equal("Healthy", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task Swagger_home_page_starts_with_environment_configuration()
     {
-        await using var factory = new WebApplicationFactory<Program>()
+        await using var factory = CreateFactory();
+
+        using var client = factory.CreateClient();
+        using var response = await client.GetAsync("/");
+        var content = await response.Content.ReadAsStringAsync();
+
+        response.EnsureSuccessStatusCode();
+        Assert.Contains("swagger-ui", content, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static WebApplicationFactory<Program> CreateFactory() =>
+        new WebApplicationFactory<Program>()
             .WithWebHostBuilder(builder =>
             {
                 builder.UseEnvironment("Development");
@@ -20,12 +42,4 @@ public class ApplicationStartupTests
                     "modernwms-local-smoke-key-32-bytes-minimum");
                 builder.UseSetting("DatabaseInitialization:Enabled", "false");
             });
-
-        using var client = factory.CreateClient();
-        using var response = await client.GetAsync("/");
-        var content = await response.Content.ReadAsStringAsync();
-
-        response.EnsureSuccessStatusCode();
-        Assert.Contains("swagger-ui", content, StringComparison.OrdinalIgnoreCase);
-    }
 }

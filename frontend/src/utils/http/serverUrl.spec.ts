@@ -9,4 +9,8 @@ describe('buildServerUrl', () => {
   it('removes a trailing slash before appending the port', () => {
     expect(buildServerUrl('http://127.0.0.1/', '21011')).toBe('http://127.0.0.1:21011')
   })
+
+  it('supports same-origin reverse proxy paths without a port', () => {
+    expect(buildServerUrl('/api/', '')).toBe('/api')
+  })
 })

@@ -37,6 +37,7 @@ namespace ModernWMS.Core.Extentions
                 return sharedLocalizer;
             });
             services.AddHttpClient();
+            services.AddHealthChecks();
             services.AddSingleton<IHttpContextAccessor, HttpContextAccessor>();
             services.AddSingleton<CacheManager>();
             services.AddSingleton<IMemoryCache>(factory =>
@@ -135,6 +136,7 @@ namespace ModernWMS.Core.Extentions
             AddHangfireJob(serviceProvider);
             app.UseEndpoints(endpoints =>
             {
+                endpoints.MapHealthChecks("/health");
                 endpoints.MapControllers();
             });
         }
