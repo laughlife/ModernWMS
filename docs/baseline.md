@@ -63,3 +63,11 @@
 - 编译成功不等于验收完成，关键入口必须经过 API 或浏览器冒烟验证。
 - 每次依赖大版本升级独立提交，Vuetify 与 VXE Table 不在同一提交中升级。
 - 数据库初始化必须幂等，重复启动不得重复写入基础数据。
+
+## .NET 10 SDK 编译旧项目的结果
+
+使用 SDK `10.0.302` 构建原 `net7.0` 项目成功，测试基架成功加载，0 个测试失败。基线存在以下必须由升级阶段消除的问题：
+
+- `Azure.Identity 1.7.0`、`Microsoft.Data.SqlClient 5.1.0`、`Npgsql 7.0.1` 和 `SQLitePCLRaw.lib.e_sqlite3 2.1.2` 报告已知高危漏洞。
+- 旧 `Microsoft.AspNetCore.Mvc` 2.2 分析器在新 SDK 下反复报告 `AD0001`。
+- 旧代码存在 XML 注释、nullable 和已废弃 API 警告；升级阶段逐类修正，不使用全局 `NoWarn` 隐藏。
