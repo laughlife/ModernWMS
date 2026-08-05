@@ -1,7 +1,7 @@
 <template>
   <v-dialog v-model="data.dialogVisible" persistent :width="dialogWidth">
     <v-card>
-      <v-card-title class="text-h5"> {{ title }} </v-card-title>
+      <v-card-title class="text-headline-small"> {{ title }} </v-card-title>
       <v-card-text>{{ content }}</v-card-text>
       <v-card-actions>
         <v-spacer></v-spacer>

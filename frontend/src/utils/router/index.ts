@@ -29,8 +29,6 @@ export function menusToSideBar(): SideBarMenu[] {
   const menuList: MenuItem[] = useUserStore(pinia).menulist
 
   for (const menu of menuList) {
-    // Get the module index and check whether this group exists
-    const moduleIndex = result.findIndex((item) => item.lable === i18n.global.t(`router.sideBar.${ menu.module }`))
     const lable = GetMenuNameAndModule(menu.vue_path)
     if (lable) {
       // Primary menu
@@ -42,6 +40,9 @@ export function menusToSideBar(): SideBarMenu[] {
         })
         continue
       }
+      // Get the module index and check whether this group exists
+      const moduleLabel = i18n.global.t(`router.sideBar.${ menu.module }`)
+      const moduleIndex = result.findIndex((item) => item.lable === moduleLabel)
       // Secondary menu
       if (moduleIndex > -1) {
         result[moduleIndex].children?.push({
@@ -51,7 +52,7 @@ export function menusToSideBar(): SideBarMenu[] {
         })
       } else {
         result.push({
-          lable: i18n.global.t(`router.sideBar.${ menu.module }`),
+          lable: moduleLabel,
           icon: GetModuleAndIcon(menu.module),
           showDetail: false,
           children: [

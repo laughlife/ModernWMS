@@ -4,8 +4,7 @@
       <v-card>
         <!-- <v-toolbar color="white" :title="`${$t('wms.stockAsn.tabNotice')}`"></v-toolbar> -->
         <v-card-text>
-          <v-list-item two-line>
-            <v-list-item-content>
+          <v-list-item>
               <v-list-item-title>{{ i18n.global.t('wms.skuInfo.spu_name') + ':' + data.tableData.spu_name }}</v-list-item-title>
               <v-list-item-subtitle>{{ i18n.global.t('wms.skuInfo.sku_code') + ':' + data.tableData.sku_code }}</v-list-item-subtitle>
               <v-list-item-subtitle>{{ i18n.global.t('wms.skuInfo.sku_name') + ':' + data.tableData.sku_name }}</v-list-item-subtitle>
@@ -16,7 +15,6 @@
               <v-list-item-subtitle>{{ i18n.global.t('wms.skuInfo.unit') + ':' + data.tableData.unit }}</v-list-item-subtitle>
               <v-list-item-subtitle>{{ i18n.global.t('wms.skuInfo.cost') + ':' + data.tableData.cost }}</v-list-item-subtitle>
               <v-list-item-subtitle>{{ i18n.global.t('wms.skuInfo.bar_code') + ':' + data.tableData.bar_code }}</v-list-item-subtitle>
-            </v-list-item-content>
           </v-list-item>
         </v-card-text>
         <v-card-actions class="justify-end">

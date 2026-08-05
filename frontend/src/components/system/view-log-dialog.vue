@@ -18,7 +18,7 @@
               </v-card>
             </v-col>
             <v-col :cols="9">
-              <v-row justify="end" @keyup.enter="method.sureSearch">
+              <v-row class="justify-end" @keyup.enter="method.sureSearch">
                 <v-col :cols="4">
                   <v-text-field
                     v-model="data.searchForm.user_name"

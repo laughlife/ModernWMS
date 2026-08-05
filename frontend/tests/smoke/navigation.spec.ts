@@ -59,6 +59,8 @@ async function mockBackend(page: Page) {
 }
 
 test('critical pages remain navigable', async ({ page }) => {
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
   await mockBackend(page)
 
   const baselineLabel = process.env.VISUAL_BASELINE_LABEL
@@ -75,20 +77,24 @@ test('critical pages remain navigable', async ({ page }) => {
   await expect(page).toHaveURL(/#\/homepage$/)
 
   const pages = [
-    ['02-homepage', 'homepage'],
-    ['03-user', 'userManagement'],
-    ['04-warehouse', 'warehouseSetting'],
-    ['05-sku', 'commodityManagement'],
-    ['06-asn', 'stockAsn'],
-    ['07-outbound', 'deliveryManagement'],
-    ['08-stock', 'stockManagement'],
-    ['09-print-template', 'print']
+    ['02-homepage', 'homepage', 'Home Page'],
+    ['03-user', 'userManagement', 'User Management'],
+    ['04-warehouse', 'warehouseSetting', 'Warehouse Setting'],
+    ['05-sku', 'commodityManagement', 'Commodity Management'],
+    ['06-asn', 'stockAsn', 'Receiving Management'],
+    ['07-outbound', 'deliveryManagement', 'Delivery Management'],
+    ['08-stock', 'stockManagement', 'Stock Management'],
+    ['09-print-template', 'print', 'Print Settings']
   ] as const
 
-  for (const [name, routeName] of pages) {
-    await page.goto(`/#/${routeName}`)
+  for (const [name, routeName, breadcrumb] of pages) {
+    await page.evaluate((nextRoute) => {
+      window.location.hash = `#/${nextRoute}`
+    }, routeName)
     await expect(page).toHaveURL(new RegExp(`#/${routeName}$`))
-    await page.waitForTimeout(250)
+    await expect(page.locator('.v-breadcrumbs')).toContainText(breadcrumb)
     if (baselineDir) await page.screenshot({ path: resolve(baselineDir, `${name}.png`), fullPage: true })
   }
+
+  expect(pageErrors).toEqual([])
 })

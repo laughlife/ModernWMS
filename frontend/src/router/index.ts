@@ -27,6 +27,14 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/view/home/home.vue'),
     children: [
       {
+        name: 'homepage',
+        path: '/homepage',
+        component: () => import('@/view/home/homepage/homepage.vue'),
+        meta: {
+          menuPath: 'homepage'
+        }
+      },
+      {
         name: 'vwms',
         path: '/vwms',
         component: () => import('@/view/vwms/VWms.vue'),
@@ -62,18 +70,9 @@ const router = createRouter({
 const modules = import.meta.glob('../view/*/*/*.vue')
 
 // load router function
-function loadRouter() {
+export function loadRouter() {
   const userStore = useUserStore(pinia)
   dynamicRouter = menusToRouter(userStore.menulist)
-  dynamicRouter.push(
-    {
-      name: 'homepage',
-      path: '/homepage',
-      directory: 'home/homepage',
-      redirect: '',
-      component: null
-    }
-  )
   // dynamicRouter.push(
   //   {
   //     name: 'test',

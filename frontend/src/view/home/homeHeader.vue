@@ -80,8 +80,13 @@ const data: DataProps = reactive({
 watch(
   () => routerInfo,
   (newValue) => {
-    const MODULE = i18n.global.t(`router.sideBar.${ newValue.currentRoute.value.meta.menuModule }`)
-    const PATH = i18n.global.t(`router.sideBar.${ newValue.currentRoute.value.meta.menuPath }`)
+    const menuPath = newValue.currentRoute.value.meta.menuPath
+    if (!menuPath) {
+      data.breadcrumbItems = []
+      return
+    }
+    const moduleName = newValue.currentRoute.value.meta.menuModule
+    const PATH = i18n.global.t(`router.sideBar.${ menuPath }`)
 
     data.breadcrumbItems = [
       {
@@ -90,9 +95,9 @@ watch(
       }
     ]
 
-    if (newValue.currentRoute.value.meta.menuModule) {
+    if (moduleName) {
       data.breadcrumbItems.unshift({
-        title: MODULE,
+        title: i18n.global.t(`router.sideBar.${ moduleName }`),
         disabled: true
       })
     }

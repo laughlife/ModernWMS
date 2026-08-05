@@ -10,7 +10,7 @@
           v-model="data.password"
           required
           :rules="data.passwordVaildRules"
-          :autocomplete="false"
+          autocomplete="current-password"
           :append-inner-icon="data.showPassword ? 'mdi-eye' : 'mdi-eye-off'"
           :type="data.showPassword ? 'text' : 'password'"
           :label="$t('login.password')"
@@ -36,7 +36,7 @@ import { login, getUserAuthority } from '@/api/sys/login'
 import { useSystemStore } from '@/store/module/system'
 import { useUserStore } from '@/store/module/user'
 import { hookComponent } from '@/components/system'
-import { router } from '@/router/index'
+import { loadRouter, router } from '@/router/index'
 // import userRegisterForm from './user-register-form.vue'
 
 // 加解密算法
@@ -131,6 +131,7 @@ const method = reactive({
       // })
 
       userStore.setUserMenuList(authorityList)
+      loadRouter()
 
       hookComponent.$message({
         type: 'success',

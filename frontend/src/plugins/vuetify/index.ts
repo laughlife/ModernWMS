@@ -1,8 +1,6 @@
 // Vuetify
 import 'vuetify/styles'
 import { createVuetify } from 'vuetify'
-import * as components from 'vuetify/components'
-import * as directives from 'vuetify/directives'
 import { aliases, mdi } from 'vuetify/iconsets/mdi'
 // Translations provided by Vuetify
 import { zhHans, zhHant, en } from 'vuetify/locale'
@@ -11,7 +9,6 @@ import { loadPersistedState } from '@/store/persistence'
 import type { StateProps } from '@/types/System/Store'
 
 import 'material-design-icons-iconfont/dist/material-design-icons.css'
-import 'vuetify/dist/vuetify.min.css'
 import '@mdi/font/css/materialdesignicons.css'
 
 const vuetify = createVuetify({
@@ -19,13 +16,25 @@ const vuetify = createVuetify({
     locale: getStorageLang(),
     messages: { zhHans, zhHant, en }
   },
-  components,
-  directives,
   icons: {
     defaultSet: 'mdi',
     aliases,
     sets: {
       mdi
+    }
+  },
+  theme: {
+    defaultTheme: 'light'
+  },
+  display: {
+    mobileBreakpoint: 'lg',
+    thresholds: {
+      xs: 0,
+      sm: 600,
+      md: 960,
+      lg: 1280,
+      xl: 1920,
+      xxl: 2560
     }
   }
 })
