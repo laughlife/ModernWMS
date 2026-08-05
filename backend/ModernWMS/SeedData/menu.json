@@ -1,0 +1,21 @@
+[
+  { "id": 20, "menu_name": "companySetting", "module": "baseModule", "vue_path": "companySetting", "vue_path_detail": "", "vue_directory": "base/companySetting", "sort": 1, "tenant_id": 1 },
+  { "id": 21, "menu_name": "userRoleSetting", "module": "baseModule", "vue_path": "userRoleSetting", "vue_path_detail": "", "vue_directory": "base/userRoleSetting", "sort": 2, "tenant_id": 1 },
+  { "id": 22, "menu_name": "roleMenu", "module": "baseModule", "vue_path": "roleMenu", "vue_path_detail": "", "vue_directory": "base/roleMenu", "sort": 3, "tenant_id": 1 },
+  { "id": 23, "menu_name": "userManagement", "module": "baseModule", "vue_path": "userManagement", "vue_path_detail": "", "vue_directory": "base/userManagement", "sort": 4, "tenant_id": 1 },
+  { "id": 24, "menu_name": "commodityCategorySetting", "module": "baseModule", "vue_path": "commodityCategorySetting", "vue_path_detail": "", "vue_directory": "base/commodityCategorySetting", "sort": 5, "tenant_id": 1 },
+  { "id": 25, "menu_name": "commodityManagement", "module": "baseModule", "vue_path": "commodityManagement", "vue_path_detail": "", "vue_directory": "base/commodityManagement", "sort": 6, "tenant_id": 1 },
+  { "id": 26, "menu_name": "supplier", "module": "baseModule", "vue_path": "supplier", "vue_path_detail": "", "vue_directory": "base/supplier", "sort": 7, "tenant_id": 1 },
+  { "id": 27, "menu_name": "warehouseSetting", "module": "baseModule", "vue_path": "warehouseSetting", "vue_path_detail": "", "vue_directory": "base/warehouseSetting", "sort": 8, "tenant_id": 1 },
+  { "id": 28, "menu_name": "ownerOfCargo", "module": "baseModule", "vue_path": "ownerOfCargo", "vue_path_detail": "", "vue_directory": "base/ownerOfCargo", "sort": 9, "tenant_id": 1 },
+  { "id": 29, "menu_name": "freightSetting", "module": "baseModule", "vue_path": "freightSetting", "vue_path_detail": "", "vue_directory": "base/freightSetting", "sort": 10, "tenant_id": 1 },
+  { "id": 30, "menu_name": "customer", "module": "baseModule", "vue_path": "customer", "vue_path_detail": "", "vue_directory": "base/customer", "sort": 12, "tenant_id": 1 },
+  { "id": 31, "menu_name": "stockManagement", "module": "", "vue_path": "stockManagement", "vue_path_detail": "", "vue_directory": "wms/stockManagement", "sort": 12, "tenant_id": 1 },
+  { "id": 32, "menu_name": "warehouseProcessing", "module": "warehouseWorkingModule", "vue_path": "warehouseProcessing", "vue_path_detail": "", "vue_directory": "warehouseWorking/warehouseProcessing", "sort": 13, "tenant_id": 1 },
+  { "id": 33, "menu_name": "warehouseMove", "module": "warehouseWorkingModule", "vue_path": "warehouseMove", "vue_path_detail": "", "vue_directory": "warehouseWorking/warehouseMove", "sort": 14, "tenant_id": 1 },
+  { "id": 34, "menu_name": "warehouseFreeze", "module": "warehouseWorkingModule", "vue_path": "warehouseFreeze", "vue_path_detail": "", "vue_directory": "warehouseWorking/warehouseFreeze", "sort": 15, "tenant_id": 1 },
+  { "id": 35, "menu_name": "warehouseAdjust", "module": "warehouseWorkingModule", "vue_path": "warehouseAdjust", "vue_path_detail": "", "vue_directory": "warehouseWorking/warehouseAdjust", "sort": 16, "tenant_id": 1 },
+  { "id": 36, "menu_name": "warehouseTaking", "module": "warehouseWorkingModule", "vue_path": "warehouseTaking", "vue_path_detail": "", "vue_directory": "warehouseWorking/warehouseTaking", "sort": 17, "tenant_id": 1 },
+  { "id": 37, "menu_name": "stockAsn", "module": "", "vue_path": "stockAsn", "vue_path_detail": "", "vue_directory": "wms/stockAsn", "sort": 18, "tenant_id": 1 },
+  { "id": 38, "menu_name": "deliveryManagement", "module": "deliveryManagement", "vue_path": "deliveryManagement", "vue_path_detail": "", "vue_directory": "deliveryManagement/deliveryManagement", "sort": 19, "tenant_id": 1 }
+]

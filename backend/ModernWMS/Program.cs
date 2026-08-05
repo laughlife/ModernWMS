@@ -1,4 +1,5 @@
 using ModernWMS.Core.Extentions;
+using ModernWMS.Initialization;
 using NLog;
 using NLog.Web;
 
@@ -18,6 +19,17 @@ try
     builder.Services.AddExtensionsService(builder.Configuration, builder.Environment);
 
     var app = builder.Build();
+    var initializeDatabaseOnly = args.Contains(
+        "--initialize-database-only",
+        StringComparer.OrdinalIgnoreCase);
+    if (initializeDatabaseOnly || app.Configuration.GetValue("DatabaseInitialization:Enabled", true))
+    {
+        await DatabaseInitializer.InitializeAsync(app.Services);
+    }
+    if (initializeDatabaseOnly)
+    {
+        return;
+    }
     app.UseExtensionsConfigure(app.Environment, app.Services, app.Configuration);
     app.Run();
 }

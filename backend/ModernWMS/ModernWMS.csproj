@@ -4,6 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>modernwms-ruiyi-7b722e6a-0b50-4ed5-9f19-8e289e3dd9f7</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
@@ -23,6 +24,10 @@
   <ItemGroup>
     <ProjectReference Include="..\ModernWMS.Core\ModernWMS.Core.csproj" />
     <ProjectReference Include="..\ModernWMS.WMS\ModernWMS.WMS.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="SeedData\*.json" />
   </ItemGroup>
 
 </Project>

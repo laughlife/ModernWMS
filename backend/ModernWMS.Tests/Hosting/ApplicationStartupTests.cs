@@ -18,6 +18,7 @@ public class ApplicationStartupTests
                 builder.UseSetting(
                     "TokenSettings:SigningKey",
                     "modernwms-local-smoke-key-32-bytes-minimum");
+                builder.UseSetting("DatabaseInitialization:Enabled", "false");
             });
 
         using var client = factory.CreateClient();
