@@ -11,7 +11,7 @@ import '@/assets/fonts/iconfont.css'
 
 // import router
 import { router } from './router'
-import { store } from './store/index'
+import { pinia } from './store/index'
 import hookComponent from '@/components/system/index'
 
 import VxeDateColumn from '@/components/table/vxe-date-column.vue'
@@ -24,8 +24,8 @@ VXETable.setup({
 })
 
 app.use(print)
+app.use(pinia)
 app.use(router)
-app.use(store)
 app.use(vuetify)
 app.use(i18n)
 app.use(hookComponent)

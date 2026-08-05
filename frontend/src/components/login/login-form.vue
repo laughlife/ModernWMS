@@ -33,7 +33,8 @@ import { reactive, ref, onMounted } from 'vue'
 import { Md5 } from 'ts-md5'
 import i18n from '@/languages/i18n'
 import { login, getUserAuthority } from '@/api/sys/login'
-import { store } from '@/store'
+import { useSystemStore } from '@/store/module/system'
+import { useUserStore } from '@/store/module/user'
 import { hookComponent } from '@/components/system'
 import { router } from '@/router/index'
 // import userRegisterForm from './user-register-form.vue'
@@ -53,6 +54,8 @@ function simpleDecrypt(encryptedText: string, key: string) {
 
 // Get v-form ref
 const VFormRef = ref()
+const systemStore = useSystemStore()
+const userStore = useUserStore()
 
 const data = reactive({
   showDialog: false,
@@ -92,11 +95,11 @@ const method = reactive({
     if (loginRes.isSuccess) {
       const expiredTime = new Date().getTime() + loginRes.data.expire * 60 * 1000
 
-      store.commit('user/setToken', loginRes.data.access_token)
-      store.commit('user/setRefreshToken', loginRes.data.refresh_token)
-      store.commit('user/setExpirationTime', expiredTime)
-      store.commit('user/setEffectiveMinutes', loginRes.data.expire)
-      store.commit('user/setUserInfo', loginRes.data)
+      userStore.setToken(loginRes.data.access_token)
+      userStore.setRefreshToken(loginRes.data.refresh_token)
+      userStore.setExpirationTime(expiredTime)
+      userStore.setEffectiveMinutes(loginRes.data.expire)
+      userStore.setUserInfo(loginRes.data)
 
       const { data: authorityRes } = await getUserAuthority(loginRes.data.userrole_id)
       if (!authorityRes.isSuccess) {
@@ -127,7 +130,7 @@ const method = reactive({
       //   sort: 2
       // })
 
-      store.commit('user/setUserMenuList', authorityList)
+      userStore.setUserMenuList(authorityList)
 
       hookComponent.$message({
         type: 'success',
@@ -146,7 +149,7 @@ const method = reactive({
       }
 
       // Jump home
-      store.commit('system/setCurrentRouterPath', 'homepage')
+      systemStore.setCurrentRouterPath('homepage')
       router.push('home')
     } else {
       hookComponent.$message({

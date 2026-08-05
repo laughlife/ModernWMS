@@ -1,6 +1,8 @@
 import { createI18n } from 'vue-i18n'
 import XEUtils from 'xe-utils'
 import { getSelectedLang, getLangPackage } from './method/index'
+import { loadPersistedState } from '@/store/persistence'
+import type { StateProps } from '@/types/System/Store'
 
 // get language
 const defaultLang = getStorageLang()
@@ -14,7 +16,7 @@ const i18n = createI18n({
 
 // get language in storage or default
 function getStorageLang() {
-  const lang = localStorage.getItem('language')
+  const lang = loadPersistedState<StateProps>('system')?.language ?? localStorage.getItem('language')
   if (lang) {
     return getSelectedLang(lang)
   }

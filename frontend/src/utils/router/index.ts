@@ -1,7 +1,8 @@
 import { MenuItem } from '@/types/System/Store'
 import { CustomerRouterProps } from '@/types/System/Router'
 import { SideBarMenu } from '@/types/Home/Home'
-import { store } from '@/store'
+import { pinia } from '@/store'
+import { useUserStore } from '@/store/module/user'
 import i18n from '@/languages/i18n'
 
 // Convert menu permissions to data required for dynamic routing
@@ -25,7 +26,7 @@ export function menusToSideBar(): SideBarMenu[] {
   const result: SideBarMenu[] = [
     { icon: GetModuleAndIcon('homepage'), lable: i18n.global.t('router.sideBar.homepage'), routerPath: 'homepage', showDetail: false }
   ]
-  const menuList: MenuItem[] = store.getters['user/menulist']
+  const menuList: MenuItem[] = useUserStore(pinia).menulist
 
   for (const menu of menuList) {
     // Get the module index and check whether this group exists

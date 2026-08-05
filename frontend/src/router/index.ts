@@ -1,6 +1,7 @@
 // index.ts
 import { createRouter, createWebHashHistory, RouteRecordRaw } from 'vue-router'
-import { store } from '@/store'
+import { pinia } from '@/store'
+import { useUserStore } from '@/store/module/user'
 import { CustomerRouterProps } from '@/types/System/Router'
 import { menusToRouter } from '@/utils/router'
 
@@ -62,7 +63,8 @@ const modules = import.meta.glob('../view/*/*/*.vue')
 
 // load router function
 function loadRouter() {
-  dynamicRouter = menusToRouter(store.getters['user/menulist'])
+  const userStore = useUserStore(pinia)
+  dynamicRouter = menusToRouter(userStore.menulist)
   dynamicRouter.push(
     {
       name: 'homepage',
@@ -100,6 +102,7 @@ function loadRouter() {
 
 // Set the front routing guard
 router.beforeEach((to, from, next) => {
+  const userStore = useUserStore(pinia)
   // join system
   if (to.path === '/login') {
     dynamicRouter = []
@@ -109,7 +112,7 @@ router.beforeEach((to, from, next) => {
     next()
   }
   // dont have token, back login
-  if (!store.getters['user/token']) {
+  if (!userStore.token) {
     return next('/login')
   }
 

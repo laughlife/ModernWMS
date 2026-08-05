@@ -1,75 +1,45 @@
-import { UserStateProps, MenuItem } from '@/types/System/Store'
+import { defineStore } from 'pinia'
+import type { MenuItem, UserStateProps } from '@/types/System/Store'
 
-export const user = {
-  namespaced: true,
-  state: {
-    userInfo: {},
-    token: '',
-    // String used to refresh token
-    refreshToken: '',
-    // The time when the token expires
-    expirationTime: '',
-    // Token validity period
-    effectiveMinutes: '',
-    // Is refreshToken currently in progress
-    isRefreshingToken: false,
-    // Menu permissions
-    menulist: [
-      // {
-      //   name: 'testmenu',
-      //   path: '/testmenu',
-      //   directory: 'testmenu/testmenu'
-      // }
-    ]
-  },
-  mutations: {
-    setUserInfo(state: UserStateProps, userInfo: any) {
-      state.userInfo = userInfo
+const initialState = (): UserStateProps => ({
+  userInfo: {},
+  token: '',
+  refreshToken: '',
+  expirationTime: 0,
+  effectiveMinutes: 0,
+  isRefreshingToken: false,
+  menulist: []
+})
+
+export const useUserStore = defineStore('user', {
+  state: initialState,
+  actions: {
+    setUserInfo(userInfo: unknown) {
+      this.userInfo = userInfo
     },
-    resetUserInfo(state: UserStateProps, userInfo = {}) {
-      state.userInfo = { ...state.userInfo, ...userInfo }
+    resetUserInfo(userInfo: Record<string, unknown> = {}) {
+      this.userInfo = { ...this.userInfo, ...userInfo }
     },
-    setToken(state: UserStateProps, token: string) {
-      state.token = token
+    setToken(token: string) {
+      this.token = token
     },
-    setExpirationTime(state: UserStateProps, expirationTime: number) {
-      state.expirationTime = expirationTime
+    setExpirationTime(expirationTime: number) {
+      this.expirationTime = expirationTime
     },
-    setIsRefreshingToken(state: UserStateProps, isRefreshingToken: boolean) {
-      state.isRefreshingToken = isRefreshingToken
+    setIsRefreshingToken(isRefreshingToken: boolean) {
+      this.isRefreshingToken = isRefreshingToken
     },
-    setRefreshToken(state: UserStateProps, refreshToken: string) {
-      state.refreshToken = refreshToken
+    setRefreshToken(refreshToken: string) {
+      this.refreshToken = refreshToken
     },
-    setEffectiveMinutes(state: UserStateProps, effectiveMinutes: number) {
-      state.effectiveMinutes = effectiveMinutes
+    setEffectiveMinutes(effectiveMinutes: number) {
+      this.effectiveMinutes = effectiveMinutes
     },
-    setUserMenuList(state: UserStateProps, menulist: MenuItem[]) {
-      state.menulist = menulist
-    }
-  },
-  actions: {},
-  getters: {
-    userInfo(state: UserStateProps) {
-      return state.userInfo
+    setUserMenuList(menulist: MenuItem[]) {
+      this.menulist = menulist
     },
-    token(state: UserStateProps) {
-      return state.token
-    },
-    expirationTime(state: UserStateProps) {
-      return state.expirationTime
-    },
-    isRefreshingToken(state: UserStateProps) {
-      return state.isRefreshingToken
-    },
-    refreshToken(state: UserStateProps) {
-      return state.refreshToken
-    },
-    effectiveMinutes(state: UserStateProps) {
-      return state.effectiveMinutes
-    },
-    menulist(state: UserStateProps) {
-      return state.menulist
+    clearSession() {
+      this.$patch(initialState())
     }
   }
-}
+})

@@ -1,5 +1,7 @@
 import axios from 'axios' // 引入axios
-import { store } from '@/store'
+import { pinia } from '@/store'
+import { useSystemStore } from '@/store/module/system'
+import { useUserStore } from '@/store/module/user'
 import { emitter } from '@/utils/bus'
 import { router } from '@/router'
 import { hookComponent } from '@/components/system'
@@ -37,7 +39,7 @@ function resetSubscribes() {
  * @returns {boolean}
  */
 function isTokenExpired() {
-  const expiredTime = store.getters['user/expirationTime']
+  const expiredTime = useUserStore(pinia).expirationTime
   if (expiredTime) {
     // Distance and x seconds is judged to be due
     const willExpiredSecond = 10 * 60
@@ -50,8 +52,10 @@ function isTokenExpired() {
 }
 
 function rediretToLogin() {
-  store.commit('system/clearOpenedMenu')
-  store.commit('system/setCurrentRouterPath', '')
+  const systemStore = useSystemStore(pinia)
+  useUserStore(pinia).clearSession()
+  systemStore.clearOpenedMenu()
+  systemStore.setCurrentRouterPath('')
 
   clearLoading() // Clear all loads
 
@@ -78,8 +82,9 @@ const clearLoading = () => {
 }
 
 const handleRefreshToken = (token: string) => {
-  const refreshToken = store.getters['user/refreshToken']
-  store.commit('user/setIsRefreshingToken', true)
+  const userStore = useUserStore(pinia)
+  const refreshToken = userStore.refreshToken
+  userStore.setIsRefreshingToken(true)
   axios
     .post('/refresh-token', {
       accessToken: token,
@@ -88,10 +93,10 @@ const handleRefreshToken = (token: string) => {
     .then(({ data: res }) => {
       if (res.isSuccess) {
         const tokenVo = res.data
-        const expiredTime = new Date().getTime() + store.getters['user/effectiveMinutes'] * 60 * 1000
+        const expiredTime = new Date().getTime() + userStore.effectiveMinutes * 60 * 1000
 
-        store.commit('user/setToken', tokenVo)
-        store.commit('user/setExpirationTime', expiredTime)
+        userStore.setToken(tokenVo)
+        userStore.setExpirationTime(expiredTime)
 
         // With the new token request those suspended interface
         reloadSubscribesWithNewToken(tokenVo)
@@ -104,17 +109,19 @@ const handleRefreshToken = (token: string) => {
       rediretToLogin()
     })
     .finally(() => {
-      store.commit('user/setIsRefreshingToken', false)
+      userStore.setIsRefreshingToken(false)
     })
 }
 
 http.interceptors.request.use(
   (config: any) => {
+    const userStore = useUserStore(pinia)
+    const systemStore = useSystemStore(pinia)
     const donNeedTokenApi = ['/login', '/user/register']
-    const token = store.getters['user/token']
+    const token = userStore.token
 
     let culture = 'en-us'
-    switch (store.getters['system/language']) {
+    switch (systemStore.language) {
       case 'zh':
         culture = 'zh-cn'
         break
@@ -153,7 +160,7 @@ http.interceptors.request.use(
     }
 
     // 3.Take a 'refresh token' request when it not in the refreshing.
-    if (!store.getters['user/isRefreshingToken']) {
+    if (!userStore.isRefreshingToken) {
       handleRefreshToken(token)
     }
 

@@ -1,4 +1,5 @@
-import { store } from '@/store'
+import { pinia } from '@/store'
+import { useSystemStore } from '@/store/module/system'
 
 interface pageHasElement {
   hasPager?: boolean
@@ -37,7 +38,7 @@ export const SYSTEM_HEIGHT = {
 
 // The height of the content card
 export const computedCardHeight = ({ hasTab = true, hasOperateBtn = true }: pageHasElement) => {
-  const clientHeight = store.getters['system/clientHeight']
+  const clientHeight = useSystemStore(pinia).clientHeight
   const EXTRA_MARGIN = 100
 
   let res = clientHeight - SYSTEM_HEIGHT.HEADER - EXTRA_MARGIN
@@ -54,7 +55,7 @@ export const computedCardHeight = ({ hasTab = true, hasOperateBtn = true }: page
 
 // The height of the table
 export const computedTableHeight = ({ hasPager = true, hasTab = true, hasOperateBtn = true }: pageHasElement) => {
-  const clientHeight = store.getters['system/clientHeight']
+  const clientHeight = useSystemStore(pinia).clientHeight
   const EXTRA_MARGIN = 100
 
   let res = clientHeight - SYSTEM_HEIGHT.HEADER - EXTRA_MARGIN

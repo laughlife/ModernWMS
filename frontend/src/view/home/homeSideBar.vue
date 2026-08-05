@@ -56,12 +56,13 @@ import { reactive, onMounted, computed } from 'vue'
 import Logo from '@/components/system/logo.vue'
 import { SideBarMenu, SideBarDataProps } from '@/types/Home/Home'
 import { menusToSideBar } from '@/utils/router'
-import { store } from '@/store'
+import { useSystemStore } from '@/store/module/system'
 import { router } from '@/router'
 
 const data: SideBarDataProps = reactive({
   menuList: []
 })
+const systemStore = useSystemStore()
 
 const method = reactive({
   // Open menu
@@ -70,16 +71,10 @@ const method = reactive({
       item.showDetail = !item.showDetail
     } else if (item.routerPath && currentRouterPath.value !== item.routerPath) {
       // If the selected menu is skipped, no action will be taken
-      store.commit('system/setCurrentRouterPath', item.routerPath)
-      store.commit('system/addOpenedMenu', item.routerPath)
+      systemStore.setCurrentRouterPath(item.routerPath)
+      systemStore.addOpenedMenu(item.routerPath)
       router.push(item.routerPath)
     }
-    // if (menuName === 'login') {
-    //   store.commit('system/clearOpenedMenu', menuName)
-    // } else {
-    //   store.commit('system/addOpenedMenu', menuName)
-    // }
-    // router.push(menuName)
   },
   // Get item class
   getItemClass: (item: SideBarMenu) => {
@@ -94,7 +89,7 @@ const method = reactive({
 })
 
 // Currently selected menu
-const currentRouterPath = computed(() => store.getters['system/currentRouterPath'])
+const currentRouterPath = computed(() => systemStore.currentRouterPath)
 
 onMounted(() => {
   data.menuList = menusToSideBar()

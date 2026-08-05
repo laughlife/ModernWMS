@@ -20,11 +20,12 @@ import { useI18n } from 'vue-i18n'
 import { useLocale } from 'vuetify'
 import { getSelectedLang } from '@/languages/method/index'
 import { getSelcectedLangForVuetify } from '@/plugins/vuetify/method/index'
-import { store } from '@/store'
+import { useSystemStore } from '@/store/module/system'
 // import { router } from '@/router'
 
 const { locale } = useI18n()
 const { current } = useLocale()
+const systemStore = useSystemStore()
 
 const data = reactive({
   showLanguage: false,
@@ -37,16 +38,15 @@ const data = reactive({
 
 const method = reactive({
   changeLanguage: (lang: string) => {
-    if (store.getters['system/language'] === lang) {
+    if (systemStore.language === lang) {
       return
     }
-    localStorage.setItem('language', lang)
-    store.commit('system/setLanguage', lang) // set store
+    systemStore.setLanguage(lang)
     locale.value = getSelectedLang(lang) // global
     current.value = getSelcectedLangForVuetify(lang) // vuetify
 
     // if (!['/', '/login'].includes(router.currentRoute.value.path)) {
-    store.commit('system/setRefreshFlag', true) // change language refresh page
+    systemStore.setRefreshFlag(true)
     // }
   }
 })

@@ -33,10 +33,11 @@ import { hookComponent } from '@/components/system/index'
 import { formatDate } from '@/utils/format/formatSystem'
 import EmployeeSelect from '@/components/select/employee-select.vue'
 import { UserVO } from '@/types/Base/UserManagement'
-import { store } from '@/store'
+import { useUserStore } from '@/store/module/user'
 
 const emit = defineEmits(['sure'])
 const EmployeeSelectRef = ref()
+const userStore = useUserStore()
 
 const data = reactive({
   showDialog: false,
@@ -60,7 +61,7 @@ const method = reactive({
   openDialog: () => {
     data.unloadTime = formatDate(new Date(), 'yyyy-MM-dd')
 
-    const userInfo = store.getters['user/userInfo']
+    const userInfo = userStore.userInfo
 
     data.unloadPerson = userInfo.user_name
     data.unloadPersonID = userInfo.user_id

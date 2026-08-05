@@ -16,11 +16,12 @@
 
 <script lang="ts" setup>
 import { computed } from 'vue'
-import { store } from '@/store'
+import { useSystemStore } from '@/store/module/system'
 import HomeHeader from './homeHeader.vue'
 import HomeSideBar from './homeSideBar.vue'
 
-const openedMenus = computed(() => store.getters['system/openedMenus'])
+const systemStore = useSystemStore()
+const openedMenus = computed(() => systemStore.openedMenus)
 </script>
 
 <style scoped lang="less">

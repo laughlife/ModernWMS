@@ -2,7 +2,8 @@
 import zhCN from 'vxe-table/lib/locale/lang/zh-CN'
 import enUS from 'vxe-table/lib/locale/lang/en-US'
 import zhTW from 'vxe-table/lib/locale/lang/zh-TW'
-import { store } from '@/store'
+import { pinia } from '@/store'
+import { useSystemStore } from '@/store/module/system'
 import i18n from '../i18n'
 
 import en from '../langsJson/en.json'
@@ -42,7 +43,7 @@ export function getLangPackage(lang: string) {
 
 // Because it is lazy to load the language pack, the user will reload the language pack after switching languages
 export function installNewLang() {
-  let lang = store.getters['system/language']
+  let lang = useSystemStore(pinia).language
   lang = getSelectedLang(lang)
   const messages = getLangPackage(lang)
   if (lang && messages) {

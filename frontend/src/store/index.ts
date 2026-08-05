@@ -1,18 +1,5 @@
-import { createStore } from 'vuex'
-import VuexPersistence from 'vuex-persist'
+import { createPinia } from 'pinia'
+import { persistStorePlugin } from './persistence'
 
-import { user } from '@/store/module/user'
-import { system } from '@/store/module/system'
-
-const vuexLocal = new VuexPersistence({
-  storage: window.localStorage,
-  modules: ['user', 'system']
-})
-
-export const store = createStore({
-  modules: {
-    user,
-    system
-  },
-  plugins: [vuexLocal.plugin]
-})
+export const pinia = createPinia()
+pinia.use(persistStorePlugin)

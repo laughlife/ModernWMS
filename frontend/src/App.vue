@@ -16,10 +16,11 @@
 <script setup lang="ts">
 import { reactive, nextTick, onMounted, ref, computed, watch } from 'vue'
 import { emitter } from './utils/bus'
-import { store } from './store'
+import { useSystemStore } from './store/module/system'
 import { installNewLang } from '@/languages/method/index'
 
 const loadingFlag = ref(false)
+const systemStore = useSystemStore()
 
 const data = reactive({
   isShow: true // Used to refresh the interface when switching languages
@@ -31,18 +32,18 @@ const method = reactive({
     installNewLang()
     nextTick(() => {
       data.isShow = true
-      store.commit('system/setRefreshFlag', false)
+      systemStore.setRefreshFlag(false)
     })
   },
   getClientSize: () => {
     const clientHeight = document.documentElement.clientHeight
     const clientWidth = document.documentElement.clientWidth
-    store.commit('system/setClientHeight', clientHeight)
-    store.commit('system/setClientWidth', clientWidth)
+    systemStore.setClientHeight(clientHeight)
+    systemStore.setClientWidth(clientWidth)
   }
 })
 
-const refreshFlag = computed(() => store.getters['system/refreshFlag'])
+const refreshFlag = computed(() => systemStore.refreshFlag)
 
 watch(
   () => refreshFlag.value,

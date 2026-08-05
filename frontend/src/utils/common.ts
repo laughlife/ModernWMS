@@ -1,7 +1,8 @@
 import XEUtils from 'xe-utils'
 import { useRoute } from 'vue-router'
 import { SearchObject, SearchOperator } from '@/types/System/Form'
-import { store } from '@/store'
+import { pinia } from '@/store'
+import { useUserStore } from '@/store/module/user'
 
 export const setSearchObject = (searchForm: any, preciseSearchCols: string[] = []) => {
   const searchObjects: Array<SearchObject> = []
@@ -66,7 +67,7 @@ export const getMenuAuthorityList = () => {
 
   const menu_name = route.path.substring(1)
 
-  const menu_list: any[] = store.getters['user/menulist']
+  const menu_list: any[] = useUserStore(pinia).menulist
 
   const filter = menu_list.filter((item: any) => item.menu_name === menu_name)
 

@@ -45,7 +45,8 @@ import LanguagesSwitch from '@/components/system/languages.vue'
 import { lightGrey } from '@/constant/style'
 import i18n from '@/languages/i18n'
 import { router } from '@/router'
-import { store } from '@/store'
+import { useSystemStore } from '@/store/module/system'
+import { useUserStore } from '@/store/module/user'
 import { DataProps } from '@/types/Home/HomeHeader'
 import ChangePwd from '@/components/system/change-pwd.vue'
 import ViewLogDialog from '@/components/system/view-log-dialog.vue'
@@ -53,6 +54,8 @@ import ViewLogDialog from '@/components/system/view-log-dialog.vue'
 const routerInfo = useRouter()
 const ChangePwdRef = ref()
 const ViewLogDialogRef = ref()
+const systemStore = useSystemStore()
+const userStore = useUserStore()
 
 const data: DataProps = reactive({
   breadcrumbItems: [],
@@ -101,8 +104,9 @@ const method = reactive({
   // User operation method
   operation: (value: string) => {
     if (value === 'logout') {
-      store.commit('system/clearOpenedMenu')
-      store.commit('system/setCurrentRouterPath', '')
+      userStore.clearSession()
+      systemStore.clearOpenedMenu()
+      systemStore.setCurrentRouterPath('')
 
       router.push('/login')
     } else if (value === 'changePwd') {
@@ -123,7 +127,7 @@ const method = reactive({
 })
 
 const firstName = computed(() => {
-  const userInfo = store.getters['user/userInfo']
+  const userInfo = userStore.userInfo
   return userInfo?.user_name?.charAt(0) || ''
 })
 </script>

@@ -52,9 +52,10 @@ import { Md5 } from 'ts-md5'
 import i18n from '@/languages/i18n'
 import { hookComponent } from '@/components/system/index'
 import { changePassword } from '@/api/base/userManagement'
-import { store } from '@/store'
+import { useUserStore } from '@/store/module/user'
 
 const formRef = ref()
+const userStore = useUserStore()
 
 const data = reactive({
   isShow: false,
@@ -104,7 +105,7 @@ const method = reactive({
   submit: async () => {
     const { valid } = await formRef.value.validate()
     if (valid) {
-      const user = store.getters['user/userInfo']
+      const user = userStore.userInfo
       const form = JSON.parse(
         JSON.stringify({
           id: user.user_id,
