@@ -5,6 +5,7 @@ import zhTW from 'vxe-table/lib/locale/lang/zh-TW'
 import { pinia } from '@/store'
 import { useSystemStore } from '@/store/module/system'
 import i18n from '../i18n'
+import { setVxeLanguage } from '@/plugins/VXETable'
 
 import en from '../langsJson/en.json'
 import cn from '../langsJson/cn.json'
@@ -49,8 +50,10 @@ export function installNewLang() {
   if (lang && messages) {
     // Use setLocaleMessage to add or update language packs
     i18n.global.setLocaleMessage(lang, messages[lang])
+    setVxeLanguage(lang)
     return
   }
   // Default English
   i18n.global.setLocaleMessage('en_US', { ...en, ...enUS })
+  setVxeLanguage('en_US')
 }

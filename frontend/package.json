@@ -42,9 +42,10 @@
     "vue-router": "5.2.0",
     "vue3-print-nb": "^0.1.4",
     "vuetify": "4.1.7",
-    "vxe-table": "4.3.7",
-    "vxe-table-plugin-export-xlsx": "3.0.4",
-    "xe-utils": "3.5.7",
+    "vxe-pc-ui": "4.16.22",
+    "vxe-table": "4.20.9",
+    "vxe-table-plugin-export-xlsx": "4.0.7",
+    "xe-utils": "4.0.12",
     "xlsx": "0.18.5",
     "yk-vue-plugin-hiprint": "0.0.9"
   },

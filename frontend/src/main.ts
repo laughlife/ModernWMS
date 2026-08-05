@@ -3,7 +3,7 @@ import './style.css' // Global Styles
 import print from 'vue3-print-nb'
 import { setup } from 'yk-vue-plugin-hiprint'
 import DataVVue3 from '@kjgl77/datav-vue3'
-import { VXETable } from '@/plugins/VXETable/index'
+import { installVxeExportPlugin, setVxeLanguage, VxePCUI, VxeUITable } from '@/plugins/VXETable/index'
 import { vuetify } from '@/plugins/vuetify/index'
 import i18n from './languages/i18n'
 import App from './App.vue'
@@ -19,9 +19,7 @@ import VxeDateColumn from '@/components/table/vxe-date-column.vue'
 const app = createApp(App)
 app.config.globalProperties.hiprint = setup()
 
-VXETable.setup({
-  i18n: (key, args) => i18n.global.t(key, args)
-})
+setVxeLanguage(i18n.global.locale.value)
 
 app.use(print)
 app.use(pinia)
@@ -29,7 +27,9 @@ app.use(router)
 app.use(vuetify)
 app.use(i18n)
 app.use(hookComponent)
-app.use(VXETable)
+app.use(VxePCUI)
+app.use(VxeUITable)
+installVxeExportPlugin()
 app.use(DataVVue3)
 
 // 自定义组件挂载

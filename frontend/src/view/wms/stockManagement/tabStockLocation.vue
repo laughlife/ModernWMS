@@ -55,7 +55,6 @@
       <vxe-column field="sku_name" :title="$t('wms.stockLocation.sku_name')"></vxe-column>
       <vxe-column field="series_number" :title="$t('wms.stockLocation.series_number')"></vxe-column>
       <vxe-column field="qty" :title="$t('wms.stockLocation.qty')"></vxe-column>
-      <vxe-column field="qty" :title="$t('wms.stockLocation.qty')"></vxe-column>
       <vxe-column field="qty_available" :title="$t('wms.stockLocation.qty_available')"></vxe-column>
       <vxe-column field="qty_locked" :title="$t('wms.stockLocation.qty_locked')"></vxe-column>
       <vxe-column field="price" :title="$t('wms.stockAsnInfo.price')"></vxe-column>
