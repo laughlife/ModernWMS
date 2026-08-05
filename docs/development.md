@@ -1,0 +1,75 @@
+# 本机开发指南
+
+本文档适用于 Windows 原生开发环境；项目不使用 Docker。
+
+## 1. 安装并检查工具
+
+```powershell
+dotnet --version
+node --version
+npm --version
+```
+
+目标版本为 .NET SDK `10.0.302`、Node.js `24.16.0` 或更高版本、npm `11.17.0`。`global.json` 会让 .NET CLI 选择 10.0.302 功能带，`frontend/package.json` 定义了 Node 和 npm 要求。
+
+MySQL 8.4 应监听 `127.0.0.1:3306`，数据库名为 `wms`。建议给应用使用专用的最小权限账号，不要长期使用 `root`。
+
+## 2. 配置后端
+
+真实连接串和 JWT 密钥使用 User Secrets 保存，不写入 `appsettings.json`：
+
+```powershell
+dotnet user-secrets set "ConnectionStrings:MySqlConn" "Server=127.0.0.1;Port=3306;Database=wms;User ID=YOUR_USER;Password=YOUR_PASSWORD;Character Set=utf8mb4;" --project backend/ModernWMS
+dotnet user-secrets set "TokenSettings:SigningKey" "REPLACE_WITH_AT_LEAST_32_UTF8_BYTES" --project backend/ModernWMS
+dotnet user-secrets list --project backend/ModernWMS
+```
+
+JWT 签名密钥必须至少包含 32 个 UTF-8 字节。共享或部署环境应改用受保护的进程环境变量或密钥管理服务，变量名分别为 `ConnectionStrings__MySqlConn` 和 `TokenSettings__SigningKey`。
+
+## 3. 初始化数据库并启动后端
+
+```powershell
+dotnet run --project backend/ModernWMS -- --initialize-database-only
+dotnet run --project backend/ModernWMS
+```
+
+后端默认监听 `http://localhost:21011`：
+
+- Swagger：`http://localhost:21011/`
+- 健康检查：`http://localhost:21011/health`
+
+开发环境仅允许来自 `http://localhost:5173` 和 `http://127.0.0.1:5173` 的跨域请求。
+
+## 4. 安装并启动前端
+
+```powershell
+cd frontend
+npm ci
+npm run dev
+```
+
+浏览器访问 `http://127.0.0.1:5173`。开发配置会把 API 请求发送到 `http://127.0.0.1:21011`。
+
+当前仓库路径包含 `#`。如果 npm、Vite 或浏览器测试在该路径下解析异常，可在临时盘符中运行前端命令：
+
+```powershell
+subst W: "D:\workspace\c#\ModernWMS"
+cd W:\frontend
+npm run build
+subst W: /d
+```
+
+## 5. 测试
+
+```powershell
+dotnet restore backend/ModernWMS.sln
+dotnet build backend/ModernWMS.sln --configuration Release --no-restore
+dotnet test backend/ModernWMS.sln --configuration Release --no-build
+
+cd frontend
+npm run test:unit
+npm run build
+npm run test:e2e
+```
+
+本机 Playwright 默认使用已安装的 Chrome；CI 环境使用 Playwright 默认浏览器。
