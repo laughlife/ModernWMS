@@ -17,7 +17,7 @@ import { installPrinting } from '@/adapters/printing'
 
 const app = createApp(App)
 
-setVxeLanguage(i18n.global.locale.value)
+setVxeLanguage()
 
 installPrinting(app)
 app.use(pinia)

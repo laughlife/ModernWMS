@@ -11,7 +11,7 @@ const persistentKeys: Record<string, string[]> = {
     'effectiveMinutes',
     'menulist'
   ],
-  system: ['language', 'openedMenus', 'currentRouterPath']
+  system: ['openedMenus', 'currentRouterPath']
 }
 
 function selectPersistentState<T extends StateTree>(storeId: string, state: Partial<T>): Partial<T> {

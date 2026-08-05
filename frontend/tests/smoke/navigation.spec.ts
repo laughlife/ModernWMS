@@ -62,6 +62,10 @@ test('critical pages remain navigable', async ({ page }) => {
   const pageErrors: string[] = []
   page.on('pageerror', (error) => pageErrors.push(error.message))
   await mockBackend(page)
+  await page.addInitScript(() => {
+    localStorage.setItem('modernwms:system', JSON.stringify({ language: 'en' }))
+    localStorage.setItem('language', 'en')
+  })
 
   const baselineLabel = process.env.VISUAL_BASELINE_LABEL
   const baselineDir = baselineLabel
@@ -70,21 +74,30 @@ test('critical pages remain navigable', async ({ page }) => {
   if (baselineDir) mkdirSync(baselineDir, { recursive: true })
 
   await page.goto('/#/login')
+  await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN')
   await expect(page.locator('input[type="text"]')).toHaveCount(1)
+  await expect(page.locator('.titleText')).toContainText('欢迎来到ModernWMS')
+  await expect(page.locator('.languageIcon')).toHaveCount(0)
   if (baselineDir) await page.screenshot({ path: resolve(baselineDir, '01-login.png'), fullPage: true })
 
+  const loginResponse = page.waitForResponse((response) => new URL(response.url()).pathname === '/login')
   await page.locator('.loginBtn').click()
+  await loginResponse
   await expect(page).toHaveURL(/#\/homepage$/)
+  await expect(page.locator('.languageIcon')).toHaveCount(0)
+  await expect(page.getByAltText('Gitee')).toHaveCount(0)
+  await expect(page.getByAltText('API')).toHaveCount(0)
+  await expect(page.locator('a[href*="gitee.com"], a[href*="github.com"], a[href*="apifox.com"]')).toHaveCount(0)
 
   const pages = [
-    ['02-homepage', 'homepage', 'Home Page'],
-    ['03-user', 'userManagement', 'User Management'],
-    ['04-warehouse', 'warehouseSetting', 'Warehouse Setting'],
-    ['05-sku', 'commodityManagement', 'Commodity Management'],
-    ['06-asn', 'stockAsn', 'Receiving Management'],
-    ['07-outbound', 'deliveryManagement', 'Delivery Management'],
-    ['08-stock', 'stockManagement', 'Stock Management'],
-    ['09-print-template', 'print', 'Print Settings']
+    ['02-homepage', 'homepage', '首页'],
+    ['03-user', 'userManagement', '用户管理'],
+    ['04-warehouse', 'warehouseSetting', '仓库设置'],
+    ['05-sku', 'commodityManagement', '商品管理'],
+    ['06-asn', 'stockAsn', '收货管理'],
+    ['07-outbound', 'deliveryManagement', '发货管理'],
+    ['08-stock', 'stockManagement', '库存管理'],
+    ['09-print-template', 'print', '打印设置']
   ] as const
 
   for (const [name, routeName, breadcrumb] of pages) {

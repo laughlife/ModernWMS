@@ -22,14 +22,6 @@ describe('Pinia store behavior', () => {
     expect(persisted.token).toBe('access-token')
   })
 
-  it('persists the selected language', () => {
-    const systemStore = useSystemStore()
-    systemStore.setLanguage('zh')
-
-    const persisted = JSON.parse(localStorage.getItem('modernwms:system') ?? '{}')
-    expect(persisted.language).toBe('zh')
-  })
-
   it('keeps opened menu names unique', () => {
     const systemStore = useSystemStore()
     systemStore.addOpenedMenu('stockManagement')
@@ -72,8 +64,9 @@ describe('Pinia store behavior', () => {
 
     expect(userStore.token).toBe('legacy-token')
     expect(userStore.isRefreshingToken).toBe(false)
-    expect(systemStore.language).toBe('zh')
-    expect(systemStore.refreshFlag).toBe(false)
+    const persistedSystem = JSON.parse(localStorage.getItem('modernwms:system') ?? '{}')
+    expect(persistedSystem).not.toHaveProperty('language')
+    expect(persistedSystem).not.toHaveProperty('refreshFlag')
     expect(localStorage.getItem('vuex')).toBeNull()
   })
 })

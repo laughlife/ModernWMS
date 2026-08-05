@@ -19,10 +19,8 @@ export interface UserStateProps {
 }
 
 export interface StateProps {
-  language: string
   currentRouterPath: string
   openedMenus: string[]
   clientWidth: number
   clientHeight: number
-  refreshFlag: boolean
 }

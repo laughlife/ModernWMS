@@ -4,8 +4,6 @@ import XEUtils from 'xe-utils'
 import { VXETablePluginExportXLSX } from 'vxe-table-plugin-export-xlsx'
 import ExcelJS from 'exceljs'
 import zhCN from 'vxe-table/lib/locale/lang/zh-CN'
-import enUS from 'vxe-table/lib/locale/lang/en-US'
-import zhTW from 'vxe-table/lib/locale/lang/zh-TW'
 import 'vxe-pc-ui/lib/style.css'
 import 'vxe-table/lib/style.css'
 
@@ -24,8 +22,6 @@ VxeUI.formats.add('formatDate', {
 })
 
 VxeUI.setI18n('zh-CN', zhCN)
-VxeUI.setI18n('en-US', enUS)
-VxeUI.setI18n('zh-TW', zhTW)
 
 export function installVxeExportPlugin() {
   VxeUI.use(VXETablePluginExportXLSX, { ExcelJS })
@@ -37,8 +33,8 @@ export function installVxeExportPlugin() {
   })
 }
 
-export function setVxeLanguage(language: string) {
-  VxeUI.setLanguage(language === 'zh_CN' ? 'zh-CN' : language === 'zh_TW' ? 'zh-TW' : 'en-US')
+export function setVxeLanguage() {
+  VxeUI.setLanguage('zh-CN')
 }
 
 export { VxeUI, VxePCUI, VxeUITable }

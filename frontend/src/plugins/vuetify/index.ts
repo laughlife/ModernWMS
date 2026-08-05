@@ -1,20 +1,16 @@
-// Vuetify
 import 'vuetify/styles'
 import { createVuetify } from 'vuetify'
 import { aliases, mdi } from 'vuetify/iconsets/mdi'
-// Translations provided by Vuetify
-import { zhHans, zhHant, en } from 'vuetify/locale'
-import { getSelcectedLangForVuetify } from './method/index'
-import { loadPersistedState } from '@/store/persistence'
-import type { StateProps } from '@/types/System/Store'
+import { zhHans } from 'vuetify/locale'
 
 import 'material-design-icons-iconfont/dist/material-design-icons.css'
 import '@mdi/font/css/materialdesignicons.css'
 
 const vuetify = createVuetify({
   locale: {
-    locale: getStorageLang(),
-    messages: { zhHans, zhHant, en }
+    locale: 'zhHans',
+    fallback: 'zhHans',
+    messages: { zhHans }
   },
   icons: {
     defaultSet: 'mdi',
@@ -38,14 +34,5 @@ const vuetify = createVuetify({
     }
   }
 })
-
-// get language in storage or default
-function getStorageLang() {
-  const lang = loadPersistedState<StateProps>('system')?.language ?? localStorage.getItem('language')
-  if (lang) {
-    return getSelcectedLangForVuetify(lang)
-  }
-  return 'en'
-}
 
 export { vuetify }

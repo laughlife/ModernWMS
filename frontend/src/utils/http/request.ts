@@ -121,20 +121,10 @@ const handleRefreshToken = (token: string) => {
 http.interceptors.request.use(
   (config: any) => {
     const userStore = useUserStore(pinia)
-    const systemStore = useSystemStore(pinia)
     const donNeedTokenApi = ['/login', '/user/register']
     const token = userStore.token
 
-    let culture = 'en-us'
-    switch (systemStore.language) {
-      case 'zh':
-        culture = 'zh-cn'
-        break
-      case 'en':
-        culture = 'en-us'
-        break
-    }
-    config.params ? (config.params.culture = culture) : (config.params = { culture })
+    config.params ? (config.params.culture = 'zh-cn') : (config.params = { culture: 'zh-cn' })
 
     if (!config.hideLoading) {
       showLoading()

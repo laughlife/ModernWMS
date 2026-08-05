@@ -8,16 +8,6 @@
       </v-breadcrumbs>
     </div>
     <div class="toolsBar">
-      <div class="gitSrc mr-4">
-        <img src="@/assets/img/gitee.png" alt="Gitee" @click="method.toGit('gitee')" />
-      </div>
-      <div class="gitSrc mr-4">
-        <img src="@/assets/img/github.png" alt="Gitee" @click="method.toGit('github')" />
-      </div>
-      <div class="gitSrc mr-4">
-        <img src="@/assets/img/apifox.png" alt="API" @click="method.toGit('apifox')" />
-      </div>
-      <LanguagesSwitch />
       <v-menu>
         <template #activator="{ props }">
           <div class="toolItems headPortrait ml-4" v-bind="props">
@@ -41,7 +31,6 @@
 <script lang="ts" setup>
 import { reactive, watch, computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import LanguagesSwitch from '@/components/system/languages.vue'
 import { lightGrey } from '@/constant/style'
 import i18n from '@/languages/i18n'
 import { router } from '@/router'
@@ -119,15 +108,6 @@ const method = reactive({
     } else if (value === 'viewLog') {
       ViewLogDialogRef.value.openDialog()
     }
-  },
-  toGit: (type: string) => {
-    if (type === 'gitee') {
-      window.open('https://gitee.com/modernwms/ModernWMS', '_blank')
-    } else if (type === 'github') {
-      window.open('https://github.com/fjykTec/ModernWMS', '_blank')
-    } else if (type === 'apifox') {
-      window.open('https://apifox.com/apidoc/shared-c34f3f10-1982-4d24-8214-a8c2490fd02e', '_blank')
-    }
   }
 })
 
@@ -168,24 +148,6 @@ const firstName = computed(() => {
     }
   }
 
-  .gitSrc {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-
-    > img {
-      width: 24px;
-      height: 24px;
-      opacity: 0.5;
-    }
-
-    :hover {
-      cursor: pointer;
-      opacity: 1;
-      scale: 1.1;
-      transition: all ease-in-out 0.2s;
-    }
-  }
   .toolsBar {
     display: flex;
     align-items: center;

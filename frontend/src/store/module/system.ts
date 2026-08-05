@@ -2,12 +2,10 @@ import { defineStore } from 'pinia'
 import type { StateProps } from '@/types/System/Store'
 
 const initialState = (): StateProps => ({
-  language: '',
   openedMenus: [],
   clientWidth: 0,
   clientHeight: 0,
-  currentRouterPath: '',
-  refreshFlag: false
+  currentRouterPath: ''
 })
 
 export const useSystemStore = defineStore('system', {
@@ -15,12 +13,6 @@ export const useSystemStore = defineStore('system', {
   actions: {
     setCurrentRouterPath(path: string) {
       this.currentRouterPath = path
-    },
-    setRefreshFlag(flag: boolean) {
-      this.refreshFlag = flag
-    },
-    setLanguage(lang: string) {
-      this.language = lang
     },
     addOpenedMenu(menuName: string) {
       if (!this.openedMenus.includes(menuName)) this.openedMenus.push(menuName)
