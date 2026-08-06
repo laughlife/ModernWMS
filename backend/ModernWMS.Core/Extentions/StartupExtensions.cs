@@ -61,10 +61,12 @@ namespace ModernWMS.Core.Extentions
             }
 
             // 基于主连接串派生 ERP 连接串，仅替换 Database，避免重复维护账号密码
-            var erpConnectionString = new DbConnectionStringBuilder(connectionString)
+            var erpConnectionStringBuilder = new DbConnectionStringBuilder
             {
-                ["Database"] = erpDatabase
-            }.ConnectionString;
+                ConnectionString = connectionString
+            };
+            erpConnectionStringBuilder["Database"] = erpDatabase;
+            var erpConnectionString = erpConnectionStringBuilder.ConnectionString;
 
             services.AddDbContextPool<SqlDBContext>(t =>
             {
