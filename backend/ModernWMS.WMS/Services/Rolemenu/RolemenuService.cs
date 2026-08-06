@@ -12,6 +12,7 @@ using ModernWMS.Core.Utility;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels;
 using ModernWMS.WMS.IServices;
+using System.Data;
 
 namespace ModernWMS.WMS.Services
 {
@@ -30,6 +31,8 @@ namespace ModernWMS.WMS.Services
         /// Localizer Service
         /// </summary>
         private readonly IStringLocalizer<Core.MultiLanguage> _stringLocalizer;
+
+        private const int MaxMenuActionAuthorityLength = 64;
         #endregion
 
         #region constructor
@@ -298,6 +301,185 @@ namespace ModernWMS.WMS.Services
                 return (false, _stringLocalizer["save_failed"]);
             }
         }
+
+        /// <summary>
+        /// batch update current role's full menu permission tree
+        /// </summary>
+        /// <param name="viewModel">final permission tree</param>
+        /// <param name="currentUser">currentUser</param>
+        /// <returns></returns>
+        public async Task<(bool flag, string msg)> BatchUpdateAsync(RolemenuBatchViewModel viewModel, CurrentUser currentUser)
+        {
+            if (IsInMemoryDatabase())
+            {
+                return await BatchUpdateCoreAsync(viewModel, currentUser);
+            }
+
+            await using var transaction = await _dBContext.GetDatabase().BeginTransactionAsync(IsolationLevel.Serializable);
+            try
+            {
+                var result = await BatchUpdateCoreAsync(viewModel, currentUser);
+                if (result.flag)
+                {
+                    await transaction.CommitAsync();
+                }
+                else
+                {
+                    await transaction.RollbackAsync();
+                }
+                return result;
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
+        private async Task<(bool flag, string msg)> BatchUpdateCoreAsync(RolemenuBatchViewModel viewModel, CurrentUser currentUser)
+        {
+            var Rolemenus = _dBContext.GetDbSet<RolemenuEntity>();
+            var Userroles = _dBContext.GetDbSet<UserroleEntity>();
+            var Menus = _dBContext.GetDbSet<MenuEntity>();
+
+            if (viewModel.detailList == null)
+            {
+                return (false, "detailList is required");
+            }
+
+            if (!(await Userroles.AsNoTracking().AnyAsync(t => t.id == viewModel.userrole_id && t.tenant_id == currentUser.tenant_id)))
+            {
+                return (false, _stringLocalizer["not_exists_entity"]);
+            }
+
+            var details = viewModel.detailList;
+            if (details.Any(t => t.menu_id <= 0))
+            {
+                return (false, "invalid menu_id");
+            }
+            if (details.SelectMany(t => NormalizeActionAuthority(t.menu_actions_authority))
+                .Any(t => t.Length > MaxMenuActionAuthorityLength))
+            {
+                return (false, $"menu_actions_authority length must be less than or equal to {MaxMenuActionAuthorityLength}");
+            }
+
+            var duplicateMenuIds = details.GroupBy(t => t.menu_id)
+                .Where(t => t.Count() > 1)
+                .Select(t => t.Key)
+                .ToList();
+            if (duplicateMenuIds.Any())
+            {
+                return (false, $"duplicate menu_id: {string.Join(",", duplicateMenuIds)}");
+            }
+
+            var menuIds = details.Select(t => t.menu_id).ToList();
+            var validMenus = await Menus.AsNoTracking()
+                .Where(t => t.tenant_id == currentUser.tenant_id && menuIds.Contains(t.id))
+                .Select(t => new
+                {
+                    t.id,
+                    t.menu_actions
+                })
+                .ToListAsync();
+            var validMenuIds = validMenus.Select(t => t.id).ToList();
+            var invalidMenuIds = menuIds.Except(validMenuIds).ToList();
+            if (invalidMenuIds.Any())
+            {
+                return (false, $"invalid menu_id: {string.Join(",", invalidMenuIds)}");
+            }
+            var menuActionWhiteList = validMenus.ToDictionary(
+                t => t.id,
+                t => NormalizeActionAuthority(JsonHelper.DeserializeObject<List<string>>(t.menu_actions)));
+            foreach (var detail in details)
+            {
+                var allowedActions = menuActionWhiteList[detail.menu_id];
+                if (!allowedActions.Any())
+                {
+                    continue;
+                }
+                var allowedActionSet = allowedActions.ToHashSet(StringComparer.Ordinal);
+                var invalidActions = NormalizeActionAuthority(detail.menu_actions_authority)
+                    .Where(t => !allowedActionSet.Contains(t))
+                    .ToList();
+                if (invalidActions.Any())
+                {
+                    return (false, $"invalid menu_actions_authority: {string.Join(",", invalidActions)}");
+                }
+            }
+
+            var dbEntities = await Rolemenus
+                .Where(t => t.userrole_id == viewModel.userrole_id && t.tenant_id == currentUser.tenant_id)
+                .ToListAsync();
+            var dbEntityGroups = dbEntities.GroupBy(t => t.menu_id).ToDictionary(t => t.Key, t => t.ToList());
+            var payloadMenuIds = menuIds.ToHashSet();
+            var now = DateTime.Now;
+
+            foreach (var detail in details)
+            {
+                var actionAuthority = SerializeActionAuthority(detail.menu_actions_authority);
+                if (dbEntityGroups.TryGetValue(detail.menu_id, out var currentEntities))
+                {
+                    var entity = currentEntities.OrderBy(t => t.id).First();
+                    if (entity.authority != 1 || entity.menu_actions_authority != actionAuthority)
+                    {
+                        entity.authority = 1;
+                        entity.menu_actions_authority = actionAuthority;
+                        entity.last_update_time = now;
+                    }
+
+                    var duplicateDbEntities = currentEntities.OrderBy(t => t.id).Skip(1).ToList();
+                    if (duplicateDbEntities.Any())
+                    {
+                        Rolemenus.RemoveRange(duplicateDbEntities);
+                    }
+                }
+                else
+                {
+                    Rolemenus.Add(new RolemenuEntity
+                    {
+                        id = 0,
+                        userrole_id = viewModel.userrole_id,
+                        menu_id = detail.menu_id,
+                        authority = 1,
+                        menu_actions_authority = actionAuthority,
+                        create_time = now,
+                        last_update_time = now,
+                        tenant_id = currentUser.tenant_id
+                    });
+                }
+            }
+
+            var deleteEntities = dbEntities.Where(t => !payloadMenuIds.Contains(t.menu_id)).ToList();
+            if (deleteEntities.Any())
+            {
+                Rolemenus.RemoveRange(deleteEntities);
+            }
+
+            await _dBContext.SaveChangesAsync();
+            return (true, _stringLocalizer["save_success"]);
+        }
+
+        private static string SerializeActionAuthority(List<string> menuActionsAuthority)
+        {
+            var normalizedActions = NormalizeActionAuthority(menuActionsAuthority);
+            return JsonHelper.SerializeObject(normalizedActions);
+        }
+
+        private static List<string> NormalizeActionAuthority(List<string> menuActionsAuthority)
+        {
+            return (menuActionsAuthority ?? new List<string>())
+                .Select(t => t?.Trim())
+                .Where(t => !string.IsNullOrWhiteSpace(t))
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(t => t, StringComparer.Ordinal)
+                .ToList();
+        }
+
+        private bool IsInMemoryDatabase()
+        {
+            return string.Equals(_dBContext.GetDatabase().ProviderName, "Microsoft.EntityFrameworkCore.InMemory", StringComparison.Ordinal);
+        }
+
         /// <summary>
         /// delete a record
         /// </summary>

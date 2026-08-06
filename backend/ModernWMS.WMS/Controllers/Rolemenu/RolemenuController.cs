@@ -157,6 +157,25 @@
         }
 
         /// <summary>
+        /// batch update current role's full menu permission tree
+        /// </summary>
+        /// <param name="viewModel">final permission tree</param>
+        /// <returns></returns>
+        [HttpPut("batch")]
+        public async Task<ResultModel<bool>> BatchUpdateAsync(RolemenuBatchViewModel viewModel)
+        {
+            var (flag, msg) = await _rolemenuService.BatchUpdateAsync(viewModel, CurrentUser);
+            if (flag)
+            {
+                return ResultModel<bool>.Success(flag);
+            }
+            else
+            {
+                return ResultModel<bool>.Error(msg, 400, flag);
+            }
+        }
+
+        /// <summary>
         /// delete a record
         /// </summary>
         /// <param name="userrole_id">userrole id</param>

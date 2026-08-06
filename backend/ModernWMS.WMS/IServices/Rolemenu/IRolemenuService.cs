@@ -56,6 +56,14 @@ namespace ModernWMS.WMS.IServices
         Task<(bool flag, string msg)> UpdateAsync(RolemenuBothViewModel viewModel, CurrentUser currentUser);
 
         /// <summary>
+        /// batch update current role's full menu permission tree
+        /// </summary>
+        /// <param name="viewModel">final permission tree</param>
+        /// <param name="currentUser">currentUser</param>
+        /// <returns></returns>
+        Task<(bool flag, string msg)> BatchUpdateAsync(RolemenuBatchViewModel viewModel, CurrentUser currentUser);
+
+        /// <summary>
         /// delete a record
         /// </summary>
         /// <param name="userrole_id">userrole id</param>
