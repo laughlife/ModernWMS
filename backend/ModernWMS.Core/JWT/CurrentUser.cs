@@ -1,7 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
-using System.Xml.Linq;
-
-namespace ModernWMS.Core.JWT
+﻿namespace ModernWMS.Core.JWT
 {
     /// <summary>
     /// CurrentUser

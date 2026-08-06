@@ -1,15 +1,11 @@
-﻿
+﻿using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Options;
-using System;
-using System.Threading.Tasks;
-using System.Text.Encodings.Web;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using ModernWMS.Core.Models;
-using System.Linq;
 using ModernWMS.Core.Utility;
-using ModernWMS.Core.JWT;
+
 namespace ModernWMS.Core.JWT
 {
     /// <summary>

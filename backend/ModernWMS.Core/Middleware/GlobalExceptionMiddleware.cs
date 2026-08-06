@@ -1,10 +1,8 @@
 ﻿using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Logging;
-using System;
-using System.Linq;
-using System.Threading.Tasks;
-using ModernWMS.Core.Models;
 using Microsoft.Extensions.Localization;
+using Microsoft.Extensions.Logging;
+using ModernWMS.Core.Models;
+using ModernWMS.Core.Utility;
 
 namespace ModernWMS.Core.Middleware
 {
@@ -77,7 +75,7 @@ namespace ModernWMS.Core.Middleware
                 }
                 logger.LogError($"\r\n\r\nIP:{ip},Exception：{e.Message}\r\nStackTrace：{e.StackTrace}");
 
-                string result = Utility.JsonHelper.SerializeObject(ResultModel<object>.Error(_stringLocalizer["operation_failed"]));
+                string result = JsonHelper.SerializeObject(ResultModel<object>.Error(_stringLocalizer["operation_failed"]));
                 await context.Response.WriteAsync(result).ConfigureAwait(false);
             }
             else
@@ -91,11 +89,11 @@ namespace ModernWMS.Core.Middleware
                         return;
                     case 401:
                         context.Response.ContentType = "application/json";
-                        await context.Response.WriteAsync(Utility.JsonHelper.SerializeObject(ResultModel<object>.Error("Invalid Token"))).ConfigureAwait(false);
+                        await context.Response.WriteAsync(JsonHelper.SerializeObject(ResultModel<object>.Error("Invalid Token"))).ConfigureAwait(false);
                         break;
                     default:
                         context.Response.ContentType = "application/json";
-                        await context.Response.WriteAsync(Utility.JsonHelper.SerializeObject(ResultModel<object>.Error("Unknown Error"))).ConfigureAwait(false);
+                        await context.Response.WriteAsync(JsonHelper.SerializeObject(ResultModel<object>.Error("Unknown Error"))).ConfigureAwait(false);
                         break;
                 }
             }

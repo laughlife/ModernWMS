@@ -1,12 +1,10 @@
-﻿using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
-using System;
-using System.Diagnostics;
-using System.IO;
+﻿using System.Diagnostics;
 using System.Text;
-using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using ModernWMS.Core.Models;
+using ModernWMS.Core.Utility;
+using Newtonsoft.Json;
 
 namespace ModernWMS.Core.Middleware
 {
@@ -49,7 +47,7 @@ namespace ModernWMS.Core.Middleware
         /// <returns></returns>
         public async Task Invoke(HttpContext context)
         {
-            if (ModernWMS.Core.Utility.GlobalConsts.IsRequestResponseMiddleware)
+            if (GlobalConsts.IsRequestResponseMiddleware)
             {
                 string requestInfo = "", responseInfo = "";
                 var originalBodyStream = context.Response.Body;
@@ -86,7 +84,7 @@ namespace ModernWMS.Core.Middleware
                         _logger.LogError(logMsg);
                         _logger.LogError(ex.ToString());
 
-                        string result = Utility.JsonHelper.SerializeObject(ResultModel<object>.Error(ex.Message));
+                        string result = JsonHelper.SerializeObject(ResultModel<object>.Error(ex.Message));
                         var bytes = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(result));
                         await originalBodyStream.WriteAsync(bytes, 0, bytes.Length);
 

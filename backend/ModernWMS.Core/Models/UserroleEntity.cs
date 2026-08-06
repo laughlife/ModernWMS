@@ -2,11 +2,8 @@
  * date：2022-12-20
  * developer：NoNo
  */
-using System;
-using System.Collections.Generic;
+
 using System.ComponentModel.DataAnnotations.Schema;
-using System.ComponentModel.DataAnnotations;
-using ModernWMS.Core.Models;
 using ModernWMS.Core.Utility;
 
 namespace ModernWMS.Core.Models

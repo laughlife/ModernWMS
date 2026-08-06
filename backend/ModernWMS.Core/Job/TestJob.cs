@@ -1,12 +1,4 @@
-﻿using Newtonsoft.Json;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Net.Http.Json;
-using System.Net;
-using System.Security.Policy;
-using System.Text;
-using System.Threading.Tasks;
+﻿using Hangfire;
 
 namespace ModernWMS.Core.Job
 {
@@ -31,7 +23,7 @@ namespace ModernWMS.Core.Job
         /// <summary>
         /// 
         /// </summary>
-        public string CronExpression => Hangfire.Cron.Hourly(3);
+        public string CronExpression => Cron.Hourly(3);
 
         /// <summary>
         /// 

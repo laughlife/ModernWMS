@@ -1,11 +1,9 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using System.Text;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using ModernWMS.Core.Models;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Serialization;
 
 namespace ModernWMS.Core.Middleware
 {
@@ -61,10 +59,10 @@ namespace ModernWMS.Core.Middleware
                     result.ErrorMessage += msg.ToString().Substring(1);
                 }
                 result.Code = 400;
-                context.Result = new JsonResult(result, new Newtonsoft.Json.JsonSerializerSettings()
+                context.Result = new JsonResult(result, new JsonSerializerSettings()
                 {
-                    ContractResolver = new Newtonsoft.Json.Serialization.CamelCasePropertyNamesContractResolver(),
-                    Formatting = Newtonsoft.Json.Formatting.Indented,
+                    ContractResolver = new CamelCasePropertyNamesContractResolver(),
+                    Formatting = Formatting.Indented,
                     DateFormatString = "yyyy-MM-dd HH:mm:ss"
                 });
             }

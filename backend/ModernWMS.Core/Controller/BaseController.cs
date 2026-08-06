@@ -1,9 +1,6 @@
-﻿
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using ModernWMS.Core.JWT;
 using ModernWMS.Core.Utility;
-using System.Linq;
 
 namespace ModernWMS.Core.Controller
 {

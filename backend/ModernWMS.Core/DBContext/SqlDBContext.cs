@@ -1,14 +1,8 @@
-﻿using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.Extensions.Logging;
-using System.ComponentModel;
-using System.Data;
+﻿using System.Data;
 using System.Data.Common;
 using System.Reflection;
-using ModernWMS.Core;
-using static Microsoft.EntityFrameworkCore.DbLoggerCategory.Database;
-using Mapster;
-using Microsoft.AspNetCore.JsonPatch.Internal;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using ModernWMS.Core.Models;
 
 namespace ModernWMS.Core.DBContext
@@ -45,9 +39,9 @@ namespace ModernWMS.Core.DBContext
         /// <param name="modelBuilder">ModelBuilder</param>
         private void MappingEntityTypes(ModelBuilder modelBuilder)
         {
-            var baseType = typeof(Models.BaseModel);
+            var baseType = typeof(BaseModel);
             var path = AppDomain.CurrentDomain.RelativeSearchPath ?? AppDomain.CurrentDomain.BaseDirectory;
-            var referencedAssemblies = System.IO.Directory.GetFiles(path, $"ModernWMS*.dll").Select(Assembly.LoadFrom).ToArray();
+            var referencedAssemblies = Directory.GetFiles(path, $"ModernWMS*.dll").Select(Assembly.LoadFrom).ToArray();
             var list = referencedAssemblies
                 .SelectMany(a => a.DefinedTypes)
                 .Select(type => type.AsType())

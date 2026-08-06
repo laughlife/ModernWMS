@@ -1,7 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-
-namespace ModernWMS.Core.Models
+﻿namespace ModernWMS.Core.Models
 {
     /// <summary>
     /// LoginOutputViewModel
