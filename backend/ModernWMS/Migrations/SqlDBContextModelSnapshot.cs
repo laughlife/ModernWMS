@@ -384,40 +384,6 @@ namespace ModernWMS.Migrations
                     b.ToTable("asnsort");
                 });
 
-            modelBuilder.Entity("ModernWMS.WMS.Entities.Models.CategoryEntity", b =>
-                {
-                    b.Property<int>("id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    b.Property<string>("category_name")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<DateTime>("create_time")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("creator")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<bool>("is_valid")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<DateTime>("last_update_time")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<int>("parent_id")
-                        .HasColumnType("int");
-
-                    b.Property<long>("tenant_id")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("id");
-
-                    b.ToTable("category");
-                });
-
             modelBuilder.Entity("ModernWMS.WMS.Entities.Models.CompanyEntity", b =>
                 {
                     b.Property<int>("id")
@@ -1192,9 +1158,6 @@ namespace ModernWMS.Migrations
                     b.Property<string>("brand")
                         .IsRequired()
                         .HasColumnType("longtext");
-
-                    b.Property<int>("category_id")
-                        .HasColumnType("int");
 
                     b.Property<DateTime>("create_time")
                         .HasColumnType("datetime(6)");

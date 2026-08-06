@@ -67,21 +67,17 @@ namespace ModernWMS.WMS.Services
                     queries.Add(s);
                 });
             }
-            var Categorys = _dBContext.GetDbSet<CategoryEntity>();
             var Spus = _dBContext.GetDbSet<SpuEntity>();
             var Skus = _dBContext.GetDbSet<SkuEntity>();
             var SkuSafetyStocks = _dBContext.GetDbSet<SkuSafetyStockEntity>();
             var Warehouses = _dBContext.GetDbSet<WarehouseEntity>();
             var query = from m in Spus.AsNoTracking()
-                        join c in Categorys.AsNoTracking() on m.category_id equals c.id
                         where m.tenant_id == currentUser.tenant_id
                         select new SpuBothViewModel
                         {
                             id = m.id,
                             spu_code = m.spu_code,
                             spu_name = m.spu_name,
-                            category_id = m.category_id,
-                            category_name = c.category_name,
                             spu_description = m.spu_description,
                             supplier_id = m.supplier_id,
                             supplier_name = m.supplier_name,
@@ -141,21 +137,17 @@ namespace ModernWMS.WMS.Services
         /// <returns></returns>
         public async Task<SpuBothViewModel> GetAsync(int id)
         {
-            var Categorys = _dBContext.GetDbSet<CategoryEntity>();
             var Spus = _dBContext.GetDbSet<SpuEntity>();
             var Skus = _dBContext.GetDbSet<SkuEntity>();
             var SkuSafetyStocks = _dBContext.GetDbSet<SkuSafetyStockEntity>();
             var Warehouses = _dBContext.GetDbSet<WarehouseEntity>();
             var query = from m in Spus.AsNoTracking()
-                        join c in Categorys.AsNoTracking() on m.category_id equals c.id
                         where m.id == id
                         select new SpuBothViewModel
                         {
                             id = m.id,
                             spu_code = m.spu_code,
                             spu_name = m.spu_name,
-                            category_id = m.category_id,
-                            category_name = c.category_name,
                             spu_description = m.spu_description,
                             supplier_id = m.supplier_id,
                             supplier_name = m.supplier_name,
@@ -217,11 +209,9 @@ namespace ModernWMS.WMS.Services
         /// <returns></returns>
         public async Task<SkuDetailViewModel> GetSkuAsync(int sku_id)
         {
-            var Categorys = _dBContext.GetDbSet<CategoryEntity>();
             var Spus = _dBContext.GetDbSet<SpuEntity>();
             var Skus = _dBContext.GetDbSet<SkuEntity>();
             var query = from m in Spus.AsNoTracking()
-                        join c in Categorys.AsNoTracking() on m.category_id equals c.id
                         join d in Skus.AsNoTracking() on m.id equals d.spu_id
                         where d.id == sku_id
                         select new SkuDetailViewModel
@@ -229,8 +219,6 @@ namespace ModernWMS.WMS.Services
                             spu_id = m.id,
                             spu_code = m.spu_code,
                             spu_name = m.spu_name,
-                            category_id = m.category_id,
-                            category_name = c.category_name,
                             spu_description = m.spu_description,
                             supplier_id = m.supplier_id,
                             supplier_name = m.supplier_name,
@@ -271,11 +259,9 @@ namespace ModernWMS.WMS.Services
         /// <returns></returns>
         public async Task<SkuDetailViewModel> GetSkuByBarCodeAsync(string bar_code)
         {
-            var Categorys = _dBContext.GetDbSet<CategoryEntity>();
             var Spus = _dBContext.GetDbSet<SpuEntity>();
             var Skus = _dBContext.GetDbSet<SkuEntity>();
             var query = from m in Spus.AsNoTracking()
-                        join c in Categorys.AsNoTracking() on m.category_id equals c.id
                         join d in Skus.AsNoTracking() on m.id equals d.spu_id
                         where d.bar_code == bar_code
                         select new SkuDetailViewModel
@@ -283,8 +269,6 @@ namespace ModernWMS.WMS.Services
                             spu_id = m.id,
                             spu_code = m.spu_code,
                             spu_name = m.spu_name,
-                            category_id = m.category_id,
-                            category_name = c.category_name,
                             spu_description = m.spu_description,
                             supplier_id = m.supplier_id,
                             supplier_name = m.supplier_name,
@@ -442,7 +426,6 @@ namespace ModernWMS.WMS.Services
                      id = m.id,
                      spu_code = m.spu_code,
                      spu_name = m.spu_name,
-                     category_id = m.category_id,
                      spu_description = m.spu_description,
                      supplier_id = m.supplier_id,
                      supplier_name = m.supplier_name,
@@ -509,7 +492,6 @@ namespace ModernWMS.WMS.Services
             }
             entity.spu_code = viewModel.spu_code;
             entity.spu_name = viewModel.spu_name;
-            entity.category_id = viewModel.category_id;
             entity.spu_description = viewModel.spu_description;
             entity.supplier_id = viewModel.supplier_id;
             entity.supplier_name = viewModel.supplier_name;

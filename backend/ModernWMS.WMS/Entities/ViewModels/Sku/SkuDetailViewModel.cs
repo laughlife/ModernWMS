@@ -47,20 +47,6 @@ namespace ModernWMS.WMS.Entities.ViewModels
         public string spu_name { get; set; } = string.Empty;
 
         /// <summary>
-        /// category_id
-        /// </summary>
-        [Display(Name = "category_id")]
-        public int category_id { get; set; } = 0;
-
-        /// <summary>
-        /// category_name
-        /// </summary>
-        [Display(Name = "category_name")]
-        [Required(ErrorMessage = "Required")]
-        [MaxLength(32, ErrorMessage = "MaxLength")]
-        public string category_name { get; set; } = string.Empty;
-
-        /// <summary>
         /// spu_description
         /// </summary>
         [Display(Name = "spu_description")]

@@ -258,12 +258,6 @@
   <data name="goods_owner_name" xml:space="preserve">
     <value>货主名称</value>
   </data>
-  <data name="category_name" xml:space="preserve">
-    <value>商品类别</value>
-  </data>
-  <data name="parent_name" xml:space="preserve">
-    <value>所属类别</value>
-  </data>
   <data name="menu_name" xml:space="preserve">
     <value>菜单名称</value>
   </data>

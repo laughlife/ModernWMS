@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ModernWMS.Core.DBContext.Entities;
 
 namespace ModernWMS.Core.DBContext;
 
@@ -15,5 +16,36 @@ public sealed class ErpDbContext : DbContext
     /// <param name="options">上下文选项</param>
     public ErpDbContext(DbContextOptions<ErpDbContext> options) : base(options)
     {
+    }
+
+    /// <summary>
+    /// 系统部门
+    /// </summary>
+    public DbSet<ErpSystemDeptEntity> SystemDepts => Set<ErpSystemDeptEntity>();
+
+    /// <summary>
+    /// 系统用户
+    /// </summary>
+    public DbSet<ErpSystemUserEntity> SystemUsers => Set<ErpSystemUserEntity>();
+
+    /// <summary>
+    /// 显式映射 ERP 只读实体，避免自动映射 WMS 主库实体。
+    /// </summary>
+    /// <param name="modelBuilder">model builder</param>
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ErpSystemDeptEntity>(entity =>
+        {
+            entity.ToTable("system_dept");
+            entity.HasKey(t => t.id);
+        });
+
+        modelBuilder.Entity<ErpSystemUserEntity>(entity =>
+        {
+            entity.ToTable("system_users");
+            entity.HasKey(t => t.id);
+        });
+
+        base.OnModelCreating(modelBuilder);
     }
 }

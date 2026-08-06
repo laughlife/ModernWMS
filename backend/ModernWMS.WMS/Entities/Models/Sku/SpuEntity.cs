@@ -31,11 +31,6 @@ namespace ModernWMS.WMS.Entities.Models
         public string spu_name { get; set; } = string.Empty;
 
         /// <summary>
-        /// category_id
-        /// </summary>
-        public int category_id { get; set; } = 0;
-
-        /// <summary>
         /// spu_description
         /// </summary>
         public string spu_description { get; set; } = string.Empty;

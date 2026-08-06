@@ -258,12 +258,6 @@
   <data name="goods_owner_name" xml:space="preserve">
     <value>Owner Of Cargo</value>
   </data>
-  <data name="category_name" xml:space="preserve">
-    <value>Commodity category</value>
-  </data>
-  <data name="parent_name" xml:space="preserve">
-    <value>Parent Category</value>
-  </data>
   <data name="menu_name" xml:space="preserve">
     <value>Menu Name</value>
   </data>
