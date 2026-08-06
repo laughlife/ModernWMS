@@ -549,6 +549,9 @@
   <data name="not_exists_entity" xml:space="preserve">
     <value>数据不存在或已被删除</value>
   </data>
+  <data name="admin_role_permission_readonly" xml:space="preserve">
+    <value>admin角色默认拥有全部权限，无需且不能分配权限</value>
+  </data>
   <data name="MaxLength" xml:space="preserve">
     <value>{0}输入字符长度不能大于{1}个字符</value>
   </data>

@@ -33,6 +33,10 @@ namespace ModernWMS.WMS.Services
         private readonly IStringLocalizer<Core.MultiLanguage> _stringLocalizer;
 
         private const int MaxMenuActionAuthorityLength = 64;
+
+        private const string AdminRoleName = "admin";
+
+        private const string AdminRolePermissionMessageKey = "admin_role_permission_readonly";
         #endregion
 
         #region constructor
@@ -174,14 +178,59 @@ namespace ModernWMS.WMS.Services
         /// Get menu's authority by user role id
         /// </summary>
         /// <param name="userrole_id">user role id</param>
+        /// <param name="currentUser">currentUser</param>
         /// <returns></returns>
-        public async Task<List<MenuViewModel>> GetMenusByRoleId(int userrole_id)
+        public async Task<List<MenuViewModel>> GetMenusByRoleId(int userrole_id, CurrentUser currentUser)
         {
-            var Rolemenus = _dBContext.GetDbSet<RolemenuEntity>(); 
+            var Rolemenus = _dBContext.GetDbSet<RolemenuEntity>();
+            var Userroles = _dBContext.GetDbSet<UserroleEntity>();
             var Menus = _dBContext.GetDbSet<MenuEntity>();
+
+            var role = await Userroles.AsNoTracking()
+                .Where(t => t.id == userrole_id && t.tenant_id == currentUser.tenant_id)
+                .Select(t => new { t.id, t.role_name })
+                .FirstOrDefaultAsync();
+            if (role == null)
+            {
+                return new List<MenuViewModel>();
+            }
+
+            if (IsAdminRole(role.role_name))
+            {
+                var adminMenus = await Menus.AsNoTracking()
+                    .Where(t => t.tenant_id == currentUser.tenant_id)
+                    .OrderBy(t => t.sort)
+                    .ThenBy(t => t.menu_name)
+                    .Select(m => new
+                    {
+                        id = m.id,
+                        menu_name = m.menu_name,
+                        module = m.module,
+                        vue_path = m.vue_path,
+                        vue_path_detail = m.vue_path_detail,
+                        vue_directory = m.vue_directory,
+                        sort = m.sort,
+                        m.menu_actions
+                    }).ToListAsync();
+
+                return adminMenus.Select(m => new MenuViewModel
+                {
+                    id = m.id,
+                    menu_name = m.menu_name,
+                    module = m.module,
+                    vue_path = m.vue_path,
+                    vue_path_detail = m.vue_path_detail,
+                    vue_directory = m.vue_directory,
+                    sort = m.sort,
+                    menu_actions = NormalizeActionAuthority(JsonHelper.DeserializeObject<List<string>>(m.menu_actions))
+                }).ToList();
+            }
+
             var data = await (from rm in Rolemenus.AsNoTracking()
                               join m in Menus.AsNoTracking() on rm.menu_id equals m.id
                               where rm.userrole_id == userrole_id
+                                  && rm.tenant_id == currentUser.tenant_id
+                                  && m.tenant_id == currentUser.tenant_id
                               orderby m.sort, m.menu_name
                               select new 
                               {
@@ -205,7 +254,7 @@ namespace ModernWMS.WMS.Services
                     vue_path_detail = m.vue_path_detail,
                     vue_directory = m.vue_directory,
                     sort = m.sort,
-                    menu_actions = JsonHelper.DeserializeObject<List<string>>(m.menu_actions_authority)
+                    menu_actions = NormalizeActionAuthority(JsonHelper.DeserializeObject<List<string>>(m.menu_actions_authority))
                 }).ToList();
                 return result;
             }
@@ -220,7 +269,16 @@ namespace ModernWMS.WMS.Services
         public async Task<(int id, string msg)> AddAsync(RolemenuBothViewModel viewModel, CurrentUser currentUser)
         {
             var Rolemenus = _dBContext.GetDbSet<RolemenuEntity>();
-            if (await Rolemenus.AnyAsync(t => t.userrole_id.Equals(viewModel.userrole_id)))
+            var (roleExists, isAdminRole) = await GetRolePermissionStatusAsync(viewModel.userrole_id, currentUser);
+            if (!roleExists)
+            {
+                return (0, _stringLocalizer["not_exists_entity"]);
+            }
+            if (isAdminRole)
+            {
+                return (0, _stringLocalizer[AdminRolePermissionMessageKey]);
+            }
+            if (await Rolemenus.AnyAsync(t => t.userrole_id.Equals(viewModel.userrole_id) && t.tenant_id == currentUser.tenant_id))
             {
                 return (0, string.Format(_stringLocalizer["exists_entity"], _stringLocalizer["role_name"], viewModel.role_name));
             }
@@ -256,11 +314,22 @@ namespace ModernWMS.WMS.Services
         public async Task<(bool flag, string msg)> UpdateAsync(RolemenuBothViewModel viewModel, CurrentUser currentUser)
         {
             var Rolemenus = _dBContext.GetDbSet<RolemenuEntity>();
-            if (!(await Rolemenus.AnyAsync(t => t.userrole_id.Equals(viewModel.userrole_id))))
+            var (roleExists, isAdminRole) = await GetRolePermissionStatusAsync(viewModel.userrole_id, currentUser);
+            if (!roleExists)
             {
                 return (false, _stringLocalizer["not_exists_entity"]);
             }
-            var dbEntities = await Rolemenus.AsNoTracking().Where(t => t.userrole_id == viewModel.userrole_id).ToListAsync();
+            if (isAdminRole)
+            {
+                return (false, _stringLocalizer[AdminRolePermissionMessageKey]);
+            }
+            if (!(await Rolemenus.AnyAsync(t => t.userrole_id.Equals(viewModel.userrole_id) && t.tenant_id == currentUser.tenant_id)))
+            {
+                return (false, _stringLocalizer["not_exists_entity"]);
+            }
+            var dbEntities = await Rolemenus.AsNoTracking()
+                .Where(t => t.userrole_id == viewModel.userrole_id && t.tenant_id == currentUser.tenant_id)
+                .ToListAsync();
 
             var entities = (from vm in viewModel.detailList
                             join db in dbEntities on new { id = Math.Abs(vm.id), vm.menu_id } equals new { db.id, db.menu_id } into dbJoin
@@ -347,9 +416,17 @@ namespace ModernWMS.WMS.Services
                 return (false, "detailList is required");
             }
 
-            if (!(await Userroles.AsNoTracking().AnyAsync(t => t.id == viewModel.userrole_id && t.tenant_id == currentUser.tenant_id)))
+            var role = await Userroles.AsNoTracking()
+                .Where(t => t.id == viewModel.userrole_id && t.tenant_id == currentUser.tenant_id)
+                .Select(t => new { t.id, t.role_name })
+                .FirstOrDefaultAsync();
+            if (role == null)
             {
                 return (false, _stringLocalizer["not_exists_entity"]);
+            }
+            if (IsAdminRole(role.role_name))
+            {
+                return (false, _stringLocalizer[AdminRolePermissionMessageKey]);
             }
 
             var details = viewModel.detailList;
@@ -480,14 +557,41 @@ namespace ModernWMS.WMS.Services
             return string.Equals(_dBContext.GetDatabase().ProviderName, "Microsoft.EntityFrameworkCore.InMemory", StringComparison.Ordinal);
         }
 
+        private async Task<(bool roleExists, bool isAdminRole)> GetRolePermissionStatusAsync(int userroleId, CurrentUser currentUser)
+        {
+            var role = await _dBContext.GetDbSet<UserroleEntity>().AsNoTracking()
+                .Where(t => t.id == userroleId && t.tenant_id == currentUser.tenant_id)
+                .Select(t => new { t.id, t.role_name })
+                .FirstOrDefaultAsync();
+            return (role != null, role != null && IsAdminRole(role.role_name));
+        }
+
+        private static bool IsAdminRole(string roleName)
+        {
+            return string.Equals(roleName?.Trim(), AdminRoleName, StringComparison.OrdinalIgnoreCase);
+        }
+
         /// <summary>
         /// delete a record
         /// </summary>
         /// <param name="userrole_id">userrole id</param>
+        /// <param name="currentUser">currentUser</param>
         /// <returns></returns>
-        public async Task<(bool flag, string msg)> DeleteAsync(int userrole_id)
+        public async Task<(bool flag, string msg)> DeleteAsync(int userrole_id, CurrentUser currentUser)
         {
-            var qty = await _dBContext.GetDbSet<RolemenuEntity>().Where(t => t.userrole_id.Equals(userrole_id)).ExecuteDeleteAsync();
+            var (roleExists, isAdminRole) = await GetRolePermissionStatusAsync(userrole_id, currentUser);
+            if (!roleExists)
+            {
+                return (false, _stringLocalizer["not_exists_entity"]);
+            }
+            if (isAdminRole)
+            {
+                return (false, _stringLocalizer[AdminRolePermissionMessageKey]);
+            }
+
+            var qty = await _dBContext.GetDbSet<RolemenuEntity>()
+                .Where(t => t.userrole_id.Equals(userrole_id) && t.tenant_id == currentUser.tenant_id)
+                .ExecuteDeleteAsync();
             if (qty > 0)
             {
                 return (true, _stringLocalizer["delete_success"]);

@@ -12,6 +12,8 @@ namespace ModernWMS.Tests.Rolemenu;
 
 public class RolemenuBatchServiceTests
 {
+    private const string AdminRolePermissionMessage = "admin_role_permission_readonly";
+
     [Fact]
     public async Task BatchUpdateAsync_replaces_current_role_permission_tree()
     {
@@ -247,6 +249,107 @@ public class RolemenuBatchServiceTests
         Assert.Equal("not_exists_entity", msg);
     }
 
+    [Fact]
+    public async Task BatchUpdateAsync_rejects_admin_role_permission_assignment()
+    {
+        await using var database = CreateDatabase();
+        await SeedRoleMenusAsync(database);
+        var service = CreateService(database);
+
+        var (flag, msg) = await service.BatchUpdateAsync(new RolemenuBatchViewModel
+        {
+            userrole_id = 3,
+            detailList =
+            [
+                new RolemenuBatchDetailViewModel { menu_id = 1, menu_actions_authority = ["查询"] }
+            ]
+        }, TenantOneUser());
+
+        Assert.False(flag);
+        Assert.Equal(AdminRolePermissionMessage, msg);
+    }
+
+    [Fact]
+    public async Task GetMenusByRoleId_returns_all_current_tenant_menus_and_actions_for_admin()
+    {
+        await using var database = CreateDatabase();
+        await SeedRoleMenusAsync(database);
+        var service = CreateService(database);
+
+        var menus = await service.GetMenusByRoleId(3, TenantOneUser());
+
+        Assert.Equal([1, 2, 3], menus.Select(t => t.id).ToArray());
+        Assert.Equal(["保存", "查询"], menus.Single(t => t.id == 1).menu_actions);
+        Assert.Empty(menus.Single(t => t.id == 2).menu_actions);
+        Assert.Equal(["导出"], menus.Single(t => t.id == 3).menu_actions);
+    }
+
+    [Fact]
+    public async Task GetMenusByRoleId_does_not_return_cross_tenant_menus_for_non_admin()
+    {
+        await using var database = CreateDatabase();
+        await SeedRoleMenusAsync(database);
+        var service = CreateService(database);
+
+        var menus = await service.GetMenusByRoleId(1, TenantOneUser());
+
+        Assert.Equal([1, 2], menus.Select(t => t.id).ToArray());
+        Assert.DoesNotContain(menus, t => t.id == 4);
+    }
+
+    [Fact]
+    public async Task AddAsync_rejects_admin_role_permission_assignment()
+    {
+        await using var database = CreateDatabase();
+        await SeedRoleMenusAsync(database);
+        var service = CreateService(database);
+
+        var (id, msg) = await service.AddAsync(new RolemenuBothViewModel
+        {
+            userrole_id = 3,
+            detailList =
+            [
+                new RolemenuViewModel { menu_id = 1, menu_actions_authority = ["查询"] }
+            ]
+        }, TenantOneUser());
+
+        Assert.Equal(0, id);
+        Assert.Equal(AdminRolePermissionMessage, msg);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_rejects_admin_role_permission_assignment()
+    {
+        await using var database = CreateDatabase();
+        await SeedRoleMenusAsync(database);
+        var service = CreateService(database);
+
+        var (flag, msg) = await service.UpdateAsync(new RolemenuBothViewModel
+        {
+            userrole_id = 3,
+            detailList =
+            [
+                new RolemenuViewModel { id = 0, menu_id = 1, menu_actions_authority = ["查询"] }
+            ]
+        }, TenantOneUser());
+
+        Assert.False(flag);
+        Assert.Equal(AdminRolePermissionMessage, msg);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_rejects_admin_role_permission_assignment()
+    {
+        await using var database = CreateDatabase();
+        await SeedRoleMenusAsync(database);
+        var service = CreateService(database);
+
+        var (flag, msg) = await service.DeleteAsync(3, TenantOneUser());
+
+        Assert.False(flag);
+        Assert.Equal(AdminRolePermissionMessage, msg);
+    }
+
     private static SqlDBContext CreateDatabase()
     {
         var options = new DbContextOptionsBuilder<SqlDBContext>()
@@ -269,7 +372,8 @@ public class RolemenuBatchServiceTests
     {
         await database.Set<UserroleEntity>().AddRangeAsync(
             new UserroleEntity { id = 1, role_name = "tenant-one-role", is_valid = true, tenant_id = 1 },
-            new UserroleEntity { id = 2, role_name = "tenant-two-role", is_valid = true, tenant_id = 2 });
+            new UserroleEntity { id = 2, role_name = "tenant-two-role", is_valid = true, tenant_id = 2 },
+            new UserroleEntity { id = 3, role_name = "Admin", is_valid = true, tenant_id = 1 });
         await database.Set<MenuEntity>().AddRangeAsync(
             new MenuEntity { id = 1, menu_name = "menu-1", tenant_id = 1, menu_actions = "[\"查询\",\"保存\"]" },
             new MenuEntity { id = 2, menu_name = "menu-2", tenant_id = 1, menu_actions = "[]" },
