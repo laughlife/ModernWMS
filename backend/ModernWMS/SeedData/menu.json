@@ -9,7 +9,6 @@
   { "id": 27, "menu_name": "warehouseSetting", "module": "baseModule", "vue_path": "warehouseSetting", "vue_path_detail": "", "vue_directory": "base/warehouseSetting", "sort": 8, "tenant_id": 1 },
   { "id": 28, "menu_name": "ownerOfCargo", "module": "baseModule", "vue_path": "ownerOfCargo", "vue_path_detail": "", "vue_directory": "base/ownerOfCargo", "sort": 9, "tenant_id": 1 },
   { "id": 29, "menu_name": "freightSetting", "module": "baseModule", "vue_path": "freightSetting", "vue_path_detail": "", "vue_directory": "base/freightSetting", "sort": 10, "tenant_id": 1 },
-  { "id": 30, "menu_name": "customer", "module": "baseModule", "vue_path": "customer", "vue_path_detail": "", "vue_directory": "base/customer", "sort": 12, "tenant_id": 1 },
   { "id": 31, "menu_name": "stockManagement", "module": "", "vue_path": "stockManagement", "vue_path_detail": "", "vue_directory": "wms/stockManagement", "sort": 12, "tenant_id": 1 },
   { "id": 32, "menu_name": "warehouseProcessing", "module": "warehouseWorkingModule", "vue_path": "warehouseProcessing", "vue_path_detail": "", "vue_directory": "warehouseWorking/warehouseProcessing", "sort": 13, "tenant_id": 1 },
   { "id": 33, "menu_name": "warehouseMove", "module": "warehouseWorkingModule", "vue_path": "warehouseMove", "vue_path_detail": "", "vue_directory": "warehouseWorking/warehouseMove", "sort": 14, "tenant_id": 1 },

@@ -1,13 +1,13 @@
 import { MenuItem } from '@/types/System/Store'
-import { CustomerRouterProps } from '@/types/System/Router'
+import { RouterProps } from '@/types/System/Router'
 import { SideBarMenu } from '@/types/Home/Home'
 import { pinia } from '@/store'
 import { useUserStore } from '@/store/module/user'
 import i18n from '@/languages/i18n'
 
 // Convert menu permissions to data required for dynamic routing
-export function menusToRouter(menuList: MenuItem[]): CustomerRouterProps[] {
-  const result: CustomerRouterProps[] = []
+export function menusToRouter(menuList: MenuItem[]): RouterProps[] {
+  const result: RouterProps[] = []
   for (const menu of menuList) {
     result.push({
       name: menu.vue_path,
@@ -94,8 +94,6 @@ function GetMenuNameAndModule(path: string): string {
       return i18n.global.t('router.sideBar.freightSetting')
     case 'warehouseSetting':
       return i18n.global.t('router.sideBar.warehouseSetting')
-    case 'customer':
-      return i18n.global.t('router.sideBar.customer')
     case 'print':
       return i18n.global.t('router.sideBar.print')
     case 'supplier':
@@ -176,8 +174,6 @@ function GetModuleAndIcon(name: string) {
       return 'image-auto-adjust'
     case 'warehouseTaking':
       return 'ballot-recount-outline'
-    case 'customer':
-      return 'account-box-outline'
     case 'print':
       return 'printer-outline'
     case 'supplier':

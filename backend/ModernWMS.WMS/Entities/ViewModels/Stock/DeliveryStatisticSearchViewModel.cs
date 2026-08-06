@@ -76,12 +76,6 @@ namespace ModernWMS.WMS.Entities.ViewModels.Stock
         [MaxLength(32, ErrorMessage = "MaxLength")]
         public string warehouse_name { get; set; } = string.Empty;
 
-        /// <summary>
-        /// customer_name
-        /// </summary>
-        [Display(Name = "customer_name")]
-        [MaxLength(256, ErrorMessage = "MaxLength")]
-        public string customer_name { get; set; } = string.Empty;
 
         /// <summary>
         /// Delivery date from

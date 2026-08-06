@@ -25,7 +25,6 @@ export const actionDict: any = {
   ],
   ownerOfCargo: ['save', 'delete', 'import', 'export'],
   freightSetting: ['save', 'delete', 'import', 'export'],
-  customer: ['save', 'delete', 'import', 'export'],
 
   stockAsn: [
     'notice-save',

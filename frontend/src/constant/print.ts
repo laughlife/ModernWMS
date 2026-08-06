@@ -30,30 +30,5 @@ export const PRINT_MENU = [{
     }
   }]
 },
-{
-  vue_path: 'customer',
-  i18nName: 'base.customer',
-  children: [{
-    tab_page: 'print_page_main',
-    form: {
-      detailList: {
-        name: 'print_data_main',
-        columns: ['customer_name', 'city', 'address', 'manager', 'email', 'contact_tel']
-      }
-
-    }
-  }, {
-    tab_page: 'print_page_detail',
-    form: {
-      id: 0,
-      customer_name: '',
-      city: '',
-      address: '',
-      manager: '',
-      email: '',
-      contact_tel: '',
-    }
-  }]
-},
 
 ]

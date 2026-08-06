@@ -105,7 +105,7 @@ describe('permission tree state', () => {
   it('keeps non-empty backend menu actions before falling back to actionDict defaults', () => {
     expect(resolveMenuActions({
       id: 30,
-      menu_name: 'customer',
+      menu_name: 'supplier',
       module: 'baseModule',
       menu_actions: ['save', 'approve']
     }, ['save', 'delete'])).toEqual(['save', 'approve'])

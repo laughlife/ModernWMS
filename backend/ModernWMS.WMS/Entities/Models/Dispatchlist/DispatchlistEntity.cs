@@ -30,15 +30,6 @@ namespace ModernWMS.WMS.Entities.Models
         /// </summary>
         public byte dispatch_status { get; set; }  = 0;
 
-        /// <summary>
-        /// customer_id
-        /// </summary>
-        public int customer_id { get; set; }  = 0;
-
-        /// <summary>
-        /// customer_name
-        /// </summary>
-        public string customer_name { get; set; }  = string.Empty;
 
         /// <summary>
         /// sku_id

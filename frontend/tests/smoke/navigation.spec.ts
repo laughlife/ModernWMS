@@ -13,7 +13,6 @@ const menus = [
   ['warehouseSetting', 'baseModule', 'base/warehouseSetting'],
   ['ownerOfCargo', 'baseModule', 'base/ownerOfCargo'],
   ['freightSetting', 'baseModule', 'base/freightSetting'],
-  ['customer', 'baseModule', 'base/customer'],
   ['print', 'baseModule', 'base/print'],
   ['stockManagement', '', 'wms/stockManagement'],
   ['warehouseProcessing', 'warehouseWorkingModule', 'warehouseWorking/warehouseProcessing'],

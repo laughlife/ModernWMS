@@ -25,18 +25,6 @@
             >
             </v-text-field>
           </v-col>
-          <v-col cols="4">
-            <v-text-field
-              v-model="data.searchForm.customer_name"
-              clearable
-              hide-details
-              density="comfortable"
-              class="searchInput ml-5 mt-1"
-              :label="$t('wms.deliveryManagement.customer_name')"
-              variant="solo"
-            >
-            </v-text-field>
-          </v-col>
         </v-row>
       </v-col>
     </v-row>
@@ -68,7 +56,6 @@
           <span>{{ `${row.volume} ${GetUnit('volume', 1)}` }}</span>
         </template>
       </vxe-column>
-      <vxe-column field="customer_name" :title="$t('wms.deliveryManagement.customer_name')"></vxe-column>
       <vxe-column field="creator" :title="$t('wms.deliveryManagement.creator')"></vxe-column>
       <!-- <vxe-column
         field="create_time"
@@ -132,7 +119,6 @@ const data = reactive({
   },
   searchForm: {
     dispatch_no: '',
-    customer_name: ''
   },
   timer: ref<any>(null),
   activeTab: null,

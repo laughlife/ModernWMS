@@ -754,7 +754,6 @@ namespace ModernWMS.WMS.Services
                         join go in owner_DbSet.AsNoTracking() on dpp.goods_owner_id equals go.id
                         where dp.dispatch_status >= 6 && spu.spu_name.Contains(input.spu_name) && spu.spu_code.Contains(input.spu_code)
                         && sku.sku_name.Contains(input.sku_name) && sku.sku_code.Contains(input.sku_code) && wh.warehouse_name.Contains(input.warehouse_name)
-                        && dp.customer_name.Contains(input.customer_name) && go.goods_owner_name.Contains(input.goods_owner_name)
                         group new { dpp, dp, spu, sku } by
                         new
                         {
@@ -769,7 +768,6 @@ namespace ModernWMS.WMS.Services
                             dpp.price,
                             dpp.expiry_date,
                             dpp.putaway_date,
-                            dp.customer_name,
                             dp.create_time,
                             dpp.goods_owner_id,
                             go.goods_owner_name,
@@ -788,7 +786,6 @@ namespace ModernWMS.WMS.Services
                             expiry_date = dg.Key.expiry_date,
                             price = dg.Key.price,
                             putaway_date = dg.Key.putaway_date,
-                            customer_name = dg.Key.customer_name,
                             delivery_date = dg.Key.create_time,
                             goods_owner_name = dg.Key.goods_owner_name,
                             delivery_qty = dg.Sum(t => t.dpp.picked_qty),

@@ -37,18 +37,6 @@ namespace ModernWMS.WMS.Entities.ViewModels
         [Display(Name = "dispatch_status")]
         public byte dispatch_status { get; set; } = 0;
 
-        /// <summary>
-        /// customer_id
-        /// </summary>
-        [Display(Name = "customer_id")]
-        public int customer_id { get; set; } = 0;
-
-        /// <summary>
-        /// customer_name
-        /// </summary>
-        [Display(Name = "customer_name")]
-        [MaxLength(256, ErrorMessage = "MaxLength")]
-        public string customer_name { get; set; } = string.Empty;
 
         /// <summary>
         /// qty

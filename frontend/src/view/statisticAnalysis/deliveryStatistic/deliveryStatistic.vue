@@ -47,7 +47,6 @@
                   <vxe-column field="spu_name" :title="$t('wms.deliveryStatistic.spu_name')"></vxe-column>
                   <vxe-column field="sku_code" :title="$t('wms.deliveryStatistic.sku_code')"></vxe-column>
                   <vxe-column field="sku_name" :title="$t('wms.deliveryStatistic.sku_name')"></vxe-column>
-                  <vxe-column field="customer_name" :title="$t('wms.deliveryStatistic.customer_name')"></vxe-column>
                   <vxe-column field="series_number" :title="$t('wms.deliveryStatistic.series_number')"></vxe-column>
                   <vxe-column field="delivery_qty" :title="$t('wms.deliveryStatistic.delivery_qty')"></vxe-column>
                   <vxe-date-column
@@ -120,7 +119,6 @@ const data = reactive({
     sku_code: '',
     sku_name: '',
     warehouse_name: '',
-    customer_name: '',
     delivery_date_from: '',
     delivery_date_to: ''
   },

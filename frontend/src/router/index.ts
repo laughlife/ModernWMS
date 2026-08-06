@@ -2,11 +2,11 @@
 import { createRouter, createWebHashHistory, RouteRecordRaw } from 'vue-router'
 import { pinia } from '@/store'
 import { useUserStore } from '@/store/module/user'
-import { CustomerRouterProps } from '@/types/System/Router'
+import { RouterProps } from '@/types/System/Router'
 import { menusToRouter } from '@/utils/router'
 
 // array => dynamic router
-let dynamicRouter: CustomerRouterProps[] = []
+let dynamicRouter: RouterProps[] = []
 let loadedRouter: string[] = []
 
 // default router

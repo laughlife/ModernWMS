@@ -110,8 +110,6 @@ namespace ModernWMS.WMS.Services
                             id = d.id,
                             dispatch_no = d.dispatch_no,
                             dispatch_status = d.dispatch_status,
-                            customer_id = d.customer_id,
-                            customer_name = d.customer_name,
                             sku_id = d.sku_id,
                             qty = d.qty,
                             weight = d.weight,
@@ -184,8 +182,6 @@ namespace ModernWMS.WMS.Services
                                    id = d.id,
                                    dispatch_no = d.dispatch_no,
                                    dispatch_status = d.dispatch_status,
-                                   customer_id = d.customer_id,
-                                   customer_name = d.customer_name,
                                    sku_id = d.sku_id,
                                    qty = d.qty,
                                    weight = d.weight,
@@ -462,8 +458,6 @@ namespace ModernWMS.WMS.Services
                                   spu_name = spu.spu_name,
                                   bar_code = sku.bar_code,
                                   dispatch_status = dl.dispatch_status,
-                                  customer_id = dl.customer_id,
-                                  customer_name = dl.customer_name,
                                   sku_id = dl.sku_id,
                                   qty = dl.qty,
                                   weight = dl.weight,
@@ -671,8 +665,6 @@ namespace ModernWMS.WMS.Services
                                    spu_description = spu.spu_description,
                                    dispatch_status = dl.dispatch_status,
                                    bar_code = sku.bar_code,
-                                   customer_id = dl.customer_id,
-                                   customer_name = dl.customer_name,
                                    dispatch_no = dl.dispatch_no,
                                    location_name = gl.location_name == null ? "" : gl.location_name,
                                    warehouse_area_name = gl.warehouse_area_name == null ? "" : gl.warehouse_area_name,
@@ -694,8 +686,6 @@ namespace ModernWMS.WMS.Services
                            d.spu_description,
                            d.dispatch_status,
                            d.bar_code,
-                           d.customer_id,
-                           d.customer_name,
                            d.dispatch_no,
                        }
                        into dg
@@ -710,8 +700,6 @@ namespace ModernWMS.WMS.Services
                            spu_description = dg.Key.spu_description,
                            spu_name = dg.Key.spu_name,
                            bar_code = dg.Key.bar_code,
-                           customer_id = dg.Key.customer_id,
-                           customer_name = dg.Key.customer_name,
                            qty = dg.Key.qty,
                            qty_available = dg.Sum(t => t.qty_available),
                            confirm = dg.Key.qty > dg.Sum(t => t.qty_available) ? false : true
@@ -817,8 +805,6 @@ namespace ModernWMS.WMS.Services
                             dispatch_status = 1,
                             qty = d.qty - d.lock_qty,
                             tenant_id = currentUser.tenant_id,
-                            customer_id = d.customer_id,
-                            customer_name = d.customer_name,
                         });
                         d.qty = d.lock_qty;
                     }
@@ -831,8 +817,6 @@ namespace ModernWMS.WMS.Services
                         dispatch_status = 1,
                         qty = vm.qty,
                         tenant_id = currentUser.tenant_id,
-                        customer_id = d.customer_id,
-                        customer_name = d.customer_name,
                     });
                     DBSet.Remove(d);
                 }
@@ -1586,12 +1570,10 @@ namespace ModernWMS.WMS.Services
         {
             var DbSet = _dBContext.GetDbSet<DispatchlistEntity>();
             var import_sku_code = viewModels.Select(e => e.sku_code).ToList();
-            var import_customer_name = viewModels.Select(e => e.customer_name).ToList();
             var sku_list = await (from sku in _dBContext.GetDbSet<SkuEntity>()
                                   join spu in _dBContext.GetDbSet<SpuEntity>() on sku.spu_id equals spu.id
                                   where spu.tenant_id == currentUser.tenant_id && import_sku_code.Contains(sku.sku_code)
                                   select sku).ToListAsync();
-            var customer_list = await _dBContext.GetDbSet<CustomerEntity>().Where(t => t.tenant_id == currentUser.tenant_id && import_customer_name.Contains(t.customer_name)).ToListAsync();
             var entities = new List<DispatchlistEntity>();
             var groups = viewModels.Select(t => t.import_group).Distinct().ToList();
             var groups_code = await _functionHelper.GetFormNoListAsync("Dispatchlist", groups.Count);
@@ -1603,11 +1585,6 @@ namespace ModernWMS.WMS.Services
             }
             foreach (var vm in viewModels)
             {
-                var customer = customer_list.FirstOrDefault(t => t.customer_name == vm.customer_name);
-                if (customer == null)
-                {
-                    return (false, _stringLocalizer["customer_name"] + ":" + vm.customer_name + " " + _stringLocalizer["not_exists_entity"]);
-                }
                 var sku = sku_list.FirstOrDefault(t => t.sku_code == vm.sku_code);
                 if (sku == null)
                 {
@@ -1615,8 +1592,6 @@ namespace ModernWMS.WMS.Services
                 }
                 entities.Add(new DispatchlistEntity
                 {
-                    customer_id = customer.id,
-                    customer_name = vm.customer_name,
                     sku_id = sku.id,
                     qty = vm.qty,
                     creator = currentUser.user_name,

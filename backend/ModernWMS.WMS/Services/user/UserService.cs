@@ -460,15 +460,6 @@ namespace ModernWMS.WMS.Services
                         tenant_id = tenant_id
                     },new MenuEntity
                     {
-                        menu_name = "customer",
-                        module = "baseModule",
-                        vue_path = "customer",
-                        vue_path_detail = "",
-                        vue_directory = "base/customer",
-                        sort = 11,
-                        tenant_id = tenant_id
-                    },new MenuEntity
-                    {
                         menu_name = "print",
                         module = "baseModule",
                         vue_path = "print",

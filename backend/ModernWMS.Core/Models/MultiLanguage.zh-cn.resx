@@ -243,9 +243,6 @@
   <data name="inventory_area" xml:space="preserve">
     <value>存货区</value>
   </data>
-  <data name="customer_name" xml:space="preserve">
-    <value>客户名称</value>
-  </data>
   <data name="supplier_name" xml:space="preserve">
     <value>供应商名称</value>
   </data>

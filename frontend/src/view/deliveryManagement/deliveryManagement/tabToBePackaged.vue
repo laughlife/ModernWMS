@@ -27,18 +27,6 @@
           </v-col>
           <v-col cols="4">
             <v-text-field
-              v-model="data.searchForm.customer_name"
-              clearable
-              hide-details
-              density="comfortable"
-              class="searchInput ml-5 mt-1"
-              :label="$t('wms.deliveryManagement.customer_name')"
-              variant="solo"
-            >
-            </v-text-field>
-          </v-col>
-          <v-col cols="4">
-            <v-text-field
               v-model="data.searchForm.spu_name"
               clearable
               hide-details
@@ -88,7 +76,6 @@
       </vxe-column>
       <!-- <vxe-column field="package_person" :title="$t('wms.deliveryManagement.package_person')"></vxe-column>
       <vxe-column field="package_time" width="170px" :title="$t('wms.deliveryManagement.package_time')"></vxe-column> -->
-      <vxe-column field="customer_name" :title="$t('wms.deliveryManagement.customer_name')"></vxe-column>
       <vxe-column field="creator" :title="$t('wms.deliveryManagement.creator')"></vxe-column>
       <vxe-column field="create_time" width="170px" :title="$t('wms.deliveryManagement.create_time')"></vxe-column>
       <vxe-column field="operate" :title="$t('system.page.operate')" width="140" :resizable="false" show-overflow>
@@ -163,7 +150,6 @@ const data = reactive({
   },
   searchForm: {
     dispatch_no: '',
-    customer_name: '',
     spu_name: ''
   },
   timer: ref<any>(null),

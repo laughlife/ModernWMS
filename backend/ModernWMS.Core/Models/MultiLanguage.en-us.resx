@@ -243,9 +243,6 @@
   <data name="inventory_area" xml:space="preserve">
     <value>Inventory Area</value>
   </data>
-  <data name="customer_name" xml:space="preserve">
-    <value>Customer Name</value>
-  </data>
   <data name="supplier_name" xml:space="preserve">
     <value>Supplier Name</value>
   </data>

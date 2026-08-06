@@ -29,7 +29,6 @@ export default {
     ]
   },
   deliveryStatistic: {
-    default: ['sku_code', 'warehouse_name', 'customer_name'],
     list: [
       {
         type: 'string',
@@ -50,10 +49,6 @@ export default {
       {
         type: 'string',
         name: 'warehouse_name'
-      },
-      {
-        type: 'string',
-        name: 'customer_name'
       },
       {
         type: 'datetime',

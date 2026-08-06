@@ -16,10 +16,6 @@ namespace ModernWMS.WMS.Entities.ViewModels
         /// </summary>
         public int import_group { get; set; } = 0;
 
-        /// <summary>
-        /// customer_name
-        /// </summary>
-        public string customer_name { get; set; } = string.Empty;
 
         /// <summary>
         /// sku_name

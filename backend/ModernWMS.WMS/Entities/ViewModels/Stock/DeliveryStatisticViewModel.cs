@@ -66,10 +66,6 @@ namespace ModernWMS.WMS.Entities.ViewModels.Stock
         /// </summary>
         public string spu_name { get; set; } = string.Empty;
 
-        /// <summary>
-        /// customer_name
-        /// </summary>
-        public string customer_name { get; set; } = string.Empty;
 
         /// <summary>
         /// series_number

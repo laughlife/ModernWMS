@@ -8,7 +8,6 @@ interface ListProps {
   sku_code?: string
   sku_name?: string
   warehouse_name?: string
-  customer_name?: string
   delivery_date_from?: string
   delivery_date_to?: string
 }

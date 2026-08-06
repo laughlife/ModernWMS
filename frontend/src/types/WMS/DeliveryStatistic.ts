@@ -6,7 +6,6 @@ export interface DeliveryStatisticVo {
   sku_name: string
   spu_code: string
   spu_name: string
-  customer_name: string
   series_number: string
   delivery_qty: number
   delivery_date: string

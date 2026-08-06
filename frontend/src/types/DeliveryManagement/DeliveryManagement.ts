@@ -7,8 +7,6 @@ export interface DeliveryManagementVO extends UniformFileNaming {
   qty?: number
   weight?: number
   volume?: number
-  customer_id?: number
-  customer_name?: string
   picked_qty?: number
   detailList: DeliveryManagementDetailListVO[]
 }
@@ -42,8 +40,6 @@ export interface DeliveryManagementDetailVO extends DeliveryManagementVO {
 }
 
 export interface addRequestVO {
-  customer_id: number
-  customer_name: string
   sku_id: number
   qty: number
 }
