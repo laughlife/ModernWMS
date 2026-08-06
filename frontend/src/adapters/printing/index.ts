@@ -1,8 +1,6 @@
 import type { App } from 'vue'
 import printDirective from 'vue3-print-nb'
-import { setup } from 'yk-vue-plugin-hiprint'
-
-const hiprint = setup()
+import { hiprint } from 'yk-vue-plugin-hiprint'
 
 export function installPrinting(app: App) {
   app.use(printDirective)
