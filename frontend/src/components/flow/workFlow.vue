@@ -136,7 +136,7 @@ const data = reactive({
               sort: 0,
               formulas: '',
               assertMode: '存在',
-              tableName: 'SOffer a left join BCustomer b on a.BCustomerID = b.ID',
+              tableName: 'SOffer a left join BPartner b on a.BPartnerID = b.ID',
               guid: '62aa6fd4-aaee-4e05-bccd-f0427a34d830',
               bFlowLinkID: 3778,
               schemeName: '2022',
@@ -233,7 +233,7 @@ const data = reactive({
                   sort: 0,
                   formulas: '',
                   assertMode: '存在',
-                  tableName: 'SOffer a left join BCustomer b on a.BCustomerID = b.ID',
+                  tableName: 'SOffer a left join BPartner b on a.BPartnerID = b.ID',
                   guid: '',
                   ifOther: '否'
                 }

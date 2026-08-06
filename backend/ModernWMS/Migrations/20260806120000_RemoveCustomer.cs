@@ -11,6 +11,9 @@ namespace ModernWMS.Migrations
     {
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.Sql("DELETE FROM `rolemenu` WHERE `menu_id` = 30;");
+            migrationBuilder.Sql("DELETE FROM `menu` WHERE `id` = 30 OR `menu_name` = 'customer';");
+
             migrationBuilder.DropColumn(
                 name: "customer_id",
                 table: "dispatchlist");

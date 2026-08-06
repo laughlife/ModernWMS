@@ -9,7 +9,6 @@
   { "id": 8, "userrole_id": 1, "menu_id": 27, "authority": 1, "create_time": "2023-01-06T14:14:34.3281933", "last_update_time": "2023-01-06T14:14:34.3281933", "tenant_id": 1 },
   { "id": 9, "userrole_id": 1, "menu_id": 28, "authority": 1, "create_time": "2023-01-06T14:14:34.3281933", "last_update_time": "2023-01-06T14:14:34.3281933", "tenant_id": 1 },
   { "id": 10, "userrole_id": 1, "menu_id": 29, "authority": 1, "create_time": "2023-01-06T14:14:34.3281933", "last_update_time": "2023-01-06T14:14:34.3281933", "tenant_id": 1 },
-  { "id": 11, "userrole_id": 1, "menu_id": 30, "authority": 1, "create_time": "2023-01-06T14:14:34.3281933", "last_update_time": "2023-01-06T14:14:34.3281933", "tenant_id": 1 },
   { "id": 12, "userrole_id": 1, "menu_id": 31, "authority": 1, "create_time": "2023-01-06T14:14:34.3281933", "last_update_time": "2023-01-06T14:14:34.3281933", "tenant_id": 1 },
   { "id": 13, "userrole_id": 1, "menu_id": 32, "authority": 1, "create_time": "2023-01-06T14:14:34.3281933", "last_update_time": "2023-01-06T14:14:34.3281933", "tenant_id": 1 },
   { "id": 14, "userrole_id": 1, "menu_id": 33, "authority": 1, "create_time": "2023-01-06T14:14:34.3281933", "last_update_time": "2023-01-06T14:14:34.3281933", "tenant_id": 1 },
