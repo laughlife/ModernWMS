@@ -50,4 +50,3 @@ export enum AreaProperty {
   'defective_area' = 5,
   'inventory_area' = 6
 }
-

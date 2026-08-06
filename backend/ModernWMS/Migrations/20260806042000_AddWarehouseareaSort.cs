@@ -1,13 +1,9 @@
-using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
-using ModernWMS.Core.DBContext;
 
 #nullable disable
 
 namespace ModernWMS.Migrations
 {
-    [DbContext(typeof(SqlDBContext))]
-    [Migration("20260806042000_AddWarehouseareaSort")]
     public partial class AddWarehouseareaSort : Migration
     {
         protected override void Up(MigrationBuilder migrationBuilder)

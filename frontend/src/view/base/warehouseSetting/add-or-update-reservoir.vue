@@ -26,6 +26,9 @@
             ></v-text-field>
             <v-text-field
               v-model="data.form.sort"
+              type="number"
+              min="0"
+              step="1"
               :label="$t('base.warehouseSetting.sort')"
               :rules="data.rules.sort"
               variant="outlined"
@@ -104,7 +107,8 @@ const data = reactive({
       (val: string) => StringLength(val, 0, 32) === '' || StringLength(val, 0, 32)
     ],
     sort: [
-      (val: any) => (val === null || val === undefined || val === '' || Number(val) < 0) ? `${ i18n.global.t('system.checkText.mustInput') }${ i18n.global.t('base.warehouseSetting.sort') }!` : true
+      (val: unknown) => (val !== null && val !== undefined && val !== '') || `${ i18n.global.t('system.checkText.mustInput') }${ i18n.global.t('base.warehouseSetting.sort') }!`,
+      (val: unknown) => (Number.isInteger(Number(val)) && Number(val) >= 0) || `${ i18n.global.t('base.warehouseSetting.sort') }${ i18n.global.t('system.checkText.integer') } >= 0!`
     ],
     area_property: [
       (val: string) => !!val || `${ i18n.global.t('system.checkText.mustInput') }${ i18n.global.t('base.warehouseSetting.area_property') }!`
