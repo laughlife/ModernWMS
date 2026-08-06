@@ -38,7 +38,7 @@ dotnet run --project backend/ModernWMS
 - Swagger：`http://localhost:21011/`
 - 健康检查：`http://localhost:21011/health`
 
-开发环境仅允许来自 `http://localhost:5173` 和 `http://127.0.0.1:5173` 的跨域请求。
+开发环境仅允许来自 `http://localhost`、`http://127.0.0.1`、`http://localhost:80` 和 `http://127.0.0.1:80` 的跨域请求。
 
 ## 4. 安装并启动前端
 
@@ -48,7 +48,7 @@ npm ci
 npm run dev
 ```
 
-浏览器访问 `http://127.0.0.1:5173`。开发配置会把 API 请求发送到 `http://127.0.0.1:21011`。
+浏览器访问 `http://127.0.0.1:80`。开发配置会把 API 请求发送到 `http://127.0.0.1:21011`。
 
 当前仓库路径包含 `#`。如果 npm、Vite 或浏览器测试在该路径下解析异常，可在临时盘符中运行前端命令：
 

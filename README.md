@@ -39,7 +39,7 @@ npm ci
 npm run dev
 ```
 
-Open `http://127.0.0.1:5173`. The deterministic baseline account is `admin` / `1`; change this password immediately outside a disposable local environment.
+Open `http://127.0.0.1:80`. The deterministic baseline account is `admin` / `1`; change this password immediately outside a disposable local environment.
 
 ## Database initialization
 

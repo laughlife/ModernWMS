@@ -9,6 +9,14 @@ export default defineConfig({
     vue(),
     vuetify({ autoImport: true })
   ],
+  server: {
+    // 允许通过本机 IP 直接访问
+    host: true,
+    // 使用 80 端口，浏览器直接访问，无需输入端口号
+    port: 80,
+    // 端口被占用时直接报错，不自动回退到其他端口
+    strictPort: true
+  },
   resolve: {
     alias: {
       // 配置别名指向src目录

@@ -25,7 +25,7 @@
 - `frontend/.env.development`：`21011`。
 - `frontend/.env.production`：`20011`。
 - `docker/run.sh`：`21011`。
-- 升级目标：后端统一为 `21011`，前端开发端口统一为 `5173`。
+- 升级目标：后端统一为 `21011`，前端开发端口统一为 `80`。
 
 ## SQLite 参考数据
 
