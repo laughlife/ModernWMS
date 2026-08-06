@@ -1,0 +1,38 @@
+{
+  "projects": [
+    {
+      "id": "b974585e-35d6-4034-8998-03fcb4c0b61d",
+      "name": "ModernWMS",
+      "description": "ModernWMS 项目功能开发、问题修复和后续优化任务清单。",
+      "createdAt": "2026-08-06T03:58:26.717Z",
+      "updatedAt": "2026-08-06T03:58:26.717Z"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "749eb58f-bc8a-4aa9-ad50-4131d19515dd",
+      "name": "重建可视化仓库 3D 编辑器",
+      "details": "后排开发任务。当前 /vwms 为 Unity WebGL 静态样板且缺少 Unity 工程源码，后续使用 Vue 3 + Three.js 重建：接入真实仓库、库区、货架、库位与库存数据；支持 3D 浏览、选择详情、拖动旋转、网格吸附、库存状态着色；新增独立 warehouse_layout 布局持久化接口及 JSON 存储。不得影响现有仓库、库区、库位业务编码。开始开发前确认数据库布局存储方案。",
+      "projectId": "b974585e-35d6-4034-8998-03fcb4c0b61d",
+      "completed": false,
+      "createdAt": "2026-08-06T03:58:32.987Z",
+      "updatedAt": "2026-08-06T03:58:32.987Z",
+      "dependsOn": [],
+      "priority": 1,
+      "complexity": 7,
+      "status": "pending",
+      "tags": [
+        "后排",
+        "不重要不紧急",
+        "可视化仓库",
+        "Three.js"
+      ],
+      "estimatedHours": 28,
+      "level": 0
+    }
+  ],
+  "subtasks": [],
+  "migration": {
+    "version": "1.8.1"
+  }
+}
