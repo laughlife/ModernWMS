@@ -189,8 +189,8 @@
       "restPwd": "Reset password",
       "sex": "Sex",
       "userModalTitle": "User selection",
-      "user_name": "User Name",
-      "user_num": "User Num",
+      "user_name": "Employee Name",
+      "user_num": "Username",
       "user_register_name": "User Name",
       "user_role": "Role"
     },

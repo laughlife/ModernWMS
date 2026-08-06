@@ -38,6 +38,8 @@ namespace ModernWMS.WMS.Services
         /// </summary>
         private readonly IStringLocalizer<ModernWMS.Core.MultiLanguage> _stringLocalizer;
 
+        private const string AdminRoleName = "admin";
+
         #endregion Args
 
         #region constructor
@@ -184,11 +186,21 @@ namespace ModernWMS.WMS.Services
             {
                 return (false, string.Format(_stringLocalizer["exists_entity"], _stringLocalizer["user_num"], viewModel.user_num));
             }
-            var entity = await DbSet.FirstOrDefaultAsync(t => t.id.Equals(viewModel.id));
+            var entity = await DbSet.FirstOrDefaultAsync(t => t.id.Equals(viewModel.id) && t.tenant_id == currentUser.tenant_id);
             if (entity == null)
             {
                 return (false, _stringLocalizer["not_exists_entity"]);
             }
+
+            if (IsAdminUser(entity))
+            {
+                entity.user_num = viewModel.user_num;
+                entity.is_valid = true;
+                entity.last_update_time = DateTime.Now;
+                await _dBContext.SaveChangesAsync();
+                return (true, _stringLocalizer["save_success"]);
+            }
+
             entity.id = viewModel.id;
             entity.user_num = viewModel.user_num;
             entity.user_name = viewModel.user_name;
@@ -631,6 +643,11 @@ namespace ModernWMS.WMS.Services
                 password += randomChars[randomNum];
             }
             return password;
+        }
+
+        private static bool IsAdminUser(userEntity entity)
+        {
+            return string.Equals(entity.user_role?.Trim(), AdminRoleName, StringComparison.OrdinalIgnoreCase);
         }
 
         #endregion Api

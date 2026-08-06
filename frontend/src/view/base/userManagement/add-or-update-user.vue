@@ -16,6 +16,7 @@
               :label="$t('base.userManagement.user_name')"
               :rules="data.rules.user_name"
               variant="outlined"
+              :disabled="isEdit && isAdminUser"
             ></v-text-field>
             <v-select
               v-model="data.form.user_role"
@@ -24,6 +25,7 @@
               :label="$t('base.userManagement.user_role')"
               variant="outlined"
               clearable
+              :disabled="isEdit && isAdminUser"
             ></v-select>
             <v-select
               v-model="data.form.sex"
@@ -34,18 +36,21 @@
               :label="$t('base.userManagement.sex')"
               variant="outlined"
               clearable
+              :disabled="isEdit && isAdminUser"
             ></v-select>
             <v-text-field
               v-model="data.form.contact_tel"
               :label="$t('base.userManagement.contact_tel')"
               :rules="data.rules.contact_tel"
               variant="outlined"
+              :disabled="isEdit && isAdminUser"
             ></v-text-field>
             <v-switch
               v-model="data.form.is_valid"
               color="primary"
               :label="$t('base.userManagement.is_valid')"
               :rules="data.rules.is_valid"
+              :disabled="isEdit && isAdminUser"
             ></v-switch>
           </v-form>
         </v-card-text>
@@ -66,6 +71,7 @@ import { hookComponent } from '@/components/system/index'
 import { addUser, updateUser, getSelectItem } from '@/api/base/userManagement'
 import { StringLength } from '@/utils/dataVerification/formRule'
 import { removeObjectNull } from '@/utils/common'
+import { isAdminRole } from '@/view/base/userRoleSetting/userRolePolicy'
 
 const formRef = ref()
 const emit = defineEmits(['close', 'saveSuccess'])
@@ -83,6 +89,8 @@ const dialogTitle = computed(() => {
   }
   return 'add'
 })
+
+const isEdit = computed(() => dialogTitle.value === 'update')
 
 const data = reactive({
   form: ref<UserVO>({
@@ -117,6 +125,8 @@ const data = reactive({
     user_role: []
   })
 })
+
+const isAdminUser = computed(() => isAdminRole(data.form.user_role))
 
 const method = reactive({
   // Get the options required by the drop-down box
