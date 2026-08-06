@@ -53,20 +53,25 @@ namespace ModernWMS.Core.Extentions
                 throw new InvalidOperationException("ConnectionStrings:MySqlConn is required.");
             }
 
-            // ERP 数据源：与主数据源同库配置，仅数据库名不同（DatabaseSources:Erp:Database）
-            var erpDatabase = configuration["DatabaseSources:Erp:Database"];
-            if (string.IsNullOrWhiteSpace(erpDatabase))
+            // ERP 数据源优先使用独立连接串，避免主库账号没有 ERP 库权限时认证失败。
+            // 未配置独立连接串时，继续兼容“同服务器、同账号、仅数据库名不同”的旧配置。
+            var erpConnectionString = configuration.GetConnectionString("ErpMySqlConn");
+            if (string.IsNullOrWhiteSpace(erpConnectionString))
             {
-                throw new InvalidOperationException("DatabaseSources:Erp:Database is required.");
-            }
+                var erpDatabase = configuration["DatabaseSources:Erp:Database"];
+                if (string.IsNullOrWhiteSpace(erpDatabase))
+                {
+                    throw new InvalidOperationException(
+                        "ConnectionStrings:ErpMySqlConn or DatabaseSources:Erp:Database is required.");
+                }
 
-            // 基于主连接串派生 ERP 连接串，仅替换 Database，避免重复维护账号密码
-            var erpConnectionStringBuilder = new DbConnectionStringBuilder
-            {
-                ConnectionString = connectionString
-            };
-            erpConnectionStringBuilder["Database"] = erpDatabase;
-            var erpConnectionString = erpConnectionStringBuilder.ConnectionString;
+                var erpConnectionStringBuilder = new DbConnectionStringBuilder
+                {
+                    ConnectionString = connectionString
+                };
+                erpConnectionStringBuilder["Database"] = erpDatabase;
+                erpConnectionString = erpConnectionStringBuilder.ConnectionString;
+            }
 
             services.AddDbContextPool<SqlDBContext>(t =>
             {
