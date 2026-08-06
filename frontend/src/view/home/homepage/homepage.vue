@@ -5,16 +5,12 @@
       <div class="subTitle">{{ i18n.global.t('homepage.subTitle') }}</div>
     </div>
     <div class="content">
-      <div class="lottieBox">
-        <lottie :src="dataJson"></lottie>
-      </div>
+      <img class="warehouseImage" src="@/assets/img/login-warehouse.png" alt="仓储物流管理" />
     </div>
   </div>
 </template>
 
 <script lang="ts" setup>
-import lottie from '@/components/lottie.vue'
-import dataJson from '@/assets/warehouse.json'
 import i18n from '@/languages/i18n'
 </script>
 
@@ -37,7 +33,8 @@ import i18n from '@/languages/i18n'
 }
 
 .content {
-  width: 60%;
+  width: min(72%, 1100px);
+  padding-top: 110px;
 }
 
 .textBox {
@@ -55,7 +52,7 @@ import i18n from '@/languages/i18n'
   display: flex;
   justify-content: center;
   width: 100%;
-  color: #9c27b0;
+  color: #1769e8;
   font-weight: bold;
   font-size: 120px;
 }
@@ -66,11 +63,23 @@ import i18n from '@/languages/i18n'
   width: 100%;
   font-size: 30px;
   letter-spacing: 5px;
-  color: #c9a7cf;
+  color: #76a9f2;
 }
 
-.lottieBox {
-  min-width: 100%;
-  max-width: 100%;
+.warehouseImage {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
+@media (max-width: 1280px) {
+  .mainTitle {
+    font-size: 82px;
+  }
+
+  .subTitle {
+    font-size: 24px;
+  }
 }
 </style>

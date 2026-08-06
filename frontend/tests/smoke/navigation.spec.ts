@@ -58,6 +58,24 @@ async function mockBackend(page: Page) {
   })
 }
 
+test('sidebar menu click navigates to the selected page', async ({ page }) => {
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
+  await mockBackend(page)
+
+  await page.goto('/#/login')
+  await page.locator('.loginBtn').click()
+  await expect(page).toHaveURL(/#\/homepage$/)
+
+  await page.getByText('基础设置', { exact: true }).click()
+  await page.getByText('用户管理', { exact: true }).click()
+
+  await expect(page).toHaveURL(/#\/userManagement$/)
+  await expect(page.locator('.v-breadcrumbs')).toContainText('用户管理')
+  await expect(page.locator('.sideBarMenus .menuItems').filter({ hasText: '用户管理' })).toHaveClass(/activeMenuItems/)
+  expect(pageErrors).toEqual([])
+})
+
 test('critical pages remain navigable', async ({ page }) => {
   const pageErrors: string[] = []
   page.on('pageerror', (error) => pageErrors.push(error.message))
@@ -76,7 +94,7 @@ test('critical pages remain navigable', async ({ page }) => {
   await page.goto('/#/login')
   await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN')
   await expect(page.locator('input[type="text"]')).toHaveCount(1)
-  await expect(page.locator('.titleText')).toContainText('欢迎来到ModernWMS')
+  await expect(page.locator('.titleText')).toContainText('欢迎登录')
   await expect(page.locator('.languageIcon')).toHaveCount(0)
   if (baselineDir) await page.screenshot({ path: resolve(baselineDir, '01-login.png'), fullPage: true })
 
@@ -84,6 +102,8 @@ test('critical pages remain navigable', async ({ page }) => {
   await page.locator('.loginBtn').click()
   await loginResponse
   await expect(page).toHaveURL(/#\/homepage$/)
+  await expect(page.locator('.warehouseImage')).toBeVisible()
+  await expect(page.locator('.mainTitle')).toHaveCSS('color', 'rgb(23, 105, 232)')
   await expect(page.locator('.languageIcon')).toHaveCount(0)
   await expect(page.getByAltText('Gitee')).toHaveCount(0)
   await expect(page.getByAltText('API')).toHaveCount(0)

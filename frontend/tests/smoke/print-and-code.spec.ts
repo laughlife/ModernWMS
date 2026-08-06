@@ -78,7 +78,7 @@ test('print templates, QR codes and barcodes render through upgraded plugins', a
   await login(page)
 
   await page.evaluate(() => { window.location.hash = '#/print' })
-  await expect(page.locator('.v-breadcrumbs')).toContainText('Print Settings')
+  await expect(page.locator('.v-breadcrumbs')).toContainText('打印设置')
   await expect(page.locator('.vxe-table')).toContainText('SKU label')
 
   await page.evaluate(() => { window.location.hash = '#/commodityManagement' })
@@ -89,17 +89,17 @@ test('print templates, QR codes and barcodes render through upgraded plugins', a
   await skuRows.locator('.vxe-cell--checkbox:visible').click()
 
   await page.locator('.btn-group .mdi-qrcode').click()
-  const qrDialog = page.locator('.v-dialog').filter({ hasText: 'Preview' })
+  const qrDialog = page.locator('.v-dialog').filter({ hasText: '预览' })
   await expect(qrDialog.locator('#printArea .code-container')).toBeVisible()
   await expect(qrDialog.locator('#printArea canvas, #printArea img')).toHaveCount(1)
   await page.waitForTimeout(300)
-  await qrDialog.getByRole('button', { name: 'Close' }).click()
+  await qrDialog.getByRole('button', { name: '关闭' }).click()
 
   await page.locator('.btn-group .mdi-barcode').click()
-  const barcodeDialog = page.locator('.v-dialog').filter({ hasText: 'Preview' })
+  const barcodeDialog = page.locator('.v-dialog').filter({ hasText: '预览' })
   await expect(barcodeDialog.locator('#printBarCode201')).toBeVisible()
   await expect(barcodeDialog.locator('#printBarCode201 rect, #printBarCode201 path')).not.toHaveCount(0)
-  await barcodeDialog.getByRole('button', { name: 'Close' }).click()
+  await barcodeDialog.getByRole('button', { name: '关闭' }).click()
 
   expect(pageErrors).toEqual([])
 })

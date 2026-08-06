@@ -50,7 +50,7 @@ const props = defineProps({
 }
 
 .loading-title {
-  color: #9c27b0;
+  color: #1769e8;
   font-weight: bold;
   font-size: 60px;
   margin-bottom: 20px;

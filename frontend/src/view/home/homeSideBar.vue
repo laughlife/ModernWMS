@@ -66,14 +66,14 @@ const systemStore = useSystemStore()
 
 const method = reactive({
   // Open menu
-  openMenu: (item: SideBarMenu) => {
+  openMenu: async (item: SideBarMenu) => {
     if (item.children && item.children.length > 0) {
       item.showDetail = !item.showDetail
     } else if (item.routerPath && currentRouterPath.value !== item.routerPath) {
       // If the selected menu is skipped, no action will be taken
+      await router.push({ name: item.routerPath })
       systemStore.setCurrentRouterPath(item.routerPath)
       systemStore.addOpenedMenu(item.routerPath)
-      router.push(item.routerPath)
     }
   },
   // Get item class
@@ -146,10 +146,10 @@ onMounted(() => {
       background-color: #e8e9ed;
     }
     .activeMenuItems {
-      background: linear-gradient(to right, #af85fc, #9155fd);
+      background: linear-gradient(to right, #2f80ed, #1769e8);
       color: #fff;
       &:hover {
-        background: linear-gradient(to right, #af85fc, #9155fd);
+        background: linear-gradient(to right, #2f80ed, #1769e8);
       }
     }
 

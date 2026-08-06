@@ -26,6 +26,9 @@ export default defineConfig({
   },
   // ...其他配置项
   optimizeDeps: {
-    include: ['jquery']
+    // Vuetify components are auto-imported from lazy-loaded pages. Pre-bundle
+    // every deep component import up front so Vite does not invalidate the
+    // dependency hash while the user is navigating between menus.
+    include: ['jquery', 'vuetify/components/**']
   }
 })

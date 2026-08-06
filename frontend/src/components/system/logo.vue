@@ -2,7 +2,7 @@
   <img
     class="SysTitleLogo"
     :style="{ height: height + 'px', top: top + 'px', left: left + 'px' }"
-    src="@/assets/img/WMSTitle.png"
+    src="@/assets/img/logo.png"
   />
 </template>
 <script setup lang="ts">

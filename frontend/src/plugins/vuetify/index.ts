@@ -20,7 +20,15 @@ const vuetify = createVuetify({
     }
   },
   theme: {
-    defaultTheme: 'light'
+    defaultTheme: 'light',
+    themes: {
+      light: {
+        colors: {
+          primary: '#1769E8',
+          secondary: '#0F5CC0'
+        }
+      }
+    }
   },
   display: {
     mobileBreakpoint: 'lg',

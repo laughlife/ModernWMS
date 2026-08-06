@@ -194,7 +194,7 @@ const firstName = computed(() => {
       border-radius: 40px;
       width: 40px;
       height: 40px;
-      background-color: #e8e2fb;
+      background-color: #eaf2ff;
       position: relative;
 
       .alive {
@@ -214,6 +214,6 @@ const firstName = computed(() => {
 
 .firstName {
   font-weight: 600;
-  color: #9c27b0;
+  color: #1769e8;
 }
 </style>

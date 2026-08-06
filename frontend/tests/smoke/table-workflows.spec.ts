@@ -68,7 +68,7 @@ test('VXE table pagination, filtering, export and import preview remain usable',
   await page.evaluate(() => { window.location.hash = '#/userManagement' })
   await expect(page.locator('.vxe-table')).toContainText('Administrator')
 
-  await page.getByRole('textbox', { name: 'User Num', exact: true }).fill('U001')
+  await page.getByRole('textbox', { name: '员工编号', exact: true }).fill('U001')
   await expect.poll(() => userRequests.some((body) => JSON.stringify(body).includes('U001'))).toBe(true)
 
   await page.locator('.v-pagination .v-btn').filter({ hasText: '2' }).click()
@@ -85,11 +85,11 @@ test('VXE table pagination, filtering, export and import preview remain usable',
 
   const workbook = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([{
-    'User Num': 'U002',
-    'User Name': 'Imported User',
-    'Contact Tel': '13900000000',
-    'User Role': 'Operator',
-    Sex: 'Male'
+    '员工编号': 'U002',
+    '员工名称': 'Imported User',
+    '联系方式': '13900000000',
+    '用户角色': 'Operator',
+    '性别': '男'
   }]), 'Users')
   const content = XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' })
   await importDialog.locator('input[type="file"]').setInputFiles({ name: 'users.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: content })
@@ -105,7 +105,7 @@ test('VXE popup table cell editing remains usable', async ({ page }) => {
   await login(page)
 
   await page.evaluate(() => { window.location.hash = '#/commodityManagement' })
-  await expect(page.locator('.v-breadcrumbs')).toContainText('Commodity Management')
+  await expect(page.locator('.v-breadcrumbs')).toContainText('商品管理')
   await page.locator('.mdi-plus').first().click()
 
   const dialog = page.locator('.v-dialog')
