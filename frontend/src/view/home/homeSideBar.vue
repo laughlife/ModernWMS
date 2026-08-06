@@ -3,6 +3,7 @@
     <div class="homeSidebar">
       <div class="sideBarTitle">
         <Logo :height="50" :top="15" :left="5" />
+        <div class="sideBarBrandName">南阳有座山</div>
       </div>
       <div class="sideBarMenus">
         <div v-for="(item, index) in data.menuList" :key="index">
@@ -107,6 +108,20 @@ onMounted(() => {
   .sideBarTitle {
     height: @sideBarTitleHeight;
     position: relative;
+
+    .sideBarBrandName {
+      position: absolute;
+      top: 0;
+      left: 70px;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      color: #334155;
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      white-space: nowrap;
+    }
   }
   .sideBarMenus {
     height: calc(100% - @sideBarTitleHeight);
