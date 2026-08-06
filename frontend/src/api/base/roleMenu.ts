@@ -1,5 +1,5 @@
 import http from '@/utils/http/request'
-import { RoleMenuVO } from '@/types/Base/RoleMenu'
+import { RoleMenuBatchPayload, RoleMenuVO } from '@/types/Base/RoleMenu'
 
 // Get user authority
 export const getUserAuthority = (userrole_id: number) => http({
@@ -41,6 +41,13 @@ export const addRoleMenu = (data: RoleMenuVO) => http({
 // Update form
 export const updateRoleMenu = (data: RoleMenuVO) => http({
     url: '/rolemenu',
+    method: 'put',
+    data
+  })
+
+// Batch update current role's full permission tree
+export const updateRoleMenuBatch = (data: RoleMenuBatchPayload) => http({
+    url: '/rolemenu/batch',
     method: 'put',
     data
   })

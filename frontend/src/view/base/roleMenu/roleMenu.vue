@@ -1,468 +1,547 @@
 <template>
   <div class="container">
-    <div>
-      <!-- Main Content -->
-      <v-card class="mt-5">
-        <v-card-text>
-          <div class="operateArea">
-            <v-row no-gutters>
-              <!-- Operate Btn -->
-              <v-col cols="12" sm="4" class="col">
-                <!-- <tooltip-btn icon="mdi-plus" :tooltip-text="$t('system.page.add')" @click="method.add()"></tooltip-btn>
-                <tooltip-btn icon="mdi-pencil-outline" :tooltip-text="$t('system.page.edit')" @click="method.editForm()"></tooltip-btn>
-                <tooltip-btn icon="mdi-delete-outline" :tooltip-text="$t('system.page.delete')" @click="method.deleteForm()"></tooltip-btn>
-                <tooltip-btn icon="mdi-refresh" :tooltip-text="$t('system.page.refresh')" @click="method.refresh()"></tooltip-btn>
-                <tooltip-btn icon="mdi-export-variant" :tooltip-text="$t('system.page.export')" @click="method.exportTable"></tooltip-btn> -->
+    <v-card class="mt-5 permission-card">
+      <v-card-text>
+        <v-row :no-gutters="true" class="permission-layout">
+          <v-col cols="12" md="3" class="dataListCol">
+            <v-card :height="panelHeight" class="role-panel">
+              <NavListVue
+                :list-data="data.roleList"
+                :title="data.navListOptions.title"
+                :label-key="data.navListOptions.labelKey"
+                :index-key="data.navListOptions.indexKey"
+                :index-value="data.navListOptions.indexValue"
+                @item-click="method.navListClick"
+              />
+            </v-card>
+          </v-col>
 
-                <BtnGroup :authority-list="[]" :btn-list="data.btnList" />
-              </v-col>
+          <v-col cols="12" md="9">
+            <v-card :height="panelHeight" class="permission-panel">
+              <div class="permission-toolbar">
+                <div class="permission-summary">
+                  <div class="permission-title">{{ $t('router.sideBar.roleMenu') }}</div>
+                  <div class="permission-subtitle">
+                    {{ selectedRoleName || $t('base.roleMenu.selectRoleFirst') }}
+                    <span v-if="data.isDirty" class="dirty-dot">{{ $t('base.roleMenu.unsaved') }}</span>
+                  </div>
+                </div>
 
-              <!-- Search Input -->
-              <v-col cols="12" sm="8">
-                <!-- <v-row no-gutters @keyup.enter="method.sureSearch">
-                  <v-col cols="12" sm="4">
-                    <v-text-field
-                      v-model="data.searchForm.userName"
-                      clearable
-                      hide-details
-                      density="comfortable"
-                      class="searchInput ml-5 mt-1"
-                      :label="$t('login.userName')"
-                      variant="solo"
-                    >
-                    </v-text-field>
-                  </v-col>
-                  <v-col cols="12" sm="4">
-                    <v-text-field
-                      v-model="data.searchForm.userName1"
-                      clearable
-                      hide-details
-                      density="comfortable"
-                      class="searchInput ml-5 mt-1"
-                      :label="$t('login.userName')"
-                      variant="solo"
-                    >
-                    </v-text-field>
-                  </v-col>
-                  <v-col cols="12" sm="4">
-                    <v-text-field
-                      v-model="data.searchForm.userName2"
-                      clearable
-                      hide-details
-                      density="comfortable"
-                      class="searchInput ml-5 mt-1"
-                      :label="$t('login.userName')"
-                      variant="solo"
-                    >
-                    </v-text-field>
-                  </v-col>
-                </v-row> -->
-              </v-col>
-            </v-row>
-          </div>
+                <div class="permission-actions">
+                  <v-chip color="primary" variant="tonal" size="small">
+                    {{ $t('base.roleMenu.selectedMenuCount') }}：{{ selectedMenuCount }}
+                  </v-chip>
+                  <v-btn
+                    variant="tonal"
+                    color="primary"
+                    size="small"
+                    :disabled="!hasActiveRole || isLoading || data.isSaving"
+                    @click="method.toggleSelectAll"
+                  >
+                    {{ isAllSelected ? $t('base.roleMenu.unselectAll') : $t('base.roleMenu.selectAll') }}
+                  </v-btn>
+                  <v-btn
+                    variant="tonal"
+                    color="primary"
+                    size="small"
+                    :disabled="isLoading || data.isSaving || !permissionTree.length"
+                    @click="method.toggleExpandAll"
+                  >
+                    {{ isAllExpanded ? $t('base.roleMenu.collapseAll') : $t('base.roleMenu.expandAll') }}
+                  </v-btn>
+                  <v-btn
+                    color="primary"
+                    size="small"
+                    :loading="data.isSaving"
+                    :disabled="!hasActiveRole || !data.isDirty || isLoading"
+                    @click="method.savePermissions"
+                  >
+                    {{ $t('base.roleMenu.savePermissions') }}
+                  </v-btn>
+                </div>
+              </div>
 
-          <!-- Table -->
-          <div
-            class="mt-5"
-            :style="{
-              height: cardHeight
-            }"
-          >
-            <v-row :no-gutters="true">
-              <v-col :cols="3" class="dataListCol">
-                <v-card :height="tableHeight">
-                  <NavListVue
-                    :list-data="data.roleList"
-                    :title="data.navListOptions.title"
-                    :label-key="data.navListOptions.labelKey"
-                    :index-key="data.navListOptions.indexKey"
-                    :index-value="data.navListOptions.indexValue"
-                    @item-click="method.navListClick"
-                  />
-                </v-card>
-              </v-col>
-              <v-col :cols="9">
-                <vxe-table
-                  ref="xTable"
-                  :data="data.activeRoleMenuForm.detailList"
-                  :tree-config="{ transform: true }"
-                  :height="tableHeight"
-                  align="center"
+              <v-divider />
+
+              <div class="permission-tree-wrap">
+                <div v-if="isLoading" class="loading-state">
+                  <v-progress-linear indeterminate color="primary" />
+                </div>
+                <div v-else-if="!hasActiveRole" class="empty-state">{{ $t('base.roleMenu.selectRoleFirst') }}</div>
+                <div v-else-if="!permissionTree.length && !isLoading" class="empty-state">{{ $t('system.page.noData') }}</div>
+                <v-treeview
+                  v-else
+                  :items="permissionTree"
+                  :opened="data.openedNodeIds"
+                  item-title="title"
+                  item-value="id"
+                  density="compact"
+                  open-on-click
+                  :disabled="data.isSaving"
+                  class="permission-tree"
+                  @update:opened="method.updateOpenedNodes"
                 >
-                  <template #empty>
-                    {{ i18n.global.t('system.page.noData') }}
+                  <template #prepend="{ item }">
+                    <v-checkbox-btn
+                      :model-value="method.getNodeState(item).checked"
+                      :indeterminate="method.getNodeState(item).indeterminate"
+                      density="compact"
+                      color="primary"
+                      class="permission-checkbox"
+                      @click.stop
+                      @update:model-value="(checked) => method.toggleNode(item, Boolean(checked))"
+                    />
                   </template>
-                  <vxe-column type="expand" width="60">
-                    <template #header>
-                      <div
-                        style="height: 100%; display: flex; align-items: center; justify-content: center; cursor: pointer"
-                        @click="method.expandAllRows()"
-                      >
-                        <v-tooltip location="bottom">
-                          <template #activator="{ props }">
-                            <div v-bind="props">
-                              <v-icon v-if="!isExpandAll" size="large">mdi-chevron-right</v-icon>
-                              <v-icon v-else size="large">mdi-chevron-down</v-icon>
-                            </div>
-                          </template>
-                          <span>{{ $t('base.roleMenu.expandRow') }}</span>
-                        </v-tooltip>
-                      </div>
-                    </template>
-                    <template #content="{ row }">
-                      <div v-if="row.menu_actions_authority.length > 0" style="margin: 10px 0; display: flex; align-items: center">
-                        <div style="white-space: nowrap"> {{ $t('base.roleMenu.operation') }}: </div>
-                        <div>
-                          <v-chip v-for="(item, index) of row.menu_actions_authority" :key="index" color="primary" size="small">
-                            {{ getActionName(item, row.menu_name) }}
-                          </v-chip>
-                        </div>
-                      </div>
-                      <div v-else style="color: #b9b7b7; margin: 10px 0; display: flex; align-items: center; justify-content: center">
-                        {{ $t('base.roleMenu.dataEmpty') }}
-                      </div>
-                    </template>
-                  </vxe-column>
-                  <!-- <vxe-column type="seq" width="60"></vxe-column> -->
-                  <vxe-column field="menu_name" :title="$t('base.roleMenu.menu_name')">
-                    <template #default="{ row }">
-                      <span>{{ $t(`router.sideBar.${row.menu_name}`) }}</span>
-                    </template>
-                  </vxe-column>
-                  <!-- <vxe-column field="menu_name" :title="$t('base.roleMenu.operation')">
-                    <template #default="{ row }">
-                      <v-chip v-for="(item, index) of row.menu_actions_authority" :key="index" color="primary" size="small">
-                        {{ getActionName(item, row.menu_name) }}
+
+                  <template #title="{ item }">
+                    <div class="permission-node">
+                      <span>{{ method.getNodeTitle(item) }}</span>
+                      <v-chip v-if="item.type === 'access'" size="x-small" color="primary" variant="tonal">
+                        {{ $t('base.roleMenu.menuAccess') }}
                       </v-chip>
-                    </template>
-                  </vxe-column> -->
-                  <vxe-column field="operate" :title="$t('system.page.operate')" width="120" :resizable="false" show-overflow>
-                    <template #default="{ row }">
-                      <div style="width: 100%; display: flex; justify-content: center">
-                        <tooltip-btn
-                          :flat="true"
-                          icon="mdi-pencil-outline"
-                          :tooltip-text="$t('system.page.edit') + $t('base.roleMenu.operation')"
-                          @click="method.handleEditAction(row)"
-                        ></tooltip-btn>
-                      </div>
-                    </template>
-                  </vxe-column>
-                </vxe-table>
-              </v-col>
-            </v-row>
-          </div>
-        </v-card-text>
-      </v-card>
-    </div>
-    <!-- Add or modify data mode window -->
-    <addOrUpdateDialog :show-dialog="data.showDialog" :form="data.dialogForm" @close="method.closeDialog" @saveSuccess="method.saveSuccess" />
-    <!-- Edit menu permissions -->
-    <edit-menu-action ref="editMenuActionRef" :row="data.editMenuDialogCurrentRow" @saveSuccess="method.editMenuSaveSuccess" />
+                      <v-chip v-else-if="item.type === 'action'" size="x-small" variant="tonal">
+                        {{ $t('base.roleMenu.operation') }}
+                      </v-chip>
+                    </div>
+                  </template>
+                </v-treeview>
+              </div>
+            </v-card>
+          </v-col>
+        </v-row>
+      </v-card-text>
+    </v-card>
   </div>
 </template>
 
 <script lang="ts" setup>
-import { computed, reactive, onMounted, ref } from 'vue'
-import { computedCardHeight, computedTableHeight } from '@/constant/style'
-import { DataProps, RoleMenuVO, RoleMenuDetailVo } from '@/types/Base/RoleMenu'
-import { getRoleMenuAll, getRoleMenuById, deleteRoleMenu, updateRoleMenu } from '@/api/base/roleMenu'
+import { computed, onMounted, reactive } from 'vue'
+import { computedCardHeight } from '@/constant/style'
+import type { DataProps, MenuOption, RoleMenuVO } from '@/types/Base/RoleMenu'
+import { getMenus, getUserAuthority, updateRoleMenuBatch } from '@/api/base/roleMenu'
+import { getUserRoleAll } from '@/api/base/userRoleSetting'
 import { hookComponent } from '@/components/system'
-import addOrUpdateDialog from './add-or-update-role-menu.vue'
 import i18n from '@/languages/i18n'
 import NavListVue from '@/components/page/nav-list.vue'
-import { exportData } from '@/utils/exportTable'
-import BtnGroup from '@/components/system/btnGroup.vue'
-import TooltipBtn from '@/components/tooltip-btn.vue'
-import EditMenuAction from './edit-menu-action.vue'
-import { getActionName } from './actionList'
+import { actionDict, getActionName } from './actionList'
+import {
+  buildPermissionTree,
+  createInitialPermissionState,
+  flattenPermissionTree,
+  getPermissionNodeCheckState,
+  getSelectableNodeIds,
+  getSelectedMenuCount,
+  normalizePermissionSelection,
+  resolveMenuActions,
+  serializePermissionPayload,
+  setPermissionNodeCascade,
+  type PermissionTreeNode
+} from './permissionTree'
 
-const xTable = ref()
-const editMenuActionRef = ref()
-
-const data: DataProps = reactive({
+const data: DataProps & {
+  selectedNodeIds: Set<string>
+  originalSelectedNodeIds: Set<string>
+  openedNodeIds: string[]
+  isLoadingMenus: boolean
+  isLoadingRole: boolean
+  isSaving: boolean
+  isDirty: boolean
+} = reactive({
   navListOptions: {
     title: i18n.global.t('base.roleMenu.role_name'),
     labelKey: 'role_name',
     indexKey: 'userrole_id',
     indexValue: ''
   },
-  // Activation id
   activeRoleMenuForm: {
     userrole_id: 0,
     role_name: '',
     detailList: []
   },
-  // searchForm: {
-  //   userName: '',
-  //   userName1: '',
-  //   userName2: ''
-  // },
+  menuOptions: [],
   roleList: [],
-  // Dialog info
   showDialog: false,
   dialogForm: {
     detailList: []
   },
-  // operating button
   btnList: [],
   editMenuDialogCurrentRow: {
     id: -1,
     menu_id: -1,
     menu_name: '',
     menu_actions_authority: []
-  }
+  },
+  selectedNodeIds: new Set<string>(),
+  originalSelectedNodeIds: new Set<string>(),
+  openedNodeIds: [],
+  isLoadingMenus: false,
+  isLoadingRole: false,
+  isSaving: false,
+  isDirty: false
 })
 
 const method = reactive({
-  // Editing completed
-  editMenuSaveSuccess: async (actions: string[]) => {
-    const { data: res } = await updateRoleMenu({
-      ...data.activeRoleMenuForm,
-      detailList: [{ ...data.editMenuDialogCurrentRow, menu_actions_authority: actions }]
-    })
-    if (!res.isSuccess) {
-      hookComponent.$message({
-        type: 'error',
-        content: res.errorMessage
-      })
-      return
-    }
-    editMenuActionRef.value.closeDialog()
+  showError: (message?: string) => {
     hookComponent.$message({
-      type: 'success',
-      content: `${ i18n.global.t('system.page.update') }${ i18n.global.t('system.tips.success') }`
+      type: 'error',
+      content: message || i18n.global.t('system.tips.requestFail')
     })
-    method.refresh()
   },
-  // Modify menu operation permissions
-  handleEditAction: (row: RoleMenuDetailVo) => {
-    data.editMenuDialogCurrentRow = row
-
-    editMenuActionRef.value.openDialog(row.menu_actions_authority)
-  },
-  sureSearch: () => {
-    // console.log(data.searchForm)
-  },
-  // Find Data by Pagination
-  getCompanyList: async () => {
-    // Clear detailed data before refreshing
-    method.clearDialogForm()
-    const { data: res } = await getRoleMenuAll()
-    if (!res.isSuccess) {
-      hookComponent.$message({
-        type: 'error',
-        content: res.errorMessage
-      })
-      return
-    }
-    data.roleList = res.data
-    if (data.roleList.findIndex((item) => item.userrole_id === data.activeRoleMenuForm.userrole_id) > -1 && data.activeRoleMenuForm.userrole_id) {
-      method.getRoleMenus(data.activeRoleMenuForm.userrole_id)
-    } else if (data.roleList.length > 0) {
-      method.navListClick(data.roleList[0])
-    } else {
-      data.activeRoleMenuForm = {
-        userrole_id: 0,
-        role_name: '',
+  getRoles: async () => {
+    try {
+      const response = await getUserRoleAll()
+      const res = response?.data
+      if (!res?.isSuccess) {
+        method.showError(res?.errorMessage)
+        return false
+      }
+      data.roleList = (res.data ?? []).map((role: { id: number; role_name: string; is_valid?: boolean }) => ({
+        userrole_id: role.id,
+        role_name: role.role_name,
+        is_valid: role.is_valid,
         detailList: []
-      }
+      }))
+      return true
+    } catch {
+      method.showError()
+      return false
     }
   },
-  // Add user
-  add: () => {
-    method.clearDialogForm()
-    data.showDialog = true
+  getMenuOptions: async () => {
+    data.isLoadingMenus = true
+    try {
+      const response = await getMenus()
+      const res = response?.data
+      if (!res?.isSuccess) {
+        method.showError(res?.errorMessage)
+        return false
+      }
+      data.menuOptions = (res.data ?? []).map((menu: MenuOption) => ({
+        ...menu,
+        menu_actions: resolveMenuActions(menu, actionDict[menu.menu_name])
+      }))
+      return true
+    } catch {
+      method.showError()
+      return false
+    } finally {
+      data.isLoadingMenus = false
+    }
   },
-  // Shut add or update dialog
-  closeDialog: () => {
-    data.showDialog = false
-  },
-  // after Add or update success.
-  saveSuccess: () => {
-    method.refresh()
-    method.closeDialog()
-  },
-  // Refresh data
-  refresh: () => {
-    method.getCompanyList()
-  },
-  editForm() {
-    if (!data.activeRoleMenuForm.userrole_id) {
-      hookComponent.$message({
-        type: 'error',
-        content: i18n.global.t('base.roleMenu.beforeUpdateOrDel')
-      })
+  refresh: async () => {
+    const [rolesLoaded, menusLoaded] = await Promise.all([method.getRoles(), method.getMenuOptions()])
+    if (!rolesLoaded || !menusLoaded) {
       return
     }
-    data.dialogForm = JSON.parse(JSON.stringify(data.activeRoleMenuForm))
-    // Delete rowid of existing data
-    for (const item of data.dialogForm.detailList) {
-      if (item._X_ROW_KEY) {
-        delete item._X_ROW_KEY
-      }
-    }
-    data.showDialog = true
-  },
-  deleteForm() {
-    if (!data.activeRoleMenuForm.userrole_id) {
-      hookComponent.$message({
-        type: 'error',
-        content: i18n.global.t('base.roleMenu.beforeUpdateOrDel')
-      })
+    if (data.roleList.findIndex((item) => item.userrole_id === data.activeRoleMenuForm.userrole_id) > -1 && data.activeRoleMenuForm.userrole_id) {
+      await method.loadRoleMenus(data.activeRoleMenuForm.userrole_id)
       return
     }
-    const row = data.activeRoleMenuForm
-    hookComponent.$dialog({
-      content: i18n.global.t('system.tips.beforeDeleteMessage'),
-      handleConfirm: async () => {
-        if (row.userrole_id) {
-          const { data: res } = await deleteRoleMenu(row.userrole_id)
-          if (!res.isSuccess) {
-            hookComponent.$message({
-              type: 'error',
-              content: res.errorMessage
-            })
-            return
-          }
-          hookComponent.$message({
-            type: 'success',
-            content: `${ i18n.global.t('system.page.delete') }${ i18n.global.t('system.tips.success') }`
-          })
-          method.refresh()
-        }
-      }
-    })
-  },
-  // Export table
-  exportTable: () => {
-    const $table = xTable.value
-    exportData({
-      table: $table,
-      filename: i18n.global.t('router.sideBar.roleMenu'),
-      columnFilterMethod({ column }: any) {
-        return !['checkbox'].includes(column?.type) && !['operate'].includes(column?.field)
-      }
-    })
-  },
-  // Get detailed data
-  getRoleMenus: async (userrole_id: number) => {
-    const { data: res } = await getRoleMenuById(userrole_id)
-    if (!res.isSuccess) {
-      hookComponent.$message({
-        type: 'error',
-        content: res.errorMessage
-      })
+    if (data.roleList.length > 0) {
+      await method.selectRole(data.roleList[0])
       return
     }
-    data.activeRoleMenuForm = res.data
+    method.clearActiveRole()
   },
-  // Refresh dialog data
-  clearDialogForm: () => {
-    data.dialogForm = {
+  loadRoleMenus: async (userrole_id: number) => {
+    data.isLoadingRole = true
+    const role = data.roleList.find((item) => item.userrole_id === userrole_id)
+    try {
+      const response = await getUserAuthority(userrole_id)
+      const res = response?.data
+      if (!res?.isSuccess) {
+        method.showError(res?.errorMessage)
+        data.navListOptions.indexValue = data.activeRoleMenuForm.userrole_id ? String(data.activeRoleMenuForm.userrole_id) : ''
+        return false
+      }
+      method.applyRolePermissions({
+        userrole_id,
+        role_name: role?.role_name,
+        detailList: (res.data ?? []).map((menu: MenuOption) => ({
+          id: 0,
+          menu_id: menu.id,
+          menu_name: menu.menu_name,
+          authority: 1,
+          menu_actions_authority: menu.menu_actions ?? []
+        }))
+      })
+      return true
+    } catch {
+      method.showError()
+      data.navListOptions.indexValue = data.activeRoleMenuForm.userrole_id ? String(data.activeRoleMenuForm.userrole_id) : ''
+      return false
+    } finally {
+      data.isLoadingRole = false
+    }
+  },
+  applyRolePermissions: (roleMenu: RoleMenuVO) => {
+    data.activeRoleMenuForm = {
+      userrole_id: roleMenu.userrole_id,
+      role_name: roleMenu.role_name,
+      detailList: roleMenu.detailList ?? []
+    }
+    const selected = normalizePermissionSelection(createInitialPermissionState(data.activeRoleMenuForm.detailList), data.menuOptions)
+    data.selectedNodeIds = new Set(selected)
+    data.originalSelectedNodeIds = new Set(selected)
+    data.navListOptions.indexValue = roleMenu.userrole_id ? String(roleMenu.userrole_id) : ''
+    data.isDirty = false
+  },
+  clearActiveRole: () => {
+    data.activeRoleMenuForm = {
+      userrole_id: 0,
+      role_name: '',
       detailList: []
     }
+    data.navListOptions.indexValue = ''
+    data.selectedNodeIds = new Set()
+    data.originalSelectedNodeIds = new Set()
+    data.isDirty = false
   },
-  // Click navList
-  navListClick: (item: RoleMenuVO) => {
-    if (!item.userrole_id) {
+  selectRole: async (item: RoleMenuVO) => {
+    if (!item.userrole_id || data.isSaving) {
       return
     }
-    data.navListOptions.indexValue = String(item.userrole_id)
-    method.getRoleMenus(item.userrole_id)
+    await method.loadRoleMenus(item.userrole_id)
   },
-  // Expand All Rows
-  expandAllRows: () => {
-    const expandRows = xTable.value.getRowExpandRecords()
-
-    if (expandRows.length === data.activeRoleMenuForm.detailList.length) {
-      xTable.value.setAllRowExpand(false)
-    } else {
-      xTable.value.setAllRowExpand(true)
+  navListClick: (item: RoleMenuVO) => {
+    if (data.isSaving || !item.userrole_id || item.userrole_id === data.activeRoleMenuForm.userrole_id) {
+      return
     }
+    if (!data.isDirty) {
+      method.selectRole(item)
+      return
+    }
+    hookComponent.$dialog({
+      content: i18n.global.t('base.roleMenu.switchRoleConfirm'),
+      handleConfirm: () => {
+        method.selectRole(item)
+      }
+    })
+  },
+  updateOpenedNodes: (opened: unknown[]) => {
+    data.openedNodeIds = opened.map(String)
+  },
+  getNodeState: (node: PermissionTreeNode) => getPermissionNodeCheckState(node, data.selectedNodeIds),
+  toggleNode: (node: PermissionTreeNode, checked: boolean) => {
+    if (data.isSaving) {
+      return
+    }
+    data.selectedNodeIds = setPermissionNodeCascade({
+      node,
+      checked,
+      selected: data.selectedNodeIds,
+      menus: data.menuOptions
+    })
+    method.markDirty()
+  },
+  toggleSelectAll: () => {
+    if (data.isSaving) {
+      return
+    }
+    if (isAllSelected.value) {
+      data.selectedNodeIds = new Set()
+    } else {
+      data.selectedNodeIds = new Set(getSelectableNodeIds(data.menuOptions))
+    }
+    method.markDirty()
+  },
+  toggleExpandAll: () => {
+    data.openedNodeIds = isAllExpanded.value ? [] : flattenPermissionTree(permissionTree.value).filter((item) => item.children.length).map((item) => item.id)
+  },
+  markDirty: () => {
+    data.selectedNodeIds = normalizePermissionSelection(data.selectedNodeIds, data.menuOptions)
+    data.isDirty = method.serializeSelected(data.selectedNodeIds) !== method.serializeSelected(data.originalSelectedNodeIds)
+  },
+  serializeSelected: (selected: Set<string>) => Array.from(selected).sort().join('|'),
+  savePermissions: async () => {
+    if (data.isSaving) {
+      return
+    }
+    if (!data.activeRoleMenuForm.userrole_id) {
+      hookComponent.$message({
+        type: 'error',
+        content: i18n.global.t('base.roleMenu.beforeUpdateOrDel')
+      })
+      return
+    }
+    data.isSaving = true
+    const payload = serializePermissionPayload({
+      userroleId: data.activeRoleMenuForm.userrole_id,
+      menus: data.menuOptions,
+      selected: data.selectedNodeIds
+    })
+    try {
+      const response = await updateRoleMenuBatch(payload)
+      const res = response?.data
+      if (!res?.isSuccess) {
+        method.showError(res?.errorMessage)
+        return
+      }
+      hookComponent.$message({
+        type: 'success',
+        content: `${ i18n.global.t('system.page.update') }${ i18n.global.t('system.tips.success') }`
+      })
+      const reloaded = await method.loadRoleMenus(data.activeRoleMenuForm.userrole_id)
+      if (!reloaded) {
+        data.originalSelectedNodeIds = new Set(data.selectedNodeIds)
+        data.isDirty = false
+      }
+    } catch {
+      method.showError()
+    } finally {
+      data.isSaving = false
+    }
+  },
+  getNodeTitle: (node: PermissionTreeNode) => {
+    if (node.type === 'module') {
+      return i18n.global.t(`router.sideBar.${ node.title }`)
+    }
+    if (node.type === 'menu') {
+      return i18n.global.t(`router.sideBar.${ node.menuName }`)
+    }
+    if (node.type === 'access') {
+      return i18n.global.t('base.roleMenu.menuAccess')
+    }
+    return getActionName(node.actionCode ?? node.title, node.menuName)
   }
 })
 
 onMounted(async () => {
-  await method.getCompanyList()
-
-  data.btnList = [
-    {
-      name: i18n.global.t('system.page.add'),
-      icon: 'mdi-plus',
-      code: '',
-      click: method.add
-    },
-    {
-      name: i18n.global.t('system.page.edit'),
-      icon: 'mdi-pencil-outline',
-      code: '',
-      click: method.editForm
-    },
-    {
-      name: i18n.global.t('system.page.delete'),
-      icon: 'mdi-delete-outline',
-      code: '',
-      click: method.deleteForm
-    },
-    {
-      name: i18n.global.t('system.page.refresh'),
-      icon: 'mdi-refresh',
-      code: '',
-      click: method.refresh
-    }
-  ]
+  await method.refresh()
 })
 
-const isExpandAll = computed(() => {
-  const expandRows = xTable.value.getRowExpandRecords()
-
-  if (expandRows.length === data.activeRoleMenuForm.detailList.length) {
-    return true
-  }
-  return false
+const permissionTree = computed(() => buildPermissionTree(data.menuOptions, data.activeRoleMenuForm.detailList))
+const panelHeight = computed(() => computedCardHeight({ hasTab: false, hasOperateBtn: false }))
+const selectedMenuCount = computed(() => getSelectedMenuCount(data.selectedNodeIds))
+const selectedRoleName = computed(() => data.activeRoleMenuForm.role_name)
+const hasActiveRole = computed(() => Boolean(data.activeRoleMenuForm.userrole_id))
+const isLoading = computed(() => data.isLoadingMenus || data.isLoadingRole)
+const selectableNodeIds = computed(() => getSelectableNodeIds(data.menuOptions))
+const isAllSelected = computed(() => selectableNodeIds.value.length > 0 && selectableNodeIds.value.every((id) => data.selectedNodeIds.has(id)))
+const isAllExpanded = computed(() => {
+  const expandableIds = flattenPermissionTree(permissionTree.value).filter((item) => item.children.length).map((item) => item.id)
+  return expandableIds.length > 0 && expandableIds.every((id) => data.openedNodeIds.includes(id))
 })
-
-const cardHeight = computed(() => computedCardHeight({ hasTab: false }))
-
-const tableHeight = computed(() => computedTableHeight({ hasTab: false, hasPager: false }))
 </script>
 
 <style scoped lang="less">
-.operateArea {
-  width: 100%;
-  min-width: 760px;
-  display: flex;
-  align-items: center;
-  border-radius: 10px;
-  padding: 0 10px;
+.permission-card {
+  overflow: hidden;
 }
 
-.col {
-  display: flex;
-  align-items: center;
+.permission-layout {
+  min-width: 760px;
 }
-// Adjust the spacing between lists and tables
+
 .dataListCol {
   box-sizing: border-box;
   padding-right: 10px !important;
 }
-.roleNameCol {
-  width: 100%;
+
+.role-panel,
+.permission-panel {
+  border: 1px solid #eef0f4;
+  box-shadow: none;
+}
+
+.permission-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.permission-toolbar {
+  min-height: 76px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: #fbfcff;
+}
+
+.permission-summary {
+  min-width: 160px;
+}
+
+.permission-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1f2d3d;
+}
+
+.permission-subtitle {
+  margin-top: 4px;
+  color: #7b8794;
+  font-size: 13px;
+}
+
+.dirty-dot {
+  display: inline-block;
+  margin-left: 8px;
+  color: #f59e0b;
+}
+
+.permission-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+
+.permission-tree-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 16px;
+}
+
+.permission-tree {
+  color: #334155;
+}
+
+.loading-state {
   height: 100%;
-  cursor: pointer;
-  // &:hover: {
-  //   background-color: #9156fd;
-  // }
+  display: flex;
+  align-items: flex-start;
 }
-.roleNameCol:hover {
-  background-color: #9156fd;
-  color: white;
+
+.permission-checkbox {
+  margin-inline-end: 4px;
 }
-.activeRow {
-  background-color: #9156fd;
+
+.permission-node {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
-.v-chip {
-  margin: 3px 5px;
+
+.empty-state {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9aa3af;
+}
+
+@media (max-width: 960px) {
+  .permission-layout {
+    min-width: 0;
+  }
+
+  .dataListCol {
+    padding-right: 0 !important;
+    padding-bottom: 10px;
+  }
+
+  .permission-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .permission-actions {
+    justify-content: flex-start;
+  }
 }
 </style>
