@@ -5,7 +5,7 @@
       <div class="screen-header-title-section">
         <dv-decoration-8 :color="['#45a1f1', '#000000']" class="dv-dec-8" />
         <div class="title-section">
-          <p class="header-title">ModernWms {{ $t('router.sideBar.largeScreen') }}</p>
+          <p class="header-title">南阳有座山物流管理系统</p>
         </div>
         <dv-decoration-8 :color="['#45a1f1', '#000000']" class="dv-dec-8" :reverse="true" />
       </div>
@@ -19,10 +19,6 @@
     </div>
   </div>
 </template>
-
-<script setup lang="ts">
-import i18n from '@/languages/i18n'
-</script>
 
 <style lang="less" scoped>
 .screen-header {

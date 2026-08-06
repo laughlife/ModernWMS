@@ -7,7 +7,7 @@
 <template>
   <div class="mask">
     <div class="loading-title">
-      <div>ModernWMS</div>
+      <div>南阳有座山物流管理系统</div>
     </div>
     <div class="loading-progress-bar">
       <v-progress-linear
@@ -50,9 +50,11 @@ const props = defineProps({
 }
 
 .loading-title {
+  padding: 0 20px;
   color: #1769e8;
   font-weight: bold;
-  font-size: 60px;
+  font-size: clamp(32px, 5vw, 60px);
+  text-align: center;
   margin-bottom: 20px;
 }
 </style>

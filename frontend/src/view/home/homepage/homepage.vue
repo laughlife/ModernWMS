@@ -1,7 +1,7 @@
 <template>
   <div class="container">
     <div class="textBox">
-      <div class="mainTitle">ModernWMS</div>
+      <div class="mainTitle">南阳有座山物流管理系统</div>
       <div class="subTitle">{{ i18n.global.t('homepage.subTitle') }}</div>
     </div>
     <div class="content">
@@ -54,7 +54,9 @@ import i18n from '@/languages/i18n'
   width: 100%;
   color: #1769e8;
   font-weight: bold;
-  font-size: 120px;
+  font-size: clamp(44px, 5vw, 84px);
+  line-height: 1.25;
+  text-align: center;
 }
 
 .subTitle {
@@ -75,7 +77,7 @@ import i18n from '@/languages/i18n'
 
 @media (max-width: 1280px) {
   .mainTitle {
-    font-size: 82px;
+    font-size: clamp(36px, 5vw, 64px);
   }
 
   .subTitle {
