@@ -44,7 +44,6 @@ async function mockBackend(page: Page) {
           id: 1,
           spu_code: 'SPU-001',
           spu_name: 'Demo Product',
-          category_name: 'Demo',
           length_unit: 1,
           volume_unit: 0,
           weight_unit: 1,

@@ -1,15 +1,14 @@
 {
   "base": {
     "commodityCategorySetting": {
-      "category_name": "Commodity category",
-      "create_time": "Create Time",
-      "creator": "Creator",
-      "parent_name": "Parent Category"
+      "sequence": "No.",
+      "group_name": "Group Name",
+      "leader_name": "Leader",
+      "phone": "Phone"
     },
     "commodityManagement": {
       "bar_code": "Specification Code",
       "brand": "Brand",
-      "category_name": "Commodity Category",
       "cost": "Commodity Cost",
       "height": "Commodity Height",
       "lenght": "Commodity Length",
@@ -253,7 +252,7 @@
     "sideBar": {
       "asnStatistic": "Receiving statistics",
       "baseModule": "Basic Settings",
-      "commodityCategorySetting": "Commodity Category",
+      "commodityCategorySetting": "Group Details",
       "commodityManagement": "Commodity Management",
       "companySetting": "Company Information",
       "customer": "Customer Info",
@@ -547,8 +546,6 @@
     "skuInfo": {
       "bar_code": "Specification Code",
       "brand": "Brand",
-      "category_id": "Commodity Category ID",
-      "category_name": "Commodity Category",
       "cost": "Commodity Cost",
       "height": "Commodity Height",
       "lenght": "Commodity Length",

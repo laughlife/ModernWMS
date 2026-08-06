@@ -5,7 +5,7 @@ export const actionDict: any = {
   userRoleSetting: ['save', 'delete', 'export'],
   roleMenu: [],
   userManagement: ['save', 'delete', 'import', 'export', 'resetPwd'],
-  commodityCategorySetting: ['save', 'delete', 'export'],
+  commodityCategorySetting: ['export'],
   commodityManagement: ['save', 'delete', 'export', 'saftyStock', 'printQrCode', 'printBarCode'],
   supplier: ['save', 'delete', 'import', 'export'],
   print: ['save', 'delete', 'export'],

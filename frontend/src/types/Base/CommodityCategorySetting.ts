@@ -1,18 +1,14 @@
-import { VxeTablePropTypes } from 'vxe-table'
-import { UniformFileNaming, btnGroupItem } from '../System/Form'
+import { btnGroupItem } from '../System/Form'
 
-export interface CategoryVO extends UniformFileNaming {
-  id: number
-  parent_id?: number
-  category_name: string
-  is_valid?: boolean
+export interface OperatorGroupVO {
+  sequence: number
+  group_name: string
+  leader_name: string
+  phone: string
 }
 
 export interface DataProps {
-  tableData: CategoryVO[]
-  tableTreeConfig: VxeTablePropTypes.TreeConfig
-  showDialog: boolean
-  dialogForm: CategoryVO
+  tableData: OperatorGroupVO[]
   btnList: btnGroupItem[]
   authorityList: string[]
 }

@@ -43,18 +43,6 @@
                     >
                     </v-text-field>
                   </v-col>
-                  <v-col cols="4">
-                    <v-text-field
-                      v-model="data.searchForm.category_name"
-                      clearable
-                      hide-details
-                      density="comfortable"
-                      class="searchInput ml-5 mt-1"
-                      :label="$t('base.commodityManagement.category_name')"
-                      variant="solo"
-                    >
-                    </v-text-field>
-                  </v-col>
                 </v-row>
               </v-col>
             </v-row>
@@ -110,12 +98,6 @@
                 <template #default="{ row }">
                   <span v-if="row.parent_id > 0">{{ row.sku_name }}</span>
                   <span v-else>{{ row.spu_name }}</span>
-                </template>
-              </vxe-column>
-              <vxe-column field="category_name" :title="$t('base.commodityManagement.category_name')">
-                <template #default="{ row }">
-                  <span v-if="row.parent_id > 0">{{ row.unit }}</span>
-                  <span v-else>{{ row.category_name }}</span>
                 </template>
               </vxe-column>
               <vxe-column field="spu_description" width="200" :title="$t('base.commodityManagement.spu_description')"> </vxe-column>
@@ -276,8 +258,7 @@ const hprintDialogRef = ref()
 const data: DataProps = reactive({
   searchForm: {
     spu_code: '',
-    spu_name: '',
-    category_name: ''
+    spu_name: ''
   },
   timer: null,
   tableData: [],
@@ -297,8 +278,6 @@ const data: DataProps = reactive({
     id: 0,
     spu_code: '',
     spu_name: '',
-    category_id: 0,
-    category_name: '',
     spu_description: '',
     bar_code: '',
     supplier_id: 0,

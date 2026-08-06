@@ -78,8 +78,6 @@ export interface SkuInfoVo {
   spu_id: number
   spu_code: string
   spu_name: string
-  category_id: number
-  category_name: string
   spu_description: string
   bar_code: string
   supplier_id: number

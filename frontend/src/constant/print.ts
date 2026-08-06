@@ -6,7 +6,7 @@ export const PRINT_MENU = [{
     form: {
       detailList: {
         name: 'print_data_main',
-        columns: ['sku_code', 'sku_name', 'category_name', 'spu_description', 'supplier_name', 'bar_code', 'weight', 'lenght', 'width', 'height', 'volume', 'cost', 'price']
+        columns: ['sku_code', 'sku_name', 'spu_description', 'supplier_name', 'bar_code', 'weight', 'lenght', 'width', 'height', 'volume', 'cost', 'price']
       }
     }
   }, {
@@ -15,8 +15,6 @@ export const PRINT_MENU = [{
       id: 0,
       spu_code: '',
       spu_name: '',
-      category_id: 0,
-      category_name: '',
       spu_description: '',
       supplier_id: 0,
       supplier_name: '',

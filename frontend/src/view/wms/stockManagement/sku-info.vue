@@ -9,7 +9,6 @@
               <v-list-item-subtitle>{{ i18n.global.t('wms.skuInfo.sku_code') + ':' + data.tableData.sku_code }}</v-list-item-subtitle>
               <v-list-item-subtitle>{{ i18n.global.t('wms.skuInfo.sku_name') + ':' + data.tableData.sku_name }}</v-list-item-subtitle>
               <v-list-item-subtitle>{{ i18n.global.t('wms.skuInfo.spu_description') + ':' + data.tableData.spu_description }}</v-list-item-subtitle>
-              <v-list-item-subtitle>{{ i18n.global.t('wms.skuInfo.category_name') + ':' + data.tableData.category_name }}</v-list-item-subtitle>
               <v-list-item-subtitle>{{ i18n.global.t('wms.skuInfo.brand') + ':' + data.tableData.brand }}</v-list-item-subtitle>
               <v-list-item-subtitle>{{ i18n.global.t('wms.skuInfo.origin') + ':' + data.tableData.origin }}</v-list-item-subtitle>
               <v-list-item-subtitle>{{ i18n.global.t('wms.skuInfo.unit') + ':' + data.tableData.unit }}</v-list-item-subtitle>
@@ -48,8 +47,6 @@ const data = reactive({
     spu_id: 0,
     spu_code: '',
     spu_name: '',
-    category_id: 0,
-    category_name: '',
     spu_description: '',
     bar_code: '',
     supplier_id: 0,

@@ -26,19 +26,6 @@
                     clearable
                     class="mb-4"
                   ></v-text-field>
-                  <v-select
-                    v-model="data.form.category_name"
-                    :items="data.combobox.category_name"
-                    item-title="label"
-                    item-value="label"
-                    :rules="data.rules.category_name"
-                    :label="$t('base.commodityManagement.category_name')"
-                    variant="outlined"
-                    density="compact"
-                    class="mb-4"
-                    clearable
-                    @update:model-value="method.categoryNameChange"
-                  ></v-select>
                   <v-text-field
                     v-model="data.form.spu_description"
                     :rules="data.rules.spu_description"
@@ -236,9 +223,7 @@ import { CommodityVO, CommodityDetailVO } from '@/types/Base/CommodityManagement
 import i18n from '@/languages/i18n'
 import { hookComponent } from '@/components/system/index'
 import { addSpu, updateSpu } from '@/api/base/commodityManagementSetting'
-import { getCategoryAll } from '@/api/base/commodityCategorySetting'
 import { getSupplierAll } from '@/api/base/supplier'
-import { CategoryVO } from '@/types/Base/CommodityCategorySetting'
 import { SupplierVO } from '@/types/Base/Supplier'
 import { computedSelectTableSearchHeight, SYSTEM_HEIGHT, errorColor } from '@/constant/style'
 import tooltipBtn from '@/components/tooltip-btn.vue'
@@ -271,8 +256,6 @@ const data = reactive({
     id: 0,
     spu_code: '',
     spu_name: '',
-    category_id: 0,
-    category_name: '',
     spu_description: '',
     supplier_id: 0,
     supplier_name: '',
@@ -296,9 +279,6 @@ const data = reactive({
     spu_description: [(val: string) => StringLength(val, 0, 1000) === '' || StringLength(val, 0, 1000)],
     // bar_code: [(val: string) => StringLength(val, 0, 64) === '' || StringLength(val, 0, 64)],
     brand: [(val: string) => StringLength(val, 0, 128) === '' || StringLength(val, 0, 128)],
-    category_name: [
-      (val: string) => !!val || `${ i18n.global.t('system.checkText.mustInput') }${ i18n.global.t('base.commodityManagement.category_name') }!`
-    ],
     length_unit: [
       (val: number) => [0, 1, 2, 3].includes(val) || `${ i18n.global.t('system.checkText.mustInput') }${ i18n.global.t('base.commodityManagement.length_unit') }!`
     ],
@@ -429,10 +409,6 @@ const data = reactive({
       label: string
       value: number
     }[]
-    category_name: {
-      label: string
-      value: number
-    }[]
     supplier_name: {
       label: string
       value: number
@@ -484,20 +460,11 @@ const data = reactive({
         value: 2
       }
     ],
-    category_name: [],
     supplier_name: []
   })
 })
 
 const method = reactive({
-  // When the commodity type changes, it is mainly used to assign the ID
-  categoryNameChange: (val: string) => {
-    if (!val) {
-      data.form.category_id = 0
-    } else {
-      data.form.category_id = data.combobox.category_name.filter((item) => item.label === val)[0].value
-    }
-  },
   supplierNameChange: (val: string) => {
     if (!val) {
       data.form.supplier_id = 0
@@ -507,19 +474,7 @@ const method = reactive({
   },
   // Get the options required by the drop-down box
   getCombobox: async () => {
-    data.combobox.category_name = []
     data.combobox.supplier_name = []
-    const { data: res } = await getCategoryAll()
-    if (!res.isSuccess) {
-      hookComponent.$message({
-        type: 'error',
-        content: res.errorMessage
-      })
-      return
-    }
-    data.combobox.category_name = res.data
-      .filter((item: CategoryVO) => item.is_valid)
-      .map((item: CategoryVO) => ({ value: item.id, label: item.category_name }))
     // Get supplier information
     const { data: supplierRes } = await getSupplierAll()
     if (!supplierRes.isSuccess) {

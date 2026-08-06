@@ -1,15 +1,14 @@
 {
   "base": {
     "commodityCategorySetting": {
-      "category_name": "商品类别",
-      "create_time": "创建时间",
-      "creator": "创建人",
-      "parent_name": "所属类别"
+      "sequence": "序号",
+      "group_name": "小组名",
+      "leader_name": "负责人",
+      "phone": "电话"
     },
     "commodityManagement": {
       "bar_code": "商品条码",
       "brand": "品牌",
-      "category_name": "商品类别",
       "cost": "商品成本",
       "height": "商品高度",
       "lenght": "商品长度",
@@ -253,7 +252,7 @@
     "sideBar": {
       "asnStatistic": "收货统计",
       "baseModule": "基础设置",
-      "commodityCategorySetting": "商品类别设置",
+      "commodityCategorySetting": "小组明细",
       "commodityManagement": "商品管理",
       "companySetting": "公司信息",
       "customer": "客户信息",
@@ -547,8 +546,6 @@
     "skuInfo": {
       "bar_code": "商品条码",
       "brand": "品牌",
-      "category_id": "商品类别标识",
-      "category_name": "商品类别",
       "cost": "商品成本",
       "height": "商品高度",
       "lenght": "商品长度",
