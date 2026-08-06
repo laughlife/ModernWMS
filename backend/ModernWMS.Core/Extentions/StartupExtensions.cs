@@ -23,6 +23,7 @@ using ModernWMS.Core.DI;
 using Microsoft.Extensions.Localization;
 using Hangfire;
 using Hangfire.MemoryStorage;
+using System.Data.Common;
 
 namespace ModernWMS.Core.Extentions
 {
@@ -52,9 +53,31 @@ namespace ModernWMS.Core.Extentions
                 throw new InvalidOperationException("ConnectionStrings:MySqlConn is required.");
             }
 
+            // ERP 数据源：与主数据源同库配置，仅数据库名不同（DatabaseSources:Erp:Database）
+            var erpDatabase = configuration["DatabaseSources:Erp:Database"];
+            if (string.IsNullOrWhiteSpace(erpDatabase))
+            {
+                throw new InvalidOperationException("DatabaseSources:Erp:Database is required.");
+            }
+
+            // 基于主连接串派生 ERP 连接串，仅替换 Database，避免重复维护账号密码
+            var erpConnectionString = new DbConnectionStringBuilder(connectionString)
+            {
+                ["Database"] = erpDatabase
+            }.ConnectionString;
+
             services.AddDbContextPool<SqlDBContext>(t =>
             {
                 t.UseMySQL(connectionString, b => b.MigrationsAssembly("ModernWMS"));
+                if (environment.IsDevelopment())
+                {
+                    t.EnableSensitiveDataLogging();
+                    t.UseLoggerFactory(new LoggerFactory(new[] { new DebugLoggerProvider() }));
+                }
+            }, 100);
+            services.AddDbContextPool<ErpDbContext>(t =>
+            {
+                t.UseMySQL(erpConnectionString);
                 if (environment.IsDevelopment())
                 {
                     t.EnableSensitiveDataLogging();
