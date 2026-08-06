@@ -1,7 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using ModernWMS.Core.DBContext;
-using ModernWMS.Core.DBContext.Entities;
-using ModernWMS.Core.DynamicSearch;
 using ModernWMS.Core.JWT;
 using ModernWMS.Core.Models;
 using ModernWMS.Core.Services;
@@ -28,19 +26,20 @@ namespace ModernWMS.WMS.Services
         /// </summary>
         public async Task<(List<SupplierViewModel> data, int totals)> PageAsync(PageSearch pageSearch, CurrentUser currentUser)
         {
-            QueryCollection queries = new QueryCollection();
-            if (pageSearch.searchObjects.Any())
-            {
-                pageSearch.searchObjects.ForEach(s =>
-                {
-                    queries.Add(s);
-                });
-            }
+            var supplierNameKeyword = pageSearch.searchObjects
+                .FirstOrDefault(t => string.Equals(t.Name, "name", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(t.Name, "supplier_name", StringComparison.OrdinalIgnoreCase))
+                ?.Text
+                ?.Trim();
 
             var query = _ruoyiDbContext.Suppliers
                 .AsNoTracking()
-                .Where(t => !t.deleted)
-                .Where(queries.AsExpression<ErpSupplierEntity>());
+                .Where(t => !t.deleted);
+
+            if (!string.IsNullOrWhiteSpace(supplierNameKeyword))
+            {
+                query = query.Where(t => t.name != null && t.name.Contains(supplierNameKeyword));
+            }
 
             int totals = await query.CountAsync();
             var list = await query
