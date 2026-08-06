@@ -384,20 +384,16 @@ namespace ModernWMS.WMS.Services
             var query = from d in DbSet.AsNoTracking().Where(t => t.tenant_id.Equals(currentUser.tenant_id))
                             //join sku in _dBContext.GetDbSet<SkuEntity>().AsNoTracking() on d.sku_id equals sku.id
                             //join spu in _dBContext.GetDbSet<SpuEntity>().AsNoTracking() on sku.spu_id equals spu.id
-                        group new { d/*, spu*/ } by new { d.dispatch_no, d.dispatch_status, d.customer_id, d.customer_name, d.creator }
+                        group new { d/*, spu*/ } by new { d.dispatch_no, d.dispatch_status, d.creator }
                         into dg
                         select new PreDispatchlistViewModel
                         {
                             dispatch_no = dg.Key.dispatch_no,
                             dispatch_status = dg.Key.dispatch_status,
-                            customer_id = dg.Key.customer_id,
-                            customer_name = dg.Key.customer_name,
                             qty = dg.Sum(t => t.d.qty),
                             creator = dg.Key.creator,
                             /*dispatch_no = dg.Key.dispatch_no,
                             dispatch_status = dg.Key.dispatch_status,
-                            customer_id = dg.Key.customer_id,
-                            customer_name = dg.Key.customer_name,
                             qty = dg.Sum(t => t.d.qty),
                             volume = dg.Sum(t =>t.spu.volume_unit==1?  t.d.volume:(t.spu.volume_unit==0?t.d.volume/1000:t.d.volume*1000)),
                             weight = dg.Sum(t =>t.spu.weight_unit==0?t.d.weight/1000000:(t.spu.weight_unit==1? t.d.weight/1000:t.d.weight)),
