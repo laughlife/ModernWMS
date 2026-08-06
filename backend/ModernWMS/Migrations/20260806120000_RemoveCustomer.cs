@@ -6,7 +6,6 @@ using MySql.EntityFrameworkCore.Metadata;
 
 namespace ModernWMS.Migrations
 {
-    [Migration("20260806120000_RemoveCustomer")]
     public partial class RemoveCustomer : Migration
     {
         protected override void Up(MigrationBuilder migrationBuilder)
