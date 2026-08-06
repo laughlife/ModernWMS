@@ -282,28 +282,8 @@ namespace ModernWMS.WMS.Services
             {
                 return (0, string.Format(_stringLocalizer["exists_entity"], _stringLocalizer["role_name"], viewModel.role_name));
             }
-            var entities = viewModel.detailList.Select(t => new RolemenuEntity
-            {
-                id = 0,
-                userrole_id = viewModel.userrole_id,
-                menu_id = t.menu_id,
-                authority = t.authority,
-                menu_actions_authority = JsonHelper.SerializeObject(t.menu_actions_authority),
-                create_time = DateTime.Now,
-                last_update_time = DateTime.Now,
-                tenant_id = currentUser.tenant_id
-            }).ToList();
-
-            await Rolemenus.AddRangeAsync(entities);
-            var qty = await _dBContext.SaveChangesAsync();
-            if (qty > 0)
-            {
-                return (viewModel.userrole_id, _stringLocalizer["save_success"]);
-            }
-            else
-            {
-                return (0, _stringLocalizer["save_failed"]);
-            }
+            var (flag, msg) = await BatchUpdateAsync(CreateBatchViewModel(viewModel), currentUser);
+            return flag ? (viewModel.userrole_id, msg) : (0, msg);
         }
         /// <summary>
         /// update a record
@@ -327,48 +307,7 @@ namespace ModernWMS.WMS.Services
             {
                 return (false, _stringLocalizer["not_exists_entity"]);
             }
-            var dbEntities = await Rolemenus.AsNoTracking()
-                .Where(t => t.userrole_id == viewModel.userrole_id && t.tenant_id == currentUser.tenant_id)
-                .ToListAsync();
-
-            var entities = (from vm in viewModel.detailList
-                            join db in dbEntities on new { id = Math.Abs(vm.id), vm.menu_id } equals new { db.id, db.menu_id } into dbJoin
-                            from db in dbJoin.DefaultIfEmpty()
-                            select new RolemenuEntity
-                            {
-                                id = vm.id,
-                                userrole_id = viewModel.userrole_id,
-                                menu_id = vm.menu_id,
-                                authority = vm.authority,
-                                menu_actions_authority = JsonHelper.SerializeObject(vm.menu_actions_authority),
-                                create_time = db == null ? DateTime.Now : db.create_time,
-                                last_update_time = DateTime.Now,
-                                tenant_id = currentUser.tenant_id
-                            }).ToList();
-            
-            if (entities.Any(t => t.id > 0))
-            {
-                Rolemenus.UpdateRange(entities.Where(t => t.id > 0).ToList());
-            }
-            if (entities.Any(t => t.id == 0))
-            {
-                Rolemenus.AddRange(entities.Where(t => t.id == 0).ToList());
-            }
-            if (entities.Any(t => t.id < 0))
-            {
-                var dels = entities.Where(t => t.id < 0).ToList();
-                dels.ForEach(t => t.id *= -1);
-                Rolemenus.RemoveRange(dels);
-            }
-            var qty = await _dBContext.SaveChangesAsync();
-            if (qty > 0)
-            {
-                return (true, _stringLocalizer["save_success"]);
-            }
-            else
-            {
-                return (false, _stringLocalizer["save_failed"]);
-            }
+            return await BatchUpdateAsync(CreateBatchViewModel(viewModel), currentUser);
         }
 
         /// <summary>
@@ -540,6 +479,19 @@ namespace ModernWMS.WMS.Services
         {
             var normalizedActions = NormalizeActionAuthority(menuActionsAuthority);
             return JsonHelper.SerializeObject(normalizedActions);
+        }
+
+        private static RolemenuBatchViewModel CreateBatchViewModel(RolemenuBothViewModel viewModel)
+        {
+            return new RolemenuBatchViewModel
+            {
+                userrole_id = viewModel.userrole_id,
+                detailList = viewModel.detailList?.Where(t => t.id >= 0).Select(t => new RolemenuBatchDetailViewModel
+                {
+                    menu_id = t.menu_id,
+                    menu_actions_authority = t.menu_actions_authority
+                }).ToList()
+            };
         }
 
         private static List<string> NormalizeActionAuthority(List<string> menuActionsAuthority)

@@ -318,6 +318,32 @@ public class RolemenuBatchServiceTests
     }
 
     [Fact]
+    public async Task AddAsync_uses_batch_validation_for_tenant_menu_scope()
+    {
+        await using var database = CreateDatabase();
+        await SeedRoleMenusAsync(database);
+        await database.Set<UserroleEntity>().AddAsync(new UserroleEntity { id = 5, role_name = "new-role", is_valid = true, tenant_id = 1 });
+        await database.SaveChangesAsync();
+        var service = CreateService(database);
+
+        var (id, msg) = await service.AddAsync(new RolemenuBothViewModel
+        {
+            userrole_id = 5,
+            detailList =
+            [
+                new RolemenuViewModel { menu_id = 4, menu_actions_authority = [] }
+            ]
+        }, TenantOneUser());
+
+        Assert.Equal(0, id);
+        Assert.Contains("invalid menu_id", msg);
+        Assert.Empty(await database.Set<RolemenuEntity>()
+            .AsNoTracking()
+            .Where(t => t.tenant_id == 1 && t.userrole_id == 5)
+            .ToListAsync());
+    }
+
+    [Fact]
     public async Task UpdateAsync_rejects_admin_role_permission_assignment()
     {
         await using var database = CreateDatabase();
@@ -335,6 +361,34 @@ public class RolemenuBatchServiceTests
 
         Assert.False(flag);
         Assert.Equal(AdminRolePermissionMessage, msg);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_converts_legacy_detail_list_to_final_tree_and_ignores_negative_delete_rows()
+    {
+        await using var database = CreateDatabase();
+        await SeedRoleMenusAsync(database);
+        var service = CreateService(database);
+
+        var (flag, _) = await service.UpdateAsync(new RolemenuBothViewModel
+        {
+            userrole_id = 1,
+            detailList =
+            [
+                new RolemenuViewModel { id = 1, menu_id = 1, menu_actions_authority = ["查询"] },
+                new RolemenuViewModel { id = -2, menu_id = 2, menu_actions_authority = ["导出"] },
+                new RolemenuViewModel { id = 0, menu_id = 3, menu_actions_authority = ["导出"] }
+            ]
+        }, TenantOneUser());
+
+        Assert.True(flag);
+        var saved = await database.Set<RolemenuEntity>()
+            .AsNoTracking()
+            .Where(t => t.tenant_id == 1 && t.userrole_id == 1)
+            .OrderBy(t => t.menu_id)
+            .ToListAsync();
+        Assert.Equal([1, 3], saved.Select(t => t.menu_id).ToArray());
+        Assert.DoesNotContain(saved, t => t.menu_id == 2);
     }
 
     [Fact]
