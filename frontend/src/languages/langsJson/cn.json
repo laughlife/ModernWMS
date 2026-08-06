@@ -98,6 +98,7 @@
       "selectedMenuCount": "已选菜单",
       "savePermissions": "保存权限",
       "menuAccess": "访问菜单",
+      "adminReadonlyTip": "admin默认拥有全部权限，无需分配",
       "selectRoleFirst": "请先选择角色",
       "switchRoleConfirm": "当前角色权限尚未保存，切换角色将丢弃这些修改，是否继续?",
       "unsaved": "未保存",

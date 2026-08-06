@@ -35,7 +35,7 @@
                     variant="tonal"
                     color="primary"
                     size="small"
-                    :disabled="!hasActiveRole || isLoading || data.isSaving"
+                    :disabled="!hasActiveRole || isAdminRole || isLoading || data.isSaving"
                     @click="method.toggleSelectAll"
                   >
                     {{ isAllSelected ? $t('base.roleMenu.unselectAll') : $t('base.roleMenu.selectAll') }}
@@ -53,7 +53,7 @@
                     color="primary"
                     size="small"
                     :loading="data.isSaving"
-                    :disabled="!hasActiveRole || !data.isDirty || isLoading"
+                    :disabled="!hasActiveRole || isAdminRole || !data.isDirty || isLoading"
                     @click="method.savePermissions"
                   >
                     {{ $t('base.roleMenu.savePermissions') }}
@@ -64,6 +64,15 @@
               <v-divider />
 
               <div class="permission-tree-wrap">
+                <v-alert
+                  v-if="isAdminRole"
+                  type="info"
+                  variant="tonal"
+                  density="compact"
+                  class="admin-permission-alert"
+                >
+                  {{ $t('base.roleMenu.adminReadonlyTip') }}
+                </v-alert>
                 <div v-if="isLoading" class="loading-state">
                   <v-progress-linear indeterminate color="primary" />
                 </div>
@@ -77,7 +86,7 @@
                   item-value="id"
                   density="compact"
                   open-on-click
-                  :disabled="data.isSaving"
+                  :disabled="data.isSaving || isAdminRole"
                   class="permission-tree"
                   @update:opened="method.updateOpenedNodes"
                 >
@@ -88,6 +97,7 @@
                       density="compact"
                       color="primary"
                       class="permission-checkbox"
+                      :disabled="data.isSaving || isAdminRole"
                       @click.stop
                       @update:model-value="(checked) => method.toggleNode(item, Boolean(checked))"
                     />
@@ -137,6 +147,9 @@ import {
   setPermissionNodeCascade,
   type PermissionTreeNode
 } from './permissionTree'
+
+const ADMIN_ROLE_NAME = 'admin'
+const isAdminRoleName = (roleName?: string) => (roleName ?? '').trim().toLowerCase() === ADMIN_ROLE_NAME
 
 const data: DataProps & {
   selectedNodeIds: Set<string>
@@ -220,6 +233,12 @@ const method = reactive({
         ...menu,
         menu_actions: resolveMenuActions(menu, actionDict[menu.menu_name])
       }))
+      if (isAdminRole.value && data.activeRoleMenuForm.userrole_id) {
+        method.applyAdminRolePermissions({
+          userrole_id: data.activeRoleMenuForm.userrole_id,
+          role_name: data.activeRoleMenuForm.role_name
+        })
+      }
       return true
     } catch {
       method.showError()
@@ -246,6 +265,14 @@ const method = reactive({
   loadRoleMenus: async (userrole_id: number) => {
     data.isLoadingRole = true
     const role = data.roleList.find((item) => item.userrole_id === userrole_id)
+    if (isAdminRoleName(role?.role_name)) {
+      method.applyAdminRolePermissions({
+        userrole_id,
+        role_name: role?.role_name
+      })
+      data.isLoadingRole = false
+      return true
+    }
     try {
       const response = await getUserAuthority(userrole_id)
       const res = response?.data
@@ -281,6 +308,18 @@ const method = reactive({
       detailList: roleMenu.detailList ?? []
     }
     const selected = normalizePermissionSelection(createInitialPermissionState(data.activeRoleMenuForm.detailList), data.menuOptions)
+    data.selectedNodeIds = new Set(selected)
+    data.originalSelectedNodeIds = new Set(selected)
+    data.navListOptions.indexValue = roleMenu.userrole_id ? String(roleMenu.userrole_id) : ''
+    data.isDirty = false
+  },
+  applyAdminRolePermissions: (roleMenu: { userrole_id: number; role_name?: string }) => {
+    data.activeRoleMenuForm = {
+      userrole_id: roleMenu.userrole_id,
+      role_name: roleMenu.role_name,
+      detailList: []
+    }
+    const selected = normalizePermissionSelection(new Set(getSelectableNodeIds(data.menuOptions)), data.menuOptions)
     data.selectedNodeIds = new Set(selected)
     data.originalSelectedNodeIds = new Set(selected)
     data.navListOptions.indexValue = roleMenu.userrole_id ? String(roleMenu.userrole_id) : ''
@@ -323,7 +362,7 @@ const method = reactive({
   },
   getNodeState: (node: PermissionTreeNode) => getPermissionNodeCheckState(node, data.selectedNodeIds),
   toggleNode: (node: PermissionTreeNode, checked: boolean) => {
-    if (data.isSaving) {
+    if (data.isSaving || isAdminRole.value) {
       return
     }
     data.selectedNodeIds = setPermissionNodeCascade({
@@ -335,7 +374,7 @@ const method = reactive({
     method.markDirty()
   },
   toggleSelectAll: () => {
-    if (data.isSaving) {
+    if (data.isSaving || isAdminRole.value) {
       return
     }
     if (isAllSelected.value) {
@@ -354,7 +393,7 @@ const method = reactive({
   },
   serializeSelected: (selected: Set<string>) => Array.from(selected).sort().join('|'),
   savePermissions: async () => {
-    if (data.isSaving) {
+    if (data.isSaving || isAdminRole.value) {
       return
     }
     if (!data.activeRoleMenuForm.userrole_id) {
@@ -372,7 +411,10 @@ const method = reactive({
     })
     try {
       const response = await updateRoleMenuBatch(payload)
-      const res = response?.data
+      const res = response?.data ?? (typeof response?.isSuccess === 'boolean' ? response : undefined)
+      if (!res) {
+        return
+      }
       if (!res?.isSuccess) {
         method.showError(res?.errorMessage)
         return
@@ -415,6 +457,7 @@ const panelHeight = computed(() => computedCardHeight({ hasTab: false, hasOperat
 const selectedMenuCount = computed(() => getSelectedMenuCount(data.selectedNodeIds))
 const selectedRoleName = computed(() => data.activeRoleMenuForm.role_name)
 const hasActiveRole = computed(() => Boolean(data.activeRoleMenuForm.userrole_id))
+const isAdminRole = computed(() => isAdminRoleName(data.activeRoleMenuForm.role_name))
 const isLoading = computed(() => data.isLoadingMenus || data.isLoadingRole)
 const selectableNodeIds = computed(() => getSelectableNodeIds(data.menuOptions))
 const isAllSelected = computed(() => selectableNodeIds.value.length > 0 && selectableNodeIds.value.every((id) => data.selectedNodeIds.has(id)))
@@ -494,6 +537,10 @@ const isAllExpanded = computed(() => {
   min-height: 0;
   overflow: auto;
   padding: 12px 16px;
+}
+
+.admin-permission-alert {
+  margin-bottom: 12px;
 }
 
 .permission-tree {

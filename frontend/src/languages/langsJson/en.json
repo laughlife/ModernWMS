@@ -98,6 +98,7 @@
       "selectedMenuCount": "Selected menus",
       "savePermissions": "Save permissions",
       "menuAccess": "Menu access",
+      "adminReadonlyTip": "admin has all permissions by default and does not need assignment",
       "selectRoleFirst": "Please select a role first",
       "switchRoleConfirm": "The current role permissions are not saved. Switching roles will discard these changes. Continue?",
       "unsaved": "Unsaved",

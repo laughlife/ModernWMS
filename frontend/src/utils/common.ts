@@ -3,6 +3,11 @@ import { useRoute } from 'vue-router'
 import { SearchObject, SearchOperator } from '@/types/System/Form'
 import { pinia } from '@/store'
 import { useUserStore } from '@/store/module/user'
+import { actionDict } from '@/view/base/roleMenu/actionList'
+
+const ADMIN_ROLE_NAME = 'admin'
+
+const isAdminRoleName = (roleName?: string) => (roleName ?? '').trim().toLowerCase() === ADMIN_ROLE_NAME
 
 export const setSearchObject = (searchForm: any, preciseSearchCols: string[] = []) => {
   const searchObjects: Array<SearchObject> = []
@@ -67,7 +72,13 @@ export const getMenuAuthorityList = () => {
 
   const menu_name = route.path.substring(1)
 
-  const menu_list: any[] = useUserStore(pinia).menulist
+  const userStore = useUserStore(pinia)
+
+  if (isAdminRoleName(userStore.userInfo?.user_role)) {
+    return actionDict[menu_name] ?? []
+  }
+
+  const menu_list: any[] = userStore.menulist
 
   const filter = menu_list.filter((item: any) => item.menu_name === menu_name)
 
