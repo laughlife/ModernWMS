@@ -151,15 +151,24 @@
     },
     "supplier": {
       "address": "詳細地址",
+      "address_line": "詳細地址",
       "city": "所在城市",
+      "city_name": "城市名稱",
       "contact_tel": "聯繫方式",
       "create_time": "創建時間",
       "creator": "創建人",
       "email": "Email",
+      "id": "主鍵ID",
       "is_valid": "是否有效",
       "last_update_time": "最後更新時間",
+      "linkman": "聯繫人",
       "manager": "負責人",
-      "supplier_name": "供應商名稱"
+      "name": "供應商名稱",
+      "province_name": "省份名稱",
+      "qq": "QQ",
+      "remark": "備註",
+      "supplier_name": "供應商名稱",
+      "telephone_num": "聯繫電話"
     },
     "userManagement": {
       "addSuccessTip": "新增成功, 使用者初始密碼為: ",

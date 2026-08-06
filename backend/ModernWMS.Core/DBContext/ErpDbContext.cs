@@ -29,6 +29,11 @@ public sealed class ErpDbContext : DbContext
     public DbSet<ErpSystemUserEntity> SystemUsers => Set<ErpSystemUserEntity>();
 
     /// <summary>
+    /// 供应商
+    /// </summary>
+    public DbSet<ErpSupplierEntity> Suppliers => Set<ErpSupplierEntity>();
+
+    /// <summary>
     /// 显式映射 ERP 只读实体，避免自动映射 WMS 主库实体。
     /// </summary>
     /// <param name="modelBuilder">model builder</param>
@@ -43,6 +48,12 @@ public sealed class ErpDbContext : DbContext
         modelBuilder.Entity<ErpSystemUserEntity>(entity =>
         {
             entity.ToTable("system_users");
+            entity.HasKey(t => t.id);
+        });
+
+        modelBuilder.Entity<ErpSupplierEntity>(entity =>
+        {
+            entity.ToTable("erp_supplier");
             entity.HasKey(t => t.id);
         });
 

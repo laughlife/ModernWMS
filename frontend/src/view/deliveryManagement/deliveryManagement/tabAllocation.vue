@@ -68,14 +68,6 @@
                     :disabled="!data.authorityList.includes('save')"
                     @click="method.editRow(row)"
                   ></tooltip-btn>
-                  <tooltip-btn
-                    :flat="true"
-                    icon="mdi-delete-outline"
-                    :tooltip-text="$t('system.page.delete')"
-                    :icon-color="!data.authorityList.includes('delete') ? '' : errorColor"
-                    :disabled="!data.authorityList.includes('delete')"
-                    @click="method.deleteRow(row)"
-                  ></tooltip-btn>
                 </template>
               </vxe-column>
             </vxe-table>
@@ -102,7 +94,7 @@
 <script lang="tsx" setup>
 import { computed, ref, reactive, onMounted, watch } from 'vue'
 import { VxePagerEvents } from 'vxe-table'
-import { computedCardHeight, computedTableHeight, errorColor } from '@/constant/style'
+import { computedCardHeight, computedTableHeight } from '@/constant/style'
 import { SupplierVO } from '@/types/Base/Supplier'
 import { PAGE_SIZE, PAGE_LAYOUT, DEFAULT_PAGE_SIZE } from '@/constant/vxeTable'
 import tooltipBtn from '@/components/tooltip-btn.vue'
@@ -112,7 +104,7 @@ import { DEBOUNCE_TIME } from '@/constant/system'
 import { setSearchObject, getMenuAuthorityList } from '@/utils/common'
 import { SearchObject, btnGroupItem } from '@/types/System/Form'
 import i18n from '@/languages/i18n'
-import { getSupplierList, deleteSupplier } from '@/api/base/supplier'
+import { getSupplierList } from '@/api/base/supplier'
 import customPager from '@/components/custom-pager.vue'
 import { exportData } from '@/utils/exportTable'
 import BtnGroup from '@/components/system/btnGroup.vue'
@@ -177,28 +169,6 @@ const method = reactive({
   editRow(row: SupplierVO) {
     data.dialogForm = JSON.parse(JSON.stringify(row))
     data.showDialog = true
-  },
-  deleteRow(row: SupplierVO) {
-    hookComponent.$dialog({
-      content: i18n.global.t('system.tips.beforeDeleteMessage'),
-      handleConfirm: async () => {
-        if (row.id) {
-          const { data: res } = await deleteSupplier(row.id)
-          if (!res.isSuccess) {
-            hookComponent.$message({
-              type: 'error',
-              content: res.errorMessage
-            })
-            return
-          }
-          hookComponent.$message({
-            type: 'success',
-            content: `${ i18n.global.t('system.page.delete') }${ i18n.global.t('system.tips.success') }`
-          })
-          method.refresh()
-        }
-      }
-    })
   },
   handlePageChange: ref<VxePagerEvents.PageChange>(({ currentPage, pageSize }) => {
     data.tablePage.pageIndex = currentPage

@@ -151,15 +151,24 @@
     },
     "supplier": {
       "address": "详细地址",
+      "address_line": "详细地址",
       "city": "所在城市",
+      "city_name": "城市名称",
       "contact_tel": "联系方式",
       "create_time": "创建时间",
       "creator": "创建人",
       "email": "Email",
+      "id": "主键ID",
       "is_valid": "是否有效",
       "last_update_time": "最后更新时间",
+      "linkman": "联系人",
       "manager": "负责人",
-      "supplier_name": "供应商名称"
+      "name": "供应商名称",
+      "province_name": "省份名称",
+      "qq": "QQ",
+      "remark": "备注",
+      "supplier_name": "供应商名称",
+      "telephone_num": "联系电话"
     },
     "userManagement": {
       "addSuccessTip": "新增成功, 用户初始密码为: ",

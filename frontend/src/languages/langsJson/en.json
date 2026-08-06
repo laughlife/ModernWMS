@@ -151,15 +151,24 @@
     },
     "supplier": {
       "address": "Address",
+      "address_line": "Address",
       "city": "City",
+      "city_name": "City",
       "contact_tel": "Contact Tel",
       "create_time": "Create Time",
       "creator": "Creator",
       "email": "Email",
+      "id": "ID",
       "is_valid": "Valid",
       "last_update_time": "Last Update Time",
+      "linkman": "Contact",
       "manager": "Manager",
-      "supplier_name": "Supplier Name"
+      "name": "Supplier Name",
+      "province_name": "Province",
+      "qq": "QQ",
+      "remark": "Remark",
+      "supplier_name": "Supplier Name",
+      "telephone_num": "Telephone"
     },
     "userManagement": {
       "addSuccessTip": "Successfully added, user's initial password is: ",
