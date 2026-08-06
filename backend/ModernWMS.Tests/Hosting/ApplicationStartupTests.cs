@@ -34,7 +34,7 @@ public class ApplicationStartupTests
     }
 
     [Fact]
-    public void Erp_context_uses_its_dedicated_connection_string()
+    public void Ruoyi_primary_context_uses_its_dedicated_connection_string()
     {
         using var factory = new WebApplicationFactory<Program>()
             .WithWebHostBuilder(builder =>
@@ -44,8 +44,8 @@ public class ApplicationStartupTests
                     "ConnectionStrings:MySqlConn",
                     "Server=127.0.0.1;Port=3306;Database=modernwms_smoke;User Id=wms_user;Password=wms_password");
                 builder.UseSetting(
-                    "ConnectionStrings:ErpMySqlConn",
-                    "Server=192.168.100.2;Port=3306;Database=ruoyi-vue-pro;User Id=erp_user;Password=erp_password");
+                    "ConnectionStrings:RuoyiMySqlConn",
+                    "Server=192.168.100.2;Port=3306;Database=ruoyi-vue-pro;User Id=ruoyi_user;Password=ruoyi_password");
                 builder.UseSetting(
                     "TokenSettings:SigningKey",
                     "modernwms-local-smoke-key-32-bytes-minimum");
@@ -53,15 +53,15 @@ public class ApplicationStartupTests
             });
 
         using var scope = factory.Services.CreateScope();
-        var erpDbContext = scope.ServiceProvider.GetRequiredService<ErpDbContext>();
+        var ruoyiDbContext = scope.ServiceProvider.GetRequiredService<RuoyiDbContext>();
         var connectionString = new DbConnectionStringBuilder
         {
-            ConnectionString = erpDbContext.Database.GetDbConnection().ConnectionString
+            ConnectionString = ruoyiDbContext.Database.GetDbConnection().ConnectionString
         };
 
         Assert.Equal("192.168.100.2", connectionString["server"]);
         Assert.Equal("ruoyi-vue-pro", connectionString["database"]);
-        Assert.Equal("erp_user", connectionString["user id"]);
+        Assert.Equal("ruoyi_user", connectionString["user id"]);
     }
 
     private static WebApplicationFactory<Program> CreateFactory() =>
@@ -72,6 +72,9 @@ public class ApplicationStartupTests
                 builder.UseSetting(
                     "ConnectionStrings:MySqlConn",
                     "Server=127.0.0.1;Port=3306;Database=modernwms_smoke;User Id=smoke");
+                builder.UseSetting(
+                    "ConnectionStrings:RuoyiMySqlConn",
+                    "Server=127.0.0.1;Port=3306;Database=ruoyi_smoke;User Id=smoke");
                 builder.UseSetting(
                     "TokenSettings:SigningKey",
                     "modernwms-local-smoke-key-32-bytes-minimum");

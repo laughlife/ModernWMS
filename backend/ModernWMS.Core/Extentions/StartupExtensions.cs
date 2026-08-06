@@ -23,7 +23,6 @@ using ModernWMS.Core.DI;
 using Microsoft.Extensions.Localization;
 using Hangfire;
 using Hangfire.MemoryStorage;
-using System.Data.Common;
 
 namespace ModernWMS.Core.Extentions
 {
@@ -31,6 +30,8 @@ namespace ModernWMS.Core.Extentions
     {
         public static void AddExtensionsService(this IServiceCollection services, IConfiguration configuration, IHostEnvironment environment)
         {
+            const int databaseContextPoolSize = 20;
+
             services.AddLocalization();
             services.AddSingleton<IStringLocalizer>((sp) =>
             {
@@ -47,50 +48,36 @@ namespace ModernWMS.Core.Extentions
                 return cache;
             });
 
-            var connectionString = configuration.GetConnectionString("MySqlConn");
-            if (string.IsNullOrWhiteSpace(connectionString))
+            var wmsConnectionString = configuration.GetConnectionString("MySqlConn");
+            if (string.IsNullOrWhiteSpace(wmsConnectionString))
             {
                 throw new InvalidOperationException("ConnectionStrings:MySqlConn is required.");
             }
 
-            // ERP 数据源优先使用独立连接串，避免主库账号没有 ERP 库权限时认证失败。
-            // 未配置独立连接串时，继续兼容“同服务器、同账号、仅数据库名不同”的旧配置。
-            var erpConnectionString = configuration.GetConnectionString("ErpMySqlConn");
-            if (string.IsNullOrWhiteSpace(erpConnectionString))
+            var ruoyiConnectionString = configuration.GetConnectionString("RuoyiMySqlConn");
+            if (string.IsNullOrWhiteSpace(ruoyiConnectionString))
             {
-                var erpDatabase = configuration["DatabaseSources:Erp:Database"];
-                if (string.IsNullOrWhiteSpace(erpDatabase))
-                {
-                    throw new InvalidOperationException(
-                        "ConnectionStrings:ErpMySqlConn or DatabaseSources:Erp:Database is required.");
-                }
-
-                var erpConnectionStringBuilder = new DbConnectionStringBuilder
-                {
-                    ConnectionString = connectionString
-                };
-                erpConnectionStringBuilder["Database"] = erpDatabase;
-                erpConnectionString = erpConnectionStringBuilder.ConnectionString;
+                throw new InvalidOperationException("ConnectionStrings:RuoyiMySqlConn is required.");
             }
 
             services.AddDbContextPool<SqlDBContext>(t =>
             {
-                t.UseMySQL(connectionString, b => b.MigrationsAssembly("ModernWMS"));
+                t.UseMySQL(wmsConnectionString, b => b.MigrationsAssembly("ModernWMS"));
                 if (environment.IsDevelopment())
                 {
                     t.EnableSensitiveDataLogging();
                     t.UseLoggerFactory(new LoggerFactory(new[] { new DebugLoggerProvider() }));
                 }
-            }, 100);
-            services.AddDbContextPool<ErpDbContext>(t =>
+            }, databaseContextPoolSize);
+            services.AddDbContextPool<RuoyiDbContext>(t =>
             {
-                t.UseMySQL(erpConnectionString);
+                t.UseMySQL(ruoyiConnectionString);
                 if (environment.IsDevelopment())
                 {
                     t.EnableSensitiveDataLogging();
                     t.UseLoggerFactory(new LoggerFactory(new[] { new DebugLoggerProvider() }));
                 }
-            }, 100);
+            }, databaseContextPoolSize);
             var allowedOrigins = configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
             services.AddCors(options => options.AddPolicy("Frontend", policy =>
             {

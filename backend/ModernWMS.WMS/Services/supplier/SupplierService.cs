@@ -16,11 +16,11 @@ namespace ModernWMS.WMS.Services
     /// </summary>
     public class SupplierService : BaseService<SupplierEntity>, ISupplierService
     {
-        private readonly ErpDbContext _erpDbContext;
+        private readonly RuoyiDbContext _ruoyiDbContext;
 
-        public SupplierService(ErpDbContext erpDbContext)
+        public SupplierService(RuoyiDbContext ruoyiDbContext)
         {
-            _erpDbContext = erpDbContext;
+            _ruoyiDbContext = ruoyiDbContext;
         }
 
         /// <summary>
@@ -37,7 +37,7 @@ namespace ModernWMS.WMS.Services
                 });
             }
 
-            var query = _erpDbContext.Suppliers
+            var query = _ruoyiDbContext.Suppliers
                 .AsNoTracking()
                 .Where(t => !t.deleted)
                 .Where(queries.AsExpression<ErpSupplierEntity>());
@@ -71,7 +71,7 @@ namespace ModernWMS.WMS.Services
         /// </summary>
         public async Task<List<SupplierViewModel>> GetAllAsync()
         {
-            return await _erpDbContext.Suppliers
+            return await _ruoyiDbContext.Suppliers
                 .AsNoTracking()
                 .Where(t => !t.deleted)
                 .OrderBy(t => t.name)
@@ -97,7 +97,7 @@ namespace ModernWMS.WMS.Services
         /// </summary>
         public async Task<SupplierViewModel?> GetAsync(long id)
         {
-            return await _erpDbContext.Suppliers
+            return await _ruoyiDbContext.Suppliers
                 .AsNoTracking()
                 .Where(t => !t.deleted && t.id == id)
                 .Select(t => new SupplierViewModel

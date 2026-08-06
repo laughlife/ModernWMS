@@ -11,17 +11,17 @@ namespace ModernWMS.WMS.Services;
 public class OperatorGroupService : IOperatorGroupService
 {
     /// <summary>
-    /// ERP DBContext
+    /// Ruoyi primary DBContext
     /// </summary>
-    private readonly ErpDbContext _erpDbContext;
+    private readonly RuoyiDbContext _ruoyiDbContext;
 
     /// <summary>
     /// constructor
     /// </summary>
-    /// <param name="erpDbContext">ERP DBContext</param>
-    public OperatorGroupService(ErpDbContext erpDbContext)
+    /// <param name="ruoyiDbContext">Ruoyi primary DBContext</param>
+    public OperatorGroupService(RuoyiDbContext ruoyiDbContext)
     {
-        this._erpDbContext = erpDbContext;
+        this._ruoyiDbContext = ruoyiDbContext;
     }
 
     /// <summary>
@@ -31,8 +31,8 @@ public class OperatorGroupService : IOperatorGroupService
     public async Task<List<OperatorGroupViewModel>> GetAllAsync()
     {
         var query =
-            from dept in _erpDbContext.SystemDepts.AsNoTracking()
-            join user in _erpDbContext.SystemUsers.AsNoTracking().Where(t => !t.deleted)
+            from dept in _ruoyiDbContext.SystemDepts.AsNoTracking()
+            join user in _ruoyiDbContext.SystemUsers.AsNoTracking().Where(t => !t.deleted)
                 on dept.leader_user_id equals (long?)user.id into userGroup
             from leader in userGroup.DefaultIfEmpty()
             where dept.dept == "operator" && !dept.deleted

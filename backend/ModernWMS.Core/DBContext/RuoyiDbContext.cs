@@ -4,17 +4,17 @@ using ModernWMS.Core.DBContext.Entities;
 namespace ModernWMS.Core.DBContext;
 
 /// <summary>
-/// ERP 数据库上下文（双数据源中的第二个数据源）。
-/// 注意：不要继承 SqlDBContext，避免把 WMS 实体自动映射到 ERP 库。
-/// ERP 相关实体后续按需在此上下文中显式添加。
+/// Ruoyi 业务主数据库上下文。
+/// 与 WMS 主数据库上下文独立注册、独立连接，并支持完整的 EF Core 读写操作。
+/// Ruoyi 表按业务需要在此上下文中显式映射。
 /// </summary>
-public sealed class ErpDbContext : DbContext
+public sealed class RuoyiDbContext : DbContext
 {
     /// <summary>
     /// 构造函数
     /// </summary>
     /// <param name="options">上下文选项</param>
-    public ErpDbContext(DbContextOptions<ErpDbContext> options) : base(options)
+    public RuoyiDbContext(DbContextOptions<RuoyiDbContext> options) : base(options)
     {
     }
 
@@ -34,7 +34,7 @@ public sealed class ErpDbContext : DbContext
     public DbSet<ErpSupplierEntity> Suppliers => Set<ErpSupplierEntity>();
 
     /// <summary>
-    /// 显式映射 ERP 只读实体，避免自动映射 WMS 主库实体。
+    /// 显式映射当前已接入 ModernWMS 的 Ruoyi 业务实体。
     /// </summary>
     /// <param name="modelBuilder">model builder</param>
     protected override void OnModelCreating(ModelBuilder modelBuilder)

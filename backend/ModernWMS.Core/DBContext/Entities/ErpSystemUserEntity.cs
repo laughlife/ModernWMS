@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace ModernWMS.Core.DBContext.Entities;
 
 /// <summary>
-/// ERP system_users 只读映射。
+/// Ruoyi system_users entity mapping.
 /// </summary>
 [Table("system_users")]
 public class ErpSystemUserEntity

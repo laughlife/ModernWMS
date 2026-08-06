@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace ModernWMS.Core.DBContext.Entities;
 
 /// <summary>
-/// ERP system_dept 只读映射。
+/// Ruoyi system_dept entity mapping.
 /// </summary>
 [Table("system_dept")]
 public class ErpSystemDeptEntity

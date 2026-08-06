@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace ModernWMS.Core.DBContext.Entities;
 
 /// <summary>
-/// ERP erp_supplier readonly mapping.
+/// Ruoyi erp_supplier entity mapping.
 /// </summary>
 [Table("erp_supplier")]
 public class ErpSupplierEntity
