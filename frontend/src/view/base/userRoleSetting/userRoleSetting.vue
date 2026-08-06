@@ -84,15 +84,15 @@
                     :flat="true"
                     icon="mdi-pencil-outline"
                     :tooltip-text="$t('system.page.edit')"
-                    :disabled="!data.authorityList.includes('save')"
+                    :disabled="!data.authorityList.includes('save') || isAdminRole(row.role_name)"
                     @click="method.editRow(row)"
                   ></tooltip-btn>
                   <tooltip-btn
                     :flat="true"
                     icon="mdi-delete-outline"
                     :tooltip-text="$t('system.page.delete')"
-                    :icon-color="!data.authorityList.includes('delete')?'':errorColor"
-                    :disabled="!data.authorityList.includes('delete')"
+                    :icon-color="!data.authorityList.includes('delete') || isAdminRole(row.role_name) ? '' : errorColor"
+                    :disabled="!data.authorityList.includes('delete') || isAdminRole(row.role_name)"
                     @click="method.deleteRow(row)"
                   ></tooltip-btn>
                 </template>
@@ -119,6 +119,7 @@ import i18n from '@/languages/i18n'
 import { exportData } from '@/utils/exportTable'
 import BtnGroup from '@/components/system/btnGroup.vue'
 import { getMenuAuthorityList } from '@/utils/common'
+import { isAdminRole } from './userRolePolicy'
 
 const xTable = ref()
 
@@ -180,10 +181,16 @@ const method = reactive({
     method.getUserRoleList()
   },
   editRow(row: UserRoleVO) {
+    if (isAdminRole(row.role_name)) {
+      return
+    }
     data.dialogForm = JSON.parse(JSON.stringify(row))
     data.showDialog = true
   },
   deleteRow(row: UserRoleVO) {
+    if (isAdminRole(row.role_name)) {
+      return
+    }
     hookComponent.$dialog({
       content: i18n.global.t('system.tips.beforeDeleteMessage'),
       handleConfirm: async () => {

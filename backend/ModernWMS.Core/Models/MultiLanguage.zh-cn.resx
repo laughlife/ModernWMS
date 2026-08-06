@@ -648,4 +648,7 @@
   <data name="username_existed" xml:space="preserve">
     <value>用户名已存在</value>
   </data>
+  <data name="admin_role_reserved" xml:space="preserve">
+    <value>admin角色是系统保留角色，不能创建、修改或删除</value>
+  </data>
 </root>

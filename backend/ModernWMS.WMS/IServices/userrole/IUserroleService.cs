@@ -53,7 +53,7 @@ using ModernWMS.Core.Models;
          /// </summary>
          /// <param name="id">id</param>
          /// <returns></returns>
-         Task<(bool flag, string msg)> DeleteAsync(int id);
+         Task<(bool flag, string msg)> DeleteAsync(int id, CurrentUser currentUser);
          #endregion
      }
  }

@@ -648,4 +648,7 @@
   <data name="username_existed" xml:space="preserve">
     <value>User name already exists</value>
   </data>
+  <data name="admin_role_reserved" xml:space="preserve">
+    <value>The admin role is a reserved system role and cannot be created, modified, or deleted</value>
+  </data>
 </root>

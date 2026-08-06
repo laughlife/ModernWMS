@@ -146,7 +146,7 @@
          [HttpDelete]
          public async Task<ResultModel<string>> DeleteAsync(int id)
          {
-             var (flag, msg) = await _userroleService.DeleteAsync(id);
+             var (flag, msg) = await _userroleService.DeleteAsync(id, CurrentUser);
              if (flag)
              {
                  return ResultModel<string>.Success(msg);
