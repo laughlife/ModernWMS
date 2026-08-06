@@ -24,6 +24,13 @@
               variant="outlined"
               clearable
             ></v-text-field>
+            <v-text-field
+              v-model="data.form.sort"
+              :label="$t('base.warehouseSetting.sort')"
+              :rules="data.rules.sort"
+              variant="outlined"
+              clearable
+            ></v-text-field>
             <v-select
               v-model="data.form.area_property"
               :items="data.combobox.area_property"
@@ -84,6 +91,7 @@ const data = reactive({
     parent_id: 0,
     warehouse_name: '',
     area_name: '',
+    sort: 0,
     area_property: AreaProperty.picking_area,
     is_valid: true
   }),
@@ -94,6 +102,9 @@ const data = reactive({
     area_name: [
       (val: string) => !!val || `${ i18n.global.t('system.checkText.mustInput') }${ i18n.global.t('base.warehouseSetting.area_name') }!`,
       (val: string) => StringLength(val, 0, 32) === '' || StringLength(val, 0, 32)
+    ],
+    sort: [
+      (val: any) => (val === null || val === undefined || val === '' || Number(val) < 0) ? `${ i18n.global.t('system.checkText.mustInput') }${ i18n.global.t('base.warehouseSetting.sort') }!` : true
     ],
     area_property: [
       (val: string) => !!val || `${ i18n.global.t('system.checkText.mustInput') }${ i18n.global.t('base.warehouseSetting.area_property') }!`
@@ -173,6 +184,7 @@ const method = reactive({
     const { valid } = await formRef.value.validate()
     if (valid) {
       const form = removeObjectNull(data.form)
+      form.sort = Number(form.sort) || 0
       const { data: res } = dialogTitle.value === 'add' ? await addWarehouseArea(form) : await updateWarehouseArea(form)
       if (!res.isSuccess) {
         hookComponent.$message({

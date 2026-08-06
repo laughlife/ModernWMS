@@ -92,6 +92,13 @@ namespace ModernWMS.WMS.Entities.ViewModels
         [Display(Name = "area_property")]
         public byte area_property { get; set; } = 0;
 
+        /// <summary>
+        /// sort
+        /// </summary>
+        [Display(Name = "sort")]
+        [Range(0, int.MaxValue, ErrorMessage = "Range")]
+        public int sort { get; set; } = 0;
+
 
         #endregion
 

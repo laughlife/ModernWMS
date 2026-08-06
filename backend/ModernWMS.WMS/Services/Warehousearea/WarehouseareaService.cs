@@ -85,6 +85,7 @@ namespace ModernWMS.WMS.Services
                             is_valid = wa.is_valid,
                             tenant_id = wa.tenant_id,
                             area_property = wa.area_property,
+                            sort = wa.sort,
                         };
             if (pageSearch.sqlTitle == "select")
             {
@@ -92,7 +93,7 @@ namespace ModernWMS.WMS.Services
             }
             query = query.Where(t => t.tenant_id.Equals(currentUser.tenant_id)).Where(queries.AsExpression<WarehouseareaViewModel>());
             int totals = await query.CountAsync();
-            var list = await query.OrderByDescending(t => t.create_time)
+            var list = await query.OrderBy(t => t.sort).ThenBy(t => t.id)
                        .Skip((pageSearch.pageIndex - 1) * pageSearch.pageSize)
                        .Take(pageSearch.pageSize)
                        .ToListAsync();
@@ -110,6 +111,7 @@ namespace ModernWMS.WMS.Services
             var DbSet = _dBContext.GetDbSet<WarehouseareaEntity>();
             res = await (from wa in DbSet.AsNoTracking()
                          where wa.is_valid == true && wa.tenant_id == currentUser.tenant_id && wa.warehouse_id == warehouse_id
+                         orderby wa.sort, wa.id
                          select new FormSelectItem
                          {
                              code = "warehousearea",
@@ -131,7 +133,10 @@ namespace ModernWMS.WMS.Services
             {
                 DbSet = DbSet.Where(t=>t.warehouse_id == warehouse_id);
             }
-            var data = await DbSet.Where(t =>t.is_valid == true && t.tenant_id.Equals(currentUser.tenant_id)).ToListAsync();
+            var data = await DbSet.Where(t =>t.is_valid == true && t.tenant_id.Equals(currentUser.tenant_id))
+                .OrderBy(t => t.sort)
+                .ThenBy(t => t.id)
+                .ToListAsync();
             return data.Adapt<List<WarehouseareaViewModel>>();
         }
 
@@ -202,6 +207,7 @@ namespace ModernWMS.WMS.Services
             entity.parent_id = viewModel.parent_id;
             entity.is_valid = viewModel.is_valid;
             entity.area_property = viewModel.area_property;
+            entity.sort = viewModel.sort;
             entity.last_update_time = DateTime.Now;
             var goodslocation_DBSet = _dBContext.GetDbSet<GoodslocationEntity>();
             var gldatas = await goodslocation_DBSet.Where(t => t.warehouse_area_id == entity.id).ToListAsync();

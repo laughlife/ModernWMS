@@ -60,6 +60,11 @@ namespace ModernWMS.WMS.Entities.Models
         /// </summary>
         public byte area_property { get; set; }  = 0;
 
+        /// <summary>
+        /// sort
+        /// </summary>
+        public int sort { get; set; } = 0;
+
 
         #endregion
 

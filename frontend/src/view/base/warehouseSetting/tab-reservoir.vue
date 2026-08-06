@@ -55,6 +55,7 @@
       <vxe-column type="checkbox" width="50"></vxe-column>
       <vxe-column field="warehouse_name" :title="$t('base.warehouseSetting.warehouse_name')"></vxe-column>
       <vxe-column field="area_name" :title="$t('base.warehouseSetting.area_name')"></vxe-column>
+      <vxe-column field="sort" :title="$t('base.warehouseSetting.sort')" width="90"></vxe-column>
       <vxe-column field="area_property" :title="$t('base.warehouseSetting.area_property')">
         <template #default="{ row, column }">
           <span>{{ formatAreaProperty(row[column.property]) }}</span>
@@ -128,6 +129,7 @@ const data = reactive({
     parent_id: 0,
     warehouse_name: '',
     area_name: '',
+    sort: 0,
     area_property: AreaProperty.picking_area,
     is_valid: true
   }),
@@ -157,6 +159,7 @@ const method = reactive({
       parent_id: 0,
       warehouse_name: '',
       area_name: '',
+      sort: 0,
       area_property: AreaProperty.picking_area,
       is_valid: true
     }

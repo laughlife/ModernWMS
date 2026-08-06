@@ -17,6 +17,7 @@ export interface WarehouseAreaVO extends UniformFileNaming {
   parent_id?: number
   warehouse_name: string
   area_name: string
+  sort: number
   area_property: AreaProperty
   is_valid: boolean
 }
@@ -49,3 +50,4 @@ export enum AreaProperty {
   'defective_area' = 5,
   'inventory_area' = 6
 }
+
