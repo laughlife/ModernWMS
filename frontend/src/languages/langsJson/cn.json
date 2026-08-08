@@ -569,6 +569,26 @@
       "stockSelectModal": "库存选择框",
       "warehouse": "仓库名称"
     },
+    "erpPendingReceipt": {
+      "dept_name": "归属小组",
+      "latest_event_desc": "最新物流轨迹",
+      "logistics_name": "物流公司",
+      "order_user_name": "订购人",
+      "order_user_text": "订购信息",
+      "product_keyword": "商品、采购单或物流单",
+      "product_name": "商品名称",
+      "product_summary": "商品明细",
+      "purchase_no": "采购单号",
+      "quantity": "发货数量",
+      "shipment_batch_no": "发货批次",
+      "shipment_qty": "货件总数",
+      "shipment_time": "发货时间",
+      "sku": "SKU",
+      "supplier_name": "供应商名称",
+      "tracking_no": "物流单号",
+      "tracking_status": "物流状态",
+      "warehouse_name": "收货仓库"
+    },
     "stockAsn": {
       "tabNotice": "到货通知",
       "tabReceiptDetails": "收货明细",

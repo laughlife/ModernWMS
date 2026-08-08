@@ -104,6 +104,12 @@ export const getStockAsnList = (data: PageConfigProps) => http({
     data
   })
 
+export const getErpPendingReceiptList = (data: PageConfigProps) => http({
+    url: '/asn/erp-pending-receipt/list',
+    method: 'post',
+    data
+  })
+
 export const addAsn = (data: StockAsnVO) => http({
     url: '/asn',
     method: 'post',

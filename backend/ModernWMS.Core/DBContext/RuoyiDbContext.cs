@@ -39,6 +39,16 @@ public sealed class RuoyiDbContext : DbContext
     public DbSet<ErpWarehouseEntity> Warehouses => Set<ErpWarehouseEntity>();
 
     /// <summary>
+    /// ERP logistics shipment facts.
+    /// </summary>
+    public DbSet<ErpLogisticsInfoEntity> LogisticsInfos => Set<ErpLogisticsInfoEntity>();
+
+    /// <summary>
+    /// ERP logistics tracking snapshots.
+    /// </summary>
+    public DbSet<ErpTrackEntity> Tracks => Set<ErpTrackEntity>();
+
+    /// <summary>
     /// 显式映射当前已接入 ModernWMS 的 Ruoyi 业务实体。
     /// </summary>
     /// <param name="modelBuilder">model builder</param>
@@ -65,6 +75,18 @@ public sealed class RuoyiDbContext : DbContext
         modelBuilder.Entity<ErpWarehouseEntity>(entity =>
         {
             entity.ToTable("erp_warehouse");
+            entity.HasKey(t => t.id);
+        });
+
+        modelBuilder.Entity<ErpLogisticsInfoEntity>(entity =>
+        {
+            entity.ToTable("trk_logistics_info");
+            entity.HasKey(t => t.id);
+        });
+
+        modelBuilder.Entity<ErpTrackEntity>(entity =>
+        {
+            entity.ToTable("trk_track");
             entity.HasKey(t => t.id);
         });
 

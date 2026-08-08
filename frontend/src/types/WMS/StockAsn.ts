@@ -111,3 +111,46 @@ export interface UpdateSortingVo {
   is_valid: boolean
   tenant_id: number
 }
+
+export interface ErpPendingReceiptProductVO {
+  task_item_id?: number | null
+  allocation_id?: number | null
+  commodity_id?: number | null
+  sku: string
+  product_name: string
+  quantity?: number | null
+  usage_type: string
+  order_user_name: string
+  dept_name: string
+}
+
+export interface ErpPendingReceiptVO {
+  id: number
+  source_type: string
+  purchase_no: string
+  supplier_name: string
+  order_user_text: string
+  shipment_batch_no: string
+  shipment_type: string
+  shipment_qty: number
+  shipment_time?: string | null
+  warehouse_id: number
+  warehouse_name: string
+  freight_forwarder_name: string
+  provider_code: string
+  logistics_code: string
+  logistics_name: string
+  tracking_no: string
+  lifecycle_status: string
+  tracking_status: string
+  tracking_status_name: string
+  latest_event_desc: string
+  latest_event_time?: string | null
+  latest_event_location: string
+  estimated_delivery_time?: string | null
+  actual_delivery_time?: string | null
+  source_version: number
+  product_summary: string
+  product_count: number
+  product_list: ErpPendingReceiptProductVO[]
+}
