@@ -35,13 +35,8 @@
     </v-row>
   </div>
 
-  <div
-    class="mt-5"
-    :style="{
-      height: cardHeight
-    }"
-  >
-    <vxe-table ref="xTablePendingReceipt" :column-config="{ minWidth: '120px' }" :data="data.tableData" :height="tableHeight" align="center">
+  <div class="mt-5" :style="{ height: cardHeight }">
+    <vxe-table ref="xTable" :column-config="{ minWidth: '120px' }" :data="data.tableData" :height="tableHeight" align="center">
       <template #empty>
         {{ i18n.global.t('system.page.noData') }}
       </template>
@@ -87,8 +82,11 @@
       <vxe-column field="shipment_time" :title="$t('wms.erpPendingReceipt.shipment_time')" min-width="170"></vxe-column>
       <vxe-column field="warehouse_name" :title="$t('wms.erpPendingReceipt.warehouse_name')" min-width="150"></vxe-column>
       <vxe-column field="order_user_text" :title="$t('wms.erpPendingReceipt.order_user_text')" min-width="150"></vxe-column>
-      <vxe-column fixed="right" :title="$t('system.page.operate')" width="110">
+      <vxe-column fixed="right" :title="$t('system.page.operate')" width="190">
         <template #default="{ row }">
+          <v-btn color="info" size="small" variant="text" @click="method.openLogisticsDialog(row)">
+            {{ $t('wms.erpPendingReceipt.view_logistics') }}
+          </v-btn>
           <v-btn color="primary" size="small" variant="text" @click="method.openReceiptDialog(row)">
             {{ $t('wms.erpPendingReceipt.receipt_action') }}
           </v-btn>
@@ -106,27 +104,34 @@
     ></custom-pager>
   </div>
 
+  <ErpLogisticsDetail ref="logisticsDetailRef" />
   <ErpReceiptConfirm ref="receiptConfirmRef" />
 </template>
 
 <script lang="ts" setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { VxePagerEvents } from 'vxe-table'
-import { getErpPendingReceiptList } from '@/api/wms/stockAsn'
+import type { VxePagerEvents } from 'vxe-table'
+import { getErpArrivedReceiptList, getErpPendingReceiptList } from '@/api/wms/stockAsn'
 import { hookComponent } from '@/components/system'
 import BtnGroup from '@/components/system/btnGroup.vue'
 import customPager from '@/components/custom-pager.vue'
+import ErpLogisticsDetail from './erp-logistics-detail.vue'
 import ErpReceiptConfirm from './erp-receipt-confirm.vue'
 import { computedCardHeight, computedTableHeight } from '@/constant/style'
 import { DEFAULT_PAGE_SIZE, PAGE_LAYOUT, PAGE_SIZE } from '@/constant/vxeTable'
 import { DEBOUNCE_TIME } from '@/constant/system'
 import i18n from '@/languages/i18n'
-import { btnGroupItem, SearchObject } from '@/types/System/Form'
-import { ErpPendingReceiptVO } from '@/types/WMS/StockAsn'
+import type { btnGroupItem, SearchObject } from '@/types/System/Form'
+import type { ErpPendingReceiptVO } from '@/types/WMS/StockAsn'
 import { getMenuAuthorityList, setSearchObject } from '@/utils/common'
 import { exportData } from '@/utils/exportTable'
 
-const xTablePendingReceipt = ref()
+const props = defineProps<{
+  listType: 'pending' | 'arrived'
+}>()
+
+const xTable = ref()
+const logisticsDetailRef = ref<InstanceType<typeof ErpLogisticsDetail>>()
 const receiptConfirmRef = ref<InstanceType<typeof ErpReceiptConfirm>>()
 
 const data = reactive({
@@ -151,12 +156,10 @@ const method = reactive({
     method.getStockAsnList()
   },
   getStockAsnList: async () => {
-    const { data: res } = await getErpPendingReceiptList(data.tablePage)
+    const request = props.listType === 'arrived' ? getErpArrivedReceiptList : getErpPendingReceiptList
+    const { data: res } = await request(data.tablePage)
     if (!res.isSuccess) {
-      hookComponent.$message({
-        type: 'error',
-        content: res.errorMessage
-      })
+      hookComponent.$message({ type: 'error', content: res.errorMessage })
       return
     }
     data.tableData = res.data.rows
@@ -169,12 +172,15 @@ const method = reactive({
   }),
   exportTable: () => {
     exportData({
-      table: xTablePendingReceipt.value,
-      filename: i18n.global.t('wms.stockAsn.tabToDoArrival'),
+      table: xTable.value,
+      filename: i18n.global.t(props.listType === 'arrived' ? 'wms.stockAsn.tabNotice' : 'wms.stockAsn.tabToDoArrival'),
       columnFilterMethod({ column }: any) {
-        return !['expand'].includes(column?.type)
+        return !['expand'].includes(column?.type) && !['operate'].includes(column?.field)
       }
     })
+  },
+  openLogisticsDialog: (row: ErpPendingReceiptVO) => {
+    logisticsDetailRef.value?.openDialog(row)
   },
   openReceiptDialog: (row: ErpPendingReceiptVO) => {
     receiptConfirmRef.value?.openDialog(row)
@@ -197,7 +203,7 @@ onMounted(() => {
     {
       name: i18n.global.t('system.page.export'),
       icon: 'mdi-export-variant',
-      code: 'delivered-export',
+      code: props.listType === 'arrived' ? 'notice-export' : 'delivered-export',
       click: method.exportTable
     }
   ]
@@ -213,9 +219,7 @@ defineExpose({
 watch(
   () => data.searchForm,
   () => {
-    if (data.timer) {
-      clearTimeout(data.timer)
-    }
+    if (data.timer) clearTimeout(data.timer)
     data.timer = setTimeout(() => {
       data.timer = null
       method.sureSearch()

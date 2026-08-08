@@ -571,6 +571,7 @@
     },
     "erpPendingReceipt": {
       "actual_receipt_qty": "实际收货数量",
+      "actual_delivery_time": "实际签收时间",
       "attachment_count_exceeded": "每类最多上传9张图片",
       "attachment_tip": "选择后立即上传到ERP共用OSS；支持JPG、PNG、GIF、WEBP，单张不超过10MB",
       "attachment_upload_failed": "图片上传失败，请重试",
@@ -580,8 +581,13 @@
       "forwarder_or_warehouse": "货代/仓库",
       "free_shipping": "包邮",
       "freight_amount_required": "支付运费时必须填写大于0的金额",
+      "estimated_delivery_time": "预计送达时间",
       "latest_event_desc": "最新物流轨迹",
+      "latest_event_location": "最新轨迹位置",
+      "latest_event_time": "最新轨迹时间",
+      "logistics_detail_title": "物流信息",
       "logistics_name": "物流公司",
+      "logistics_timeline": "物流轨迹",
       "loss_attachments": "短少附件",
       "loss_qty": "短少数量",
       "loss_reason": "短少原因",
@@ -618,6 +624,7 @@
       "source_freight_payment_type": "发货运费方式",
       "tracking_no": "物流单号",
       "tracking_status": "物流状态",
+      "view_logistics": "查看物流",
       "warehouse_name": "收货仓库"
     },
     "stockAsn": {

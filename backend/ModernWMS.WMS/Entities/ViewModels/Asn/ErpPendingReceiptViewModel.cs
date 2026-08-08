@@ -52,3 +52,34 @@ public class ErpPendingReceiptProductViewModel
     public string order_user_name { get; set; } = string.Empty;
     public string dept_name { get; set; } = string.Empty;
 }
+
+/// <summary>
+/// Logistics detail and event timeline for an ERP receipt shipment.
+/// </summary>
+public class ErpPendingReceiptLogisticsViewModel
+{
+    public long shipment_id { get; set; }
+    public string logistics_name { get; set; } = string.Empty;
+    public string tracking_no { get; set; } = string.Empty;
+    public string tracking_status { get; set; } = string.Empty;
+    public string tracking_status_name { get; set; } = string.Empty;
+    public string latest_event_desc { get; set; } = string.Empty;
+    public DateTime? latest_event_time { get; set; }
+    public string latest_event_location { get; set; } = string.Empty;
+    public DateTime? estimated_delivery_time { get; set; }
+    public DateTime? actual_delivery_time { get; set; }
+    public List<ErpPendingReceiptTrackEventViewModel> event_list { get; set; } = [];
+}
+
+/// <summary>
+/// One ERP logistics tracking event.
+/// </summary>
+public class ErpPendingReceiptTrackEventViewModel
+{
+    public long id { get; set; }
+    public DateTime? event_time { get; set; }
+    public string status_name { get; set; } = string.Empty;
+    public string description { get; set; } = string.Empty;
+    public string location { get; set; } = string.Empty;
+    public string stage { get; set; } = string.Empty;
+}

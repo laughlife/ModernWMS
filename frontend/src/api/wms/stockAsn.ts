@@ -110,6 +110,18 @@ export const getErpPendingReceiptList = (data: PageConfigProps) => http({
     data
   })
 
+export const getErpArrivedReceiptList = (data: PageConfigProps) => http({
+    url: '/asn/erp-pending-receipt/arrived-list',
+    method: 'post',
+    data
+  })
+
+export const getErpReceiptLogistics = (shipmentId: number) => http({
+    url: '/asn/erp-pending-receipt/logistics',
+    method: 'get',
+    params: { shipmentId }
+  })
+
 export interface ErpReceiptOssImage {
   name: string
   path: string

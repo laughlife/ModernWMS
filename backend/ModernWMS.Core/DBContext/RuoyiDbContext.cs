@@ -49,6 +49,11 @@ public sealed class RuoyiDbContext : DbContext
     public DbSet<ErpTrackEntity> Tracks => Set<ErpTrackEntity>();
 
     /// <summary>
+    /// ERP logistics tracking events.
+    /// </summary>
+    public DbSet<ErpTrackEventEntity> TrackEvents => Set<ErpTrackEventEntity>();
+
+    /// <summary>
     /// ERP 文件存储配置（只读）。
     /// </summary>
     public DbSet<ErpFileConfigEntity> FileConfigs => Set<ErpFileConfigEntity>();
@@ -92,6 +97,12 @@ public sealed class RuoyiDbContext : DbContext
         modelBuilder.Entity<ErpTrackEntity>(entity =>
         {
             entity.ToTable("trk_track");
+            entity.HasKey(t => t.id);
+        });
+
+        modelBuilder.Entity<ErpTrackEventEntity>(entity =>
+        {
+            entity.ToTable("trk_track_event");
             entity.HasKey(t => t.id);
         });
 

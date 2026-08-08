@@ -15,6 +15,7 @@ public class ErpPendingReceiptService : IErpPendingReceiptService
 {
     private const long ShenzhenWarehouseId = 320118;
     private const string WaitReceiptStatus = "WAIT_RECEIPT";
+    private const string DeliveredTrackingStatus = "DELIVERED";
     private readonly RuoyiDbContext _ruoyiDbContext;
 
     public ErpPendingReceiptService(RuoyiDbContext ruoyiDbContext)
@@ -25,7 +26,9 @@ public class ErpPendingReceiptService : IErpPendingReceiptService
     /// <summary>
     /// Returns one row per ERP logistics shipment and resolves product and tracking snapshots.
     /// </summary>
-    public async Task<(List<ErpPendingReceiptViewModel> data, int totals)> PageAsync(PageSearch pageSearch)
+    public async Task<(List<ErpPendingReceiptViewModel> data, int totals)> PageAsync(
+        PageSearch pageSearch,
+        bool delivered)
     {
         var supplierName = FindSearchText(pageSearch, "supplier_name");
         var productKeyword = FindSearchText(pageSearch, "product_keyword");
@@ -35,6 +38,58 @@ public class ErpPendingReceiptService : IErpPendingReceiptService
             .Where(t => !t.deleted
                 && t.lifecycle_status == WaitReceiptStatus
                 && t.to_warehouse_id == ShenzhenWarehouseId);
+
+        // 中文说明：两个页签只按最新物流签收事实拆分；没有轨迹、空状态、在途及其它状态都留在待到货。
+        query = query.Where(shipment => _ruoyiDbContext.Tracks
+            .AsNoTracking()
+            .Where(track => !track.deleted && track.track_number == shipment.tracking_no)
+            .OrderByDescending(track => track.update_time)
+            .ThenByDescending(track => track.id)
+            .Select(track => track.tracking_status.Trim().ToUpper() == DeliveredTrackingStatus
+                || track.actual_delivery_time != null
+                || (track.provider_status_code != null
+                    && (track.provider_status_code.Trim().ToUpper() == DeliveredTrackingStatus
+                        || track.provider_status_code.Trim() == "3"))
+                || (track.business_stage != null
+                    && track.business_stage.Trim().ToUpper() == DeliveredTrackingStatus)
+                || (track.last_event_stage != null
+                    && (track.last_event_stage.Trim().ToUpper() == DeliveredTrackingStatus
+                        || track.last_event_stage.Trim() == "3"))
+                || (!((track.provider_status_name != null
+                            && (track.provider_status_name.Contains("未签收")
+                                || track.provider_status_name.Contains("未妥投")
+                                || track.provider_status_name.Contains("拒签")
+                                || track.provider_status_name.Contains("签收失败")
+                                || track.provider_status_name.Contains("无法签收")
+                                || track.provider_status_name.Contains("待签收")
+                                || track.provider_status_name.Contains("等待签收")
+                                || track.provider_status_name.Contains("签收异常")))
+                        || (track.last_event_description != null
+                            && (track.last_event_description.Contains("未签收")
+                                || track.last_event_description.Contains("未妥投")
+                                || track.last_event_description.Contains("拒签")
+                                || track.last_event_description.Contains("签收失败")
+                                || track.last_event_description.Contains("无法签收")
+                                || track.last_event_description.Contains("待签收")
+                                || track.last_event_description.Contains("等待签收")
+                                || track.last_event_description.Contains("签收异常"))))
+                    && ((track.provider_status_name != null
+                            && (track.provider_status_name == "签收"
+                                || track.provider_status_name == "本人签收"
+                                || track.provider_status_name == "已签收"
+                                || track.provider_status_name == "妥投"
+                                || track.provider_status_name == "已妥投"
+                                || track.provider_status_name.Contains("签收成功")
+                                || track.provider_status_name.ToLower().Contains("delivered")
+                                || track.provider_status_name.ToLower().Contains("signed for")))
+                        || (track.last_event_description != null
+                            && (track.last_event_description.Contains("本人签收")
+                                || track.last_event_description.Contains("已签收")
+                                || track.last_event_description.Contains("签收成功")
+                                || track.last_event_description.Contains("妥投")
+                                || track.last_event_description.ToLower().Contains("delivered")
+                                || track.last_event_description.ToLower().Contains("signed for"))))))
+            .FirstOrDefault() == delivered);
 
         if (!string.IsNullOrWhiteSpace(supplierName))
         {
@@ -83,10 +138,72 @@ public class ErpPendingReceiptService : IErpPendingReceiptService
         {
             var products = ParseProducts(shipment.product_snapshot_json);
             trackMap.TryGetValue(shipment.tracking_no ?? string.Empty, out var track);
-            return BuildViewModel(shipment, track, products);
+            return BuildViewModel(shipment, track, products, IsDeliveredTrack(track));
         }).ToList();
 
         return (result, totals);
+    }
+
+    public async Task<ErpPendingReceiptLogisticsViewModel?> GetLogisticsAsync(long shipmentId)
+    {
+        var shipment = await _ruoyiDbContext.LogisticsInfos
+            .AsNoTracking()
+            .FirstOrDefaultAsync(t => t.id == shipmentId
+                && !t.deleted
+                && t.lifecycle_status == WaitReceiptStatus
+                && t.to_warehouse_id == ShenzhenWarehouseId);
+        if (shipment == null)
+        {
+            return null;
+        }
+
+        var trackingNumber = shipment.tracking_no ?? string.Empty;
+        var track = await _ruoyiDbContext.Tracks
+            .AsNoTracking()
+            .Where(t => !t.deleted && t.track_number == trackingNumber)
+            .OrderByDescending(t => t.update_time)
+            .ThenByDescending(t => t.id)
+            .FirstOrDefaultAsync();
+
+        List<ErpPendingReceiptTrackEventViewModel> events = [];
+        if (track != null)
+        {
+            events = await _ruoyiDbContext.TrackEvents
+                .AsNoTracking()
+                .Where(t => !t.deleted && t.track_id == track.id)
+                .OrderByDescending(t => t.event_time)
+                .ThenByDescending(t => t.sort)
+                .ThenByDescending(t => t.id)
+                .Take(200)
+                .Select(t => new ErpPendingReceiptTrackEventViewModel
+                {
+                    id = t.id,
+                    event_time = t.event_time,
+                    status_name = t.provider_status_name ?? string.Empty,
+                    description = t.description ?? string.Empty,
+                    location = t.location ?? string.Empty,
+                    stage = t.stage ?? string.Empty
+                })
+                .ToListAsync();
+        }
+
+        var delivered = IsDeliveredTrack(track);
+        return new ErpPendingReceiptLogisticsViewModel
+        {
+            shipment_id = shipment.id,
+            logistics_name = shipment.carrier_name ?? string.Empty,
+            tracking_no = trackingNumber,
+            tracking_status = delivered ? DeliveredTrackingStatus : track?.tracking_status ?? "UNKNOWN",
+            tracking_status_name = delivered
+                ? "已签收"
+                : FirstNotEmpty(track?.provider_status_name ?? string.Empty, track?.tracking_status ?? string.Empty, "未知"),
+            latest_event_desc = track?.last_event_description ?? string.Empty,
+            latest_event_time = track?.last_event_time,
+            latest_event_location = track?.last_event_location ?? string.Empty,
+            estimated_delivery_time = track?.estimated_delivery_time,
+            actual_delivery_time = track?.actual_delivery_time,
+            event_list = events
+        };
     }
 
     private static string FindSearchText(PageSearch pageSearch, string name)
@@ -100,7 +217,8 @@ public class ErpPendingReceiptService : IErpPendingReceiptService
     private static ErpPendingReceiptViewModel BuildViewModel(
         ErpLogisticsInfoEntity shipment,
         ErpTrackEntity? track,
-        List<ErpPendingReceiptProductViewModel> products)
+        List<ErpPendingReceiptProductViewModel> products,
+        bool delivered)
     {
         return new ErpPendingReceiptViewModel
         {
@@ -123,8 +241,10 @@ public class ErpPendingReceiptService : IErpPendingReceiptService
             logistics_name = shipment.carrier_name ?? string.Empty,
             tracking_no = shipment.tracking_no ?? string.Empty,
             lifecycle_status = shipment.lifecycle_status,
-            tracking_status = track?.tracking_status ?? "UNKNOWN",
-            tracking_status_name = FirstNotEmpty(track?.provider_status_name ?? string.Empty, track?.tracking_status ?? string.Empty, "未知"),
+            tracking_status = delivered ? DeliveredTrackingStatus : track?.tracking_status ?? "UNKNOWN",
+            tracking_status_name = delivered
+                ? "已签收"
+                : FirstNotEmpty(track?.provider_status_name ?? string.Empty, track?.tracking_status ?? string.Empty, "未知"),
             latest_event_desc = track?.last_event_description ?? string.Empty,
             latest_event_time = track?.last_event_time,
             latest_event_location = track?.last_event_location ?? string.Empty,
@@ -214,5 +334,42 @@ public class ErpPendingReceiptService : IErpPendingReceiptService
     private static string FirstNotEmpty(params string[] values)
     {
         return values.FirstOrDefault(t => !string.IsNullOrWhiteSpace(t)) ?? string.Empty;
+    }
+
+    private static bool IsDeliveredTrack(ErpTrackEntity? track)
+    {
+        if (track == null)
+        {
+            return false;
+        }
+        if (string.Equals(track.tracking_status?.Trim(), DeliveredTrackingStatus, StringComparison.OrdinalIgnoreCase)
+            || track.actual_delivery_time != null
+            || string.Equals(track.provider_status_code?.Trim(), DeliveredTrackingStatus, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(track.provider_status_code?.Trim(), "3", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(track.business_stage?.Trim(), DeliveredTrackingStatus, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(track.last_event_stage?.Trim(), DeliveredTrackingStatus, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(track.last_event_stage?.Trim(), "3", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+        var evidence = $"{track.provider_status_name} {track.last_event_description}";
+        var hasNegativeEvidence = new[] { "未签收", "未妥投", "拒签", "签收失败", "无法签收", "待签收", "等待签收", "签收异常" }
+            .Any(evidence.Contains);
+        if (hasNegativeEvidence)
+        {
+            return false;
+        }
+        var providerStatusName = track.provider_status_name?.Trim();
+        return string.Equals(providerStatusName, "签收", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(providerStatusName, "本人签收", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(providerStatusName, "已签收", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(providerStatusName, "妥投", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(providerStatusName, "已妥投", StringComparison.OrdinalIgnoreCase)
+            || evidence.Contains("本人签收", StringComparison.OrdinalIgnoreCase)
+            || evidence.Contains("已签收", StringComparison.OrdinalIgnoreCase)
+            || evidence.Contains("签收成功", StringComparison.OrdinalIgnoreCase)
+            || evidence.Contains("妥投", StringComparison.OrdinalIgnoreCase)
+            || evidence.Contains("delivered", StringComparison.OrdinalIgnoreCase)
+            || evidence.Contains("signed for", StringComparison.OrdinalIgnoreCase);
     }
 }

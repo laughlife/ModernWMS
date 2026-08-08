@@ -156,3 +156,26 @@ export interface ErpPendingReceiptVO {
   product_count: number
   product_list: ErpPendingReceiptProductVO[]
 }
+
+export interface ErpPendingReceiptTrackEventVO {
+  id: number
+  event_time?: string | null
+  status_name: string
+  description: string
+  location: string
+  stage: string
+}
+
+export interface ErpPendingReceiptLogisticsVO {
+  shipment_id: number
+  logistics_name: string
+  tracking_no: string
+  tracking_status: string
+  tracking_status_name: string
+  latest_event_desc: string
+  latest_event_time?: string | null
+  latest_event_location: string
+  estimated_delivery_time?: string | null
+  actual_delivery_time?: string | null
+  event_list: ErpPendingReceiptTrackEventVO[]
+}

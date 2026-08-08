@@ -14,10 +14,10 @@
         <v-card-text>
           <v-window v-model="data.activeTab">
             <v-window-item value="tabNotice">
-              <tabNotice ref="tabNoticeRef" />
+              <ErpReceiptShipmentList ref="tabNoticeRef" list-type="arrived" />
             </v-window-item>
             <v-window-item value="tabToDoArrival">
-              <tabToDoArrival ref="tabToDoArrivalRef" />
+              <ErpReceiptShipmentList ref="tabToDoArrivalRef" list-type="pending" />
             </v-window-item>
             <v-window-item value="tabToDoUnload">
               <tabToDoUnload ref="tabToDoUnloadRef" />
@@ -41,8 +41,7 @@
 <script lang="ts" setup>
 import { ref, reactive, onMounted, watch, nextTick } from 'vue'
 import i18n from '@/languages/i18n'
-import tabNotice from './tabNotice.vue'
-import tabToDoArrival from './tabToDoArrival.vue'
+import ErpReceiptShipmentList from './erp-receipt-shipment-list.vue'
 import tabToDoUnload from './tabToDoUnload.vue'
 import tabToDoSorting from './tabToDoSorting.vue'
 import tabToDoGrounding from './tabToDoGrounding.vue'
