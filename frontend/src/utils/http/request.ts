@@ -143,8 +143,11 @@ http.interceptors.request.use(
 
     // 2.Request normally when token is exist and in valid date
     if (!isTokenExpired() || config.url === '/refresh-token') {
+      const defaultHeaders = config.data instanceof FormData
+        ? {}
+        : { 'Content-Type': 'application/json' }
       config.headers = {
-        'Content-Type': 'application/json',
+        ...defaultHeaders,
         ...config.headers
       }
       if (config.url && !donNeedTokenApi.includes(config.url)) {

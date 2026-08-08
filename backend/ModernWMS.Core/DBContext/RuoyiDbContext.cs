@@ -49,6 +49,11 @@ public sealed class RuoyiDbContext : DbContext
     public DbSet<ErpTrackEntity> Tracks => Set<ErpTrackEntity>();
 
     /// <summary>
+    /// ERP 文件存储配置（只读）。
+    /// </summary>
+    public DbSet<ErpFileConfigEntity> FileConfigs => Set<ErpFileConfigEntity>();
+
+    /// <summary>
     /// 显式映射当前已接入 ModernWMS 的 Ruoyi 业务实体。
     /// </summary>
     /// <param name="modelBuilder">model builder</param>
@@ -87,6 +92,12 @@ public sealed class RuoyiDbContext : DbContext
         modelBuilder.Entity<ErpTrackEntity>(entity =>
         {
             entity.ToTable("trk_track");
+            entity.HasKey(t => t.id);
+        });
+
+        modelBuilder.Entity<ErpFileConfigEntity>(entity =>
+        {
+            entity.ToTable("infra_file_config");
             entity.HasKey(t => t.id);
         });
 

@@ -65,19 +65,13 @@
               :label="$t('wms.erpPendingReceipt.receipt_freight_amount')"
               :rules="data.rules.receiptFreightAmount"
             ></v-text-field>
-            <v-file-input
+            <erp-receipt-image-upload
               v-model="data.form.receiptFreightFiles"
-              accept="image/*"
-              multiple
-              chips
-              clearable
-              variant="outlined"
-              density="comfortable"
-              prepend-icon="mdi-receipt-text-outline"
+              :shipment-id="data.currentRow?.id ?? 0"
+              category="freight"
+              icon="mdi-receipt-text-outline"
               :label="$t('wms.erpPendingReceipt.receipt_freight_attachments')"
-              :hint="$t('wms.erpPendingReceipt.attachment_tip')"
-              persistent-hint
-            ></v-file-input>
+            ></erp-receipt-image-upload>
           </template>
 
           <template v-if="showLossFields">
@@ -94,34 +88,22 @@
               :label="$t('wms.erpPendingReceipt.loss_reason')"
               :rules="data.rules.lossReason"
             ></v-textarea>
-            <v-file-input
+            <erp-receipt-image-upload
               v-model="data.form.lossFiles"
-              accept="image/*"
-              multiple
-              chips
-              clearable
-              variant="outlined"
-              density="comfortable"
-              prepend-icon="mdi-image-multiple-outline"
+              :shipment-id="data.currentRow?.id ?? 0"
+              category="loss"
+              icon="mdi-image-multiple-outline"
               :label="$t('wms.erpPendingReceipt.loss_attachments')"
-              :hint="$t('wms.erpPendingReceipt.attachment_tip')"
-              persistent-hint
-            ></v-file-input>
+            ></erp-receipt-image-upload>
           </template>
 
-          <v-file-input
+          <erp-receipt-image-upload
             v-model="data.form.receiptFiles"
-            accept="image/*"
-            multiple
-            chips
-            clearable
-            variant="outlined"
-            density="comfortable"
-            prepend-icon="mdi-image-multiple-outline"
+            :shipment-id="data.currentRow?.id ?? 0"
+            category="receipt"
+            icon="mdi-image-multiple-outline"
             :label="$t('wms.erpPendingReceipt.receipt_attachments')"
-            :hint="$t('wms.erpPendingReceipt.attachment_tip')"
-            persistent-hint
-          ></v-file-input>
+          ></erp-receipt-image-upload>
 
           <v-textarea
             v-model="data.form.receiptRemark"
@@ -153,6 +135,8 @@
 import { computed, nextTick, reactive, ref } from 'vue'
 import i18n from '@/languages/i18n'
 import type { ErpPendingReceiptVO } from '@/types/WMS/StockAsn'
+import type { ErpReceiptOssImage } from '@/api/wms/stockAsn'
+import ErpReceiptImageUpload from './erp-receipt-image-upload.vue'
 
 type ReceiptFreightPaymentStatus = 'NO_PAY' | 'PAY'
 
@@ -165,10 +149,10 @@ const data = reactive({
     actualReceiptQty: 0,
     receiptFreightPaymentStatus: 'NO_PAY' as ReceiptFreightPaymentStatus,
     receiptFreightAmount: null as number | null,
-    receiptFreightFiles: [] as File[],
-    receiptFiles: [] as File[],
+    receiptFreightFiles: [] as ErpReceiptOssImage[],
+    receiptFiles: [] as ErpReceiptOssImage[],
     lossReason: '',
-    lossFiles: [] as File[],
+    lossFiles: [] as ErpReceiptOssImage[],
     receiptRemark: ''
   },
   rules: {

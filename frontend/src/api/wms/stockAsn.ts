@@ -110,6 +110,34 @@ export const getErpPendingReceiptList = (data: PageConfigProps) => http({
     data
   })
 
+export interface ErpReceiptOssImage {
+  name: string
+  path: string
+  url: string
+  access_url: string
+  content_type: string
+  size: number
+}
+
+export type ErpReceiptImageCategory = 'freight' | 'loss' | 'receipt'
+
+export const uploadErpReceiptImage = (
+  file: File,
+  shipmentId: number,
+  category: ErpReceiptImageCategory
+) => {
+  const data = new FormData()
+  data.append('file', file)
+  data.append('shipmentId', String(shipmentId))
+  data.append('category', category)
+  return http({
+    url: '/file/erp-oss/image',
+    method: 'post',
+    data,
+    timeout: 120000
+  })
+}
+
 export const addAsn = (data: StockAsnVO) => http({
     url: '/asn',
     method: 'post',
