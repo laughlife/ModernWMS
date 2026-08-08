@@ -142,11 +142,11 @@ namespace ModernWMS.Core.Extentions
             app.UseTokenGeneratorConfigure(configuration);
             app.UseAuthorization();
             app.UseMiddleware<GlobalExceptionMiddleware>();
-            var support_languages = new[] { "zh-cn", "en-us" };
+            const string chinese_culture = "zh-cn";
             var localization_options = new RequestLocalizationOptions()
-                .SetDefaultCulture(support_languages[0])
-                .AddSupportedCultures(support_languages)
-                .AddSupportedUICultures(support_languages);
+                .SetDefaultCulture(chinese_culture)
+                .AddSupportedCultures(chinese_culture)
+                .AddSupportedUICultures(chinese_culture);
             app.UseRequestLocalization(localization_options);
 
             app.UseHangfireDashboard();
