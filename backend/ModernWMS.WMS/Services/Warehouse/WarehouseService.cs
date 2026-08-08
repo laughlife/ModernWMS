@@ -29,6 +29,11 @@ namespace ModernWMS.WMS.Services
         private readonly SqlDBContext _dBContext;
 
         /// <summary>
+        /// ERP public database context.
+        /// </summary>
+        private readonly RuoyiDbContext _ruoyiDbContext;
+
+        /// <summary>
         /// Localizer Service
         /// </summary>
         private readonly IStringLocalizer<ModernWMS.Core.MultiLanguage> _stringLocalizer;
@@ -42,10 +47,12 @@ namespace ModernWMS.WMS.Services
         /// <param name="stringLocalizer">Localizer</param>
         public WarehouseService(
             SqlDBContext dBContext
+          , RuoyiDbContext ruoyiDbContext
           , IStringLocalizer<ModernWMS.Core.MultiLanguage> stringLocalizer
             )
         {
             this._dBContext = dBContext;
+            this._ruoyiDbContext = ruoyiDbContext;
             this._stringLocalizer = stringLocalizer;
         }
         #endregion
@@ -70,6 +77,24 @@ namespace ModernWMS.WMS.Services
                                     comments = "warehouse datas",
                                 }).ToListAsync());
             return res;
+        }
+
+        /// <summary>
+        /// Get valid ERP domestic warehouses for optional binding.
+        /// </summary>
+        public async Task<List<ErpWarehouseOptionViewModel>> GetErpWarehouseOptionsAsync()
+        {
+            return await _ruoyiDbContext.Warehouses
+                .AsNoTracking()
+                .Where(t => !t.deleted && t.attr == "国内仓库")
+                .OrderBy(t => t.name)
+                .ThenBy(t => t.id)
+                .Select(t => new ErpWarehouseOptionViewModel
+                {
+                    id = t.id,
+                    name = t.name ?? string.Empty
+                })
+                .ToListAsync();
         }
 
         /// <summary>
@@ -101,7 +126,9 @@ namespace ModernWMS.WMS.Services
                        .Skip((pageSearch.pageIndex - 1) * pageSearch.pageSize)
                        .Take(pageSearch.pageSize)
                        .ToListAsync();
-            return (list.Adapt<List<WarehouseViewModel>>(), totals);
+            var result = list.Adapt<List<WarehouseViewModel>>();
+            await PopulateErpWarehouseNamesAsync(result);
+            return (result, totals);
         }
 
         /// <summary>
@@ -112,7 +139,9 @@ namespace ModernWMS.WMS.Services
         {
             var DbSet = _dBContext.GetDbSet<WarehouseEntity>();
             var data = await DbSet.AsNoTracking().Where(t => t.tenant_id.Equals(currentUser.tenant_id)).ToListAsync();
-            return data.Adapt<List<WarehouseViewModel>>();
+            var result = data.Adapt<List<WarehouseViewModel>>();
+            await PopulateErpWarehouseNamesAsync(result);
+            return result;
         }
 
         /// <summary>
@@ -127,7 +156,9 @@ namespace ModernWMS.WMS.Services
             {
                 return null;
             }
-            return entity.Adapt<WarehouseViewModel>();
+            var result = entity.Adapt<WarehouseViewModel>();
+            await PopulateErpWarehouseNamesAsync(new List<WarehouseViewModel> { result });
+            return result;
         }
         /// <summary>
         /// add a new record
@@ -138,6 +169,10 @@ namespace ModernWMS.WMS.Services
         public async Task<(int id, string msg)> AddAsync(WarehouseViewModel viewModel, CurrentUser currentUser)
         {
             var DbSet = _dBContext.GetDbSet<WarehouseEntity>();
+            if (!await IsValidErpWarehouseAsync(viewModel.erp_warehouse_id))
+            {
+                return (0, _stringLocalizer["invalid_erp_warehouse"]);
+            }
             if (await DbSet.AnyAsync(t => t.warehouse_name == viewModel.warehouse_name && t.tenant_id == currentUser.tenant_id))
             {
                return(0,  string.Format(_stringLocalizer["exists_entity"], _stringLocalizer["warehouse_name"], viewModel.warehouse_name));
@@ -168,6 +203,10 @@ namespace ModernWMS.WMS.Services
         public async Task<(bool flag, string msg)> UpdateAsync(WarehouseViewModel viewModel, CurrentUser currentUser)
         {
             var DbSet = _dBContext.GetDbSet<WarehouseEntity>();
+            if (!await IsValidErpWarehouseAsync(viewModel.erp_warehouse_id))
+            {
+                return (false, _stringLocalizer["invalid_erp_warehouse"]);
+            }
             if (await DbSet.AnyAsync(t => t.id != viewModel.id && t.warehouse_name == viewModel.warehouse_name && t.tenant_id == currentUser.tenant_id))
             {
                return(false,  string.Format(_stringLocalizer["exists_entity"], _stringLocalizer["warehouse_name"], viewModel.warehouse_name));
@@ -179,6 +218,7 @@ namespace ModernWMS.WMS.Services
             }
             entity.id = viewModel.id;
             entity.warehouse_name = viewModel.warehouse_name;
+            entity.erp_warehouse_id = viewModel.erp_warehouse_id;
             entity.city = viewModel.city;
             entity.address = viewModel.address;
             entity.email = viewModel.email;
@@ -277,6 +317,56 @@ namespace ModernWMS.WMS.Services
                 return (true, _stringLocalizer["save_success"]);
             }
             return (false, _stringLocalizer["save_failed"]);
+        }
+
+        /// <summary>
+        /// Validate a logical ERP warehouse foreign key. Null means unbound.
+        /// </summary>
+        private async Task<bool> IsValidErpWarehouseAsync(long? erpWarehouseId)
+        {
+            if (!erpWarehouseId.HasValue)
+            {
+                return true;
+            }
+
+            return await _ruoyiDbContext.Warehouses
+                .AsNoTracking()
+                .AnyAsync(t => t.id == erpWarehouseId.Value
+                    && !t.deleted
+                    && t.attr == "国内仓库");
+        }
+
+        /// <summary>
+        /// Resolve the current ERP warehouse names without persisting a stale name copy.
+        /// </summary>
+        private async Task PopulateErpWarehouseNamesAsync(IEnumerable<WarehouseViewModel> warehouses)
+        {
+            var warehouseList = warehouses.ToList();
+            var erpWarehouseIds = warehouseList
+                .Where(t => t.erp_warehouse_id.HasValue)
+                .Select(t => t.erp_warehouse_id!.Value)
+                .Distinct()
+                .ToList();
+
+            if (erpWarehouseIds.Count == 0)
+            {
+                return;
+            }
+
+            var names = await _ruoyiDbContext.Warehouses
+                .AsNoTracking()
+                .Where(t => erpWarehouseIds.Contains(t.id) && !t.deleted)
+                .Select(t => new { t.id, t.name })
+                .ToDictionaryAsync(t => t.id, t => t.name ?? string.Empty);
+
+            warehouseList.ForEach(t =>
+            {
+                if (t.erp_warehouse_id.HasValue
+                    && names.TryGetValue(t.erp_warehouse_id.Value, out var name))
+                {
+                    t.erp_warehouse_name = name;
+                }
+            });
         }
         #endregion
     }

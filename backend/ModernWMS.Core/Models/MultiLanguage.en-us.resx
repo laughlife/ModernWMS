@@ -180,6 +180,9 @@
   <data name="warehouse_name" xml:space="preserve">
     <value>Warehouse Name</value>
   </data>
+  <data name="invalid_erp_warehouse" xml:space="preserve">
+    <value>The bound ERP warehouse does not exist, has been deleted, or is not a domestic warehouse</value>
+  </data>
   <data name="city" xml:space="preserve">
     <value>City</value>
   </data>

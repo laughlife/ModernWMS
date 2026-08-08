@@ -13,6 +13,17 @@
               variant="outlined"
               clearable
             ></v-text-field>
+            <v-select
+              v-model="data.form.erp_warehouse_id"
+              :items="data.erpWarehouseOptions"
+              item-title="name"
+              item-value="id"
+              :return-object="false"
+              :label="$t('base.warehouseSetting.erp_warehouse')"
+              :loading="data.erpWarehouseOptionsLoading"
+              variant="outlined"
+              clearable
+            ></v-select>
             <v-text-field
               v-model="data.form.city"
               :label="$t('base.warehouseSetting.city')"
@@ -69,8 +80,8 @@
 import { reactive, computed, ref, watch } from 'vue'
 import i18n from '@/languages/i18n'
 import { hookComponent } from '@/components/system/index'
-import { addWarehouse, updateWarehouse } from '@/api/base/warehouseSetting'
-import { WarehouseVO } from '@/types/Base/Warehouse'
+import { addWarehouse, getErpWarehouseOptions, updateWarehouse } from '@/api/base/warehouseSetting'
+import { ErpWarehouseOptionVO, WarehouseVO } from '@/types/Base/Warehouse'
 import { StringLength } from '@/utils/dataVerification/formRule'
 import { removeObjectNull } from '@/utils/common'
 
@@ -95,6 +106,8 @@ const data = reactive({
   form: ref<WarehouseVO>({
     id: 0,
     warehouse_name: '',
+    erp_warehouse_id: null,
+    erp_warehouse_name: '',
     city: '',
     address: '',
     contact_tel: '',
@@ -102,6 +115,8 @@ const data = reactive({
     manager: '',
     is_valid: true
   }),
+  erpWarehouseOptions: [] as ErpWarehouseOptionVO[],
+  erpWarehouseOptionsLoading: false,
   rules: {
     warehouse_name: [
       (val: string) => !!val || `${ i18n.global.t('system.checkText.mustInput') }${ i18n.global.t('base.warehouseSetting.warehouse_name') }!`,
@@ -128,6 +143,27 @@ const method = reactive({
   },
   initForm: () => {
     data.form = props.form
+  },
+  loadErpWarehouseOptions: async () => {
+    data.erpWarehouseOptionsLoading = true
+    try {
+      const { data: res } = await getErpWarehouseOptions()
+      if (!res.isSuccess) {
+        hookComponent.$message({
+          type: 'error',
+          content: res.errorMessage
+        })
+        return
+      }
+      data.erpWarehouseOptions = res.data
+    } catch {
+      hookComponent.$message({
+        type: 'error',
+        content: i18n.global.t('base.warehouseSetting.erp_warehouse_load_failed')
+      })
+    } finally {
+      data.erpWarehouseOptionsLoading = false
+    }
   },
   submit: async () => {
     const { valid } = await formRef.value.validate()
@@ -160,6 +196,7 @@ watch(
   (val) => {
     if (val) {
       method.initForm()
+      method.loadErpWarehouseOptions()
     }
   }
 )

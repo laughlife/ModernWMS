@@ -67,6 +67,14 @@
       <vxe-column type="seq" width="60"></vxe-column>
       <vxe-column type="checkbox" width="50"></vxe-column>
       <vxe-column field="warehouse_name" :title="$t('base.warehouseSetting.warehouse_name')"></vxe-column>
+      <vxe-column :title="$t('base.warehouseSetting.erp_warehouse')" min-width="190">
+        <template #default="{ row }">
+          <span v-if="row.erp_warehouse_name">
+            {{ $t('base.warehouseSetting.erp_warehouse_name') }}：{{ row.erp_warehouse_name }}
+          </span>
+          <span v-else>-</span>
+        </template>
+      </vxe-column>
       <vxe-column field="city" :title="$t('base.warehouseSetting.city')"></vxe-column>
       <vxe-column field="address" :title="$t('base.warehouseSetting.address')"></vxe-column>
       <vxe-column field="contact_tel" :title="$t('base.warehouseSetting.contact_tel')"></vxe-column>
@@ -148,6 +156,8 @@ const data = reactive({
   dialogForm: {
     id: 0,
     warehouse_name: '',
+    erp_warehouse_id: null,
+    erp_warehouse_name: '',
     city: '',
     address: '',
     contact_tel: '',
@@ -180,6 +190,8 @@ const method = reactive({
     data.dialogForm = {
       id: 0,
       warehouse_name: '',
+      erp_warehouse_id: null,
+      erp_warehouse_name: '',
       city: '',
       address: '',
       contact_tel: '',

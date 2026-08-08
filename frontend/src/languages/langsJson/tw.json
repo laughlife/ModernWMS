@@ -225,7 +225,10 @@
       "tag_number": "位號",
       "warehourseSelectModal": "庫位選擇框",
       "warehouseSetting": "倉庫設置",
-      "warehouse_name": "倉庫名稱"
+      "warehouse_name": "倉庫名稱",
+      "erp_warehouse": "綁定ERP倉庫",
+      "erp_warehouse_name": "ERP倉庫名",
+      "erp_warehouse_load_failed": "ERP倉庫列表載入失敗"
     }
   },
   "homepage": {

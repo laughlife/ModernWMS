@@ -26,6 +26,11 @@ namespace ModernWMS.WMS.Entities.Models
         public string warehouse_name { get; set; }  = string.Empty;
 
         /// <summary>
+        /// Logical foreign key to ruoyi-vue-pro.erp_warehouse.id.
+        /// </summary>
+        public long? erp_warehouse_id { get; set; }
+
+        /// <summary>
         /// city
         /// </summary>
         public string city { get; set; }  = string.Empty;

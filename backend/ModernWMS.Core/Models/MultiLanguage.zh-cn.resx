@@ -180,6 +180,9 @@
   <data name="warehouse_name" xml:space="preserve">
     <value>仓库名称</value>
   </data>
+  <data name="invalid_erp_warehouse" xml:space="preserve">
+    <value>绑定的ERP仓库不存在、已删除或不是国内仓库</value>
+  </data>
   <data name="city" xml:space="preserve">
     <value>所在城市</value>
   </data>

@@ -40,6 +40,18 @@ namespace ModernWMS.WMS.Entities.ViewModels
         public string warehouse_name { get; set; } = string.Empty;
 
         /// <summary>
+        /// Bound ERP warehouse id. Binding is optional.
+        /// </summary>
+        [Display(Name = "erp_warehouse_id")]
+        public long? erp_warehouse_id { get; set; }
+
+        /// <summary>
+        /// Current ERP warehouse name resolved from ruoyi-vue-pro.
+        /// </summary>
+        [Display(Name = "erp_warehouse_name")]
+        public string erp_warehouse_name { get; set; } = string.Empty;
+
+        /// <summary>
         /// city
         /// </summary>
         [Display(Name = "city")]

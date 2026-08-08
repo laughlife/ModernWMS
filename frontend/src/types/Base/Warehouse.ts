@@ -3,6 +3,8 @@ import { UniformFileNaming } from '../System/Form'
 export interface WarehouseVO extends UniformFileNaming {
   id?: number
   warehouse_name: string
+  erp_warehouse_id?: number | null
+  erp_warehouse_name?: string
   city: string
   address: string
   contact_tel?: string
@@ -49,4 +51,9 @@ export enum AreaProperty {
   'return_area' = 4,
   'defective_area' = 5,
   'inventory_area' = 6
+}
+
+export interface ErpWarehouseOptionVO {
+  id: number
+  name: string
 }

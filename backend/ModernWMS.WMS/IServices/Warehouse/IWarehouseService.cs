@@ -22,6 +22,10 @@
         /// <param name="currentUser">current user</param>
         /// <returns></returns>
         Task<List<FormSelectItem>> GetSelectItemsAsnyc(CurrentUser currentUser);
+        /// <summary>
+        /// Get ERP domestic warehouses available for optional binding.
+        /// </summary>
+        Task<List<ErpWarehouseOptionViewModel>> GetErpWarehouseOptionsAsync();
          /// <summary>
          /// page search
          /// </summary>

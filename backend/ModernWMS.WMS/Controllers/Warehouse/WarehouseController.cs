@@ -8,7 +8,6 @@
  using ModernWMS.WMS.Entities.ViewModels;
  using ModernWMS.WMS.IServices;
  using Microsoft.Extensions.Localization;
-using ModernWMS.WMS.Services;
 
 namespace ModernWMS.WMS.Controllers
 {
@@ -59,6 +58,16 @@ namespace ModernWMS.WMS.Controllers
         {
             var datas = await _warehouseService.GetSelectItemsAsnyc(CurrentUser);
             return ResultModel<List<FormSelectItem>>.Success(datas);
+        }
+
+        /// <summary>
+        /// get ERP domestic warehouse options
+        /// </summary>
+        [HttpGet("erp-options")]
+        public async Task<ResultModel<List<ErpWarehouseOptionViewModel>>> GetErpWarehouseOptionsAsync()
+        {
+            var data = await _warehouseService.GetErpWarehouseOptionsAsync();
+            return ResultModel<List<ErpWarehouseOptionViewModel>>.Success(data);
         }
 
         /// <summary>

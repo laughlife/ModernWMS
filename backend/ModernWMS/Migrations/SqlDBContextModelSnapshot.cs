@@ -1618,6 +1618,9 @@ namespace ModernWMS.Migrations
                         .IsRequired()
                         .HasColumnType("longtext");
 
+                    b.Property<long?>("erp_warehouse_id")
+                        .HasColumnType("bigint");
+
                     b.Property<bool>("is_valid")
                         .HasColumnType("tinyint(1)");
 
@@ -1636,6 +1639,8 @@ namespace ModernWMS.Migrations
                         .HasColumnType("longtext");
 
                     b.HasKey("id");
+
+                    b.HasIndex("erp_warehouse_id");
 
                     b.ToTable("warehouse");
                 });

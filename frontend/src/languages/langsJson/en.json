@@ -225,7 +225,10 @@
       "tag_number": "Tag Number",
       "warehourseSelectModal": "Location Select Modal",
       "warehouseSetting": "Warehouse Setting",
-      "warehouse_name": "Warehouse Name"
+      "warehouse_name": "Warehouse Name",
+      "erp_warehouse": "Bound ERP Warehouse",
+      "erp_warehouse_name": "ERP Warehouse Name",
+      "erp_warehouse_load_failed": "Failed to load ERP warehouses"
     }
   },
   "homepage": {

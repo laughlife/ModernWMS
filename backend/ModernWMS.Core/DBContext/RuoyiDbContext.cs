@@ -34,6 +34,11 @@ public sealed class RuoyiDbContext : DbContext
     public DbSet<ErpSupplierEntity> Suppliers => Set<ErpSupplierEntity>();
 
     /// <summary>
+    /// ERP 仓库
+    /// </summary>
+    public DbSet<ErpWarehouseEntity> Warehouses => Set<ErpWarehouseEntity>();
+
+    /// <summary>
     /// 显式映射当前已接入 ModernWMS 的 Ruoyi 业务实体。
     /// </summary>
     /// <param name="modelBuilder">model builder</param>
@@ -54,6 +59,12 @@ public sealed class RuoyiDbContext : DbContext
         modelBuilder.Entity<ErpSupplierEntity>(entity =>
         {
             entity.ToTable("erp_supplier");
+            entity.HasKey(t => t.id);
+        });
+
+        modelBuilder.Entity<ErpWarehouseEntity>(entity =>
+        {
+            entity.ToTable("erp_warehouse");
             entity.HasKey(t => t.id);
         });
 

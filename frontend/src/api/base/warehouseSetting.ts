@@ -48,6 +48,12 @@ export const getWarehouseSelect = () => http({
   method: 'get'
 })
 
+// Get ERP domestic warehouses available for optional binding
+export const getErpWarehouseOptions = () => http({
+  url: '/warehouse/erp-options',
+  method: 'get'
+})
+
 // Excel Import
 export const excelImport = (data: Array<WarehouseVO>) => http({
   url: '/warehouse/excel',
