@@ -87,6 +87,13 @@
       <vxe-column field="shipment_time" :title="$t('wms.erpPendingReceipt.shipment_time')" min-width="170"></vxe-column>
       <vxe-column field="warehouse_name" :title="$t('wms.erpPendingReceipt.warehouse_name')" min-width="150"></vxe-column>
       <vxe-column field="order_user_text" :title="$t('wms.erpPendingReceipt.order_user_text')" min-width="150"></vxe-column>
+      <vxe-column fixed="right" :title="$t('system.page.operate')" width="110">
+        <template #default="{ row }">
+          <v-btn color="primary" size="small" variant="text" @click="method.openReceiptDialog(row)">
+            {{ $t('wms.erpPendingReceipt.receipt_action') }}
+          </v-btn>
+        </template>
+      </vxe-column>
     </vxe-table>
     <custom-pager
       :current-page="data.tablePage.pageIndex"
@@ -98,6 +105,8 @@
       @page-change="method.handlePageChange"
     ></custom-pager>
   </div>
+
+  <ErpReceiptConfirm ref="receiptConfirmRef" />
 </template>
 
 <script lang="ts" setup>
@@ -107,6 +116,7 @@ import { getErpPendingReceiptList } from '@/api/wms/stockAsn'
 import { hookComponent } from '@/components/system'
 import BtnGroup from '@/components/system/btnGroup.vue'
 import customPager from '@/components/custom-pager.vue'
+import ErpReceiptConfirm from './erp-receipt-confirm.vue'
 import { computedCardHeight, computedTableHeight } from '@/constant/style'
 import { DEFAULT_PAGE_SIZE, PAGE_LAYOUT, PAGE_SIZE } from '@/constant/vxeTable'
 import { DEBOUNCE_TIME } from '@/constant/system'
@@ -117,6 +127,7 @@ import { getMenuAuthorityList, setSearchObject } from '@/utils/common'
 import { exportData } from '@/utils/exportTable'
 
 const xTablePendingReceipt = ref()
+const receiptConfirmRef = ref<InstanceType<typeof ErpReceiptConfirm>>()
 
 const data = reactive({
   searchForm: {
@@ -164,6 +175,9 @@ const method = reactive({
         return !['expand'].includes(column?.type)
       }
     })
+  },
+  openReceiptDialog: (row: ErpPendingReceiptVO) => {
+    receiptConfirmRef.value?.openDialog(row)
   },
   sureSearch: () => {
     data.tablePage.pageIndex = 1

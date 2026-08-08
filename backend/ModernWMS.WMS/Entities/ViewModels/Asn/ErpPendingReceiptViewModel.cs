@@ -7,6 +7,7 @@ public class ErpPendingReceiptViewModel
 {
     public long id { get; set; }
     public string source_type { get; set; } = string.Empty;
+    public string source_stock_move_no { get; set; } = string.Empty;
     public string purchase_no { get; set; } = string.Empty;
     public string supplier_name { get; set; } = string.Empty;
     public string order_user_text { get; set; } = string.Empty;
@@ -17,6 +18,7 @@ public class ErpPendingReceiptViewModel
     public long warehouse_id { get; set; }
     public string warehouse_name { get; set; } = string.Empty;
     public string freight_forwarder_name { get; set; } = string.Empty;
+    public string source_freight_payment_type { get; set; } = string.Empty;
     public string provider_code { get; set; } = string.Empty;
     public string logistics_code { get; set; } = string.Empty;
     public string logistics_name { get; set; } = string.Empty;

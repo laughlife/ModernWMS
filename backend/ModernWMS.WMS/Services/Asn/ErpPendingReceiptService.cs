@@ -106,6 +106,7 @@ public class ErpPendingReceiptService : IErpPendingReceiptService
         {
             id = shipment.id,
             source_type = shipment.source_type,
+            source_stock_move_no = shipment.source_stock_move_no ?? string.Empty,
             purchase_no = shipment.purchase_no ?? string.Empty,
             supplier_name = shipment.supplier_name ?? string.Empty,
             order_user_text = shipment.order_user_text ?? string.Empty,
@@ -116,6 +117,7 @@ public class ErpPendingReceiptService : IErpPendingReceiptService
             warehouse_id = shipment.to_warehouse_id ?? ShenzhenWarehouseId,
             warehouse_name = shipment.to_warehouse_name ?? string.Empty,
             freight_forwarder_name = shipment.freight_forwarder_name ?? string.Empty,
+            source_freight_payment_type = shipment.source_freight_payment_type ?? string.Empty,
             provider_code = shipment.track_provider_code ?? string.Empty,
             logistics_code = shipment.carrier_code ?? string.Empty,
             logistics_name = shipment.carrier_name ?? string.Empty,

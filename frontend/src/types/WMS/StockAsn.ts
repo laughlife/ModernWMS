@@ -127,6 +127,7 @@ export interface ErpPendingReceiptProductVO {
 export interface ErpPendingReceiptVO {
   id: number
   source_type: string
+  source_stock_move_no: string
   purchase_no: string
   supplier_name: string
   order_user_text: string
@@ -137,6 +138,7 @@ export interface ErpPendingReceiptVO {
   warehouse_id: number
   warehouse_name: string
   freight_forwarder_name: string
+  source_freight_payment_type: string
   provider_code: string
   logistics_code: string
   logistics_name: string
