@@ -50,9 +50,34 @@
         {{ i18n.global.t('system.page.noData') }}
       </template>
       <vxe-column type="seq" width="60"></vxe-column>
-      <vxe-column field="shipment_batch_no" :title="$t('wms.erpPendingReceipt.shipment_batch_no')" min-width="180"></vxe-column>
-      <vxe-column field="commodity_sku" :title="$t('wms.erpPendingReceipt.sku')" min-width="150"></vxe-column>
-      <vxe-column field="commodity_name" :title="$t('wms.erpPendingReceipt.product_name')" min-width="220"></vxe-column>
+      <vxe-column width="96">
+        <template #default="{ row }">
+          <div class="receiptProductImage">
+            <ProductImage
+              :src="row.main_image"
+              :alt="row.commodity_name || row.commodity_sku || $t('wms.erpPendingReceipt.product_info')"
+              :width="64"
+              :height="64"
+            />
+          </div>
+        </template>
+      </vxe-column>
+      <vxe-column :title="$t('wms.erpPendingReceipt.receipt_info')" min-width="190">
+        <template #default="{ row }">
+          <div class="receiptInfoCell">
+            <div class="receiptPurchaseNo">{{ row.purchase_no || '-' }}</div>
+            <div class="receiptShipmentBatchNo">{{ row.shipment_batch_no || '-' }}</div>
+          </div>
+        </template>
+      </vxe-column>
+      <vxe-column :title="$t('wms.erpPendingReceipt.product_info')" min-width="220">
+        <template #default="{ row }">
+          <div class="receiptProductInfoCell">
+            <div class="receiptProductName">{{ row.commodity_name || '-' }}</div>
+            <div class="receiptProductSku">{{ row.commodity_sku || '-' }}</div>
+          </div>
+        </template>
+      </vxe-column>
       <vxe-column field="warehouse_area_name" :title="$t('wms.erpPendingReceipt.warehouse_area_name')" min-width="150"></vxe-column>
       <vxe-column field="dept_name" :title="$t('wms.erpPendingReceipt.dept_name')" min-width="140"></vxe-column>
       <vxe-column field="order_user_name" :title="$t('wms.erpPendingReceipt.order_user_name')" min-width="120"></vxe-column>
@@ -80,6 +105,7 @@ import { getErpReceiptDetailList } from '@/api/wms/stockAsn'
 import { hookComponent } from '@/components/system'
 import BtnGroup from '@/components/system/btnGroup.vue'
 import customPager from '@/components/custom-pager.vue'
+import ProductImage from '@/components/system/product-image.vue'
 import { computedCardHeight, computedTableHeight } from '@/constant/style'
 import { DEFAULT_PAGE_SIZE, PAGE_LAYOUT, PAGE_SIZE } from '@/constant/vxeTable'
 import { DEBOUNCE_TIME } from '@/constant/system'
@@ -190,5 +216,29 @@ watch(
 .col {
   display: flex;
   align-items: center;
+}
+
+.receiptProductImage {
+  display: flex;
+  justify-content: center;
+  padding: 6px 0;
+}
+
+.receiptInfoCell,
+.receiptProductInfoCell {
+  text-align: left;
+}
+
+.receiptPurchaseNo,
+.receiptProductName {
+  color: rgba(var(--v-theme-on-surface), 0.87);
+  font-weight: 500;
+}
+
+.receiptShipmentBatchNo,
+.receiptProductSku {
+  margin-top: 4px;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  font-size: 12px;
 }
 </style>

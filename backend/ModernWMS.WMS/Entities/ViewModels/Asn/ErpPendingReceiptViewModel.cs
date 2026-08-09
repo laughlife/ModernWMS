@@ -64,9 +64,11 @@ public class ErpReceiptDetailViewModel
 {
     public int id { get; set; }
     public long shipment_id { get; set; }
+    public string purchase_no { get; set; } = string.Empty;
     public string shipment_batch_no { get; set; } = string.Empty;
     public string commodity_sku { get; set; } = string.Empty;
     public string commodity_name { get; set; } = string.Empty;
+    public string main_image { get; set; } = string.Empty;
     public string dept_name { get; set; } = string.Empty;
     public string order_user_name { get; set; } = string.Empty;
     public int warehouse_area_id { get; set; }

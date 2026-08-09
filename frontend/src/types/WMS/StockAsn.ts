@@ -164,9 +164,11 @@ export interface ErpPendingReceiptVO {
 export interface ErpReceiptDetailVO {
   id: number
   shipment_id: number
+  purchase_no: string
   shipment_batch_no: string
   commodity_sku: string
   commodity_name: string
+  main_image: string
   dept_name: string
   order_user_name: string
   warehouse_area_id: number
