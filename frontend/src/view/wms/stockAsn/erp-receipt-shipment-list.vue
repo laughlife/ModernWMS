@@ -47,8 +47,8 @@
             <v-table density="compact">
               <thead>
                 <tr>
-                  <th>{{ $t('wms.erpPendingReceipt.sku') }}</th>
-                  <th>{{ $t('wms.erpPendingReceipt.product_name') }}</th>
+                  <th class="productImageHeader"></th>
+                  <th class="productInfoHeader">{{ $t('wms.erpPendingReceipt.product_info') }}</th>
                   <th>{{ $t('wms.erpPendingReceipt.quantity') }}</th>
                   <th>{{ $t('wms.erpPendingReceipt.order_user_name') }}</th>
                   <th>{{ $t('wms.erpPendingReceipt.dept_name') }}</th>
@@ -56,8 +56,18 @@
               </thead>
               <tbody>
                 <tr v-for="(product, index) in row.product_list" :key="`${row.id}-${product.task_item_id ?? index}`">
-                  <td>{{ product.sku || '-' }}</td>
-                  <td>{{ product.product_name || '-' }}</td>
+                  <td class="productImageCell">
+                    <ProductImage
+                      :src="product.main_image"
+                      :alt="product.product_name || product.sku || $t('wms.erpPendingReceipt.product_info')"
+                      :width="64"
+                      :height="64"
+                    />
+                  </td>
+                  <td class="productInfoCell">
+                    <div class="productInfoName">{{ product.product_name || '-' }}</div>
+                    <div class="productInfoSku">{{ product.sku || '-' }}</div>
+                  </td>
                   <td>{{ product.quantity ?? 0 }}</td>
                   <td>{{ product.order_user_name || '-' }}</td>
                   <td>{{ product.dept_name || '-' }}</td>
@@ -115,6 +125,7 @@ import { getErpArrivedReceiptList, getErpPendingReceiptList } from '@/api/wms/st
 import { hookComponent } from '@/components/system'
 import BtnGroup from '@/components/system/btnGroup.vue'
 import customPager from '@/components/custom-pager.vue'
+import ProductImage from '@/components/system/product-image.vue'
 import ErpLogisticsDetail from './erp-logistics-detail.vue'
 import ErpReceiptConfirm from './erp-receipt-confirm.vue'
 import { computedCardHeight, computedTableHeight } from '@/constant/style'
@@ -246,5 +257,31 @@ watch(
 
 .productDetail {
   padding: 12px 72px;
+}
+
+.productImageHeader,
+.productImageCell {
+  width: 88px;
+}
+
+.productImageCell {
+  padding: 8px 12px !important;
+}
+
+.productInfoHeader,
+.productInfoCell {
+  min-width: 220px;
+  text-align: left !important;
+}
+
+.productInfoName {
+  color: rgba(var(--v-theme-on-surface), 0.87);
+  font-weight: 500;
+}
+
+.productInfoSku {
+  margin-top: 4px;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  font-size: 12px;
 }
 </style>
