@@ -117,12 +117,6 @@
       @page-change="method.handlePageChange"
     >
     </custom-pager>
-    <!-- <ToBeSignInConfirm
-      :show-dialog="data.showDialog"
-      :dialog-default-qty="data.dialogDefaultQty"
-      @close="method.dialogClose"
-      @submit="method.dialogSubmit"
-    /> -->
     <SignInConfirm
       ref="SignInConfirmRef"
       :dialog-title="$t('wms.deliveryManagement.signIn')"
@@ -145,7 +139,6 @@ import { hookComponent } from '@/components/system'
 import { getDelivery, handleSignIn, setCarrier, handleDelivery } from '@/api/wms/deliveryManagement'
 import tooltipBtn from '@/components/tooltip-btn.vue'
 import i18n from '@/languages/i18n'
-// import ToBeSignInConfirm from './to-be-sign-in-confirm.vue'
 import SignInConfirm from './package-confirm.vue'
 import { GetUnit } from '@/constant/commodityManagement'
 import ToBeFreightfee from './to-be-freightfee.vue'
