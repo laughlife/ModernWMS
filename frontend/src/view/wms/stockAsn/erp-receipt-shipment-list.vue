@@ -47,7 +47,6 @@
             <v-table density="compact">
               <thead>
                 <tr>
-                  <th class="productImageHeader"></th>
                   <th class="productInfoHeader">{{ $t('wms.erpPendingReceipt.product_info') }}</th>
                   <th>{{ $t('wms.erpPendingReceipt.quantity') }}</th>
                   <th>{{ $t('wms.erpPendingReceipt.order_user_name') }}</th>
@@ -56,14 +55,6 @@
               </thead>
               <tbody>
                 <tr v-for="(product, index) in row.product_list" :key="`${row.id}-${product.task_item_id ?? index}`">
-                  <td class="productImageCell">
-                    <ProductImage
-                      :src="product.main_image"
-                      :alt="product.product_name || product.sku || $t('wms.erpPendingReceipt.product_info')"
-                      :width="64"
-                      :height="64"
-                    />
-                  </td>
                   <td class="productInfoCell">
                     <div class="productInfoName">{{ product.product_name || '-' }}</div>
                     <div class="productInfoSku">{{ product.sku || '-' }}</div>
@@ -73,15 +64,35 @@
                   <td>{{ product.dept_name || '-' }}</td>
                 </tr>
                 <tr v-if="row.product_list.length === 0">
-                  <td colspan="5">{{ $t('system.page.noData') }}</td>
+                  <td colspan="4">{{ $t('system.page.noData') }}</td>
                 </tr>
               </tbody>
             </v-table>
           </div>
         </template>
       </vxe-column>
-      <vxe-column field="shipment_batch_no" :title="$t('wms.erpPendingReceipt.shipment_batch_no')" min-width="180"></vxe-column>
-      <vxe-column field="purchase_no" :title="$t('wms.erpPendingReceipt.purchase_no')" min-width="150"></vxe-column>
+      <vxe-column width="96">
+        <template #default="{ row }">
+          <div class="shipmentProductImages">
+            <ProductImage
+              v-for="(product, index) in row.product_list"
+              :key="product.task_item_id ?? index"
+              :src="product.main_image"
+              :alt="product.product_name || product.sku || $t('wms.erpPendingReceipt.product_info')"
+              :width="64"
+              :height="64"
+            />
+          </div>
+        </template>
+      </vxe-column>
+      <vxe-column :title="$t('wms.erpPendingReceipt.shipment_info')" min-width="190">
+        <template #default="{ row }">
+          <div class="shipmentInfoCell">
+            <div class="shipmentBatchNo">{{ row.shipment_batch_no || '-' }}</div>
+            <div class="shipmentPurchaseNo">{{ row.purchase_no || '-' }}</div>
+          </div>
+        </template>
+      </vxe-column>
       <vxe-column field="supplier_name" :title="$t('wms.erpPendingReceipt.supplier_name')" min-width="150"></vxe-column>
       <vxe-column field="product_summary" :title="$t('wms.erpPendingReceipt.product_summary')" min-width="280"></vxe-column>
       <vxe-column field="shipment_qty" :title="$t('wms.erpPendingReceipt.shipment_qty')" width="110"></vxe-column>
@@ -259,15 +270,6 @@ watch(
   padding: 12px 72px;
 }
 
-.productImageHeader,
-.productImageCell {
-  width: 88px;
-}
-
-.productImageCell {
-  padding: 8px 12px !important;
-}
-
 .productInfoHeader,
 .productInfoCell {
   min-width: 220px;
@@ -280,6 +282,30 @@ watch(
 }
 
 .productInfoSku {
+  margin-top: 4px;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  font-size: 12px;
+}
+
+.shipmentProductImages {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  justify-content: center;
+  align-items: center;
+  padding: 6px 0;
+}
+
+.shipmentInfoCell {
+  text-align: left;
+}
+
+.shipmentBatchNo {
+  color: rgba(var(--v-theme-on-surface), 0.87);
+  font-weight: 500;
+}
+
+.shipmentPurchaseNo {
   margin-top: 4px;
   color: rgba(var(--v-theme-on-surface), 0.6);
   font-size: 12px;

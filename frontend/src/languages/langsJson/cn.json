@@ -633,6 +633,7 @@
       "receipt_title": "确认收货",
       "self_paid": "自付运费",
       "shipment_batch_no": "发货批次",
+      "shipment_info": "发货信息",
       "shipment_qty": "货件总数",
       "shipment_time": "发货时间",
       "sku": "SKU",
