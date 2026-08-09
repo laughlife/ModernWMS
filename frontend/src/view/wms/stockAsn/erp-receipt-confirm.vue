@@ -64,23 +64,31 @@
           </div>
 
           <template v-if="shouldPayFreight">
-            <v-text-field
-              v-model.number="data.form.receiptFreightAmount"
-              type="number"
-              min="0.01"
-              step="0.01"
-              variant="outlined"
-              density="comfortable"
-              :label="$t('wms.erpPendingReceipt.receipt_freight_amount')"
-              :rules="data.rules.receiptFreightAmount"
-            ></v-text-field>
-            <erp-receipt-image-upload
-              v-model="data.form.receiptFreightFiles"
-              :shipment-id="data.currentRow?.id ?? 0"
-              category="freight"
-              icon="mdi-receipt-text-outline"
-              :label="$t('wms.erpPendingReceipt.receipt_freight_attachments')"
-            ></erp-receipt-image-upload>
+            <div class="receiptFormRow receiptControlRow">
+              <span class="receiptLabel requiredLabel">{{ $t('wms.erpPendingReceipt.receipt_freight_amount') }}</span>
+              <v-text-field
+                v-model.number="data.form.receiptFreightAmount"
+                type="number"
+                min="0.01"
+                step="0.01"
+                variant="outlined"
+                density="comfortable"
+                hide-details="auto"
+                :aria-label="$t('wms.erpPendingReceipt.receipt_freight_amount')"
+                :rules="data.rules.receiptFreightAmount"
+              ></v-text-field>
+            </div>
+            <div class="receiptFormRow receiptControlRow">
+              <span class="receiptLabel">{{ $t('wms.erpPendingReceipt.receipt_freight_attachments') }}</span>
+              <erp-receipt-image-upload
+                v-model="data.form.receiptFreightFiles"
+                :shipment-id="data.currentRow?.id ?? 0"
+                category="freight"
+                icon="mdi-receipt-text-outline"
+                :label="$t('wms.erpPendingReceipt.receipt_freight_attachments')"
+                hide-label
+              ></erp-receipt-image-upload>
+            </div>
           </template>
 
           <template v-if="showLossFields">
@@ -106,13 +114,17 @@
             ></erp-receipt-image-upload>
           </template>
 
-          <erp-receipt-image-upload
-            v-model="data.form.receiptFiles"
-            :shipment-id="data.currentRow?.id ?? 0"
-            category="receipt"
-            icon="mdi-image-multiple-outline"
-            :label="$t('wms.erpPendingReceipt.receipt_attachments')"
-          ></erp-receipt-image-upload>
+          <div class="receiptFormRow receiptControlRow">
+            <span class="receiptLabel">{{ $t('wms.erpPendingReceipt.receipt_attachments') }}</span>
+            <erp-receipt-image-upload
+              v-model="data.form.receiptFiles"
+              :shipment-id="data.currentRow?.id ?? 0"
+              category="receipt"
+              icon="mdi-image-multiple-outline"
+              :label="$t('wms.erpPendingReceipt.receipt_attachments')"
+              hide-label
+            ></erp-receipt-image-upload>
+          </div>
 
           <v-textarea
             v-model="data.form.receiptRemark"
@@ -260,6 +272,7 @@ defineExpose({
 
 .receiptFormGrid {
   align-items: start;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .receiptLabel {
@@ -285,6 +298,18 @@ defineExpose({
   font-size: 12px;
   line-height: 18px;
   margin-top: 4px;
+}
+
+.receiptControlRow {
+  align-items: start;
+}
+
+.receiptControlRow .receiptLabel {
+  padding-top: 14px;
+}
+
+.receiptControlRow > :last-child {
+  min-width: 0;
 }
 
 

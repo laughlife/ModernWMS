@@ -607,7 +607,7 @@
       "receipt_attachments": "收货附件",
       "receipt_freight_amount": "支付运费金额",
       "receipt_freight_attachments": "运费附图",
-      "receipt_freight_payment_status": "是否支付运费",
+      "receipt_freight_payment_status": "运费",
       "receipt_qty_exceeded": "实际收货数量不能大于发货数量",
       "receipt_qty_integer": "实际收货数量必须是整数",
       "receipt_qty_non_negative": "实际收货数量不能小于0",

@@ -8,8 +8,9 @@
       clearable
       variant="outlined"
       density="comfortable"
-      :prepend-icon="icon"
-      :label="label"
+      :prepend-icon="hideLabel ? undefined : icon"
+      :label="hideLabel ? undefined : label"
+      :aria-label="label"
       :hint="$t('wms.erpPendingReceipt.attachment_tip')"
       :loading="uploading"
       :disabled="uploading"
@@ -17,7 +18,7 @@
       @update:model-value="uploadFiles"
     ></v-file-input>
 
-    <div v-if="modelValue.length" class="uploadedImages">
+    <div v-if="modelValue.length" class="uploadedImages" :class="{ uploadedImagesWithIcon: !hideLabel }">
       <v-chip
         v-for="(image, index) in modelValue"
         :key="image.path"
@@ -51,6 +52,7 @@ const props = defineProps<{
   category: ErpReceiptImageCategory
   label: string
   icon: string
+  hideLabel?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -114,7 +116,11 @@ const openImage = (url: string) => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin: -8px 0 16px 40px;
+  margin: -8px 0 16px;
+}
+
+.uploadedImagesWithIcon {
+  margin-left: 40px;
 }
 
 .uploadedImage {
