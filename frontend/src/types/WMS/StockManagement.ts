@@ -3,6 +3,7 @@ export interface StockLocationVO {
     location_name: string
     spu_code: string
     spu_name: string
+    product_image: string
     sku_id: number
     sku_code: string
     sku_name: string

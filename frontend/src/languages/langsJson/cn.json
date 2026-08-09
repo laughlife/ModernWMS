@@ -229,6 +229,8 @@
       "erp_warehouse": "绑定ERP仓库",
       "erp_warehouse_name": "ERP仓库名",
       "erp_warehouse_load_failed": "ERP仓库列表加载失败",
+      "default_warehouse_name_lock": "默认仓库名称不允许修改（如需修改请直接操作数据库）",
+      "default_warehouse_not_delete": "默认仓库不允许删除",
       "operator_group_binding": "库区绑定",
       "operator_group_load_failed": "操作小组列表加载失败"
     }
@@ -723,6 +725,7 @@
       "spu_name": "商品名称"
     },
     "stockLocation": {
+      "product": "商品",
       "location_name": "库位名称",
       "qty": "数量",
       "qty_available": "可用数量",
@@ -734,6 +737,7 @@
       "sku_name": "规格名称",
       "spu_code": "商品编码",
       "spu_name": "商品名称",
+      "warehouse_location": "仓库/库位",
       "warehouse_name": "仓库名称"
     },
     "stockManagement": {

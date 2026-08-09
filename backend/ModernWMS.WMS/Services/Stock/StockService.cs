@@ -6,6 +6,7 @@
 using Mapster;
 using Microsoft.EntityFrameworkCore;
 using ModernWMS.Core.DBContext;
+using ModernWMS.Core.DBContext.Entities;
 using ModernWMS.Core.Services;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels;
@@ -37,6 +38,11 @@ namespace ModernWMS.WMS.Services
         private readonly SqlDBContext _dBContext;
 
         /// <summary>
+        /// ERP public database context.
+        /// </summary>
+        private readonly RuoyiDbContext _ruoyiDbContext;
+
+        /// <summary>
         /// Localizer Service
         /// </summary>
         private readonly IStringLocalizer<ModernWMS.Core.MultiLanguage> _stringLocalizer;
@@ -52,10 +58,12 @@ namespace ModernWMS.WMS.Services
         /// <param name="stringLocalizer">Localizer</param>
         public StockService(
             SqlDBContext dBContext
+          , RuoyiDbContext ruoyiDbContext
           , IStringLocalizer<ModernWMS.Core.MultiLanguage> stringLocalizer
             )
         {
             this._dBContext = dBContext;
+            this._ruoyiDbContext = ruoyiDbContext;
             this._stringLocalizer = stringLocalizer;
         }
 
@@ -299,7 +307,53 @@ namespace ModernWMS.WMS.Services
                        .Skip((pageSearch.pageIndex - 1) * pageSearch.pageSize)
                        .Take(pageSearch.pageSize)
                        .ToListAsync();
+            await PopulateProductImagesAsync(list, currentUser.tenant_id);
             return (list, totals);
+        }
+
+        /// <summary>
+        /// Fill ERP product images for stock location rows by sku mapping.
+        /// </summary>
+        /// <param name="rows">stock location page rows</param>
+        /// <param name="tenantId">current tenant id</param>
+        private async Task PopulateProductImagesAsync(List<LocationStockManagementViewModel> rows, long tenantId)
+        {
+            if (rows.Count == 0)
+            {
+                return;
+            }
+
+            var skuIds = rows.Select(t => t.sku_id).Distinct().ToList();
+            var maps = await (from m in _ruoyiDbContext.CommodityMaps.AsNoTracking()
+                              where m.tenant_id == tenantId && skuIds.Contains(m.wms_sku_id)
+                              select new { m.wms_sku_id, m.erp_commodity_id }).ToListAsync();
+            if (maps.Count == 0)
+            {
+                return;
+            }
+
+            var commodityIds = maps.Select(t => t.erp_commodity_id.ToString()).Distinct().ToList();
+            var images = await (from c in _ruoyiDbContext.Commodities.AsNoTracking()
+                                where commodityIds.Contains(c.id) && !string.IsNullOrEmpty(c.img_url)
+                                select new { c.id, c.img_url }).ToListAsync();
+            var imageBySkuId = new Dictionary<int, string>();
+            foreach (var map in maps)
+            {
+                var commodityId = map.erp_commodity_id.ToString();
+                var image = images.FirstOrDefault(t => t.id == commodityId);
+                if (image != null)
+                {
+                    imageBySkuId[map.wms_sku_id] = image.img_url;
+                }
+            }
+
+            rows.ForEach(t =>
+            {
+                if (imageBySkuId.TryGetValue(t.sku_id, out var url))
+                {
+                    t.product_image = url;
+                }
+            });
         }
 
         /// <summary>

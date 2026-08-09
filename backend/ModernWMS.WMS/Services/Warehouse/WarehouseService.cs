@@ -24,6 +24,11 @@ namespace ModernWMS.WMS.Services
     {
         #region Args
         /// <summary>
+        /// 默认仓库名称：不允许删除，也不允许通过界面/接口修改名称（改名只能直接操作数据库）。
+        /// </summary>
+        private const string DefaultWarehouseName = "有座山深圳仓";
+
+        /// <summary>
         /// The DBContext
         /// </summary>
         private readonly SqlDBContext _dBContext;
@@ -218,6 +223,11 @@ namespace ModernWMS.WMS.Services
             {
                 return (false, _stringLocalizer["not_exists_entity"]);
             }
+            if (entity.warehouse_name == DefaultWarehouseName
+                && !string.Equals(viewModel.warehouse_name, DefaultWarehouseName, StringComparison.Ordinal))
+            {
+                return (false, _stringLocalizer["default_warehouse_name_locked"]);
+            }
             entity.id = viewModel.id;
             entity.warehouse_name = viewModel.warehouse_name;
             entity.erp_warehouse_id = viewModel.erp_warehouse_id;
@@ -255,6 +265,11 @@ namespace ModernWMS.WMS.Services
         /// <returns></returns>
         public async Task<(bool flag, string msg)> DeleteAsync(int id, CurrentUser currentUser)
         {
+            if (await _dBContext.GetDbSet<WarehouseEntity>()
+                .AnyAsync(t => t.id == id && t.tenant_id == currentUser.tenant_id && t.warehouse_name == DefaultWarehouseName))
+            {
+                return (false, _stringLocalizer["default_warehouse_not_delete"]);
+            }
             if (await _dBContext.GetDbSet<WarehouseareaEntity>()
                 .AnyAsync(t => t.warehouse_id == id && t.tenant_id == currentUser.tenant_id))
             {

@@ -651,4 +651,10 @@
   <data name="admin_role_reserved" xml:space="preserve">
     <value>admin角色是系统保留角色，不能创建、修改或删除</value>
   </data>
+  <data name="default_warehouse_name_locked" xml:space="preserve">
+    <value>默认仓库名称不允许修改，如需修改请直接在数据库中修改</value>
+  </data>
+  <data name="default_warehouse_not_delete" xml:space="preserve">
+    <value>默认仓库不允许删除</value>
+  </data>
 </root>

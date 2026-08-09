@@ -11,8 +11,20 @@
       <!-- Search Input -->
       <v-col cols="9">
         <v-row no-gutters @keyup.enter="method.sureSearch">
-          <v-col cols="4"></v-col>
-          <v-col cols="4"></v-col>
+          <v-col cols="4">
+            <v-select
+              v-model="data.searchForm.warehouse_name"
+              :items="data.warehouseOptions"
+              item-title="name"
+              item-value="name"
+              clearable
+              hide-details
+              density="comfortable"
+              class="searchInput ml-5 mt-1"
+              :label="$t('wms.stockLocation.warehouse_name')"
+              variant="solo"
+            ></v-select>
+          </v-col>
           <v-col cols="4">
             <v-text-field
               v-model="data.searchForm.location_name"
@@ -25,6 +37,7 @@
             >
             </v-text-field>
           </v-col>
+          <v-col cols="4"></v-col>
         </v-row>
       </v-col>
     </v-row>
@@ -43,17 +56,23 @@
       </template>
       <vxe-column type="seq" width="60"></vxe-column>
       <vxe-column type="checkbox" width="50"></vxe-column>
-      <vxe-column field="warehouse_name" :title="$t('wms.stockLocation.warehouse_name')"></vxe-column>
-      <vxe-column field="location_name" :title="$t('wms.stockLocation.location_name')"></vxe-column>
-      <vxe-column field="spu_code" :title="$t('wms.stockLocation.spu_code')">
+      <vxe-column field="warehouse_name" :title="$t('wms.stockLocation.warehouse_location')" min-width="150">
         <template #default="{ row }">
-          <div :class="'text-decoration-none'" @click="method.showSkuInfo(row)"> {{ row.sku_code }}</div>
+          <div class="cell-wh">
+            <div class="cell-line">{{ row.warehouse_name }}</div>
+            <div class="cell-line cell-sub">{{ row.location_name }}</div>
+          </div>
         </template>
       </vxe-column>
-      <vxe-column field="spu_name" :title="$t('wms.stockLocation.spu_name')"></vxe-column>
-      <vxe-column field="sku_code" :title="$t('wms.stockLocation.sku_code')"></vxe-column>
-      <vxe-column field="sku_name" :title="$t('wms.stockLocation.sku_name')"></vxe-column>
-      <vxe-column field="series_number" :title="$t('wms.stockLocation.series_number')"></vxe-column>
+      <vxe-column field="spu_name" :title="$t('wms.stockLocation.product')" min-width="240">
+        <template #default="{ row }">
+          <div class="cell-product" @click="method.showSkuInfo(row)">
+            <product-image :src="row.product_image" :width="56" :height="56" class="product-img" />
+            <div class="cell-line">{{ row.spu_name }}</div>
+            <div class="cell-line cell-sub">{{ row.sku_code }}</div>
+          </div>
+        </template>
+      </vxe-column>
       <vxe-column field="qty" :title="$t('wms.stockLocation.qty')"></vxe-column>
       <vxe-column field="qty_available" :title="$t('wms.stockLocation.qty_available')"></vxe-column>
       <vxe-column field="qty_locked" :title="$t('wms.stockLocation.qty_locked')"></vxe-column>
@@ -86,9 +105,12 @@ import { DEBOUNCE_TIME } from '@/constant/system'
 import { setSearchObject, getMenuAuthorityList } from '@/utils/common'
 import { SearchObject, btnGroupItem } from '@/types/System/Form'
 import { getStockLocationList } from '@/api/wms/stockManagement'
+import { getWarehouseSelect } from '@/api/base/warehouseSetting'
+import { DEFAULT_WAREHOUSE_NAME } from '@/utils/format/formatWarehouse'
 import i18n from '@/languages/i18n'
 import customPager from '@/components/custom-pager.vue'
 import skuInfo from './sku-info.vue'
+import productImage from '@/components/system/product-image.vue'
 import { exportData } from '@/utils/exportTable'
 import BtnGroup from '@/components/system/btnGroup.vue'
 
@@ -98,7 +120,9 @@ const data = reactive({
   sku_id: 0,
   showDialog: false,
   showDialogShowInfo: false,
+  warehouseOptions: [] as Array<{ id: number; name: string }>,
   searchForm: {
+    warehouse_name: DEFAULT_WAREHOUSE_NAME,
     location_name: ''
   },
   activeTab: null,
@@ -107,7 +131,7 @@ const data = reactive({
     total: 0,
     pageIndex: 1,
     pageSize: DEFAULT_PAGE_SIZE,
-    searchObjects: ref<Array<SearchObject>>([])
+    searchObjects: ref<Array<SearchObject>>(setSearchObject({ warehouse_name: DEFAULT_WAREHOUSE_NAME, location_name: '' }, ['warehouse_name']))
   }),
   timer: ref<any>(null),
   btnList: [] as btnGroupItem[],
@@ -122,6 +146,23 @@ const method = reactive({
   showSkuInfo(row: StockLocationVO) {
     data.sku_id = row.sku_id
     data.showDialogShowInfo = true
+  },
+  loadWarehouseOptions: async () => {
+    const { data: res } = await getWarehouseSelect()
+    if (!res.isSuccess) {
+      hookComponent.$message({
+        type: 'error',
+        content: res.errorMessage
+      })
+      return
+    }
+    data.warehouseOptions = res.data.map((item: any) => ({
+      id: Number(item.value),
+      name: item.name
+    }))
+    if (data.searchForm.warehouse_name && !data.warehouseOptions.some((item) => item.name === data.searchForm.warehouse_name)) {
+      data.searchForm.warehouse_name = ''
+    }
   },
   // Refresh data
   refresh: () => {
@@ -156,12 +197,13 @@ const method = reactive({
     })
   },
   sureSearch: () => {
-    data.tablePage.searchObjects = setSearchObject(data.searchForm)
+    data.tablePage.searchObjects = setSearchObject(data.searchForm, ['warehouse_name'])
     method.getStockLocationList()
   }
 })
 
 onMounted(() => {
+  method.loadWarehouseOptions()
   data.btnList = [
     {
       name: i18n.global.t('system.page.refresh'),
@@ -215,5 +257,34 @@ watch(
 .col {
   display: flex;
   align-items: center;
+}
+
+.cell-wh,
+.cell-product {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.cell-product {
+  cursor: pointer;
+}
+
+.cell-line {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cell-sub {
+  color: rgba(var(--v-theme-on-surface), 0.62);
+  font-size: 12px;
+}
+
+.product-img {
+  margin-bottom: 4px;
 }
 </style>

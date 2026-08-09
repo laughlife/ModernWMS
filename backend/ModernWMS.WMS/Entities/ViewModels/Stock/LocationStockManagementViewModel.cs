@@ -80,6 +80,11 @@ namespace ModernWMS.WMS.Entities.ViewModels
         public string goods_owner_name { get; set; } = string.Empty;
 
         /// <summary>
+        /// product image url
+        /// </summary>
+        public string product_image { get; set; } = string.Empty;
+
+        /// <summary>
         /// series_number
         /// </summary>
         [Display(Name = "series_number")]

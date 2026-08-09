@@ -104,9 +104,9 @@
           <tooltip-btn
             :flat="true"
             icon="mdi-delete-outline"
-            :tooltip-text="$t('system.page.delete')"
-            :icon-color="!data.authorityList.includes('warehouse-delete')?'':errorColor"
-            :disabled="!data.authorityList.includes('warehouse-delete')"
+            :tooltip-text="row.warehouse_name === DEFAULT_WAREHOUSE_NAME ? $t('base.warehouseSetting.default_warehouse_not_delete') : $t('system.page.delete')"
+            :icon-color="(!data.authorityList.includes('warehouse-delete') || row.warehouse_name === DEFAULT_WAREHOUSE_NAME) ? '' : errorColor"
+            :disabled="!data.authorityList.includes('warehouse-delete') || row.warehouse_name === DEFAULT_WAREHOUSE_NAME"
             @click="method.deleteRow(row)"
           ></tooltip-btn>
         </template>
@@ -146,6 +146,7 @@ import { SearchObject, btnGroupItem } from '@/types/System/Form'
 import importTable from './import-table.vue'
 import { exportData } from '@/utils/exportTable'
 import BtnGroup from '@/components/system/btnGroup.vue'
+import { DEFAULT_WAREHOUSE_NAME } from '@/utils/format/formatWarehouse'
 
 const xTableWarehouse = ref()
 

@@ -63,6 +63,11 @@ public sealed class RuoyiDbContext : DbContext
     public DbSet<ErpCommodityMapEntity> CommodityMaps => Set<ErpCommodityMapEntity>();
 
     /// <summary>
+    /// ERP commodity master data (sku, name, product image).
+    /// </summary>
+    public DbSet<ErpCommodityEntity> Commodities => Set<ErpCommodityEntity>();
+
+    /// <summary>
     /// ERP ownership to WMS goods-owner mappings.
     /// </summary>
     public DbSet<ErpGoodsOwnerMapEntity> GoodsOwnerMaps => Set<ErpGoodsOwnerMapEntity>();
@@ -150,6 +155,15 @@ public sealed class RuoyiDbContext : DbContext
             entity.ToTable("wms_erp_commodity_map");
             entity.HasKey(t => t.id);
             entity.HasIndex(t => new { t.tenant_id, t.erp_commodity_id }).IsUnique();
+        });
+
+        modelBuilder.Entity<ErpCommodityEntity>(entity =>
+        {
+            entity.ToTable("erp_commodity");
+            entity.HasKey(t => t.id);
+            entity.Property(t => t.id).HasMaxLength(64);
+            entity.Property(t => t.sku).HasMaxLength(100);
+            entity.Property(t => t.name).HasMaxLength(255);
         });
 
         modelBuilder.Entity<ErpGoodsOwnerMapEntity>(entity =>
