@@ -118,6 +118,12 @@ export const getErpArrivedReceiptList = (data: PageConfigProps) => http({
     data
   })
 
+export const getErpReceiptDetailList = (data: PageConfigProps) => http({
+    url: '/asn/erp-pending-receipt/receipt-detail-list',
+    method: 'post',
+    data
+  })
+
 export const getErpReceiptLogistics = (shipmentId: number) => http({
     url: '/asn/erp-pending-receipt/logistics',
     method: 'get',

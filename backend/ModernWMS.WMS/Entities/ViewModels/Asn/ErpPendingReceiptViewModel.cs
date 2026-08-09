@@ -57,6 +57,28 @@ public class ErpPendingReceiptProductViewModel
 }
 
 /// <summary>
+/// One product-level receipt result after inventory posting.
+/// </summary>
+public class ErpReceiptDetailViewModel
+{
+    public int id { get; set; }
+    public long shipment_id { get; set; }
+    public string shipment_batch_no { get; set; } = string.Empty;
+    public string commodity_sku { get; set; } = string.Empty;
+    public string commodity_name { get; set; } = string.Empty;
+    public string dept_name { get; set; } = string.Empty;
+    public string order_user_name { get; set; } = string.Empty;
+    public int warehouse_area_id { get; set; }
+    public string warehouse_area_name { get; set; } = string.Empty;
+    public DateTime receipt_time { get; set; }
+    public long actual_receipt_qty { get; set; }
+    public long loss_qty { get; set; }
+    public long inbound_qty { get; set; }
+    public decimal? total_weight { get; set; }
+    public decimal? total_volume { get; set; }
+}
+
+/// <summary>
 /// Logistics detail and event timeline for an ERP receipt shipment.
 /// </summary>
 public class ErpPendingReceiptLogisticsViewModel

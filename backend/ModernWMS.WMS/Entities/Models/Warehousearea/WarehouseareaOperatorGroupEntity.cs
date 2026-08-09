@@ -9,6 +9,7 @@ namespace ModernWMS.WMS.Entities.Models;
 /// </summary>
 [Table("wms_warehousearea_operator_group")]
 [Index(nameof(tenant_id), nameof(warehouse_area_id), nameof(dept_id), IsUnique = true)]
+[Index(nameof(tenant_id), nameof(dept_id), IsUnique = true)]
 public class WarehouseareaOperatorGroupEntity : BaseModel
 {
     public long tenant_id { get; set; }

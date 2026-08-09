@@ -160,6 +160,24 @@ export interface ErpPendingReceiptVO {
   product_list: ErpPendingReceiptProductVO[]
 }
 
+export interface ErpReceiptDetailVO {
+  id: number
+  shipment_id: number
+  shipment_batch_no: string
+  commodity_sku: string
+  commodity_name: string
+  dept_name: string
+  order_user_name: string
+  warehouse_area_id: number
+  warehouse_area_name: string
+  receipt_time: string
+  actual_receipt_qty: number
+  loss_qty: number
+  inbound_qty: number
+  total_weight?: number | null
+  total_volume?: number | null
+}
+
 export interface ErpPendingReceiptTrackEventVO {
   id: number
   event_time?: string | null

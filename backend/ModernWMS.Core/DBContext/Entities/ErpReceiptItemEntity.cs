@@ -30,6 +30,18 @@ public class ErpReceiptItemEntity : BaseModel
 
     public long? dept_id { get; set; }
     public long? order_user_id { get; set; }
+
+    [MaxLength(128)]
+    public string dept_name { get; set; } = string.Empty;
+
+    [MaxLength(128)]
+    public string order_user_name { get; set; } = string.Empty;
+
+    public int warehouse_area_id { get; set; }
+
+    [MaxLength(128)]
+    public string warehouse_area_name { get; set; } = string.Empty;
+
     public long shipment_qty { get; set; }
     public long actual_receipt_qty { get; set; }
     public long loss_qty { get; set; }
@@ -37,6 +49,9 @@ public class ErpReceiptItemEntity : BaseModel
     public long erp_stock_id { get; set; }
     public int wms_sku_id { get; set; }
     public int wms_stock_id { get; set; }
+    public DateTime receipt_time { get; set; }
+    public decimal? total_weight { get; set; }
+    public decimal? total_volume { get; set; }
     public DateTime create_time { get; set; } = DateTime.Now;
     public long tenant_id { get; set; } = 1;
 }

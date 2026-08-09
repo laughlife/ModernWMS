@@ -42,6 +42,20 @@ public class ErpPendingReceiptController : BaseController
     }
 
     /// <summary>
+    /// Lists product-level receipt results posted directly into their bound warehouse areas.
+    /// </summary>
+    [HttpPost("receipt-detail-list")]
+    public async Task<ResultModel<PageData<ErpReceiptDetailViewModel>>> ReceiptDetailsPageAsync(PageSearch pageSearch)
+    {
+        var (data, totals) = await _erpPendingReceiptService.ReceiptDetailsPageAsync(pageSearch, CurrentUser);
+        return ResultModel<PageData<ErpReceiptDetailViewModel>>.Success(new PageData<ErpReceiptDetailViewModel>
+        {
+            Rows = data,
+            Totals = totals
+        });
+    }
+
+    /// <summary>
     /// Gets the latest ERP logistics snapshot and its event timeline.
     /// </summary>
     [HttpGet("logistics")]

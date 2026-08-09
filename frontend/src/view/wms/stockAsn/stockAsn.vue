@@ -19,15 +19,6 @@
             <v-window-item value="tabToDoArrival">
               <ErpReceiptShipmentList ref="tabToDoArrivalRef" list-type="pending" />
             </v-window-item>
-            <v-window-item value="tabToDoUnload">
-              <tabToDoUnload ref="tabToDoUnloadRef" />
-            </v-window-item>
-            <v-window-item value="tabToDoSorting">
-              <tabToDoSorting ref="tabToDoSortingRef" />
-            </v-window-item>
-            <v-window-item value="tabToDoGrounding">
-              <tabToDoGrounding ref="tabToDoGroundingRef" />
-            </v-window-item>
             <v-window-item value="tabReceiptDetails">
               <tabReceiptDetails ref="tabReceiptDetailsRef" />
             </v-window-item>
@@ -39,19 +30,13 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, reactive, onMounted, watch, nextTick } from 'vue'
+import { ref, reactive, nextTick } from 'vue'
 import i18n from '@/languages/i18n'
 import ErpReceiptShipmentList from './erp-receipt-shipment-list.vue'
-import tabToDoUnload from './tabToDoUnload.vue'
-import tabToDoSorting from './tabToDoSorting.vue'
-import tabToDoGrounding from './tabToDoGrounding.vue'
 import tabReceiptDetails from './tabReceiptDetails.vue'
 
 const tabNoticeRef = ref()
 const tabToDoArrivalRef = ref()
-const tabToDoUnloadRef = ref()
-const tabToDoSortingRef = ref()
-const tabToDoGroundingRef = ref()
 const tabReceiptDetailsRef = ref()
 
 const tabsConfig = [
@@ -66,21 +51,6 @@ const tabsConfig = [
     tabName: i18n.global.t('wms.stockAsn.tabToDoArrival')
   },
   {
-    value: 'tabToDoUnload',
-    icon: 'mdi-truck-outline',
-    tabName: i18n.global.t('wms.stockAsn.tabToDoUnload')
-  },
-  {
-    value: 'tabToDoSorting',
-    icon: 'mdi-dolly',
-    tabName: i18n.global.t('wms.stockAsn.tabToDoSorting')
-  },
-  {
-    value: 'tabToDoGrounding',
-    icon: 'mdi-grid',
-    tabName: i18n.global.t('wms.stockAsn.tabToDoGrounding')
-  },
-  {
     value: 'tabReceiptDetails',
     icon: 'mdi-file-cabinet',
     tabName: i18n.global.t('wms.stockAsn.tabReceiptDetails')
@@ -91,9 +61,6 @@ const data = reactive({
   activeTab: '',
   isLoadNotice: false,
   isLoadToDoArrival: false,
-  isLoadToDoUnload: false,
-  isLoadToDoSorting: false,
-  isLoadToDoGrounding: false,
   isLoadReceiptDetails: false
 })
 
@@ -112,21 +79,6 @@ const method = reactive({
             tabToDoArrivalRef.value.getStockAsnList()
           }
           break
-        case 'tabToDoUnload':
-          if (tabToDoUnloadRef?.value?.getStockAsnList) {
-            tabToDoUnloadRef.value.getStockAsnList()
-          }
-          break
-        case 'tabToDoSorting':
-          if (tabToDoSortingRef?.value?.getStockAsnList) {
-            tabToDoSortingRef.value.getStockAsnList()
-          }
-          break
-        case 'tabToDoGrounding':
-          if (tabToDoGroundingRef?.value?.getStockAsnList) {
-            tabToDoGroundingRef.value.getStockAsnList()
-          }
-          break
         case 'tabReceiptDetails':
           if (tabReceiptDetailsRef?.value?.getStockAsnList) {
             tabReceiptDetailsRef.value.getStockAsnList()
@@ -137,7 +89,6 @@ const method = reactive({
   }
 })
 
-onMounted(() => {})
 </script>
 
 <style scoped lang="less">

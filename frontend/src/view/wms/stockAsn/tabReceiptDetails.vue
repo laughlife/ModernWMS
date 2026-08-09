@@ -1,85 +1,65 @@
 <template>
   <div class="operateArea">
     <v-row no-gutters>
-      <!-- Operate Btn -->
       <v-col cols="3" class="col">
-        <!-- <tooltip-btn icon="mdi-refresh" :tooltip-text="$t('system.page.refresh')" @click="method.refresh"></tooltip-btn>
-        <tooltip-btn icon="mdi-export-variant" :tooltip-text="$t('system.page.export')" @click="method.exportTable"> </tooltip-btn> -->
-
-        <!-- new version -->
         <BtnGroup :authority-list="data.authorityList" :btn-list="data.btnList" />
       </v-col>
-
-      <!-- Search Input -->
       <v-col cols="9">
         <v-row no-gutters @keyup.enter="method.sureSearch">
-          <v-col cols="4"></v-col>
           <v-col cols="4">
             <v-text-field
-              v-model="data.searchForm.supplier_name"
+              v-model="data.searchForm.dept_name"
               clearable
               hide-details
               density="comfortable"
               class="searchInput ml-5 mt-1"
-              :label="$t('wms.stockAsnInfo.supplier_name')"
+              :label="$t('wms.erpPendingReceipt.dept_name')"
               variant="solo"
-            >
-            </v-text-field>
+            ></v-text-field>
           </v-col>
           <v-col cols="4">
             <v-text-field
-              v-model="data.searchForm.sku_name"
+              v-model="data.searchForm.order_user_name"
               clearable
               hide-details
               density="comfortable"
               class="searchInput ml-5 mt-1"
-              :label="$t('wms.stockAsnInfo.sku_name')"
+              :label="$t('wms.erpPendingReceipt.order_user_name')"
               variant="solo"
-            >
-            </v-text-field>
+            ></v-text-field>
+          </v-col>
+          <v-col cols="4">
+            <v-text-field
+              v-model="data.searchForm.product_keyword"
+              clearable
+              hide-details
+              density="comfortable"
+              class="searchInput ml-5 mt-1"
+              :label="$t('wms.erpPendingReceipt.receipt_detail_keyword')"
+              variant="solo"
+            ></v-text-field>
           </v-col>
         </v-row>
       </v-col>
     </v-row>
   </div>
 
-  <!-- Table -->
-  <div
-    class="mt-5"
-    :style="{
-      height: cardHeight
-    }"
-  >
-    <vxe-table ref="xTableStockLocation" :column-config="{ minWidth: '100px' }" :data="data.tableData" :height="tableHeight" align="center">
+  <div class="mt-5" :style="{ height: cardHeight }">
+    <vxe-table ref="xTable" :column-config="{ minWidth: '120px' }" :data="data.tableData" :height="tableHeight" align="center">
       <template #empty>
         {{ i18n.global.t('system.page.noData') }}
       </template>
       <vxe-column type="seq" width="60"></vxe-column>
-      <vxe-column type="checkbox" width="50"></vxe-column>
-      <vxe-column field="asn_no" :title="$t('wms.stockAsnInfo.asn_no')"></vxe-column>
-      <vxe-column field="spu_code" :title="$t('wms.stockAsnInfo.spu_code')"></vxe-column>
-      <vxe-column field="spu_name" :title="$t('wms.stockAsnInfo.spu_name')"></vxe-column>
-      <vxe-column field="sku_code" :title="$t('wms.stockAsnInfo.sku_code')">
-        <template #default="{ row }">
-          <div :class="'text-decoration-none'" @click="method.showSkuInfo(row)"> {{ row.sku_code }}</div>
-        </template>
-      </vxe-column>
-      <vxe-column field="sku_name" :title="$t('wms.stockAsnInfo.sku_name')"></vxe-column>
-      <vxe-column field="goods_owner_name" :title="$t('wms.stockAsnInfo.goods_owner_name')"></vxe-column>
-      <vxe-column field="supplier_name" :title="$t('wms.stockAsnInfo.supplier_name')"></vxe-column>
-      <vxe-column field="asn_qty" :title="$t('wms.stockAsnInfo.asn_qty')"></vxe-column>
-      <vxe-column field="weight" :title="$t('wms.stockAsnInfo.weight')"></vxe-column>
-      <vxe-column field="volume" :title="$t('wms.stockAsnInfo.volume')"></vxe-column>
-      <vxe-column field="actual_qty" :title="$t('wms.stockAsnInfo.actual_qty')"></vxe-column>
-      <vxe-column field="sorted_qty" :title="$t('wms.stockAsnInfo.sorted_qty')"></vxe-column>
-      <vxe-column field="shortage_qty" :title="$t('wms.stockAsnInfo.shortage_qty')"></vxe-column>
-      <vxe-column field="more_qty" :title="$t('wms.stockAsnInfo.more_qty')"></vxe-column>
-      <vxe-column field="damage_qty" :title="$t('wms.stockAsnInfo.damage_qty')"></vxe-column>
-      <!-- <vxe-column field="operate" :title="$t('system.page.operate')" width="160" :resizable="false" show-overflow>
-        <template #default="{ row }">
-          <tooltip-btn :flat="true" icon="mdi-eye-outline" :tooltip-text="$t('system.page.view')" @click="method.viewRow(row)"></tooltip-btn>
-        </template>
-      </vxe-column> -->
+      <vxe-column field="shipment_batch_no" :title="$t('wms.erpPendingReceipt.shipment_batch_no')" min-width="180"></vxe-column>
+      <vxe-column field="commodity_sku" :title="$t('wms.erpPendingReceipt.sku')" min-width="150"></vxe-column>
+      <vxe-column field="commodity_name" :title="$t('wms.erpPendingReceipt.product_name')" min-width="220"></vxe-column>
+      <vxe-column field="warehouse_area_name" :title="$t('wms.erpPendingReceipt.warehouse_area_name')" min-width="150"></vxe-column>
+      <vxe-column field="dept_name" :title="$t('wms.erpPendingReceipt.dept_name')" min-width="140"></vxe-column>
+      <vxe-column field="order_user_name" :title="$t('wms.erpPendingReceipt.order_user_name')" min-width="120"></vxe-column>
+      <vxe-column field="receipt_time" :title="$t('wms.erpPendingReceipt.receipt_time')" min-width="180"></vxe-column>
+      <vxe-column field="actual_receipt_qty" :title="$t('wms.erpPendingReceipt.actual_receipt_qty')" width="130"></vxe-column>
+      <vxe-column field="loss_qty" :title="$t('wms.erpPendingReceipt.loss_qty')" width="110"></vxe-column>
+      <vxe-column field="inbound_qty" :title="$t('wms.erpPendingReceipt.inbound_qty')" width="110"></vxe-column>
     </vxe-table>
     <custom-pager
       :current-page="data.tablePage.pageIndex"
@@ -89,96 +69,54 @@
       :page-sizes="PAGE_SIZE"
       :layouts="PAGE_LAYOUT"
       @page-change="method.handlePageChange"
-    >
-    </custom-pager>
+    ></custom-pager>
   </div>
-  <skuInfo :show-dialog="data.showDialogShowInfo" :form="data.dialogForm" @close="method.closeDialogShowInfo" />
-
-  <!-- View Details Box -->
-  <view-detail-dialog ref="ViewDetailDialogRef" />
 </template>
 
 <script lang="ts" setup>
-import { computed, ref, reactive, watch, onMounted } from 'vue'
-import { VxePagerEvents } from 'vxe-table'
-import { computedCardHeight, computedTableHeight } from '@/constant/style'
-import { StockAsnVO } from '@/types/WMS/StockAsn'
-import { PAGE_SIZE, PAGE_LAYOUT, DEFAULT_PAGE_SIZE } from '@/constant/vxeTable'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import type { VxePagerEvents } from 'vxe-table'
+import { getErpReceiptDetailList } from '@/api/wms/stockAsn'
 import { hookComponent } from '@/components/system'
-import { DEBOUNCE_TIME } from '@/constant/system'
-import { setSearchObject, getMenuAuthorityList } from '@/utils/common'
-import { SearchObject, btnGroupItem } from '@/types/System/Form'
-import { getStockAsnList } from '@/api/wms/stockAsn'
-import i18n from '@/languages/i18n'
-import customPager from '@/components/custom-pager.vue'
-import skuInfo from './sku-info.vue'
-import { exportData } from '@/utils/exportTable'
 import BtnGroup from '@/components/system/btnGroup.vue'
-import ViewDetailDialog from './view-detail-dialog.vue'
+import customPager from '@/components/custom-pager.vue'
+import { computedCardHeight, computedTableHeight } from '@/constant/style'
+import { DEFAULT_PAGE_SIZE, PAGE_LAYOUT, PAGE_SIZE } from '@/constant/vxeTable'
+import { DEBOUNCE_TIME } from '@/constant/system'
+import i18n from '@/languages/i18n'
+import type { btnGroupItem, SearchObject } from '@/types/System/Form'
+import type { ErpReceiptDetailVO } from '@/types/WMS/StockAsn'
+import { getMenuAuthorityList, setSearchObject } from '@/utils/common'
+import { exportData } from '@/utils/exportTable'
 
-const xTableStockLocation = ref()
-const ViewDetailDialogRef = ref()
+const xTable = ref()
 
 const data = reactive({
-  showDialog: false,
-  showDialogShowInfo: false,
   searchForm: {
-    supplier_name: '',
-    sku_name: ''
+    dept_name: '',
+    order_user_name: '',
+    product_keyword: ''
   },
-  activeTab: null,
-  tableData: ref<StockAsnVO[]>([]),
-  dialogForm: ref<StockAsnVO>({
-    id: 0,
-    asn_no: '',
-    asn_batch: '',
-    estimated_arrival_time: '',
-    // asn_status: 0,
-    // weight: 0,
-    // volume: 0,
-    // goods_owner_id: 0,
-    // goods_owner_name: '',
-    // creator: '',
-    // create_time: '',
-    // last_update_time: '',
-    detailList: []
-  }),
+  tableData: ref<ErpReceiptDetailVO[]>([]),
   tablePage: reactive({
     total: 0,
-    sqlTitle: 'asn_status:4',
     pageIndex: 1,
     pageSize: DEFAULT_PAGE_SIZE,
     searchObjects: ref<Array<SearchObject>>([])
   }),
-  timer: ref<any>(null),
+  timer: ref<ReturnType<typeof setTimeout> | null>(null),
   btnList: [] as btnGroupItem[],
-  // Menu operation permissions
   authorityList: getMenuAuthorityList()
 })
 
 const method = reactive({
-  // View Rows
-  viewRow: (row: StockAsnVO) => {
-    ViewDetailDialogRef.value.openDialog(row.id)
-  },
-  closeDialogShowInfo: () => {
-    data.showDialogShowInfo = false
-  },
-  showSkuInfo(row: StockAsnVO) {
-    data.dialogForm = JSON.parse(JSON.stringify(row))
-    data.showDialogShowInfo = true
-  },
-  // Refresh data
   refresh: () => {
     method.getStockAsnList()
   },
   getStockAsnList: async () => {
-    const { data: res } = await getStockAsnList(data.tablePage)
+    const { data: res } = await getErpReceiptDetailList(data.tablePage)
     if (!res.isSuccess) {
-      hookComponent.$message({
-        type: 'error',
-        content: res.errorMessage
-      })
+      hookComponent.$message({ type: 'error', content: res.errorMessage })
       return
     }
     data.tableData = res.data.rows
@@ -187,20 +125,16 @@ const method = reactive({
   handlePageChange: ref<VxePagerEvents.PageChange>(({ currentPage, pageSize }) => {
     data.tablePage.pageIndex = currentPage
     data.tablePage.pageSize = pageSize
-
     method.getStockAsnList()
   }),
   exportTable: () => {
-    const $table = xTableStockLocation.value
     exportData({
-      table: $table,
-      filename: i18n.global.t('wms.stockAsn.tabReceiptDetails'),
-      columnFilterMethod({ column }: any) {
-        return !['checkbox'].includes(column?.type) && !['operate'].includes(column?.field)
-      }
+      table: xTable.value,
+      filename: i18n.global.t('wms.stockAsn.tabReceiptDetails')
     })
   },
   sureSearch: () => {
+    data.tablePage.pageIndex = 1
     data.tablePage.searchObjects = setSearchObject(data.searchForm)
     method.getStockAsnList()
   }
@@ -229,21 +163,17 @@ const tableHeight = computed(() => computedTableHeight({}))
 defineExpose({
   getStockAsnList: method.getStockAsnList
 })
+
 watch(
   () => data.searchForm,
   () => {
-    // debounce
-    if (data.timer) {
-      clearTimeout(data.timer)
-    }
+    if (data.timer) clearTimeout(data.timer)
     data.timer = setTimeout(() => {
       data.timer = null
       method.sureSearch()
     }, DEBOUNCE_TIME)
   },
-  {
-    deep: true
-  }
+  { deep: true }
 )
 </script>
 

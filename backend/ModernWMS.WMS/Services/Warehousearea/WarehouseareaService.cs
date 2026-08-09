@@ -198,6 +198,10 @@ namespace ModernWMS.WMS.Services
             {
                 return (0, _stringLocalizer["invalid_operator_group"]);
             }
+            if (await HasOperatorGroupBindingConflictAsync(operatorGroupIds, currentUser.tenant_id, null))
+            {
+                return (0, _stringLocalizer["operator_group_already_bound"]);
+            }
             if (!await _dBContext.GetDbSet<WarehouseEntity>()
                 .AnyAsync(t => t.id == viewModel.warehouse_id && t.tenant_id == currentUser.tenant_id))
             {
@@ -244,6 +248,10 @@ namespace ModernWMS.WMS.Services
             if (!await AreValidOperatorGroupsAsync(operatorGroupIds))
             {
                 return (false, _stringLocalizer["invalid_operator_group"]);
+            }
+            if (await HasOperatorGroupBindingConflictAsync(operatorGroupIds, currentUser.tenant_id, viewModel.id))
+            {
+                return (false, _stringLocalizer["operator_group_already_bound"]);
             }
             if (!await _dBContext.GetDbSet<WarehouseEntity>()
                 .AnyAsync(t => t.id == viewModel.warehouse_id && t.tenant_id == currentUser.tenant_id))
@@ -343,6 +351,23 @@ namespace ModernWMS.WMS.Services
                     && t.status == 0
                     && t.dept == "operator");
             return validCount == operatorGroupIds.Count;
+        }
+
+        private async Task<bool> HasOperatorGroupBindingConflictAsync(
+            IReadOnlyCollection<long> operatorGroupIds,
+            long tenantId,
+            int? currentAreaId)
+        {
+            if (operatorGroupIds.Count == 0)
+            {
+                return false;
+            }
+
+            return await _dBContext.GetDbSet<WarehouseareaOperatorGroupEntity>()
+                .AsNoTracking()
+                .AnyAsync(t => t.tenant_id == tenantId
+                    && operatorGroupIds.Contains(t.dept_id)
+                    && (!currentAreaId.HasValue || t.warehouse_area_id != currentAreaId.Value));
         }
 
         /// <summary>

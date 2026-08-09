@@ -186,6 +186,9 @@
   <data name="invalid_operator_group" xml:space="preserve">
     <value>库区绑定中包含不存在、已停用或已删除的操作小组</value>
   </data>
+  <data name="operator_group_already_bound" xml:space="preserve">
+    <value>所选操作小组已经绑定到其他库区，一个小组只能绑定一个库区</value>
+  </data>
   <data name="city" xml:space="preserve">
     <value>所在城市</value>
   </data>

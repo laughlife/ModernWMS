@@ -14,6 +14,10 @@ public interface IErpPendingReceiptService : IDependency
 
     Task<ErpPendingReceiptLogisticsViewModel?> GetLogisticsAsync(long shipmentId);
 
+    Task<(List<ErpReceiptDetailViewModel> data, int totals)> ReceiptDetailsPageAsync(
+        PageSearch pageSearch,
+        CurrentUser currentUser);
+
     Task<(bool flag, string message, long inboundQty)> ConfirmAsync(
         ErpReceiptConfirmInputViewModel input,
         CurrentUser currentUser);

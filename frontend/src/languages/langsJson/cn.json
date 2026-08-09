@@ -618,6 +618,8 @@
       "receipt_freight_payment_status": "运费",
       "receipt_confirm_success": "收货确认成功，本次入库数量为 {qty}",
       "receipt_inbound_tip": "入库数量由实际收货数量减去损耗数量自动计算，确认后保存到WMS。",
+      "receipt_detail_keyword": "SKU、商品或发货批次",
+      "receipt_time": "签收时间",
       "receipt_qty_exceeded": "实际收货数量不能大于发货数量",
       "receipt_qty_integer": "实际收货数量必须是整数",
       "receipt_qty_non_negative": "实际收货数量不能小于0",
@@ -636,7 +638,10 @@
       "source_freight_payment_type": "发货运费方式",
       "tracking_no": "物流单号",
       "tracking_status": "物流状态",
+      "total_volume": "总体积",
+      "total_weight": "总重量",
       "view_logistics": "查看物流",
+      "warehouse_area_name": "归属库区",
       "warehouse_name": "收货仓库"
     },
     "stockAsn": {
