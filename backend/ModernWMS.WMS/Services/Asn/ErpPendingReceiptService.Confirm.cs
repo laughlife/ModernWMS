@@ -16,6 +16,7 @@ public partial class ErpPendingReceiptService
     private const string CloseTypeManualClose = "MANUAL_CLOSE";
     private const string ManualCompleteEvent = "MANUAL_COMPLETE";
     private const string UnifiedReceiptConfirmedEvent = "UNIFIED_RECEIPT_CONFIRMED";
+    private const string ShenzhenSelfWarehouseSigner = "深圳自建仓";
 
     private async Task<(bool changed, string fromAction, string toAction)> RefreshPurchaseTaskAsync(
         long taskId,
@@ -81,12 +82,12 @@ public partial class ErpPendingReceiptService
                  creator,create_time,updater,update_time,deleted)
             VALUES
                 (@taskId,'ERP','TASK',@taskId,'UNIFIED_RECEIPT_CONFIRMED',@fromAction,@toAction,
-                 @operatorId,@operatorName,@operatorRole,@remark,@payloadJson,@rawJson,@rawMd5,
-                 @operatorName,@now,@operatorName,@now,b'0')
+                @operatorId,@signerName,@signerRole,@remark,@payloadJson,@rawJson,@rawMd5,
+                 @creator,@now,@creator,@now,b'0')
             """,
             ("@taskId", taskId), ("@fromAction", fromAction), ("@toAction", toAction),
-            ("@operatorId", currentUser.user_id), ("@operatorName", Truncate(currentUser.user_name, 64)),
-            ("@operatorRole", "运营"),
+            ("@operatorId", currentUser.user_id), ("@signerName", ShenzhenSelfWarehouseSigner),
+            ("@signerRole", "SELF_WAREHOUSE"), ("@creator", Truncate(currentUser.user_name, 64)),
             ("@remark", remark), ("@payloadJson", JsonSerializer.Serialize(payload)),
             ("@rawJson", rawJson), ("@rawMd5", Md5Hex(rawJson)),
             ("@now", now));

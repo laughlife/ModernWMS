@@ -42,6 +42,8 @@ public partial class ErpPendingReceiptService
         shipment.actual_receipt_qty = actualReceiptQty;
         shipment.receipt_remark = input.receipt_remark?.Trim();
         shipment.receipt_time = now;
+        shipment.loss_qty = lossQty;
+        shipment.loss_reason = lossQty > 0 ? input.loss_reason.Trim() : string.Empty;
         var locationId = await EnsureReceiptLocationAsync(shipment, currentUser, now);
         var inputItems = input.items.ToDictionary(t => t.source_item_key, StringComparer.Ordinal);
 
@@ -93,7 +95,7 @@ public partial class ErpPendingReceiptService
                 ("@wmsStockId", wmsStockId), ("@now", now), ("@tenantId", currentUser.tenant_id));
         }
 
-        await SynchronizeSourceAsync(shipment, actualReceiptQty, lossQty, currentUser, now);
+        await SynchronizeSourceAsync(shipment, actualReceiptQty, lossQty, inboundQty, currentUser, now);
 
         await ExecuteAsync(
             """
@@ -107,9 +109,14 @@ public partial class ErpPendingReceiptService
                  @operatorName, @now, @operatorName, @now, b'0')
             """,
             ("@shipmentId", shipment.id), ("@now", now), ("@operatorId", currentUser.user_id),
-            ("@operatorName", Truncate(currentUser.user_name, 64)),
-            ("@operatorRole", Truncate(currentUser.user_role, 64)),
-            ("@remark", $"ModernWMS确认签收入库，实收{actualReceiptQty}，损耗{lossQty}，入库{inboundQty}"));
+            ("@operatorName", ShenzhenSelfWarehouseSigner),
+            ("@operatorRole", "SELF_WAREHOUSE"),
+            ("@remark", BuildReceiptAccountingRemark(
+                shipment.shipment_qty ?? 0,
+                actualReceiptQty,
+                lossQty,
+                inboundQty,
+                lossQty > 0 ? shipment.loss_reason : null)));
     }
 
     private async Task UpdateShipmentReceiptAsync(
@@ -513,23 +520,37 @@ public partial class ErpPendingReceiptService
         ErpLogisticsInfoEntity shipment,
         long actualReceiptQty,
         long lossQty,
+        long inboundQty,
         CurrentUser currentUser,
         DateTime now)
     {
         if (string.Equals(shipment.source_type, PurchaseTaskSourceType, StringComparison.OrdinalIgnoreCase)
             && shipment.source_task_id != null)
         {
-            var targetReceiptQty = actualReceiptQty;
+            // ERP receipt quantity must match the quantity actually posted to both inventory ledgers.
+            var targetReceiptQty = inboundQty;
             var existedReceiptQty = await ScalarAsync<long>(
                 """
                 SELECT COALESCE(SUM(receipt_qty),0) FROM erp_purchase_task_receipt_record
                  WHERE shipment_batch_id=@batchId AND deleted=b'0'
                 """,
                 ("@batchId", shipment.source_shipment_batch_id));
-            var receiptRecordChanged = targetReceiptQty > existedReceiptQty;
+            var existedReceiptRecordCount = await ScalarAsync<long>(
+                "SELECT COUNT(*) FROM erp_purchase_task_receipt_record WHERE shipment_batch_id=@batchId AND deleted=b'0'",
+                ("@batchId", shipment.source_shipment_batch_id));
+            var receiptQtyDelta = Math.Max(targetReceiptQty - existedReceiptQty, 0);
+            var receiptRecordChanged = receiptQtyDelta > 0 || existedReceiptRecordCount == 0;
             if (receiptRecordChanged)
             {
-                var diffQtyForRecord = Math.Max((shipment.shipment_qty ?? 0) - targetReceiptQty, 0);
+                var shipmentQtyForRecord = shipment.shipment_qty ?? 0;
+                var diffQtyForRecord = Math.Max(shipmentQtyForRecord - targetReceiptQty, 0);
+                var accountingRemark = BuildReceiptAccountingRemark(
+                    shipmentQtyForRecord,
+                    actualReceiptQty,
+                    lossQty,
+                    inboundQty,
+                    lossQty > 0 ? shipment.loss_reason : null);
+                var receiptRecordRemark = Truncate(accountingRemark, 512);
                 await ExecuteAsync(
                     """
                     INSERT INTO erp_purchase_task_receipt_record
@@ -537,17 +558,18 @@ public partial class ErpPendingReceiptService
                          confirmed_by_id,confirmed_by_name,confirmed_role,confirmed_time,remark,
                          creator,create_time,updater,update_time,deleted)
                     VALUES (@taskId,@batchId,@receiptType,@receiptQty,@now,@diffQty,@diffReason,
-                            @operatorId,@operatorName,@operatorRole,@now,'ModernWMS确认签收入库',
-                            @operatorName,@now,@operatorName,@now,b'0')
+                            @operatorId,@signerName,@signerRole,@now,@remark,
+                            @creator,@now,@creator,@now,b'0')
                     """,
                     ("@taskId", shipment.source_task_id), ("@batchId", shipment.source_shipment_batch_id),
                     ("@receiptType", string.IsNullOrWhiteSpace(shipment.shipment_type)
                         ? (object)DBNull.Value : shipment.shipment_type.Trim()),
-                    ("@receiptQty", targetReceiptQty - existedReceiptQty), ("@now", now),
+                    ("@receiptQty", receiptQtyDelta), ("@now", now),
                     ("@diffQty", diffQtyForRecord),
-                    ("@diffReason", diffQtyForRecord > 0 ? "统一待收货确认短收" : (object)DBNull.Value),
-                    ("@operatorId", currentUser.user_id), ("@operatorName", Truncate(currentUser.user_name, 64)),
-                    ("@operatorRole", Truncate(currentUser.user_role, 64)));
+                    ("@diffReason", diffQtyForRecord > 0 ? receiptRecordRemark : (object)DBNull.Value),
+                    ("@operatorId", currentUser.user_id), ("@signerName", ShenzhenSelfWarehouseSigner),
+                    ("@signerRole", "SELF_WAREHOUSE"), ("@remark", receiptRecordRemark),
+                    ("@creator", Truncate(currentUser.user_name, 64)));
             }
 
             var shipmentQty = shipment.shipment_qty ?? 0;
@@ -571,8 +593,10 @@ public partial class ErpPendingReceiptService
                     ["shipmentBatchNo"] = shipment.shipment_batch_no,
                     ["shipmentType"] = shipment.shipment_type,
                     ["shipmentQty"] = shipmentQty,
-                    ["actualReceiptQty"] = targetReceiptQty,
-                    ["receiptQty"] = targetReceiptQty - existedReceiptQty,
+                    ["actualReceiptQty"] = actualReceiptQty,
+                    ["lossQty"] = lossQty,
+                    ["inboundQty"] = inboundQty,
+                    ["receiptQty"] = receiptQtyDelta,
                     ["diffQty"] = diffQty,
                     ["receiptRemark"] = shipment.receipt_remark ?? string.Empty,
                     ["receiptTime"] = now,
@@ -583,11 +607,12 @@ public partial class ErpPendingReceiptService
                     ["fromAction"] = fromAction,
                     ["toAction"] = toAction
                 };
-                var remark = "物流待收货确认入库：批次"
-                    + (string.IsNullOrWhiteSpace(shipment.shipment_batch_no) ? "-" : shipment.shipment_batch_no)
-                    + "，发货" + shipmentQty
-                    + "，实收" + targetReceiptQty
-                    + (diffQty > 0 ? "，短少" + diffQty : "");
+                var remark = BuildReceiptAccountingRemark(
+                    shipmentQty,
+                    actualReceiptQty,
+                    lossQty,
+                    inboundQty,
+                    lossQty > 0 ? shipment.loss_reason : null);
                 await WritePurchaseActionLogAsync(
                     shipment.source_task_id.Value,
                     fromAction,
@@ -680,6 +705,19 @@ public partial class ErpPendingReceiptService
                 throw new InvalidOperationException("调度来源状态已变化，签收入库已回滚");
             }
         }
+    }
+
+    private static string BuildReceiptAccountingRemark(
+        long shipmentQty,
+        long actualReceiptQty,
+        long lossQty,
+        long inboundQty,
+        string? lossReason)
+    {
+        var remark = $"签收人：{ShenzhenSelfWarehouseSigner}；发货{shipmentQty}，实收{actualReceiptQty}，损耗{lossQty}，实际入库{inboundQty}";
+        return lossQty > 0 && !string.IsNullOrWhiteSpace(lossReason)
+            ? $"{remark}；损耗原因：{lossReason.Trim()}"
+            : remark;
     }
     private DbCommand CreateCommand(string sql, params (string Name, object? Value)[] parameters)
     {
