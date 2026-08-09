@@ -52,6 +52,18 @@ namespace ModernWMS.WMS.Entities.ViewModels
         public string erp_warehouse_name { get; set; } = string.Empty;
 
         /// <summary>
+        /// Bound ERP operator-group ids. Binding is optional and supports multiple groups.
+        /// </summary>
+        [Display(Name = "operator_group_ids")]
+        public List<long> operator_group_ids { get; set; } = new();
+
+        /// <summary>
+        /// Current ERP operator-group names, ordered by system_dept.sort.
+        /// </summary>
+        [Display(Name = "operator_group_names")]
+        public List<string> operator_group_names { get; set; } = new();
+
+        /// <summary>
         /// city
         /// </summary>
         [Display(Name = "city")]

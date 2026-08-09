@@ -29,6 +29,11 @@ public class ErpSystemDeptEntity
     public int sort { get; set; }
 
     /// <summary>
+    /// department status, 0 means enabled
+    /// </summary>
+    public int status { get; set; }
+
+    /// <summary>
     /// leader user id
     /// </summary>
     public long? leader_user_id { get; set; }

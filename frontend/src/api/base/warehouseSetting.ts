@@ -54,6 +54,12 @@ export const getErpWarehouseOptions = () => http({
   method: 'get'
 })
 
+// Get enabled ERP operator groups available for warehouse binding
+export const getOperatorGroupOptions = () => http({
+  url: '/warehouse/operator-group-options',
+  method: 'get'
+})
+
 // Excel Import
 export const excelImport = (data: Array<WarehouseVO>) => http({
   url: '/warehouse/excel',

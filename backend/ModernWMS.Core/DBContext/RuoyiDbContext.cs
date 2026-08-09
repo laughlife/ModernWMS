@@ -24,6 +24,11 @@ public sealed class RuoyiDbContext : DbContext
     public DbSet<ErpSystemDeptEntity> SystemDepts => Set<ErpSystemDeptEntity>();
 
     /// <summary>
+    /// ModernWMS warehouse and ERP operator-group bindings.
+    /// </summary>
+    public DbSet<ErpWarehouseOperatorGroupEntity> WarehouseOperatorGroups => Set<ErpWarehouseOperatorGroupEntity>();
+
+    /// <summary>
     /// 系统用户
     /// </summary>
     public DbSet<ErpSystemUserEntity> SystemUsers => Set<ErpSystemUserEntity>();
@@ -68,6 +73,14 @@ public sealed class RuoyiDbContext : DbContext
         {
             entity.ToTable("system_dept");
             entity.HasKey(t => t.id);
+        });
+
+        modelBuilder.Entity<ErpWarehouseOperatorGroupEntity>(entity =>
+        {
+            entity.ToTable("wms_warehouse_operator_group");
+            entity.HasKey(t => t.id);
+            entity.HasIndex(t => new { t.tenant_id, t.warehouse_id, t.dept_id }).IsUnique();
+            entity.Property(t => t.id).ValueGeneratedOnAdd();
         });
 
         modelBuilder.Entity<ErpSystemUserEntity>(entity =>

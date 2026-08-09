@@ -26,6 +26,10 @@
         /// Get ERP domestic warehouses available for optional binding.
         /// </summary>
         Task<List<ErpWarehouseOptionViewModel>> GetErpWarehouseOptionsAsync();
+        /// <summary>
+        /// Get enabled ERP operator groups ordered by system_dept.sort.
+        /// </summary>
+        Task<List<OperatorGroupOptionViewModel>> GetOperatorGroupOptionsAsync();
          /// <summary>
          /// page search
          /// </summary>
@@ -43,7 +47,7 @@
          /// </summary>
          /// <param name="id">primary key</param>
          /// <returns></returns>
-         Task<WarehouseViewModel> GetAsync(int id);
+         Task<WarehouseViewModel> GetAsync(int id, CurrentUser currentUser);
         /// <summary>
         /// add a new record
         /// </summary>
@@ -64,7 +68,7 @@
          /// </summary>
          /// <param name="id">id</param>
          /// <returns></returns>
-         Task<(bool flag, string msg)> DeleteAsync(int id);
+        Task<(bool flag, string msg)> DeleteAsync(int id, CurrentUser currentUser);
 
         /// <summary>
         /// import warehouses by excel

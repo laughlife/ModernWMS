@@ -5,6 +5,8 @@ export interface WarehouseVO extends UniformFileNaming {
   warehouse_name: string
   erp_warehouse_id?: number | null
   erp_warehouse_name?: string
+  operator_group_ids?: number[]
+  operator_group_names?: string[]
   city: string
   address: string
   contact_tel?: string
@@ -56,4 +58,10 @@ export enum AreaProperty {
 export interface ErpWarehouseOptionVO {
   id: number
   name: string
+}
+
+export interface OperatorGroupOptionVO {
+  id: number
+  name: string
+  sort: number
 }
