@@ -22,5 +22,10 @@
         /// value
         /// </summary>
         public string value { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Whether this is the default option in the current business context.
+        /// </summary>
+        public bool is_default { get; set; } = false;
     }
 }

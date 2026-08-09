@@ -1,12 +1,11 @@
 export interface StockLocationVO {
-  warehouse_name: string
+    warehouse_id: number
+    warehouse_name: string
     location_name: string
-    spu_code: string
     spu_name: string
     product_image: string
     sku_id: number
     sku_code: string
-    sku_name: string
     qty: number
     qty_available: number
     qty_locked: number

@@ -52,6 +52,11 @@ namespace ModernWMS.WMS.Entities.ViewModels
         public string erp_warehouse_name { get; set; } = string.Empty;
 
         /// <summary>
+        /// Whether this warehouse is reserved by the system.
+        /// </summary>
+        public bool is_system { get; set; } = false;
+
+        /// <summary>
         /// city
         /// </summary>
         [Display(Name = "city")]

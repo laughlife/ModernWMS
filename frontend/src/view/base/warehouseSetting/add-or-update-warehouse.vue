@@ -10,8 +10,8 @@
               v-model="data.form.warehouse_name"
               :label="$t('base.warehouseSetting.warehouse_name')"
               :rules="data.rules.warehouse_name"
-              :disabled="data.isDefaultWarehouse"
-              :hint="data.isDefaultWarehouse ? $t('base.warehouseSetting.default_warehouse_name_lock') : ''"
+              :disabled="data.form.is_system"
+              :hint="data.form.is_system ? $t('base.warehouseSetting.default_warehouse_name_lock') : ''"
               variant="outlined"
               clearable
             ></v-text-field>
@@ -86,7 +86,6 @@ import { addWarehouse, getErpWarehouseOptions, updateWarehouse } from '@/api/bas
 import { ErpWarehouseOptionVO, WarehouseVO } from '@/types/Base/Warehouse'
 import { StringLength } from '@/utils/dataVerification/formRule'
 import { removeObjectNull } from '@/utils/common'
-import { DEFAULT_WAREHOUSE_NAME } from '@/utils/format/formatWarehouse'
 
 const formRef = ref()
 const emit = defineEmits(['close', 'saveSuccess'])
@@ -105,14 +104,13 @@ const dialogTitle = computed(() => {
   return 'add'
 })
 
-const isDefaultWarehouse = computed(() => !!props.form.id && props.form.id > 0 && props.form.warehouse_name === DEFAULT_WAREHOUSE_NAME)
-
 const data = reactive({
   form: ref<WarehouseVO>({
     id: 0,
     warehouse_name: '',
     erp_warehouse_id: null,
     erp_warehouse_name: '',
+    is_system: false,
     city: '',
     address: '',
     contact_tel: '',
@@ -122,7 +120,6 @@ const data = reactive({
   }),
   erpWarehouseOptions: [] as ErpWarehouseOptionVO[],
   erpWarehouseOptionsLoading: false,
-  isDefaultWarehouse,
   rules: {
     warehouse_name: [
       (val: string) => !!val || `${ i18n.global.t('system.checkText.mustInput') }${ i18n.global.t('base.warehouseSetting.warehouse_name') }!`,

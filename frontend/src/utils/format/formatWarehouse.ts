@@ -1,11 +1,6 @@
 import { AreaProperty } from '@/types/Base/Warehouse'
 import i18n from '@/languages/i18n'
 
-/**
- * 默认仓库名称：不允许删除，也不允许通过界面/接口修改名称（改名只能直接操作数据库）。
- */
-export const DEFAULT_WAREHOUSE_NAME = '有座山深圳仓'
-
 export const formatAreaProperty = (value: number) => {
   switch (value) {
     case AreaProperty.picking_area:

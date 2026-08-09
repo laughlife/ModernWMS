@@ -13,10 +13,10 @@
         <v-row no-gutters @keyup.enter="method.sureSearch">
           <v-col cols="4">
             <v-select
-              v-model="data.searchForm.warehouse_name"
+              v-model="data.searchForm.warehouse_id"
               :items="data.warehouseOptions"
               item-title="name"
-              item-value="name"
+              item-value="value"
               clearable
               hide-details
               density="comfortable"
@@ -50,12 +50,17 @@
       height: cardHeight
     }"
   >
-    <vxe-table ref="xTableStockLocation" :column-config="{ minWidth: '100px' }" :data="data.tableData" :height="tableHeight" align="center">
+    <vxe-table ref="xTableStockLocation" :column-config="{ minWidth: '100px' }" :row-config="{ height: 76 }" :data="data.tableData" :height="tableHeight" align="center">
       <template #empty>
         {{ i18n.global.t('system.page.noData') }}
       </template>
       <vxe-column type="seq" width="60"></vxe-column>
       <vxe-column type="checkbox" width="50"></vxe-column>
+      <vxe-column field="product_image" :title="$t('wms.stockLocation.image')" width="92">
+        <template #default="{ row }">
+          <product-image :src="row.product_image" :alt="row.spu_name" :width="56" :height="56" class="product-img" />
+        </template>
+      </vxe-column>
       <vxe-column field="warehouse_name" :title="$t('wms.stockLocation.warehouse_location')" min-width="150">
         <template #default="{ row }">
           <div class="cell-wh">
@@ -67,9 +72,8 @@
       <vxe-column field="spu_name" :title="$t('wms.stockLocation.product')" min-width="240">
         <template #default="{ row }">
           <div class="cell-product" @click="method.showSkuInfo(row)">
-            <product-image :src="row.product_image" :width="56" :height="56" class="product-img" />
             <div class="cell-line">{{ row.spu_name }}</div>
-            <div class="cell-line cell-sub">{{ row.sku_code }}</div>
+            <div class="cell-line cell-sub">SKU：{{ row.sku_code }}</div>
           </div>
         </template>
       </vxe-column>
@@ -106,23 +110,29 @@ import { setSearchObject, getMenuAuthorityList } from '@/utils/common'
 import { SearchObject, btnGroupItem } from '@/types/System/Form'
 import { getStockLocationList } from '@/api/wms/stockManagement'
 import { getWarehouseSelect } from '@/api/base/warehouseSetting'
-import { DEFAULT_WAREHOUSE_NAME } from '@/utils/format/formatWarehouse'
 import i18n from '@/languages/i18n'
 import customPager from '@/components/custom-pager.vue'
 import skuInfo from './sku-info.vue'
-import productImage from '@/components/system/product-image.vue'
+import ProductImage from '@/components/system/product-image.vue'
 import { exportData } from '@/utils/exportTable'
 import BtnGroup from '@/components/system/btnGroup.vue'
 
 const xTableStockLocation = ref()
 
+interface WarehouseOption {
+  value: string
+  name: string
+  is_default: boolean
+}
+
 const data = reactive({
   sku_id: 0,
   showDialog: false,
   showDialogShowInfo: false,
-  warehouseOptions: [] as Array<{ id: number; name: string }>,
+  warehouseOptions: [] as WarehouseOption[],
+  warehouseOptionsLoaded: false,
   searchForm: {
-    warehouse_name: DEFAULT_WAREHOUSE_NAME,
+    warehouse_id: '',
     location_name: ''
   },
   activeTab: null,
@@ -131,7 +141,7 @@ const data = reactive({
     total: 0,
     pageIndex: 1,
     pageSize: DEFAULT_PAGE_SIZE,
-    searchObjects: ref<Array<SearchObject>>(setSearchObject({ warehouse_name: DEFAULT_WAREHOUSE_NAME, location_name: '' }, ['warehouse_name']))
+    searchObjects: ref<Array<SearchObject>>([])
   }),
   timer: ref<any>(null),
   btnList: [] as btnGroupItem[],
@@ -154,14 +164,21 @@ const method = reactive({
         type: 'error',
         content: res.errorMessage
       })
+      data.warehouseOptionsLoaded = true
+      method.getStockLocationList()
       return
     }
     data.warehouseOptions = res.data.map((item: any) => ({
-      id: Number(item.value),
-      name: item.name
+      value: item.value,
+      name: item.name,
+      is_default: item.is_default === true
     }))
-    if (data.searchForm.warehouse_name && !data.warehouseOptions.some((item) => item.name === data.searchForm.warehouse_name)) {
-      data.searchForm.warehouse_name = ''
+    data.warehouseOptionsLoaded = true
+    const currentWarehouse = data.warehouseOptions.find(item => item.is_default)
+    if (currentWarehouse) {
+      data.searchForm.warehouse_id = currentWarehouse.value
+    } else {
+      method.getStockLocationList()
     }
   },
   // Refresh data
@@ -169,6 +186,9 @@ const method = reactive({
     method.getStockLocationList()
   },
   getStockLocationList: async () => {
+    if (!data.warehouseOptionsLoaded) {
+      return
+    }
     const { data: res } = await getStockLocationList(data.tablePage)
     if (!res.isSuccess) {
       hookComponent.$message({
@@ -197,7 +217,7 @@ const method = reactive({
     })
   },
   sureSearch: () => {
-    data.tablePage.searchObjects = setSearchObject(data.searchForm, ['warehouse_name'])
+    data.tablePage.searchObjects = setSearchObject(data.searchForm, ['warehouse_id'])
     method.getStockLocationList()
   }
 })
@@ -229,6 +249,9 @@ defineExpose({
 watch(
   () => data.searchForm,
   () => {
+    if (!data.warehouseOptionsLoaded) {
+      return
+    }
     // debounce
     if (data.timer) {
       clearTimeout(data.timer)
@@ -285,6 +308,6 @@ watch(
 }
 
 .product-img {
-  margin-bottom: 4px;
+  margin: 0 auto;
 }
 </style>

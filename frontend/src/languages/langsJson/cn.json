@@ -725,6 +725,7 @@
       "spu_name": "商品名称"
     },
     "stockLocation": {
+      "image": "商品图片",
       "product": "商品",
       "location_name": "库位名称",
       "qty": "数量",

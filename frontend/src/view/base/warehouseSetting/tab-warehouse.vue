@@ -104,9 +104,9 @@
           <tooltip-btn
             :flat="true"
             icon="mdi-delete-outline"
-            :tooltip-text="row.warehouse_name === DEFAULT_WAREHOUSE_NAME ? $t('base.warehouseSetting.default_warehouse_not_delete') : $t('system.page.delete')"
-            :icon-color="(!data.authorityList.includes('warehouse-delete') || row.warehouse_name === DEFAULT_WAREHOUSE_NAME) ? '' : errorColor"
-            :disabled="!data.authorityList.includes('warehouse-delete') || row.warehouse_name === DEFAULT_WAREHOUSE_NAME"
+            :tooltip-text="row.is_system ? $t('base.warehouseSetting.default_warehouse_not_delete') : $t('system.page.delete')"
+            :icon-color="(!data.authorityList.includes('warehouse-delete') || row.is_system) ? '' : errorColor"
+            :disabled="!data.authorityList.includes('warehouse-delete') || row.is_system"
             @click="method.deleteRow(row)"
           ></tooltip-btn>
         </template>
@@ -146,7 +146,6 @@ import { SearchObject, btnGroupItem } from '@/types/System/Form'
 import importTable from './import-table.vue'
 import { exportData } from '@/utils/exportTable'
 import BtnGroup from '@/components/system/btnGroup.vue'
-import { DEFAULT_WAREHOUSE_NAME } from '@/utils/format/formatWarehouse'
 
 const xTableWarehouse = ref()
 
@@ -159,6 +158,7 @@ const data = reactive({
     warehouse_name: '',
     erp_warehouse_id: null,
     erp_warehouse_name: '',
+    is_system: false,
     city: '',
     address: '',
     contact_tel: '',
@@ -193,6 +193,7 @@ const method = reactive({
       warehouse_name: '',
       erp_warehouse_id: null,
       erp_warehouse_name: '',
+      is_system: false,
       city: '',
       address: '',
       contact_tel: '',

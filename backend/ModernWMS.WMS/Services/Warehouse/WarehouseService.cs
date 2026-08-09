@@ -24,9 +24,10 @@ namespace ModernWMS.WMS.Services
     {
         #region Args
         /// <summary>
-        /// 默认仓库名称：不允许删除，也不允许通过界面/接口修改名称（改名只能直接操作数据库）。
+        /// The current warehouse is identified by its verified local/ERP ids so a direct database rename remains supported.
         /// </summary>
-        private const string DefaultWarehouseName = "有座山深圳仓";
+        private const int CurrentWarehouseId = 1;
+        private const long CurrentErpWarehouseId = 320118;
 
         /// <summary>
         /// The DBContext
@@ -80,6 +81,7 @@ namespace ModernWMS.WMS.Services
                                     name = db.warehouse_name,
                                     value = db.id.ToString(),
                                     comments = "warehouse datas",
+                                    is_default = db.id == CurrentWarehouseId || db.erp_warehouse_id == CurrentErpWarehouseId,
                                 }).ToListAsync());
             return res;
         }
@@ -223,8 +225,8 @@ namespace ModernWMS.WMS.Services
             {
                 return (false, _stringLocalizer["not_exists_entity"]);
             }
-            if (entity.warehouse_name == DefaultWarehouseName
-                && !string.Equals(viewModel.warehouse_name, DefaultWarehouseName, StringComparison.Ordinal))
+            if (IsCurrentWarehouse(entity)
+                && !string.Equals(viewModel.warehouse_name, entity.warehouse_name, StringComparison.Ordinal))
             {
                 return (false, _stringLocalizer["default_warehouse_name_locked"]);
             }
@@ -266,7 +268,9 @@ namespace ModernWMS.WMS.Services
         public async Task<(bool flag, string msg)> DeleteAsync(int id, CurrentUser currentUser)
         {
             if (await _dBContext.GetDbSet<WarehouseEntity>()
-                .AnyAsync(t => t.id == id && t.tenant_id == currentUser.tenant_id && t.warehouse_name == DefaultWarehouseName))
+                .AnyAsync(t => t.id == id
+                    && t.tenant_id == currentUser.tenant_id
+                    && (t.id == CurrentWarehouseId || t.erp_warehouse_id == CurrentErpWarehouseId)))
             {
                 return (false, _stringLocalizer["default_warehouse_not_delete"]);
             }
@@ -364,6 +368,10 @@ namespace ModernWMS.WMS.Services
         private async Task PopulateErpWarehouseNamesAsync(IEnumerable<WarehouseViewModel> warehouses)
         {
             var warehouseList = warehouses.ToList();
+            warehouseList.ForEach(t =>
+            {
+                t.is_system = t.id == CurrentWarehouseId || t.erp_warehouse_id == CurrentErpWarehouseId;
+            });
             var erpWarehouseIds = warehouseList
                 .Where(t => t.erp_warehouse_id.HasValue)
                 .Select(t => t.erp_warehouse_id!.Value)
@@ -389,6 +397,11 @@ namespace ModernWMS.WMS.Services
                     t.erp_warehouse_name = name;
                 }
             });
+        }
+
+        private static bool IsCurrentWarehouse(WarehouseEntity warehouse)
+        {
+            return warehouse.id == CurrentWarehouseId || warehouse.erp_warehouse_id == CurrentErpWarehouseId;
         }
 
         #endregion

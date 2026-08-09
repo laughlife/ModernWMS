@@ -5,6 +5,7 @@ export interface WarehouseVO extends UniformFileNaming {
   warehouse_name: string
   erp_warehouse_id?: number | null
   erp_warehouse_name?: string
+  is_system?: boolean
   city: string
   address: string
   contact_tel?: string

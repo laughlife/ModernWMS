@@ -206,6 +206,7 @@ namespace ModernWMS.WMS.Services
             var sku_DBSet = _dBContext.GetDbSet<SkuEntity>().AsNoTracking();
             var spu_DBSet = _dBContext.GetDbSet<SpuEntity>().AsNoTracking();
             var location_DBSet = _dBContext.GetDbSet<GoodslocationEntity>().AsNoTracking();
+            var warehouse_DBSet = _dBContext.GetDbSet<WarehouseEntity>().AsNoTracking();
             var processdetail_DBSet = _dBContext.GetDbSet<StockprocessdetailEntity>().AsNoTracking();
             var move_DBSet = _dBContext.GetDbSet<StockmoveEntity>();
 
@@ -213,14 +214,13 @@ namespace ModernWMS.WMS.Services
                                     join gw in _dBContext.GetDbSet<GoodsownerEntity>().AsNoTracking() on stock.goods_owner_id equals gw.id into gw_left
                                     from gw in gw_left.DefaultIfEmpty()
                                     where stock.tenant_id == currentUser.tenant_id
-                                    group new { stock, gw } by new { stock.sku_id, stock.goods_location_id, stock.goods_owner_id, stock.series_number, gw.goods_owner_name, stock.expiry_date, stock.price, stock.putaway_date } into sg
+                                    group new { stock, gw } by new { stock.sku_id, stock.goods_location_id, stock.goods_owner_id, gw.goods_owner_name, stock.expiry_date, stock.price, stock.putaway_date } into sg
                                     select new
                                     {
                                         sku_id = sg.Key.sku_id,
                                         goods_location_id = sg.Key.goods_location_id,
                                         goods_owner_id = sg.Key.goods_owner_id,
                                         goods_owner_name = sg.Key.goods_owner_name,
-                                        series_number = sg.Key.series_number,
                                         sg.Key.expiry_date,
                                         sg.Key.price,
                                         sg.Key.putaway_date,
@@ -231,13 +231,12 @@ namespace ModernWMS.WMS.Services
             var dispatch_group_datas = from dp in dispatch_DBSet.AsNoTracking()
                                        join dpp in dispatchpick_DBSet.AsNoTracking() on dp.id equals dpp.dispatchlist_id
                                        where dp.dispatch_status > 1 && dp.dispatch_status < 6
-                                       group dpp by new { dpp.sku_id, dpp.goods_location_id, dpp.goods_owner_id, dpp.series_number, dpp.expiry_date, dpp.price, dpp.putaway_date } into dg
+                                       group dpp by new { dpp.sku_id, dpp.goods_location_id, dpp.goods_owner_id, dpp.expiry_date, dpp.price, dpp.putaway_date } into dg
                                        select new
                                        {
                                            sku_id = dg.Key.sku_id,
                                            goods_location_id = dg.Key.goods_location_id,
                                            goods_owner_id = dg.Key.goods_owner_id,
-                                           series_number = dg.Key.series_number,
                                            dg.Key.expiry_date,
                                            dg.Key.price,
                                            dg.Key.putaway_date,
@@ -245,13 +244,12 @@ namespace ModernWMS.WMS.Services
                                        };
             var process_locked_group_datas = from pd in processdetail_DBSet
                                              where pd.is_update_stock == false && pd.is_source == true
-                                             group pd by new { pd.sku_id, pd.goods_location_id, pd.goods_owner_id, pd.series_number, pd.expiry_date, pd.price, pd.putaway_date } into pdg
+                                             group pd by new { pd.sku_id, pd.goods_location_id, pd.goods_owner_id, pd.expiry_date, pd.price, pd.putaway_date } into pdg
                                              select new
                                              {
                                                  sku_id = pdg.Key.sku_id,
                                                  goods_location_id = pdg.Key.goods_location_id,
                                                  goods_owner_id = pdg.Key.goods_owner_id,
-                                                 series_number = pdg.Key.series_number,
                                                  pdg.Key.expiry_date,
                                                  pdg.Key.price,
                                                  pdg.Key.putaway_date,
@@ -260,43 +258,41 @@ namespace ModernWMS.WMS.Services
 
             var move_locked_group_datas = from m in move_DBSet.AsNoTracking()
                                           where m.move_status == 0
-                                          group m by new { m.sku_id, m.orig_goods_location_id, m.goods_owner_id, m.series_number, m.expiry_date, m.price, m.putaway_date } into mg
+                                          group m by new { m.sku_id, m.orig_goods_location_id, m.goods_owner_id, m.expiry_date, m.price, m.putaway_date } into mg
                                           select new
                                           {
                                               sku_id = mg.Key.sku_id,
                                               goods_location_id = mg.Key.orig_goods_location_id,
                                               goods_owner_id = mg.Key.goods_owner_id,
-                                              series_number = mg.Key.series_number,
                                               mg.Key.expiry_date,
                                               mg.Key.price,
                                               mg.Key.putaway_date,
                                               qty_locked = mg.Sum(t => t.qty)
                                           };
             var query = from sg in stock_group_datas
-                        join dp in dispatch_group_datas on new { sg.sku_id, sg.goods_location_id, sg.goods_owner_id, sg.series_number, sg.expiry_date, sg.price, sg.putaway_date } equals new { dp.sku_id, dp.goods_location_id, dp.goods_owner_id, dp.series_number, dp.expiry_date, dp.price, dp.putaway_date } into dp_left
+                        join dp in dispatch_group_datas on new { sg.sku_id, sg.goods_location_id, sg.goods_owner_id, sg.expiry_date, sg.price, sg.putaway_date } equals new { dp.sku_id, dp.goods_location_id, dp.goods_owner_id, dp.expiry_date, dp.price, dp.putaway_date } into dp_left
                         from dp in dp_left.DefaultIfEmpty()
-                        join pl in process_locked_group_datas on new { sg.sku_id, sg.goods_location_id, sg.goods_owner_id, sg.series_number, sg.expiry_date, sg.price, sg.putaway_date } equals new { pl.sku_id, pl.goods_location_id, pl.goods_owner_id, pl.series_number, pl.expiry_date, pl.price, pl.putaway_date } into pl_left
+                        join pl in process_locked_group_datas on new { sg.sku_id, sg.goods_location_id, sg.goods_owner_id, sg.expiry_date, sg.price, sg.putaway_date } equals new { pl.sku_id, pl.goods_location_id, pl.goods_owner_id, pl.expiry_date, pl.price, pl.putaway_date } into pl_left
                         from pl in pl_left.DefaultIfEmpty()
-                        join m in move_locked_group_datas on new { sg.sku_id, sg.goods_location_id, sg.goods_owner_id, sg.series_number, sg.expiry_date, sg.price, sg.putaway_date } equals new { m.sku_id, m.goods_location_id, m.goods_owner_id, m.series_number, m.expiry_date, m.price, m.putaway_date } into m_left
+                        join m in move_locked_group_datas on new { sg.sku_id, sg.goods_location_id, sg.goods_owner_id, sg.expiry_date, sg.price, sg.putaway_date } equals new { m.sku_id, m.goods_location_id, m.goods_owner_id, m.expiry_date, m.price, m.putaway_date } into m_left
                         from m in m_left.DefaultIfEmpty()
                         join sku in sku_DBSet on sg.sku_id equals sku.id
                         join spu in spu_DBSet on sku.spu_id equals spu.id
                         join gl in location_DBSet on sg.goods_location_id equals gl.id
+                        join wh in warehouse_DBSet on gl.warehouse_id equals wh.id
                         select new LocationStockManagementViewModel
                         {
                             sku_id = sg.sku_id,
                             goods_owner_name = sg.goods_owner_name,
                             spu_name = spu.spu_name,
-                            spu_code = spu.spu_code,
                             sku_code = sku.sku_code,
-                            sku_name = sku.sku_name,
                             qty_available = gl.warehouse_area_property == 5 ? 0 : (sg.qty - sg.qty_frozen - (dp.qty_locked == null ? 0 : dp.qty_locked) - (pl.qty_locked == null ? 0 : pl.qty_locked) - (m.qty_locked == null ? 0 : m.qty_locked)),
                             qty_frozen = sg.qty_frozen,
                             qty_locked = (dp.qty_locked == null ? 0 : dp.qty_locked) + (pl.qty_locked == null ? 0 : pl.qty_locked) + (m.qty_locked == null ? 0 : m.qty_locked),
                             qty = sg.qty,
                             location_name = gl.location_name,
-                            warehouse_name = gl.warehouse_name,
-                            series_number = sg.series_number,
+                            warehouse_id = wh.id,
+                            warehouse_name = wh.warehouse_name,
                             expiry_date = sg.expiry_date,
                             price = sg.price,
                             putaway_date = sg.putaway_date,
@@ -763,6 +759,7 @@ namespace ModernWMS.WMS.Services
                             qty_locked = (dp.qty_locked == null ? 0 : dp.qty_locked) + (pl.qty_locked == null ? 0 : pl.qty_locked) + (m.qty_locked == null ? 0 : m.qty_locked),
                             qty = sg.qty,
                             location_name = gl.location_name,
+                            warehouse_id = gl.warehouse_id,
                             warehouse_name = gl.warehouse_name,
                             series_number = sg.series_number,
                             expiry_date = sg.expiry_date,
