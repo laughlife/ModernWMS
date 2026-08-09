@@ -180,7 +180,7 @@
       <v-card-actions class="justify-end px-6 py-4">
         <v-btn variant="text" @click="method.closeDialog">{{ $t('system.page.close') }}</v-btn>
         <v-btn color="primary" variant="flat" :loading="data.submitting" @click="method.submit">
-          {{ $t('system.page.confirm') }}
+          {{ $t('wms.erpPendingReceipt.receipt_confirm_inbound') }}
         </v-btn>
       </v-card-actions>
     </v-card>
