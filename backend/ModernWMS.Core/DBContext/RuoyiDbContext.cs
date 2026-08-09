@@ -93,6 +93,31 @@ public sealed class RuoyiDbContext : DbContext
     public DbSet<ErpFileConfigEntity> FileConfigs => Set<ErpFileConfigEntity>();
 
     /// <summary>
+    /// ERP FBA shipment preparation headers.
+    /// </summary>
+    public DbSet<ErpStockMoveEntity> StockMoves => Set<ErpStockMoveEntity>();
+
+    /// <summary>
+    /// ERP FBA shipment preparation items.
+    /// </summary>
+    public DbSet<ErpStockMoveItemEntity> StockMoveItems => Set<ErpStockMoveItemEntity>();
+
+    /// <summary>
+    /// ERP business stock pools referenced by FBA preparations.
+    /// </summary>
+    public DbSet<ErpBusinessStockEntity> BusinessStocks => Set<ErpBusinessStockEntity>();
+
+    /// <summary>
+    /// ERP FBA shipment headers.
+    /// </summary>
+    public DbSet<ErpFbaShipmentEntity> FbaShipments => Set<ErpFbaShipmentEntity>();
+
+    /// <summary>
+    /// ERP FBA shipment boxes and tracking numbers.
+    /// </summary>
+    public DbSet<ErpFbaSpdBoxEntity> FbaShipmentBoxes => Set<ErpFbaSpdBoxEntity>();
+
+    /// <summary>
     /// 显式映射当前已接入 ModernWMS 的 Ruoyi 业务实体。
     /// </summary>
     /// <param name="modelBuilder">model builder</param>
@@ -199,6 +224,36 @@ public sealed class RuoyiDbContext : DbContext
         modelBuilder.Entity<ErpFileConfigEntity>(entity =>
         {
             entity.ToTable("infra_file_config");
+            entity.HasKey(t => t.id);
+        });
+
+        modelBuilder.Entity<ErpStockMoveEntity>(entity =>
+        {
+            entity.ToTable("trk_stock_move");
+            entity.HasKey(t => t.id);
+        });
+
+        modelBuilder.Entity<ErpStockMoveItemEntity>(entity =>
+        {
+            entity.ToTable("trk_stock_move_item");
+            entity.HasKey(t => t.id);
+        });
+
+        modelBuilder.Entity<ErpBusinessStockEntity>(entity =>
+        {
+            entity.ToTable("trk_stock");
+            entity.HasKey(t => t.id);
+        });
+
+        modelBuilder.Entity<ErpFbaShipmentEntity>(entity =>
+        {
+            entity.ToTable("erp_fba_shipment");
+            entity.HasKey(t => t.id);
+        });
+
+        modelBuilder.Entity<ErpFbaSpdBoxEntity>(entity =>
+        {
+            entity.ToTable("erp_fba_spd_box");
             entity.HasKey(t => t.id);
         });
 
