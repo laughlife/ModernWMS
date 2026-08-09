@@ -83,3 +83,11 @@ npm run test:e2e
 ```
 
 本机 Playwright 默认使用已安装的 Chrome；CI 环境使用 Playwright 默认浏览器。
+
+## 7. 外部商品图片访问规范
+
+ERP 商品快照中的 `mainImage` 可能指向启用了 Referer 防盗链的腾讯 COS。此类对象在不带 Referer 时可以直接访问，但浏览器从 ModernWMS 页面加载时会因携带站点 Referer 收到 `403 Forbidden`；这不是普通的图片 CORS 问题，也不表示对象一定是私有读。
+
+前端展示 ERP 或外部来源的商品图片时，统一复用 `frontend/src/components/system/product-image.vue`。该组件为实际 `<img>` 设置 `referrerpolicy="no-referrer"`，保留对象存储/CDN 的浏览器直连和缓存能力，并提供空地址及加载失败占位，适合商品列表中的批量图片展示。不要为了普通 `<img>` 展示额外设置 `crossorigin="anonymous"`，否则会把无需 CORS 校验的图片请求升级为必须通过 CORS 校验。
+
+如果后续确认某个对象在无 Referer 请求下仍返回 `401/403`，则应将其视为真正的私有对象，由后端根据对应存储配置生成短期签名 URL；不要把访问密钥放到前端，也不要让 WMS 后端长期代理全部图片流量。

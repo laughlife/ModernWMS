@@ -54,24 +54,13 @@
                 <tr v-for="item in data.form.items" :key="item.sourceItemKey">
                   <td>
                     <div class="receiptProduct">
-                      <v-img
-                        v-if="item.mainImage"
+                      <product-image
                         :src="item.mainImage"
                         :alt="item.productName || item.commoditySku"
                         width="64"
                         height="64"
-                        cover
                         class="receiptProductImage"
-                      >
-                        <template #error>
-                          <div class="receiptProductImageFallback">
-                            <v-icon icon="mdi-image-off-outline" size="24"></v-icon>
-                          </div>
-                        </template>
-                      </v-img>
-                      <div v-else class="receiptProductImageFallback">
-                        <v-icon icon="mdi-image-off-outline" size="24"></v-icon>
-                      </div>
+                      ></product-image>
                       <div class="receiptProductText">
                         <div class="receiptProductName">{{ item.productName || '-' }}</div>
                         <div class="receiptProductSku">{{ item.commoditySku || '-' }}</div>
@@ -221,6 +210,7 @@
 import { computed, nextTick, reactive, ref } from 'vue'
 import { confirmErpReceipt, type ErpReceiptOssImage } from '@/api/wms/stockAsn'
 import { hookComponent } from '@/components/system'
+import ProductImage from '@/components/system/product-image.vue'
 import i18n from '@/languages/i18n'
 import type { ErpPendingReceiptVO } from '@/types/WMS/StockAsn'
 import ErpReceiptImageUpload from './erp-receipt-image-upload.vue'
@@ -492,22 +482,8 @@ defineExpose({
   gap: 12px;
 }
 
-.receiptProductImage,
-.receiptProductImageFallback {
+.receiptProductImage {
   flex: 0 0 64px;
-  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.receiptProductImageFallback {
-  width: 64px;
-  height: 64px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: rgba(var(--v-theme-on-surface), 0.38);
-  background: rgba(var(--v-theme-on-surface), 0.04);
 }
 
 .receiptProductText {
