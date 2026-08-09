@@ -1,5 +1,7 @@
 import http from '@/utils/http/request'
+import { unwrapApiResult } from '@/utils/http/apiResult'
 import { PageConfigProps } from '@/types/System/Form'
+import type { ApiResult } from '@/types/System/ApiResult'
 import { StockAsnVO, SortingVo, PutawayVo } from '@/types/WMS/StockAsn'
 
 export const listNew = (data: PageConfigProps) => http({
@@ -137,17 +139,17 @@ export const uploadErpReceiptImage = (
   file: File,
   shipmentId: number,
   category: ErpReceiptImageCategory
-) => {
+): Promise<ApiResult<ErpReceiptOssImage>> => {
   const data = new FormData()
   data.append('file', file)
   data.append('shipmentId', String(shipmentId))
   data.append('category', category)
-  return http({
+  return http<ApiResult<ErpReceiptOssImage>>({
     url: '/file/erp-oss/image',
     method: 'post',
     data,
     timeout: 120000
-  })
+  }).then((response) => unwrapApiResult(response))
 }
 
 export const addAsn = (data: StockAsnVO) => http({

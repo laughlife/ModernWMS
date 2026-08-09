@@ -82,7 +82,7 @@ const uploadFiles = async (value: File[] | File | null) => {
         throw new Error(response?.errorMessage || i18n.global.t('wms.erpPendingReceipt.attachment_upload_failed'))
       }
       if (props.shipmentId !== targetShipmentId) return
-      uploaded.push(response.data as ErpReceiptOssImage)
+      uploaded.push(response.data)
       emit('update:modelValue', [...uploaded])
     }
     hookComponent.$message({
