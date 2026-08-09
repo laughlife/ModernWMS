@@ -151,6 +151,11 @@ export interface ErpReceiptConfirmInput {
     shipment_qty: number
     actual_receipt_qty: number
     loss_qty: number
+    allocations: Array<{
+      warehouse_area_id: number
+      goods_owner_id: number
+      qty: number
+    }>
   }>
   receipt_freight_payment_status: 'NO_PAY' | 'PAY'
   receipt_freight_amount: number | null

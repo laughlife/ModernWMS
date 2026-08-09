@@ -17,6 +17,7 @@ public class ErpPendingReceiptViewModel
     public DateTime? shipment_time { get; set; }
     public long warehouse_id { get; set; }
     public string warehouse_name { get; set; } = string.Empty;
+    public int wms_warehouse_id { get; set; }
     public string freight_forwarder_name { get; set; } = string.Empty;
     public string source_freight_payment_type { get; set; } = string.Empty;
     public string provider_code { get; set; } = string.Empty;
@@ -55,6 +56,10 @@ public class ErpPendingReceiptProductViewModel
     public string usage_type { get; set; } = string.Empty;
     public string order_user_name { get; set; } = string.Empty;
     public string dept_name { get; set; } = string.Empty;
+    public int? default_warehouse_area_id { get; set; }
+    public string default_warehouse_area_name { get; set; } = string.Empty;
+    public long? default_goods_owner_id { get; set; }
+    public string default_goods_owner_name { get; set; } = string.Empty;
 }
 
 /// <summary>
@@ -79,6 +84,19 @@ public class ErpReceiptDetailViewModel
     public long inbound_qty { get; set; }
     public decimal? total_weight { get; set; }
     public decimal? total_volume { get; set; }
+    public List<ErpReceiptAllocationViewModel> allocation_list { get; set; } = [];
+}
+
+/// <summary>
+/// One physical-inventory allocation recorded for a receipt item.
+/// </summary>
+public class ErpReceiptAllocationViewModel
+{
+    public int warehouse_area_id { get; set; }
+    public string warehouse_area_name { get; set; } = string.Empty;
+    public int goods_owner_id { get; set; }
+    public string goods_owner_name { get; set; } = string.Empty;
+    public long qty { get; set; }
 }
 
 /// <summary>

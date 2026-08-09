@@ -72,6 +72,9 @@ public partial class ErpPendingReceiptService
             .ToListAsync();
 
         var productsByShipment = new Dictionary<long, List<ErpPendingReceiptProductViewModel>>();
+        var allocationsByItem = await ReadReceiptAllocationsAsync(
+            rows.Select(t => t.id).ToList(),
+            currentUser.tenant_id);
         var data = rows.Select(row =>
         {
             if (!productsByShipment.TryGetValue(row.shipment_id, out var products))
@@ -87,6 +90,23 @@ public partial class ErpPendingReceiptService
                 t.sku,
                 row.commodity_sku,
                 StringComparison.OrdinalIgnoreCase));
+
+            var allocations = allocationsByItem.GetValueOrDefault(row.id);
+            if (allocations == null || allocations.Count == 0)
+            {
+                allocations = row.inbound_qty <= 0
+                    ? []
+                    :
+                    [
+                        new ErpReceiptAllocationViewModel
+                        {
+                            warehouse_area_id = row.warehouse_area_id,
+                            warehouse_area_name = row.warehouse_area_name,
+                            goods_owner_name = row.order_user_name,
+                            qty = row.inbound_qty
+                        }
+                    ];
+            }
 
             return new ErpReceiptDetailViewModel
             {
@@ -106,7 +126,8 @@ public partial class ErpPendingReceiptService
                 loss_qty = row.loss_qty,
                 inbound_qty = row.inbound_qty,
                 total_weight = row.total_weight,
-                total_volume = row.total_volume
+                total_volume = row.total_volume,
+                allocation_list = allocations
             };
         }).ToList();
         return (data, totals);

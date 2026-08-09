@@ -44,4 +44,21 @@ public class ErpReceiptConfirmItemInputViewModel
     public long actual_receipt_qty { get; set; }
 
     public long loss_qty { get; set; }
+
+    public List<ErpReceiptAllocationInputViewModel> allocations { get; set; } = [];
+}
+
+/// <summary>
+/// One warehouse-area and goods-owner allocation for a received product.
+/// </summary>
+public class ErpReceiptAllocationInputViewModel
+{
+    public int warehouse_area_id { get; set; }
+
+    /// <summary>
+    /// Zero means the purchaser-derived default goods owner.
+    /// </summary>
+    public int goods_owner_id { get; set; }
+
+    public long qty { get; set; }
 }

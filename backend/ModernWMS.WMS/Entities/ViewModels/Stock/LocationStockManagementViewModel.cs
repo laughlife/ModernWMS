@@ -35,6 +35,11 @@ namespace ModernWMS.WMS.Entities.ViewModels
         public string location_name { get; set; } = string.Empty;
 
         /// <summary>
+        /// warehouse_area_name
+        /// </summary>
+        public string warehouse_area_name { get; set; } = string.Empty;
+
+        /// <summary>
         /// spu_code
         /// </summary>
         public string spu_code { get; set; } = string.Empty;

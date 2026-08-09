@@ -10,7 +10,10 @@ namespace ModernWMS.WMS.IServices;
 /// </summary>
 public interface IErpPendingReceiptService : IDependency
 {
-    Task<(List<ErpPendingReceiptViewModel> data, int totals)> PageAsync(PageSearch pageSearch, bool delivered);
+    Task<(List<ErpPendingReceiptViewModel> data, int totals)> PageAsync(
+        PageSearch pageSearch,
+        bool delivered,
+        CurrentUser currentUser);
 
     Task<ErpPendingReceiptLogisticsViewModel?> GetLogisticsAsync(long shipmentId);
 

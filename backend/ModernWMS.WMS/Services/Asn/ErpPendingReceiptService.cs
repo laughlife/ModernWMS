@@ -30,7 +30,8 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
     /// </summary>
     public async Task<(List<ErpPendingReceiptViewModel> data, int totals)> PageAsync(
         PageSearch pageSearch,
-        bool delivered)
+        bool delivered,
+        CurrentUser currentUser)
     {
         var supplierName = FindSearchText(pageSearch, "supplier_name");
         var productKeyword = FindSearchText(pageSearch, "product_keyword");
@@ -137,12 +138,25 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
                 .ToDictionary(t => t.Key, t => t.First());
         }
 
-        var result = shipments.Select(shipment =>
+        var wmsWarehouseId = await ScalarAsync<int?>(
+            """
+            SELECT id FROM wms_warehouse
+             WHERE erp_warehouse_id=@erpId AND tenant_id=@tenantId AND is_valid=1
+             LIMIT 1
+            """,
+            ("@erpId", ShenzhenWarehouseId), ("@tenantId", currentUser.tenant_id));
+
+        var result = new List<ErpPendingReceiptViewModel>(shipments.Count);
+        foreach (var shipment in shipments)
         {
             var products = ParseProducts(shipment.product_snapshot_json);
+            if (wmsWarehouseId != null)
+            {
+                await FillDefaultReceiptAllocationsAsync(products, wmsWarehouseId.Value, currentUser);
+            }
             trackMap.TryGetValue(shipment.tracking_no ?? string.Empty, out var track);
-            return BuildViewModel(shipment, track, products, IsDeliveredTrack(track));
-        }).ToList();
+            result.Add(BuildViewModel(shipment, track, products, IsDeliveredTrack(track), wmsWarehouseId ?? 0));
+        }
 
         return (result, totals);
     }
@@ -404,7 +418,8 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
         ErpLogisticsInfoEntity shipment,
         ErpTrackEntity? track,
         List<ErpPendingReceiptProductViewModel> products,
-        bool delivered)
+        bool delivered,
+        int wmsWarehouseId)
     {
         return new ErpPendingReceiptViewModel
         {
@@ -420,6 +435,7 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
             shipment_time = shipment.shipment_time,
             warehouse_id = shipment.to_warehouse_id ?? ShenzhenWarehouseId,
             warehouse_name = shipment.to_warehouse_name ?? string.Empty,
+            wms_warehouse_id = wmsWarehouseId,
             freight_forwarder_name = shipment.freight_forwarder_name ?? string.Empty,
             source_freight_payment_type = shipment.source_freight_payment_type ?? string.Empty,
             provider_code = shipment.track_provider_code ?? string.Empty,

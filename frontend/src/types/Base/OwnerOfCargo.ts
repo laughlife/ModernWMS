@@ -7,6 +7,7 @@ export interface OwnerOfCargoVO extends UniformFileNaming {
   address: string
   contact_tel: string
   manager: string
+  is_valid?: boolean
 }
 
 export interface ImportVO {

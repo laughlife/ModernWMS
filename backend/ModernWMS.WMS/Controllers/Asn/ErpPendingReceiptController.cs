@@ -83,7 +83,7 @@ public class ErpPendingReceiptController : BaseController
         PageSearch pageSearch,
         bool delivered)
     {
-        var (data, totals) = await _erpPendingReceiptService.PageAsync(pageSearch, delivered);
+        var (data, totals) = await _erpPendingReceiptService.PageAsync(pageSearch, delivered, CurrentUser);
         return ResultModel<PageData<ErpPendingReceiptViewModel>>.Success(new PageData<ErpPendingReceiptViewModel>
         {
             Rows = data,

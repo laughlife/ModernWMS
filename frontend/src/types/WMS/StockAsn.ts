@@ -126,6 +126,10 @@ export interface ErpPendingReceiptProductVO {
   usage_type: string
   order_user_name: string
   dept_name: string
+  default_warehouse_area_id?: number | null
+  default_warehouse_area_name: string
+  default_goods_owner_id?: number | null
+  default_goods_owner_name: string
 }
 
 export interface ErpPendingReceiptVO {
@@ -141,6 +145,7 @@ export interface ErpPendingReceiptVO {
   shipment_time?: string | null
   warehouse_id: number
   warehouse_name: string
+  wms_warehouse_id: number
   freight_forwarder_name: string
   source_freight_payment_type: string
   provider_code: string
@@ -179,6 +184,15 @@ export interface ErpReceiptDetailVO {
   inbound_qty: number
   total_weight?: number | null
   total_volume?: number | null
+  allocation_list: ErpReceiptAllocationVO[]
+}
+
+export interface ErpReceiptAllocationVO {
+  warehouse_area_id: number
+  warehouse_area_name: string
+  goods_owner_id: number
+  goods_owner_name: string
+  qty: number
 }
 
 export interface ErpPendingReceiptTrackEventVO {

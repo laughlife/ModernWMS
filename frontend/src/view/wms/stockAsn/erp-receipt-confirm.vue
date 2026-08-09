@@ -1,5 +1,5 @@
 <template>
-  <v-dialog v-model="data.showDialog" width="960" transition="dialog-top-transition" persistent>
+  <v-dialog v-model="data.showDialog" width="1320" transition="dialog-top-transition" persistent>
     <v-card class="formCard receiptDialog">
       <v-toolbar color="white" :title="$t('wms.erpPendingReceipt.receipt_title')">
         <template #append>
@@ -48,6 +48,7 @@
                   <th>{{ $t('wms.erpPendingReceipt.actual_receipt_qty') }}</th>
                   <th>{{ $t('wms.erpPendingReceipt.loss_qty') }}</th>
                   <th>{{ $t('wms.erpPendingReceipt.inbound_qty') }}</th>
+                  <th>{{ $t('wms.erpPendingReceipt.stock_allocation') }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -74,6 +75,7 @@
                       type="number" min="0" :max="item.shipmentQty" step="1"
                       variant="outlined" density="compact" hide-details="auto"
                       :rules="method.actualQtyRules(item)"
+                      @update:model-value="method.syncSingleAllocation(item)"
                     ></v-text-field>
                   </td>
                   <td>
@@ -82,9 +84,68 @@
                       type="number" min="0" :max="item.actualReceiptQty" step="1"
                       variant="outlined" density="compact" hide-details="auto"
                       :rules="method.lossQtyRules(item)"
+                      @update:model-value="method.syncSingleAllocation(item)"
                     ></v-text-field>
                   </td>
                   <td class="receiptNumberCell receiptInboundCell">{{ method.itemInboundQty(item) }}</td>
+                  <td class="receiptAllocationCell">
+                    <v-progress-linear v-if="data.optionsLoading" indeterminate color="primary"></v-progress-linear>
+                    <template v-else>
+                      <div
+                        v-for="(allocation, allocationIndex) in item.allocations"
+                        :key="`${item.sourceItemKey}-${allocationIndex}`"
+                        class="receiptAllocationRow"
+                      >
+                        <v-select
+                          v-model="allocation.warehouseAreaId"
+                          :items="data.warehouseAreaOptions"
+                          item-title="area_name"
+                          item-value="id"
+                          :label="$t('wms.erpPendingReceipt.warehouse_area_name')"
+                          variant="outlined"
+                          density="compact"
+                          hide-details="auto"
+                        ></v-select>
+                        <v-select
+                          v-model="allocation.goodsOwnerId"
+                          :items="method.ownerOptions(item)"
+                          item-title="goods_owner_name"
+                          item-value="id"
+                          :label="$t('wms.erpPendingReceipt.stock_owner')"
+                          variant="outlined"
+                          density="compact"
+                          hide-details="auto"
+                        ></v-select>
+                        <v-text-field
+                          v-model.number="allocation.qty"
+                          type="number"
+                          min="1"
+                          step="1"
+                          :label="$t('wms.erpPendingReceipt.allocation_qty')"
+                          variant="outlined"
+                          density="compact"
+                          hide-details="auto"
+                        ></v-text-field>
+                        <v-btn
+                          icon="mdi-delete-outline"
+                          size="small"
+                          variant="text"
+                          color="error"
+                          :disabled="item.allocations.length <= 1"
+                          :aria-label="$t('wms.erpPendingReceipt.remove_owner')"
+                          @click="method.removeAllocation(item, allocationIndex)"
+                        ></v-btn>
+                      </div>
+                      <div class="receiptAllocationFooter">
+                        <v-btn size="small" variant="tonal" prepend-icon="mdi-account-plus-outline" @click="method.addAllocation(item)">
+                          {{ $t('wms.erpPendingReceipt.add_owner') }}
+                        </v-btn>
+                        <span :class="{ receiptAllocationError: !method.allocationQtyValid(item) }">
+                          {{ $t('wms.erpPendingReceipt.allocated_qty') }}：{{ method.allocatedQty(item) }} / {{ method.itemInboundQty(item) }}
+                        </span>
+                      </div>
+                    </template>
+                  </td>
                 </tr>
               </tbody>
               <tfoot>
@@ -94,6 +155,7 @@
                   <th class="receiptNumberCell">{{ actualReceiptQtyTotal }}</th>
                   <th class="receiptNumberCell">{{ lossQtyTotal }}</th>
                   <th class="receiptNumberCell receiptInboundCell">{{ inboundQty }}</th>
+                  <th></th>
                 </tr>
               </tfoot>
             </v-table>
@@ -213,9 +275,18 @@ import { hookComponent } from '@/components/system'
 import ProductImage from '@/components/system/product-image.vue'
 import i18n from '@/languages/i18n'
 import type { ErpPendingReceiptVO } from '@/types/WMS/StockAsn'
+import type { WarehouseAreaVO } from '@/types/Base/Warehouse'
+import type { OwnerOfCargoVO } from '@/types/Base/OwnerOfCargo'
+import { getWarehouseAreaSelect } from '@/api/base/warehouseSetting'
+import { getOwnerOfCargoAll } from '@/api/base/ownerOfCargo'
 import ErpReceiptImageUpload from './erp-receipt-image-upload.vue'
 
 type ReceiptFreightPaymentStatus = 'NO_PAY' | 'PAY'
+type ReceiptAllocationForm = {
+  warehouseAreaId: number | null
+  goodsOwnerId: number | null
+  qty: number
+}
 type ReceiptItemForm = {
   sourceItemKey: string
   commodityId?: number | null
@@ -225,6 +296,11 @@ type ReceiptItemForm = {
   shipmentQty: number
   actualReceiptQty: number
   lossQty: number
+  defaultWarehouseAreaId: number | null
+  defaultWarehouseAreaName: string
+  defaultGoodsOwnerId: number
+  defaultGoodsOwnerName: string
+  allocations: ReceiptAllocationForm[]
 }
 
 const formRef = ref()
@@ -235,7 +311,10 @@ const emit = defineEmits<{
 const data = reactive({
   showDialog: false,
   submitting: false,
+  optionsLoading: false,
   currentRow: null as ErpPendingReceiptVO | null,
+  warehouseAreaOptions: [] as WarehouseAreaVO[],
+  goodsOwnerOptions: [] as OwnerOfCargoVO[],
   form: {
     items: [] as ReceiptItemForm[],
     receiptFreightPaymentStatus: 'NO_PAY' as ReceiptFreightPaymentStatus,
@@ -272,7 +351,7 @@ const deptNames = computed(() => {
 })
 
 const method = reactive({
-  openDialog: (row: ErpPendingReceiptVO) => {
+  openDialog: async (row: ErpPendingReceiptVO) => {
     data.currentRow = row
     data.form.items = row.product_list.map((product) => ({
       sourceItemKey: product.source_item_key,
@@ -282,7 +361,16 @@ const method = reactive({
       mainImage: product.main_image,
       shipmentQty: Number(product.quantity ?? 0),
       actualReceiptQty: Number(product.quantity ?? 0),
-      lossQty: 0
+      lossQty: 0,
+      defaultWarehouseAreaId: product.default_warehouse_area_id ?? null,
+      defaultWarehouseAreaName: product.default_warehouse_area_name,
+      defaultGoodsOwnerId: product.default_goods_owner_id ?? 0,
+      defaultGoodsOwnerName: product.default_goods_owner_name || product.order_user_name,
+      allocations: [{
+        warehouseAreaId: product.default_warehouse_area_id ?? null,
+        goodsOwnerId: product.default_goods_owner_id ?? 0,
+        qty: Number(product.quantity ?? 0)
+      }]
     }))
     data.form.receiptFreightPaymentStatus = row.source_freight_payment_type === 'COD' ? 'PAY' : 'NO_PAY'
     data.form.receiptFreightAmount = null
@@ -293,7 +381,32 @@ const method = reactive({
     data.form.receiptRemark = ''
     data.submitting = false
     data.showDialog = true
+    data.optionsLoading = true
+    data.warehouseAreaOptions = []
+    data.goodsOwnerOptions = []
     nextTick(() => formRef.value?.resetValidation?.())
+    try {
+      const [areaResponse, ownerResponse] = await Promise.all([
+        getWarehouseAreaSelect(row.wms_warehouse_id),
+        getOwnerOfCargoAll()
+      ])
+      if (!areaResponse.data.isSuccess || !ownerResponse.data.isSuccess) {
+        hookComponent.$message({
+          type: 'error',
+          content: areaResponse.data.errorMessage || ownerResponse.data.errorMessage
+        })
+        return
+      }
+      data.warehouseAreaOptions = areaResponse.data.data.filter((area: WarehouseAreaVO) => area.is_valid)
+      data.goodsOwnerOptions = ownerResponse.data.data.filter((owner: OwnerOfCargoVO) => owner.is_valid !== false)
+    } catch {
+      hookComponent.$message({
+        type: 'error',
+        content: i18n.global.t('wms.erpPendingReceipt.allocation_options_failed')
+      })
+    } finally {
+      data.optionsLoading = false
+    }
   },
   closeDialog: () => {
     data.showDialog = false
@@ -301,6 +414,14 @@ const method = reactive({
   submit: async () => {
     const validation = await formRef.value?.validate?.()
     if (!validation?.valid || !data.currentRow || data.submitting) return
+    const invalidAllocation = data.form.items.find((item) => !method.allocationQtyValid(item))
+    if (invalidAllocation) {
+      hookComponent.$message({
+        type: 'error',
+        content: i18n.global.t('wms.erpPendingReceipt.allocation_qty_invalid', { product: invalidAllocation.productName || invalidAllocation.commoditySku })
+      })
+      return
+    }
 
     data.submitting = true
     try {
@@ -313,7 +434,12 @@ const method = reactive({
           commodity_sku: item.commoditySku,
           shipment_qty: Number(item.shipmentQty),
           actual_receipt_qty: Number(item.actualReceiptQty),
-          loss_qty: Number(item.lossQty)
+          loss_qty: Number(item.lossQty),
+          allocations: method.itemInboundQty(item) === 0 ? [] : item.allocations.map((allocation) => ({
+            warehouse_area_id: Number(allocation.warehouseAreaId),
+            goods_owner_id: Number(allocation.goodsOwnerId),
+            qty: Number(allocation.qty)
+          }))
         })),
         receipt_freight_payment_status: data.form.receiptFreightPaymentStatus,
         receipt_freight_amount: shouldPayFreight.value ? data.form.receiptFreightAmount : null,
@@ -347,6 +473,46 @@ const method = reactive({
     return labels[type] || type || '-'
   },
   itemInboundQty: (item: ReceiptItemForm) => Math.max(0, Number(item.actualReceiptQty || 0) - Number(item.lossQty || 0)),
+  allocatedQty: (item: ReceiptItemForm) => item.allocations.reduce((sum, allocation) => sum + Number(allocation.qty || 0), 0),
+  allocationQtyValid: (item: ReceiptItemForm) => {
+    const inbound = method.itemInboundQty(item)
+    if (inbound === 0) return true
+    return item.allocations.length > 0
+      && item.allocations.every((allocation, index) => Number(allocation.warehouseAreaId) > 0
+        && (index === 0
+          ? allocation.goodsOwnerId !== null && Number(allocation.goodsOwnerId) >= 0
+          : allocation.goodsOwnerId !== null && Number(allocation.goodsOwnerId) > 0)
+        && Number.isInteger(Number(allocation.qty))
+        && Number(allocation.qty) > 0)
+      && method.allocatedQty(item) === inbound
+  },
+  syncSingleAllocation: async (item: ReceiptItemForm) => {
+    await nextTick()
+    if (item.allocations.length === 1) {
+      item.allocations[0].qty = method.itemInboundQty(item)
+    }
+  },
+  ownerOptions: (item: ReceiptItemForm) => {
+    const defaultOption: OwnerOfCargoVO = {
+      id: item.defaultGoodsOwnerId,
+      goods_owner_name: item.defaultGoodsOwnerName,
+      city: '',
+      address: '',
+      contact_tel: '',
+      manager: ''
+    }
+    return [defaultOption, ...data.goodsOwnerOptions.filter((owner) => owner.id !== defaultOption.id)]
+  },
+  addAllocation: (item: ReceiptItemForm) => {
+    item.allocations.push({
+      warehouseAreaId: item.defaultWarehouseAreaId,
+      goodsOwnerId: null,
+      qty: 0
+    })
+  },
+  removeAllocation: (item: ReceiptItemForm, allocationIndex: number) => {
+    if (item.allocations.length > 1) item.allocations.splice(allocationIndex, 1)
+  },
   actualQtyRules: (item: ReceiptItemForm) => [
     (value: number) => Number.isInteger(Number(value)) || i18n.global.t('wms.erpPendingReceipt.receipt_qty_integer'),
     (value: number) => Number(value) >= 0 || i18n.global.t('wms.erpPendingReceipt.receipt_qty_non_negative'),
@@ -471,6 +637,11 @@ defineExpose({
   min-width: 220px;
 }
 
+.receiptItemsTable th:last-child,
+.receiptItemsTable td:last-child {
+  min-width: 500px;
+}
+
 .receiptProductName {
   color: rgb(var(--v-theme-on-surface));
   font-weight: 500;
@@ -503,6 +674,32 @@ defineExpose({
 .receiptInboundCell {
   color: rgb(var(--v-theme-primary));
   font-weight: 700;
+}
+
+.receiptAllocationCell {
+  text-align: left;
+}
+
+.receiptAllocationRow {
+  display: grid;
+  grid-template-columns: minmax(135px, 1fr) minmax(150px, 1fr) 105px 36px;
+  gap: 8px;
+  align-items: start;
+  margin-bottom: 8px;
+}
+
+.receiptAllocationFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: rgba(var(--v-theme-on-surface), 0.62);
+  font-size: 12px;
+}
+
+.receiptAllocationError {
+  color: rgb(var(--v-theme-error));
+  font-weight: 600;
 }
 
 @media (max-width: 860px) {

@@ -65,7 +65,7 @@
         <template #default="{ row }">
           <div class="cell-wh">
             <div class="cell-line">{{ row.warehouse_name }}</div>
-            <div class="cell-line cell-sub">{{ row.location_name }}</div>
+            <div class="cell-line cell-sub">{{ row.warehouse_area_name || row.location_name }}</div>
           </div>
         </template>
       </vxe-column>

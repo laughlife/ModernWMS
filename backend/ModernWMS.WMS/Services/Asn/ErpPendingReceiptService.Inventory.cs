@@ -53,22 +53,37 @@ public partial class ErpPendingReceiptService
             var itemInboundQty = checked(item.actual_receipt_qty - item.loss_qty);
             var erpStockId = 0L;
             var wmsSkuId = await EnsureWmsSkuAsync(product, currentUser, now);
-            var goodsOwnerId = await EnsureGoodsOwnerAsync(product, currentUser, now);
-            var receiptArea = await EnsureReceiptAreaLocationAsync(shipment, product, currentUser, now);
+            var allocations = await BuildReceiptAllocationsAsync(
+                shipment,
+                product,
+                item,
+                itemInboundQty,
+                currentUser,
+                now);
+            var primaryArea = allocations.FirstOrDefault();
             var wmsStockId = 0;
 
             if (itemInboundQty > 0)
             {
                 erpStockId = await PostErpStockAsync(shipment, product, itemInboundQty, index + 1, currentUser, now);
-                wmsStockId = await PostWmsStockAsync(
-                    shipment.id,
-                    index + 1,
-                    wmsSkuId,
-                    receiptArea.LocationId,
-                    goodsOwnerId,
-                    itemInboundQty,
-                    currentUser,
-                    now);
+                for (var allocIndex = 0; allocIndex < allocations.Count; allocIndex++)
+                {
+                    var allocation = allocations[allocIndex];
+                    var stockId = await PostWmsStockAsync(
+                        shipment.id,
+                        index + 1,
+                        allocIndex + 1,
+                        wmsSkuId,
+                        allocation.LocationId,
+                        allocation.GoodsOwnerId,
+                        allocation.Qty,
+                        currentUser,
+                        now);
+                    if (allocIndex == 0)
+                    {
+                        wmsStockId = stockId;
+                    }
+                }
             }
 
             await ExecuteAsync(
@@ -92,13 +107,35 @@ public partial class ErpPendingReceiptService
                 ("@allocationId", product.allocation_id), ("@commodityId", product.commodity_id),
                 ("@sku", product.sku), ("@name", product.product_name),
                 ("@deptId", product.dept_id), ("@orderUserId", product.order_user_id),
-                ("@deptName", Truncate(receiptArea.OperatorGroupName, 128)),
+                ("@deptName", Truncate(primaryArea?.OperatorGroupName ?? product.dept_name, 128)),
                 ("@orderUserName", Truncate(product.order_user_name, 128)),
-                ("@areaId", receiptArea.AreaId), ("@areaName", receiptArea.AreaName),
+                ("@areaId", primaryArea?.AreaId ?? 0), ("@areaName", Truncate(primaryArea?.AreaName, 128)),
                 ("@shipmentQty", item.shipment_qty), ("@actualQty", item.actual_receipt_qty),
                 ("@lossQty", item.loss_qty), ("@inboundQty", itemInboundQty),
                 ("@erpStockId", erpStockId), ("@wmsSkuId", wmsSkuId),
                 ("@wmsStockId", wmsStockId), ("@now", now), ("@tenantId", currentUser.tenant_id));
+
+            if (allocations.Count > 0)
+            {
+                var receiptItemId = await ScalarAsync<int>("SELECT LAST_INSERT_ID()");
+                foreach (var allocation in allocations.Where(t => t.Qty > 0))
+                {
+                    await ExecuteAsync(
+                        """
+                        INSERT INTO wms_receipt_item_owner
+                            (receipt_item_id, warehouse_area_id, warehouse_area_name,
+                             goods_owner_id, goods_owner_name, qty, create_time, tenant_id)
+                        VALUES
+                            (@receiptItemId, @areaId, @areaName,
+                             @ownerId, @ownerName, @qty, @now, @tenantId)
+                        """,
+                        ("@receiptItemId", receiptItemId),
+                        ("@areaId", allocation.AreaId), ("@areaName", Truncate(allocation.AreaName, 128)),
+                        ("@ownerId", allocation.GoodsOwnerId), ("@ownerName", Truncate(allocation.GoodsOwnerName, 255)),
+                        ("@qty", allocation.Qty), ("@now", now),
+                        ("@tenantId", currentUser.tenant_id));
+                }
+            }
         }
 
         await SynchronizeSourceAsync(shipment, actualReceiptQty, lossQty, inboundQty, currentUser, now);
@@ -249,7 +286,8 @@ public partial class ErpPendingReceiptService
         ErpLogisticsInfoEntity shipment,
         ErpPendingReceiptProductViewModel product,
         CurrentUser currentUser,
-        DateTime now)
+        DateTime now,
+        int? explicitAreaId = null)
     {
         var warehouseTenantId = await ScalarAsync<long?>(
             "SELECT tenant_id FROM wms_warehouse WHERE erp_warehouse_id=@erpWarehouseId LIMIT 1 FOR UPDATE",
@@ -276,47 +314,38 @@ public partial class ErpPendingReceiptService
             throw new InvalidOperationException($"收货仓库 {shipment.to_warehouse_name} 尚未映射到WMS仓库");
         }
 
-        var areaId = await ScalarAsync<int?>(
-            """
-            WITH RECURSIVE dept_chain AS
-            (
-                SELECT id,parent_id,0 AS depth
-                  FROM system_dept
-                 WHERE id=@deptId AND deleted=b'0' AND status=0
-                UNION ALL
-                SELECT parent.id,parent.parent_id,child.depth+1
-                  FROM system_dept parent
-                  JOIN dept_chain child ON child.parent_id=parent.id
-                 WHERE parent.deleted=b'0' AND parent.status=0 AND child.depth < 20
-            )
-            SELECT area.id
-              FROM dept_chain chain
-              JOIN wms_warehousearea_operator_group binding
-                ON binding.dept_id=chain.id AND binding.tenant_id=@tenantId
-              JOIN wms_warehousearea area
-                ON area.id=binding.warehouse_area_id
-               AND area.warehouse_id=@warehouseId
-               AND area.tenant_id=@tenantId
-               AND area.is_valid=1
-             ORDER BY chain.depth,area.id
-             LIMIT 1 FOR UPDATE
-            """,
-            ("@deptId", product.dept_id), ("@tenantId", currentUser.tenant_id),
-            ("@warehouseId", warehouseId.Value));
-        if (areaId == null)
+        int areaId;
+        if (explicitAreaId != null)
         {
-            var deptLabel = string.IsNullOrWhiteSpace(product.dept_name)
-                ? product.dept_id?.ToString() ?? "未知小组"
-                : product.dept_name;
-            throw new InvalidOperationException($"商品 {product.sku} 所属小组 {deptLabel} 未绑定有效库区");
+            var areaValid = await ScalarAsync<bool?>(
+                "SELECT is_valid FROM wms_warehousearea WHERE id=@areaId AND warehouse_id=@warehouseId AND tenant_id=@tenantId LIMIT 1",
+                ("@areaId", explicitAreaId.Value), ("@warehouseId", warehouseId.Value),
+                ("@tenantId", currentUser.tenant_id));
+            if (areaValid != true)
+            {
+                throw new InvalidOperationException("所选库区无效或不属于当前收货仓库");
+            }
+            areaId = explicitAreaId.Value;
+        }
+        else
+        {
+            var resolvedArea = await ResolveDefaultAreaAsync(warehouseId.Value, product.dept_id, currentUser);
+            if (resolvedArea == null)
+            {
+                var deptLabel = string.IsNullOrWhiteSpace(product.dept_name)
+                    ? product.dept_id?.ToString() ?? "未知小组"
+                    : product.dept_name;
+                throw new InvalidOperationException($"商品 {product.sku} 所属小组 {deptLabel} 未找到可用库区");
+            }
+            areaId = resolvedArea.Id;
         }
 
         var areaName = await ScalarAsync<string>(
             "SELECT area_name FROM wms_warehousearea WHERE id=@areaId",
-            ("@areaId", areaId.Value));
+            ("@areaId", areaId));
         var areaProperty = await ScalarAsync<byte>(
             "SELECT area_property FROM wms_warehousearea WHERE id=@areaId",
-            ("@areaId", areaId.Value));
+            ("@areaId", areaId));
         var operatorGroupName = await ScalarAsync<string>(
             """
             WITH RECURSIVE dept_chain AS
@@ -339,16 +368,16 @@ public partial class ErpPendingReceiptService
              LIMIT 1
             """,
             ("@deptId", product.dept_id), ("@tenantId", currentUser.tenant_id),
-            ("@areaId", areaId.Value));
-        var autoLocationTag = $"AREA-AUTO-{areaId.Value}";
+            ("@areaId", areaId));
+        var autoLocationTag = $"AREA-AUTO-{areaId}";
 
         var locationId = await ScalarAsync<int?>(
             "SELECT id FROM wms_goodslocation WHERE warehouse_id=@warehouseId AND warehouse_area_id=@areaId AND tag_number=@tag AND tenant_id=@tenantId AND is_valid=1 LIMIT 1 FOR UPDATE",
-            ("@warehouseId", warehouseId.Value), ("@areaId", areaId.Value),
+            ("@warehouseId", warehouseId.Value), ("@areaId", areaId),
             ("@tag", autoLocationTag), ("@tenantId", currentUser.tenant_id));
         if (locationId != null)
         {
-            return new ReceiptAreaLocation(locationId.Value, areaId.Value, areaName, operatorGroupName);
+            return new ReceiptAreaLocation(locationId.Value, areaId, areaName, operatorGroupName);
         }
 
         await ExecuteAsync(
@@ -358,14 +387,14 @@ public partial class ErpPendingReceiptService
                  location_length,location_width,location_heigth,location_volume,location_load,
                  roadway_number,shelf_number,layer_number,tag_number,create_time,last_update_time,
                  is_valid,tenant_id,warehouse_area_id)
-            VALUES (@warehouseId,@warehouseName,@areaName,@areaProperty,'库区库存位',0,0,0,0,0,
+            VALUES (@warehouseId,@warehouseName,@areaName,@areaProperty,@areaName,0,0,0,0,0,
                     '','','',@tag,@now,@now,1,@tenantId,@areaId)
             """,
             ("@warehouseId", warehouseId.Value), ("@warehouseName", shipment.to_warehouse_name ?? "有座山深圳仓"),
             ("@areaName", areaName), ("@areaProperty", areaProperty), ("@tag", autoLocationTag),
-            ("@now", now), ("@tenantId", currentUser.tenant_id), ("@areaId", areaId.Value));
+            ("@now", now), ("@tenantId", currentUser.tenant_id), ("@areaId", areaId));
         var createdLocationId = await ScalarAsync<int>("SELECT LAST_INSERT_ID()");
-        return new ReceiptAreaLocation(createdLocationId, areaId.Value, areaName, operatorGroupName);
+        return new ReceiptAreaLocation(createdLocationId, areaId, areaName, operatorGroupName);
     }
 
     private async Task<int> EnsureWmsSkuAsync(
@@ -504,6 +533,7 @@ public partial class ErpPendingReceiptService
     private async Task<int> PostWmsStockAsync(
         long shipmentId,
         int itemIndex,
+        int allocIndex,
         int skuId,
         int locationId,
         int ownerId,
@@ -560,7 +590,7 @@ public partial class ErpPendingReceiptService
             VALUES (@recordNo,'RECEIPT_IN',@shipmentId,@itemIndex,@stockId,@skuId,@locationId,@ownerId,
                     @qty,@beforeQty,@afterQty,'IN',@operatorId,@operatorName,'确认签收入库',@now,@tenantId)
             """,
-            ("@recordNo", $"MWMS-RI-{shipmentId}-{itemIndex}"), ("@shipmentId", shipmentId),
+            ("@recordNo", $"MWMS-RI-{shipmentId}-{itemIndex}-{allocIndex}"), ("@shipmentId", shipmentId),
             ("@itemIndex", itemIndex), ("@stockId", stockId.Value), ("@skuId", skuId),
             ("@locationId", locationId), ("@ownerId", ownerId), ("@qty", quantity),
             ("@beforeQty", beforeQty), ("@afterQty", beforeQty + quantity),
@@ -777,6 +807,17 @@ public partial class ErpPendingReceiptService
         int AreaId,
         string AreaName,
         string OperatorGroupName);
+
+    private sealed record ReceiptAllocation(
+        int LocationId,
+        int AreaId,
+        string AreaName,
+        string OperatorGroupName,
+        int GoodsOwnerId,
+        string GoodsOwnerName,
+        long Qty);
+
+    private sealed record AreaReference(int Id, string Name);
 
     private DbCommand CreateCommand(string sql, params (string Name, object? Value)[] parameters)
     {

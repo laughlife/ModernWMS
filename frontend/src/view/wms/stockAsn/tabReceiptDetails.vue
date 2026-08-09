@@ -78,7 +78,17 @@
           </div>
         </template>
       </vxe-column>
-      <vxe-column field="warehouse_area_name" :title="$t('wms.erpPendingReceipt.warehouse_area_name')" min-width="150"></vxe-column>
+      <vxe-column :title="$t('wms.erpPendingReceipt.stock_allocation')" min-width="320">
+        <template #default="{ row }">
+          <div class="receiptAllocationList">
+            <div v-for="(allocation, index) in row.allocation_list" :key="`${row.id}-${index}`" class="receiptAllocationLine">
+              <span>{{ allocation.warehouse_area_name || '-' }}</span>
+              <span>{{ allocation.goods_owner_name || '-' }}</span>
+              <strong>{{ allocation.qty }}</strong>
+            </div>
+          </div>
+        </template>
+      </vxe-column>
       <vxe-column field="dept_name" :title="$t('wms.erpPendingReceipt.dept_name')" min-width="140"></vxe-column>
       <vxe-column field="order_user_name" :title="$t('wms.erpPendingReceipt.order_user_name')" min-width="120"></vxe-column>
       <vxe-column field="receipt_time" :title="$t('wms.erpPendingReceipt.receipt_time')" min-width="180"></vxe-column>
@@ -240,5 +250,25 @@ watch(
   margin-top: 4px;
   color: rgba(var(--v-theme-on-surface), 0.6);
   font-size: 12px;
+}
+
+.receiptAllocationList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 0;
+}
+
+.receiptAllocationLine {
+  display: grid;
+  grid-template-columns: minmax(100px, 1fr) minmax(100px, 1fr) 56px;
+  gap: 8px;
+  align-items: center;
+  text-align: left;
+}
+
+.receiptAllocationLine strong {
+  color: rgb(var(--v-theme-primary));
+  text-align: right;
 }
 </style>
