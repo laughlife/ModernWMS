@@ -1713,7 +1713,8 @@ namespace ModernWMS.Migrations
 
                     b.HasKey("id");
 
-                    b.HasIndex("erp_warehouse_id");
+                    b.HasIndex("erp_warehouse_id")
+                        .IsUnique();
 
                     b.ToTable("warehouse");
                 });
