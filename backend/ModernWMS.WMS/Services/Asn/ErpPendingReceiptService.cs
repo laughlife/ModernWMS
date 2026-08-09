@@ -489,6 +489,7 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
                     dept_id = GetInt64(item, "deptId"),
                     sku = sku,
                     product_name = GetString(item, "commodityName"),
+                    main_image = GetString(item, "mainImage"),
                     quantity = GetInt64(item, "shipmentQty") ?? GetInt64(item, "allocationQty"),
                     usage_type = GetString(item, "usageType"),
                     order_user_name = GetString(item, "userName"),

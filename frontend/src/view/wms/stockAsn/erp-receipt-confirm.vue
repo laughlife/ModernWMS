@@ -53,8 +53,30 @@
               <tbody>
                 <tr v-for="item in data.form.items" :key="item.sourceItemKey">
                   <td>
-                    <div class="receiptProductName">{{ item.productName || '-' }}</div>
-                    <div class="receiptProductSku">{{ item.commoditySku || '-' }}</div>
+                    <div class="receiptProduct">
+                      <v-img
+                        v-if="item.mainImage"
+                        :src="item.mainImage"
+                        :alt="item.productName || item.commoditySku"
+                        width="64"
+                        height="64"
+                        cover
+                        class="receiptProductImage"
+                      >
+                        <template #error>
+                          <div class="receiptProductImageFallback">
+                            <v-icon icon="mdi-image-off-outline" size="24"></v-icon>
+                          </div>
+                        </template>
+                      </v-img>
+                      <div v-else class="receiptProductImageFallback">
+                        <v-icon icon="mdi-image-off-outline" size="24"></v-icon>
+                      </div>
+                      <div class="receiptProductText">
+                        <div class="receiptProductName">{{ item.productName || '-' }}</div>
+                        <div class="receiptProductSku">{{ item.commoditySku || '-' }}</div>
+                      </div>
+                    </div>
                   </td>
                   <td class="receiptNumberCell">{{ item.shipmentQty }}</td>
                   <td>
@@ -209,6 +231,7 @@ type ReceiptItemForm = {
   commodityId?: number | null
   commoditySku: string
   productName: string
+  mainImage: string
   shipmentQty: number
   actualReceiptQty: number
   lossQty: number
@@ -266,6 +289,7 @@ const method = reactive({
       commodityId: product.commodity_id,
       commoditySku: product.sku,
       productName: product.product_name,
+      mainImage: product.main_image,
       shipmentQty: Number(product.quantity ?? 0),
       actualReceiptQty: Number(product.quantity ?? 0),
       lossQty: 0
@@ -460,6 +484,34 @@ defineExpose({
 .receiptProductName {
   color: rgb(var(--v-theme-on-surface));
   font-weight: 500;
+}
+
+.receiptProduct {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.receiptProductImage,
+.receiptProductImageFallback {
+  flex: 0 0 64px;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.receiptProductImageFallback {
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(var(--v-theme-on-surface), 0.38);
+  background: rgba(var(--v-theme-on-surface), 0.04);
+}
+
+.receiptProductText {
+  min-width: 0;
 }
 
 .receiptProductSku {

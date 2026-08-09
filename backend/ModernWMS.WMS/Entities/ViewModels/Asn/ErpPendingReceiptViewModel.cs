@@ -50,6 +50,7 @@ public class ErpPendingReceiptProductViewModel
     public long? dept_id { get; set; }
     public string sku { get; set; } = string.Empty;
     public string product_name { get; set; } = string.Empty;
+    public string main_image { get; set; } = string.Empty;
     public long? quantity { get; set; }
     public string usage_type { get; set; } = string.Empty;
     public string order_user_name { get; set; } = string.Empty;

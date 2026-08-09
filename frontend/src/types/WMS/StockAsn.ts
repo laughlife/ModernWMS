@@ -121,6 +121,7 @@ export interface ErpPendingReceiptProductVO {
   dept_id?: number | null
   sku: string
   product_name: string
+  main_image: string
   quantity?: number | null
   usage_type: string
   order_user_name: string
