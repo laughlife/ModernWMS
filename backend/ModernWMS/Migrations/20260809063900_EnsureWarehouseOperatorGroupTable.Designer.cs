@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using ModernWMS.Core.DBContext;
 
@@ -10,87 +11,16 @@ using ModernWMS.Core.DBContext;
 namespace ModernWMS.Migrations
 {
     [DbContext(typeof(SqlDBContext))]
-    partial class SqlDBContextModelSnapshot : ModelSnapshot
+    [Migration("20260809063900_EnsureWarehouseOperatorGroupTable")]
+    partial class EnsureWarehouseOperatorGroupTable
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
                 .HasAnnotation("ProductVersion", "10.0.9")
                 .HasAnnotation("Relational:MaxIdentifierLength", 64);
-
-            modelBuilder.Entity("ModernWMS.Core.DBContext.Entities.ErpReceiptRecordEntity", b =>
-                {
-                    b.Property<int>("id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    b.Property<long>("actual_receipt_qty")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTime>("create_time")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("creator")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("varchar(64)");
-
-                    b.Property<long>("inbound_qty")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("loss_files_json")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<long>("loss_qty")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("loss_reason")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("varchar(500)");
-
-                    b.Property<DateTime>("last_update_time")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("receipt_files_json")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<decimal?>("receipt_freight_amount")
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<string>("receipt_freight_files_json")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("receipt_freight_payment_status")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("varchar(16)");
-
-                    b.Property<string>("receipt_remark")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("varchar(500)");
-
-                    b.Property<long>("shipment_id")
-                        .HasColumnType("bigint");
-
-                    b.Property<int>("source_version")
-                        .HasColumnType("int");
-
-                    b.Property<long>("tenant_id")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("id");
-
-                    b.HasIndex("shipment_id")
-                        .IsUnique();
-
-                    b.ToTable("wms_erp_receipt");
-                });
 
             modelBuilder.Entity("ModernWMS.Core.Models.GlobalUniqueSerialEntity", b =>
                 {
@@ -1710,8 +1640,7 @@ namespace ModernWMS.Migrations
 
                     b.HasKey("id");
 
-                    b.HasIndex("erp_warehouse_id")
-                        .IsUnique();
+                    b.HasIndex("erp_warehouse_id");
 
                     b.ToTable("wms_warehouse");
                 });

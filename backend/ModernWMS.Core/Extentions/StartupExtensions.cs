@@ -48,21 +48,19 @@ namespace ModernWMS.Core.Extentions
                 return cache;
             });
 
-            var wmsConnectionString = configuration.GetConnectionString("MySqlConn");
-            if (string.IsNullOrWhiteSpace(wmsConnectionString))
+            var databaseConnectionString = configuration.GetConnectionString("MySqlConn");
+            if (string.IsNullOrWhiteSpace(databaseConnectionString))
             {
                 throw new InvalidOperationException("ConnectionStrings:MySqlConn is required.");
             }
 
-            var ruoyiConnectionString = configuration.GetConnectionString("RuoyiMySqlConn");
-            if (string.IsNullOrWhiteSpace(ruoyiConnectionString))
-            {
-                throw new InvalidOperationException("ConnectionStrings:RuoyiMySqlConn is required.");
-            }
-
             services.AddDbContextPool<SqlDBContext>(t =>
             {
-                t.UseMySQL(wmsConnectionString, b => b.MigrationsAssembly("ModernWMS"));
+                t.UseMySQL(databaseConnectionString, b =>
+                {
+                    b.MigrationsAssembly("ModernWMS");
+                    b.MigrationsHistoryTable("wms_ef_migrations_history");
+                });
                 if (environment.IsDevelopment())
                 {
                     t.EnableSensitiveDataLogging();
@@ -71,7 +69,7 @@ namespace ModernWMS.Core.Extentions
             }, databaseContextPoolSize);
             services.AddDbContextPool<RuoyiDbContext>(t =>
             {
-                t.UseMySQL(ruoyiConnectionString);
+                t.UseMySQL(databaseConnectionString);
                 if (environment.IsDevelopment())
                 {
                     t.EnableSensitiveDataLogging();

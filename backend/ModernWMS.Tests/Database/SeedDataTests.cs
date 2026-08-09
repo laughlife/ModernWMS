@@ -13,8 +13,8 @@ public class SeedDataTests
     {
         var manifest = await SeedManifest.LoadAsync();
 
-        Assert.Equal(19, manifest.Menus.Count);
-        Assert.Equal(19, manifest.RoleMenus.Count);
+        Assert.Equal(18, manifest.Menus.Count);
+        Assert.Equal(18, manifest.RoleMenus.Count);
         Assert.Single(manifest.Users);
         Assert.Single(manifest.UserRoles);
     }
@@ -31,8 +31,8 @@ public class SeedDataTests
         await DatabaseInitializer.SeedAsync(database, manifest);
         await DatabaseInitializer.SeedAsync(database, manifest);
 
-        Assert.Equal(19, await database.Set<MenuEntity>().CountAsync());
-        Assert.Equal(19, await database.Set<RolemenuEntity>().CountAsync());
+        Assert.Equal(18, await database.Set<MenuEntity>().CountAsync());
+        Assert.Equal(18, await database.Set<RolemenuEntity>().CountAsync());
         Assert.Single(await database.Set<userEntity>().ToListAsync());
         Assert.Single(await database.Set<UserroleEntity>().ToListAsync());
     }

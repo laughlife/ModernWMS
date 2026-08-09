@@ -10,7 +10,7 @@ namespace ModernWMS.Initialization;
 public sealed class DesignTimeSqlDbContextFactory : IDesignTimeDbContextFactory<SqlDBContext>
 {
     private const string DesignTimeConnectionString =
-        "Server=127.0.0.1;Port=3306;Database=wms;User Id=modernwms_migrations;Character Set=utf8mb4";
+        "Server=127.0.0.1;Port=3306;Database=ruoyi-vue-pro;User Id=modernwms_migrations;Character Set=utf8mb4";
 
     public SqlDBContext CreateDbContext(string[] args)
     {
@@ -21,7 +21,11 @@ public sealed class DesignTimeSqlDbContextFactory : IDesignTimeDbContextFactory<
         }
 
         var options = new DbContextOptionsBuilder<SqlDBContext>()
-            .UseMySQL(connectionString, mysql => mysql.MigrationsAssembly("ModernWMS"))
+            .UseMySQL(connectionString, mysql =>
+            {
+                mysql.MigrationsAssembly("ModernWMS");
+                mysql.MigrationsHistoryTable("wms_ef_migrations_history");
+            })
             .Options;
 
         return new SqlDBContext(options);

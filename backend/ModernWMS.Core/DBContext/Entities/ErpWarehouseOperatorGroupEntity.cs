@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace ModernWMS.Core.DBContext.Entities;
 
 /// <summary>
-/// Warehouse and ERP operator-group binding stored in the Ruoyi database.
+/// Warehouse and ERP operator-group binding stored in the shared application database.
 /// </summary>
 [Table("wms_warehouse_operator_group")]
 public class ErpWarehouseOperatorGroupEntity

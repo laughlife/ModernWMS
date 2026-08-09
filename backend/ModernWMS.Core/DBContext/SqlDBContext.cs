@@ -77,6 +77,18 @@ namespace ModernWMS.Core.DBContext
                    }
                }*/
             base.OnModelCreating(modelBuilder);
+
+            // ModernWMS 与 Ruoyi 共用一个数据库，WMS 业务表统一增加 wms_ 前缀，
+            // 避免与 Ruoyi/ERP 现有表混淆。该约定也会自动覆盖后续新增的 WMS 实体。
+            foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+            {
+                var tableName = entityType.GetTableName();
+                if (!string.IsNullOrWhiteSpace(tableName)
+                    && !tableName.StartsWith("wms_", StringComparison.OrdinalIgnoreCase))
+                {
+                    entityType.SetTableName($"wms_{tableName}");
+                }
+            }
         }
 
         /// <summary>

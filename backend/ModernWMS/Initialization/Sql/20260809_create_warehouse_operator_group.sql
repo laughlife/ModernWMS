@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS `wms_warehouse_operator_group` (
   `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键',
   `tenant_id` BIGINT NOT NULL COMMENT 'ModernWMS租户ID',
-  `warehouse_id` INT NOT NULL COMMENT 'ModernWMS仓库ID（跨库逻辑外键）',
+  `warehouse_id` INT NOT NULL COMMENT 'ModernWMS仓库ID',
   `dept_id` BIGINT NOT NULL COMMENT 'system_dept.id（操作小组）',
   `creator` VARCHAR(64) NOT NULL DEFAULT '' COMMENT '创建者',
   `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',

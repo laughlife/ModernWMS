@@ -19,14 +19,14 @@ cd ..
 
 ## 2. 配置运行环境
 
-部署机安装 .NET 10 Runtime，或在后续发布策略中改为 self-contained。MySQL 8.4 需已创建 `wms` 数据库并允许应用账号访问。
+部署机安装 .NET 10 Runtime，或在后续发布策略中改为 self-contained。MySQL 8.4 需已创建 `ruoyi-vue-pro` 数据库并允许应用账号访问；WMS 表使用 `wms_` 前缀。
 
 不要把密码写入仓库文件。可为运行后端的 Windows 服务账号设置受保护的环境变量：
 
 ```text
 ASPNETCORE_ENVIRONMENT=Production
 ASPNETCORE_URLS=http://127.0.0.1:21011
-ConnectionStrings__MySqlConn=Server=127.0.0.1;Port=3306;Database=wms;User ID=...;Password=...;Character Set=utf8mb4;
+ConnectionStrings__MySqlConn=Server=127.0.0.1;Port=3306;Database=ruoyi-vue-pro;User ID=...;Password=...;Character Set=utf8mb4;
 TokenSettings__SigningKey=至少32个UTF-8字节的随机密钥
 ```
 

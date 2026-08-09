@@ -10,16 +10,16 @@ node --version
 npm --version
 ```
 
-目标版本为 .NET SDK `10.0.302`、Node.js `24.16.0` 或更高版本、npm `11.17.0`。`global.json` 会让 .NET CLI 选择 10.0.302 功能带，`frontend/package.json` 定义了 Node 和 npm 要求。
+目标版本为 .NET SDK `10.0.302`、Node.js `24.16.0` 或更高版本、npm `11.17.0`。后端目标框架固定为 `net10.0`，开发、构建和运行均使用 .NET 10 系列 SDK/Runtime。`global.json` 会让 .NET CLI 选择 10.0.302 功能带，`frontend/package.json` 定义了 Node 和 npm 要求。
 
-MySQL 8.4 应监听 `127.0.0.1:3306`，数据库名为 `wms`。建议给应用使用专用的最小权限账号，不要长期使用 `root`。
+MySQL 8.4 应监听 `127.0.0.1:3306`，数据库名为 `ruoyi-vue-pro`。ModernWMS 与 Ruoyi/ERP 共用该数据库，WMS 自有表使用 `wms_` 前缀。建议给应用使用专用的最小权限账号，不要长期使用 `root`。
 
 ## 2. 配置后端
 
 真实连接串和 JWT 密钥使用 User Secrets 保存，不写入 `appsettings.json`：
 
 ```powershell
-dotnet user-secrets set "ConnectionStrings:MySqlConn" "Server=127.0.0.1;Port=3306;Database=wms;User ID=YOUR_USER;Password=YOUR_PASSWORD;Character Set=utf8mb4;" --project backend/ModernWMS
+dotnet user-secrets set "ConnectionStrings:MySqlConn" "Server=127.0.0.1;Port=3306;Database=ruoyi-vue-pro;User ID=YOUR_USER;Password=YOUR_PASSWORD;Character Set=utf8mb4;" --project backend/ModernWMS
 dotnet user-secrets set "TokenSettings:SigningKey" "REPLACE_WITH_AT_LEAST_32_UTF8_BYTES" --project backend/ModernWMS
 dotnet user-secrets list --project backend/ModernWMS
 ```

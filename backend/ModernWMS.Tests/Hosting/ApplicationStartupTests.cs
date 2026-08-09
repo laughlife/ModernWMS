@@ -34,7 +34,7 @@ public class ApplicationStartupTests
     }
 
     [Fact]
-    public void Ruoyi_primary_context_uses_its_dedicated_connection_string()
+    public void Wms_and_ruoyi_contexts_share_the_single_application_database()
     {
         using var factory = new WebApplicationFactory<Program>()
             .WithWebHostBuilder(builder =>
@@ -42,9 +42,6 @@ public class ApplicationStartupTests
                 builder.UseEnvironment("Development");
                 builder.UseSetting(
                     "ConnectionStrings:MySqlConn",
-                    "Server=127.0.0.1;Port=3306;Database=modernwms_smoke;User Id=wms_user;Password=wms_password");
-                builder.UseSetting(
-                    "ConnectionStrings:RuoyiMySqlConn",
                     "Server=192.168.100.2;Port=3306;Database=ruoyi-vue-pro;User Id=ruoyi_user;Password=ruoyi_password");
                 builder.UseSetting(
                     "TokenSettings:SigningKey",
@@ -53,15 +50,37 @@ public class ApplicationStartupTests
             });
 
         using var scope = factory.Services.CreateScope();
+        var wmsDbContext = scope.ServiceProvider.GetRequiredService<SqlDBContext>();
         var ruoyiDbContext = scope.ServiceProvider.GetRequiredService<RuoyiDbContext>();
-        var connectionString = new DbConnectionStringBuilder
+        var wmsConnectionString = new DbConnectionStringBuilder
+        {
+            ConnectionString = wmsDbContext.Database.GetDbConnection().ConnectionString
+        };
+        var ruoyiConnectionString = new DbConnectionStringBuilder
         {
             ConnectionString = ruoyiDbContext.Database.GetDbConnection().ConnectionString
         };
 
-        Assert.Equal("192.168.100.2", connectionString["server"]);
-        Assert.Equal("ruoyi-vue-pro", connectionString["database"]);
-        Assert.Equal("ruoyi_user", connectionString["user id"]);
+        Assert.Equal("ruoyi-vue-pro", wmsConnectionString["database"]);
+        Assert.Equal(wmsConnectionString["server"], ruoyiConnectionString["server"]);
+        Assert.Equal(wmsConnectionString["database"], ruoyiConnectionString["database"]);
+        Assert.Equal(wmsConnectionString["user id"], ruoyiConnectionString["user id"]);
+    }
+
+    [Fact]
+    public void Every_wms_entity_maps_to_a_wms_prefixed_table()
+    {
+        using var factory = CreateFactory();
+        using var scope = factory.Services.CreateScope();
+        var database = scope.ServiceProvider.GetRequiredService<SqlDBContext>();
+
+        var invalidMappings = database.Model.GetEntityTypes()
+            .Select(entity => entity.GetTableName())
+            .Where(tableName => !string.IsNullOrWhiteSpace(tableName))
+            .Where(tableName => !tableName!.StartsWith("wms_", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        Assert.Empty(invalidMappings);
     }
 
     private static WebApplicationFactory<Program> CreateFactory() =>
@@ -71,9 +90,6 @@ public class ApplicationStartupTests
                 builder.UseEnvironment("Development");
                 builder.UseSetting(
                     "ConnectionStrings:MySqlConn",
-                    "Server=127.0.0.1;Port=3306;Database=modernwms_smoke;User Id=smoke");
-                builder.UseSetting(
-                    "ConnectionStrings:RuoyiMySqlConn",
                     "Server=127.0.0.1;Port=3306;Database=ruoyi_smoke;User Id=smoke");
                 builder.UseSetting(
                     "TokenSettings:SigningKey",
