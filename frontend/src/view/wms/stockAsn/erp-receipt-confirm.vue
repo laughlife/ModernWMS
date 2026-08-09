@@ -1,5 +1,5 @@
 <template>
-  <v-dialog v-model="data.showDialog" width="720" transition="dialog-top-transition" persistent>
+  <v-dialog v-model="data.showDialog" width="960" transition="dialog-top-transition" persistent>
     <v-card class="formCard receiptDialog">
       <v-toolbar color="white" :title="$t('wms.erpPendingReceipt.receipt_title')">
         <template #append>
@@ -11,47 +11,56 @@
 
       <v-card-text class="receiptContent">
         <v-form ref="formRef">
-          <div class="receiptInfoRow">
-            <span class="receiptLabel">{{ $t('wms.erpPendingReceipt.purchase_no') }}</span>
-            <span class="receiptValue">{{ data.currentRow?.purchase_no || '-' }}</span>
-          </div>
-          <div class="receiptInfoRow">
-            <span class="receiptLabel">{{ $t('wms.erpPendingReceipt.source_document') }}</span>
-            <span class="receiptValue">{{ method.sourceDocument() }}</span>
-          </div>
-          <div class="receiptInfoRow">
-            <span class="receiptLabel">{{ $t('wms.erpPendingReceipt.forwarder_or_warehouse') }}</span>
-            <span class="receiptValue">{{ data.currentRow?.freight_forwarder_name || data.currentRow?.warehouse_name || '-' }}</span>
-          </div>
-          <div class="receiptInfoRow">
-            <span class="receiptLabel">{{ $t('wms.erpPendingReceipt.shipment_qty') }}</span>
-            <span class="receiptValue">{{ data.currentRow?.shipment_qty ?? 0 }}</span>
-          </div>
-
-          <v-text-field
-            v-model.number="data.form.actualReceiptQty"
-            type="number"
-            min="0"
-            :max="data.currentRow?.shipment_qty ?? undefined"
-            step="1"
-            variant="outlined"
-            density="comfortable"
-            :label="$t('wms.erpPendingReceipt.actual_receipt_qty')"
-            :rules="data.rules.actualReceiptQty"
-          ></v-text-field>
-          <div class="receiptQtyTip">{{ $t('wms.erpPendingReceipt.receipt_qty_tip') }}</div>
-
-          <div class="receiptInfoRow">
-            <span class="receiptLabel">{{ $t('wms.erpPendingReceipt.source_freight_payment_type') }}</span>
-            <span class="receiptValue">{{ method.sourceFreightPaymentType() }}</span>
+          <div class="receiptSummaryGrid">
+            <div class="receiptInfoRow">
+              <span class="receiptLabel">{{ $t('wms.erpPendingReceipt.purchase_no') }}</span>
+              <span class="receiptValue">{{ data.currentRow?.purchase_no || '-' }}</span>
+            </div>
+            <div class="receiptInfoRow">
+              <span class="receiptLabel">{{ $t('wms.erpPendingReceipt.warehouse_name') }}</span>
+              <span class="receiptValue">{{ data.currentRow?.warehouse_name || '-' }}</span>
+            </div>
+            <div class="receiptInfoRow">
+              <span class="receiptLabel">{{ $t('wms.erpPendingReceipt.order_user_name') }}</span>
+              <span class="receiptValue">{{ orderUserNames }}</span>
+            </div>
+            <div class="receiptInfoRow">
+              <span class="receiptLabel">{{ $t('wms.erpPendingReceipt.dept_name') }}</span>
+              <span class="receiptValue">{{ deptNames }}</span>
+            </div>
+            <div class="receiptInfoRow">
+              <span class="receiptLabel">{{ $t('wms.erpPendingReceipt.shipment_qty') }}</span>
+              <span class="receiptValue">{{ data.currentRow?.shipment_qty ?? 0 }}</span>
+            </div>
+            <div class="receiptInfoRow">
+              <span class="receiptLabel">{{ $t('wms.erpPendingReceipt.source_freight_payment_type') }}</span>
+              <span class="receiptValue">{{ method.sourceFreightPaymentType() }}</span>
+            </div>
           </div>
 
-          <div class="receiptFormRow">
-            <span class="receiptLabel requiredLabel">{{ $t('wms.erpPendingReceipt.receipt_freight_payment_status') }}</span>
-            <v-btn-toggle v-model="data.form.receiptFreightPaymentStatus" color="primary" mandatory divided>
-              <v-btn value="NO_PAY">{{ $t('wms.erpPendingReceipt.no_pay') }}</v-btn>
-              <v-btn value="PAY">{{ $t('wms.erpPendingReceipt.pay') }}</v-btn>
-            </v-btn-toggle>
+          <div class="receiptFormGrid">
+            <div class="receiptFieldControl">
+              <v-text-field
+                v-model.number="data.form.actualReceiptQty"
+                type="number"
+                min="0"
+                :max="data.currentRow?.shipment_qty ?? undefined"
+                step="1"
+                variant="outlined"
+                density="comfortable"
+                :label="$t('wms.erpPendingReceipt.actual_receipt_qty')"
+                :rules="data.rules.actualReceiptQty"
+              ></v-text-field>
+              <div class="receiptQtyTip">{{ $t('wms.erpPendingReceipt.receipt_qty_tip') }}</div>
+            </div>
+
+            <div class="receiptFormRow">
+              <span class="receiptLabel requiredLabel">{{ $t('wms.erpPendingReceipt.receipt_freight_payment_status') }}</span>
+              <v-btn-toggle v-model="data.form.receiptFreightPaymentStatus" color="primary" mandatory divided>
+                <v-btn value="NO_PAY">{{ $t('wms.erpPendingReceipt.no_pay') }}</v-btn>
+                <v-btn value="PAY">{{ $t('wms.erpPendingReceipt.pay') }}</v-btn>
+              </v-btn-toggle>
+            </div>
           </div>
 
           <template v-if="shouldPayFreight">
@@ -173,6 +182,14 @@ const data = reactive({
 const shouldPayFreight = computed(() => data.form.receiptFreightPaymentStatus === 'PAY')
 const lossQty = computed(() => Math.max(0, (data.currentRow?.shipment_qty ?? 0) - Number(data.form.actualReceiptQty || 0)))
 const showLossFields = computed(() => data.currentRow?.source_type === 'STOCK_DISPATCH' && lossQty.value > 0)
+const uniqueText = (values: string[]) => [...new Set(values.map((value) => value.trim()).filter(Boolean))].join('、')
+const orderUserNames = computed(() => {
+  const productUsers = uniqueText((data.currentRow?.product_list ?? []).map((product) => product.order_user_name))
+  return productUsers || data.currentRow?.order_user_text || '-'
+})
+const deptNames = computed(() => {
+  return uniqueText((data.currentRow?.product_list ?? []).map((product) => product.dept_name)) || '-'
+})
 
 const method = reactive({
   openDialog: (row: ErpPendingReceiptVO) => {
@@ -190,12 +207,6 @@ const method = reactive({
   },
   closeDialog: () => {
     data.showDialog = false
-  },
-  sourceDocument: () => {
-    if (!data.currentRow) return '-'
-    return data.currentRow.source_type === 'STOCK_DISPATCH'
-      ? data.currentRow.source_stock_move_no || data.currentRow.shipment_batch_no || '-'
-      : data.currentRow.purchase_no || data.currentRow.shipment_batch_no || '-'
   },
   sourceFreightPaymentType: () => {
     const labels: Record<string, string> = {
@@ -228,10 +239,27 @@ defineExpose({
 .receiptInfoRow,
 .receiptFormRow {
   display: grid;
-  grid-template-columns: 140px minmax(0, 1fr);
+  grid-template-columns: 112px minmax(0, 1fr);
   align-items: center;
   min-height: 48px;
   margin-bottom: 8px;
+}
+
+.receiptSummaryGrid,
+.receiptFormGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 32px;
+}
+
+.receiptSummaryGrid {
+  border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+}
+
+.receiptFormGrid {
+  align-items: start;
 }
 
 .receiptLabel {
@@ -255,10 +283,23 @@ defineExpose({
 .receiptQtyTip {
   color: rgb(var(--v-theme-error));
   font-size: 12px;
-  margin: -14px 0 14px 140px;
+  line-height: 18px;
+  margin-top: 4px;
+}
+
+
+.receiptFieldControl {
+  min-width: 0;
 }
 
 .lossValue {
   color: rgb(var(--v-theme-error));
+}
+
+@media (max-width: 860px) {
+  .receiptSummaryGrid,
+  .receiptFormGrid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
