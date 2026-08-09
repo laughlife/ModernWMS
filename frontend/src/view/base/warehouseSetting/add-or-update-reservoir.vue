@@ -44,6 +44,20 @@
               variant="outlined"
               clearable
             ></v-select>
+            <v-select
+              v-model="data.form.operator_group_ids"
+              :items="data.operatorGroupOptions"
+              item-title="name"
+              item-value="id"
+              :return-object="false"
+              :label="$t('base.warehouseSetting.operator_group_binding')"
+              :loading="data.operatorGroupOptionsLoading"
+              variant="outlined"
+              multiple
+              chips
+              closable-chips
+              clearable
+            ></v-select>
             <v-switch
               v-model="data.form.is_valid"
               color="primary"
@@ -65,8 +79,8 @@
 import { reactive, computed, ref, watch } from 'vue'
 import i18n from '@/languages/i18n'
 import { hookComponent } from '@/components/system/index'
-import { addWarehouseArea, updateWarehouseArea, getWarehouseSelect } from '@/api/base/warehouseSetting'
-import { WarehouseAreaVO, AreaProperty } from '@/types/Base/Warehouse'
+import { addWarehouseArea, updateWarehouseArea, getWarehouseSelect, getOperatorGroupOptions } from '@/api/base/warehouseSetting'
+import { WarehouseAreaVO, AreaProperty, OperatorGroupOptionVO } from '@/types/Base/Warehouse'
 import { StringLength } from '@/utils/dataVerification/formRule'
 import { removeObjectNull } from '@/utils/common'
 
@@ -95,6 +109,8 @@ const data = reactive({
     warehouse_name: '',
     area_name: '',
     sort: 0,
+    operator_group_ids: [],
+    operator_group_names: [],
     area_property: AreaProperty.picking_area,
     is_valid: true
   }),
@@ -115,6 +131,8 @@ const data = reactive({
     ],
     is_valid: []
   },
+  operatorGroupOptions: [] as OperatorGroupOptionVO[],
+  operatorGroupOptionsLoading: false,
   combobox: ref<{
     warehouse_name: {
       label: string
@@ -170,6 +188,27 @@ const method = reactive({
       })
     }
   },
+  loadOperatorGroupOptions: async () => {
+    data.operatorGroupOptionsLoading = true
+    try {
+      const { data: res } = await getOperatorGroupOptions()
+      if (!res.isSuccess) {
+        hookComponent.$message({
+          type: 'error',
+          content: res.errorMessage
+        })
+        return
+      }
+      data.operatorGroupOptions = res.data
+    } catch {
+      hookComponent.$message({
+        type: 'error',
+        content: i18n.global.t('base.warehouseSetting.operator_group_load_failed')
+      })
+    } finally {
+      data.operatorGroupOptionsLoading = false
+    }
+  },
   closeDialog: () => {
     emit('close')
   },
@@ -216,7 +255,10 @@ watch(
   (val) => {
     if (val) {
       method.initForm()
-      method.getCombobox()
+      Promise.all([
+        method.getCombobox(),
+        method.loadOperatorGroupOptions()
+      ])
     }
   }
 )

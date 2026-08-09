@@ -60,6 +60,16 @@ namespace ModernWMS.WMS.Controllers
         }
 
         /// <summary>
+        /// get enabled ERP operator-group options
+        /// </summary>
+        [HttpGet("operator-group-options")]
+        public async Task<ResultModel<List<OperatorGroupOptionViewModel>>> GetOperatorGroupOptionsAsync()
+        {
+            var data = await _warehouseareaService.GetOperatorGroupOptionsAsync();
+            return ResultModel<List<OperatorGroupOptionViewModel>>.Success(data);
+        }
+
+        /// <summary>
         /// page search
         /// </summary>
         /// <param name="pageSearch">args</param>
@@ -101,7 +111,7 @@ namespace ModernWMS.WMS.Controllers
          [HttpGet]
          public async Task<ResultModel<WarehouseareaViewModel>> GetAsync(int id)
          {
-             var data = await _warehouseareaService.GetAsync(id);
+             var data = await _warehouseareaService.GetAsync(id, CurrentUser);
              if (data!=null)
              {
                  return ResultModel<WarehouseareaViewModel>.Success(data);
@@ -157,7 +167,7 @@ namespace ModernWMS.WMS.Controllers
          [HttpDelete]
          public async Task<ResultModel<string>> DeleteAsync(int id)
          {
-             var (flag, msg) = await _warehouseareaService.DeleteAsync(id);
+             var (flag, msg) = await _warehouseareaService.DeleteAsync(id, CurrentUser);
              if (flag)
              {
                  return ResultModel<string>.Success(msg);

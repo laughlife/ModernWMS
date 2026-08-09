@@ -24,6 +24,10 @@
          /// <returns></returns>
          Task<(List<WarehouseareaViewModel> data, int totals)> PageAsync(PageSearch pageSearch, CurrentUser currentUser);
          /// <summary>
+         /// Get enabled ERP operator groups ordered by system_dept.sort.
+         /// </summary>
+         Task<List<OperatorGroupOptionViewModel>> GetOperatorGroupOptionsAsync();
+         /// <summary>
          /// Get all records
          /// </summary>
          /// <returns></returns>
@@ -33,7 +37,7 @@
          /// </summary>
          /// <param name="id">primary key</param>
          /// <returns></returns>
-         Task<WarehouseareaViewModel> GetAsync(int id);
+         Task<WarehouseareaViewModel> GetAsync(int id, CurrentUser currentUser);
          /// <summary>
          /// add a new record
          /// </summary>
@@ -54,7 +58,7 @@
          /// </summary>
          /// <param name="id">id</param>
          /// <returns></returns>
-         Task<(bool flag, string msg)> DeleteAsync(int id);
+         Task<(bool flag, string msg)> DeleteAsync(int id, CurrentUser currentUser);
 
         /// <summary>
         /// get warehouseareas of the warehouse by warehouse_id

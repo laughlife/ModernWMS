@@ -61,6 +61,16 @@
           <span>{{ formatAreaProperty(row[column.property]) }}</span>
         </template>
       </vxe-column>
+      <vxe-column :title="$t('base.warehouseSetting.operator_group_binding')" min-width="240">
+        <template #default="{ row }">
+          <div v-if="row.operator_group_names?.length" class="operator-group-list">
+            <v-chip v-for="name in row.operator_group_names" :key="name" size="small" color="primary" variant="tonal">
+              {{ name }}
+            </v-chip>
+          </div>
+          <span v-else>-</span>
+        </template>
+      </vxe-column>
       <vxe-column field="is_valid" :title="$t('base.warehouseSetting.is_valid')">
         <template #default="{ row, column }">
           <span>{{ formatIsValid(row[column.property]) }}</span>
@@ -130,6 +140,8 @@ const data = reactive({
     warehouse_name: '',
     area_name: '',
     sort: 0,
+    operator_group_ids: [],
+    operator_group_names: [],
     area_property: AreaProperty.picking_area,
     is_valid: true
   }),
@@ -160,6 +172,8 @@ const method = reactive({
       warehouse_name: '',
       area_name: '',
       sort: 0,
+      operator_group_ids: [],
+      operator_group_names: [],
       area_property: AreaProperty.picking_area,
       is_valid: true
     }
@@ -300,5 +314,13 @@ defineExpose({
 .col {
   display: flex;
   align-items: center;
+}
+
+.operator-group-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 0;
 }
 </style>

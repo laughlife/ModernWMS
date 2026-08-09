@@ -13,8 +13,6 @@ using ModernWMS.Core.Models;
 using ModernWMS.Core.JWT;
 using Microsoft.Extensions.Localization;
 using ModernWMS.Core.DynamicSearch;
-using Microsoft.EntityFrameworkCore.Query.SqlExpressions;
-using System.Net.WebSockets;
 
 namespace ModernWMS.WMS.Services
 {
@@ -30,6 +28,11 @@ namespace ModernWMS.WMS.Services
         private readonly SqlDBContext _dBContext;
 
         /// <summary>
+        /// Ruoyi business tables in the shared database.
+        /// </summary>
+        private readonly RuoyiDbContext _ruoyiDbContext;
+
+        /// <summary>
         /// Localizer Service
         /// </summary>
         private readonly IStringLocalizer<ModernWMS.Core.MultiLanguage> _stringLocalizer;
@@ -43,15 +46,36 @@ namespace ModernWMS.WMS.Services
         /// <param name="stringLocalizer">Localizer</param>
         public WarehouseareaService(
             SqlDBContext dBContext
+          , RuoyiDbContext ruoyiDbContext
           , IStringLocalizer<ModernWMS.Core.MultiLanguage> stringLocalizer
             )
         {
             this._dBContext = dBContext;
+            this._ruoyiDbContext = ruoyiDbContext;
             this._stringLocalizer = stringLocalizer;
         }
         #endregion
 
         #region Api
+        /// <summary>
+        /// Get enabled ERP operator groups ordered for the binding dropdown.
+        /// </summary>
+        public async Task<List<OperatorGroupOptionViewModel>> GetOperatorGroupOptionsAsync()
+        {
+            return await _ruoyiDbContext.SystemDepts
+                .AsNoTracking()
+                .Where(t => !t.deleted && t.status == 0 && t.dept == "operator")
+                .OrderBy(t => t.sort)
+                .ThenBy(t => t.id)
+                .Select(t => new OperatorGroupOptionViewModel
+                {
+                    id = t.id,
+                    name = t.name ?? string.Empty,
+                    sort = t.sort
+                })
+                .ToListAsync();
+        }
+
         /// <summary>
         /// page search
         /// </summary>
@@ -97,6 +121,7 @@ namespace ModernWMS.WMS.Services
                        .Skip((pageSearch.pageIndex - 1) * pageSearch.pageSize)
                        .Take(pageSearch.pageSize)
                        .ToListAsync();
+            await PopulateOperatorGroupBindingsAsync(list);
             return (list, totals);
         }
         /// <summary>
@@ -137,22 +162,27 @@ namespace ModernWMS.WMS.Services
                 .OrderBy(t => t.sort)
                 .ThenBy(t => t.id)
                 .ToListAsync();
-            return data.Adapt<List<WarehouseareaViewModel>>();
+            var result = data.Adapt<List<WarehouseareaViewModel>>();
+            await PopulateOperatorGroupBindingsAsync(result);
+            return result;
         }
 
         /// <summary>
         /// Get a record by id
         /// </summary>
         /// <returns></returns>
-        public async Task<WarehouseareaViewModel> GetAsync(int id)
+        public async Task<WarehouseareaViewModel> GetAsync(int id, CurrentUser currentUser)
         {
             var DbSet = _dBContext.GetDbSet<WarehouseareaEntity>();
-            var entity = await DbSet.AsNoTracking().FirstOrDefaultAsync(t => t.id.Equals(id));
+            var entity = await DbSet.AsNoTracking()
+                .FirstOrDefaultAsync(t => t.id == id && t.tenant_id == currentUser.tenant_id);
             if (entity == null)
             {
                 return null;
             }
-            return entity.Adapt<WarehouseareaViewModel>();
+            var result = entity.Adapt<WarehouseareaViewModel>();
+            await PopulateOperatorGroupBindingsAsync(new List<WarehouseareaViewModel> { result });
+            return result;
         }
         /// <summary>
         /// add a new record
@@ -163,6 +193,16 @@ namespace ModernWMS.WMS.Services
         public async Task<(int id, string msg)> AddAsync(WarehouseareaViewModel viewModel, CurrentUser currentUser)
         {
             var DbSet = _dBContext.GetDbSet<WarehouseareaEntity>();
+            var operatorGroupIds = NormalizeOperatorGroupIds(viewModel.operator_group_ids);
+            if (!await AreValidOperatorGroupsAsync(operatorGroupIds))
+            {
+                return (0, _stringLocalizer["invalid_operator_group"]);
+            }
+            if (!await _dBContext.GetDbSet<WarehouseEntity>()
+                .AnyAsync(t => t.id == viewModel.warehouse_id && t.tenant_id == currentUser.tenant_id))
+            {
+                return (0, _stringLocalizer["not_exists_entity"]);
+            }
             if (await DbSet.AnyAsync(t => t.warehouse_id == viewModel.warehouse_id && t.area_name == viewModel.area_name && t.tenant_id == currentUser.tenant_id))
             {
                 return (0, string.Format(_stringLocalizer["exists_entity"], _stringLocalizer["area_name"], viewModel.area_name));
@@ -172,10 +212,18 @@ namespace ModernWMS.WMS.Services
             entity.create_time = DateTime.Now;
             entity.last_update_time = DateTime.Now;
             entity.tenant_id = currentUser.tenant_id;
+            await using var transaction = await _dBContext.Database.BeginTransactionAsync();
             await DbSet.AddAsync(entity);
             await _dBContext.SaveChangesAsync();
             if (entity.id > 0)
             {
+                await AddOperatorGroupBindingsAsync(
+                    entity.id,
+                    currentUser.tenant_id,
+                    operatorGroupIds,
+                    currentUser.user_name);
+                await _dBContext.SaveChangesAsync();
+                await transaction.CommitAsync();
                 return (entity.id, _stringLocalizer["save_success"]);
             }
             else
@@ -192,7 +240,18 @@ namespace ModernWMS.WMS.Services
         public async Task<(bool flag, string msg)> UpdateAsync(WarehouseareaViewModel viewModel, CurrentUser currentUser)
         {
             var DbSet = _dBContext.GetDbSet<WarehouseareaEntity>();
-            var entity = await DbSet.FirstOrDefaultAsync(t => t.id.Equals(viewModel.id));
+            var operatorGroupIds = NormalizeOperatorGroupIds(viewModel.operator_group_ids);
+            if (!await AreValidOperatorGroupsAsync(operatorGroupIds))
+            {
+                return (false, _stringLocalizer["invalid_operator_group"]);
+            }
+            if (!await _dBContext.GetDbSet<WarehouseEntity>()
+                .AnyAsync(t => t.id == viewModel.warehouse_id && t.tenant_id == currentUser.tenant_id))
+            {
+                return (false, _stringLocalizer["not_exists_entity"]);
+            }
+            var entity = await DbSet.FirstOrDefaultAsync(t => t.id == viewModel.id
+                && t.tenant_id == currentUser.tenant_id);
             if (await DbSet.AnyAsync(t => t.id != viewModel.id && t.warehouse_id == viewModel.warehouse_id && t.area_name == viewModel.area_name && t.tenant_id == currentUser.tenant_id))
             {
                 return (false, string.Format(_stringLocalizer["exists_entity"], _stringLocalizer["area_name"], viewModel.area_name));
@@ -210,43 +269,160 @@ namespace ModernWMS.WMS.Services
             entity.sort = viewModel.sort;
             entity.last_update_time = DateTime.Now;
             var goodslocation_DBSet = _dBContext.GetDbSet<GoodslocationEntity>();
-            var gldatas = await goodslocation_DBSet.Where(t => t.warehouse_area_id == entity.id).ToListAsync();
+            var gldatas = await goodslocation_DBSet
+                .Where(t => t.warehouse_area_id == entity.id && t.tenant_id == currentUser.tenant_id)
+                .ToListAsync();
             gldatas.ForEach(t =>
             {
                 t.warehouse_area_name = entity.area_name;
                 t.warehouse_area_property = entity.area_property;
                 t.is_valid = entity.is_valid;
             });
-            var qty = await _dBContext.SaveChangesAsync();
-            if (qty > 0)
-            {
-                return (true, _stringLocalizer["save_success"]);
-            }
-            else
-            {
-                return (false, _stringLocalizer["save_failed"]);
-            }
+            var bindingDbSet = _dBContext.GetDbSet<WarehouseareaOperatorGroupEntity>();
+            var oldBindings = await bindingDbSet
+                .Where(t => t.warehouse_area_id == entity.id && t.tenant_id == currentUser.tenant_id)
+                .ToListAsync();
+            var selectedGroupIds = operatorGroupIds.ToHashSet();
+            bindingDbSet.RemoveRange(oldBindings.Where(t => !selectedGroupIds.Contains(t.dept_id)));
+            var newGroupIds = operatorGroupIds
+                .Except(oldBindings.Select(t => t.dept_id))
+                .ToList();
+            await AddOperatorGroupBindingsAsync(
+                entity.id,
+                currentUser.tenant_id,
+                newGroupIds,
+                currentUser.user_name);
+            await _dBContext.SaveChangesAsync();
+            return (true, _stringLocalizer["save_success"]);
         }
         /// <summary>
         /// delete a record
         /// </summary>
         /// <param name="id">id</param>
         /// <returns></returns>
-        public async Task<(bool flag, string msg)> DeleteAsync(int id)
+        public async Task<(bool flag, string msg)> DeleteAsync(int id, CurrentUser currentUser)
         {
-            if (await _dBContext.GetDbSet < GoodslocationEntity>().AnyAsync(t=>t.warehouse_area_id  == id))
+            if (await _dBContext.GetDbSet<GoodslocationEntity>()
+                .AnyAsync(t => t.warehouse_area_id == id && t.tenant_id == currentUser.tenant_id))
             {
                 return (false, _stringLocalizer["exist_location_not_delete"]);
             }
-            var qty = await _dBContext.GetDbSet<WarehouseareaEntity>().Where(t => t.id.Equals(id)).ExecuteDeleteAsync();
-            if (qty > 0)
+            var entity = await _dBContext.GetDbSet<WarehouseareaEntity>()
+                .FirstOrDefaultAsync(t => t.id == id && t.tenant_id == currentUser.tenant_id);
+            if (entity != null)
             {
+                var bindingDbSet = _dBContext.GetDbSet<WarehouseareaOperatorGroupEntity>();
+                var bindings = await bindingDbSet
+                    .Where(t => t.warehouse_area_id == id && t.tenant_id == currentUser.tenant_id)
+                    .ToListAsync();
+                bindingDbSet.RemoveRange(bindings);
+                _dBContext.GetDbSet<WarehouseareaEntity>().Remove(entity);
+                await _dBContext.SaveChangesAsync();
                 return (true, _stringLocalizer["delete_success"]);
             }
             else
             {
                 return (false, _stringLocalizer["delete_failed"]);
             }
+        }
+
+        /// <summary>
+        /// Validate that every selected id is an enabled ERP operator group.
+        /// </summary>
+        private async Task<bool> AreValidOperatorGroupsAsync(IReadOnlyCollection<long> operatorGroupIds)
+        {
+            if (operatorGroupIds.Count == 0)
+            {
+                return true;
+            }
+
+            var validCount = await _ruoyiDbContext.SystemDepts
+                .AsNoTracking()
+                .CountAsync(t => operatorGroupIds.Contains(t.id)
+                    && !t.deleted
+                    && t.status == 0
+                    && t.dept == "operator");
+            return validCount == operatorGroupIds.Count;
+        }
+
+        /// <summary>
+        /// Add normalized bindings to the current WMS unit of work.
+        /// </summary>
+        private async Task AddOperatorGroupBindingsAsync(
+            int warehouseAreaId,
+            long tenantId,
+            IReadOnlyCollection<long> operatorGroupIds,
+            string creator)
+        {
+            if (operatorGroupIds.Count == 0)
+            {
+                return;
+            }
+
+            var now = DateTime.Now;
+            var bindings = operatorGroupIds.Select(deptId => new WarehouseareaOperatorGroupEntity
+            {
+                tenant_id = tenantId,
+                warehouse_area_id = warehouseAreaId,
+                dept_id = deptId,
+                creator = creator,
+                create_time = now
+            });
+            await _dBContext.GetDbSet<WarehouseareaOperatorGroupEntity>().AddRangeAsync(bindings);
+        }
+
+        /// <summary>
+        /// Populate current group ids and names for list and edit views.
+        /// </summary>
+        private async Task PopulateOperatorGroupBindingsAsync(IEnumerable<WarehouseareaViewModel> warehouseAreas)
+        {
+            var areaList = warehouseAreas.ToList();
+            if (areaList.Count == 0)
+            {
+                return;
+            }
+
+            var areaIds = areaList.Select(t => t.id).Distinct().ToList();
+            var tenantIds = areaList.Select(t => t.tenant_id).Distinct().ToList();
+            var bindings = await _dBContext.GetDbSet<WarehouseareaOperatorGroupEntity>()
+                .AsNoTracking()
+                .Where(t => areaIds.Contains(t.warehouse_area_id)
+                    && tenantIds.Contains(t.tenant_id))
+                .ToListAsync();
+            if (bindings.Count == 0)
+            {
+                return;
+            }
+
+            var deptIds = bindings.Select(t => t.dept_id).Distinct().ToList();
+            var departments = await _ruoyiDbContext.SystemDepts
+                .AsNoTracking()
+                .Where(t => deptIds.Contains(t.id) && !t.deleted)
+                .Select(t => new { t.id, t.name, t.sort })
+                .ToListAsync();
+            var departmentMap = departments.ToDictionary(t => t.id);
+
+            areaList.ForEach(area =>
+            {
+                var items = bindings
+                    .Where(t => t.tenant_id == area.tenant_id && t.warehouse_area_id == area.id)
+                    .Where(t => departmentMap.ContainsKey(t.dept_id))
+                    .OrderBy(t => departmentMap[t.dept_id].sort)
+                    .ThenBy(t => t.dept_id)
+                    .ToList();
+                area.operator_group_ids = items.Select(t => t.dept_id).ToList();
+                area.operator_group_names = items
+                    .Select(t => departmentMap[t.dept_id].name ?? string.Empty)
+                    .ToList();
+            });
+        }
+
+        private static List<long> NormalizeOperatorGroupIds(IEnumerable<long>? operatorGroupIds)
+        {
+            return operatorGroupIds?
+                .Where(t => t > 0)
+                .Distinct()
+                .ToList() ?? new List<long>();
         }
         #endregion
     }

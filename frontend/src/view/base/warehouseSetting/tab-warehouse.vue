@@ -75,16 +75,6 @@
           <span v-else>-</span>
         </template>
       </vxe-column>
-      <vxe-column :title="$t('base.warehouseSetting.operator_group_binding')" min-width="240">
-        <template #default="{ row }">
-          <div v-if="row.operator_group_names?.length" class="operator-group-list">
-            <v-chip v-for="name in row.operator_group_names" :key="name" size="small" color="primary" variant="tonal">
-              {{ name }}
-            </v-chip>
-          </div>
-          <span v-else>-</span>
-        </template>
-      </vxe-column>
       <vxe-column field="city" :title="$t('base.warehouseSetting.city')"></vxe-column>
       <vxe-column field="address" :title="$t('base.warehouseSetting.address')"></vxe-column>
       <vxe-column field="contact_tel" :title="$t('base.warehouseSetting.contact_tel')"></vxe-column>
@@ -168,8 +158,6 @@ const data = reactive({
     warehouse_name: '',
     erp_warehouse_id: null,
     erp_warehouse_name: '',
-    operator_group_ids: [],
-    operator_group_names: [],
     city: '',
     address: '',
     contact_tel: '',
@@ -204,8 +192,6 @@ const method = reactive({
       warehouse_name: '',
       erp_warehouse_id: null,
       erp_warehouse_name: '',
-      operator_group_ids: [],
-      operator_group_names: [],
       city: '',
       address: '',
       contact_tel: '',
@@ -368,11 +354,4 @@ defineExpose({
   align-items: center;
 }
 
-.operator-group-list {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 4px;
-  padding: 4px 0;
-}
 </style>

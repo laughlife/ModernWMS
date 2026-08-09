@@ -71,16 +71,6 @@ namespace ModernWMS.WMS.Controllers
         }
 
         /// <summary>
-        /// get enabled ERP operator-group options
-        /// </summary>
-        [HttpGet("operator-group-options")]
-        public async Task<ResultModel<List<OperatorGroupOptionViewModel>>> GetOperatorGroupOptionsAsync()
-        {
-            var data = await _warehouseService.GetOperatorGroupOptionsAsync();
-            return ResultModel<List<OperatorGroupOptionViewModel>>.Success(data);
-        }
-
-        /// <summary>
         /// page search
         /// </summary>
         /// <param name="pageSearch">args</param>

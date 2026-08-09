@@ -26,10 +26,6 @@
         /// Get ERP domestic warehouses available for optional binding.
         /// </summary>
         Task<List<ErpWarehouseOptionViewModel>> GetErpWarehouseOptionsAsync();
-        /// <summary>
-        /// Get enabled ERP operator groups ordered by system_dept.sort.
-        /// </summary>
-        Task<List<OperatorGroupOptionViewModel>> GetOperatorGroupOptionsAsync();
          /// <summary>
          /// page search
          /// </summary>

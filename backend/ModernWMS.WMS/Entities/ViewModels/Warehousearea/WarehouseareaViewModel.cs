@@ -99,6 +99,18 @@ namespace ModernWMS.WMS.Entities.ViewModels
         [Range(0, int.MaxValue, ErrorMessage = "Range")]
         public int sort { get; set; } = 0;
 
+        /// <summary>
+        /// Bound ERP operator-group ids. Binding is optional and supports multiple groups.
+        /// </summary>
+        [Display(Name = "operator_group_ids")]
+        public List<long> operator_group_ids { get; set; } = new();
+
+        /// <summary>
+        /// Current ERP operator-group names ordered by system_dept.sort.
+        /// </summary>
+        [Display(Name = "operator_group_names")]
+        public List<string> operator_group_names { get; set; } = new();
+
 
         #endregion
 

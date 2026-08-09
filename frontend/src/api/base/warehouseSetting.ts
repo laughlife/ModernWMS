@@ -54,9 +54,9 @@ export const getErpWarehouseOptions = () => http({
   method: 'get'
 })
 
-// Get enabled ERP operator groups available for warehouse binding
+// Get enabled ERP operator groups available for warehouse-area binding
 export const getOperatorGroupOptions = () => http({
-  url: '/warehouse/operator-group-options',
+  url: '/warehousearea/operator-group-options',
   method: 'get'
 })
 
