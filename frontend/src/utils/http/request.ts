@@ -177,6 +177,8 @@ http.interceptors.request.use(
   }
 )
 
+// 中文说明：历史接口的返回约定不统一，本拦截器可能返回 AxiosResponse 或业务响应体。
+// 新增 API 不得在组件中猜测包装层；需要 ResultModel 时统一通过 apiResult.ts 解包并声明返回类型。
 http.interceptors.response.use(
   (response) => {
     closeLoading()

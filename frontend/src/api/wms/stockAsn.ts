@@ -149,7 +149,7 @@ export const uploadErpReceiptImage = (
     method: 'post',
     data,
     timeout: 120000
-  }).then((response) => unwrapApiResult(response))
+  }).then((response) => unwrapApiResult<ErpReceiptOssImage>(response))
 }
 
 export const addAsn = (data: StockAsnVO) => http({

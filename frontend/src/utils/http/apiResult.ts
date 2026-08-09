@@ -1,4 +1,3 @@
-import type { AxiosResponse } from 'axios'
 import type { ApiResult } from '@/types/System/ApiResult'
 
 const isApiResult = <T>(value: unknown): value is ApiResult<T> => {
@@ -20,9 +19,10 @@ const isApiResult = <T>(value: unknown): value is ApiResult<T> => {
  * API 层统一调用后，Vue 组件不再感知 Axios 包装结构。
  */
 export const unwrapApiResult = <T>(
-  response: AxiosResponse<ApiResult<T>> | ApiResult<T>
+  response: unknown
 ): ApiResult<T> => {
   if (isApiResult<T>(response)) return response
-  if (isApiResult<T>(response.data)) return response.data
+  const wrappedResponse = response as { data?: unknown } | null
+  if (isApiResult<T>(wrappedResponse?.data)) return wrappedResponse.data
   throw new Error('接口响应格式无效')
 }
