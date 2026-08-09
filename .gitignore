@@ -390,6 +390,3 @@ FodyWeavers.xsd
 
 # Local browser automation artifacts
 .playwright-mcp/
-
-# Browser automation temporary artifacts (Playwright MCP)
-.playwright-mcp/
