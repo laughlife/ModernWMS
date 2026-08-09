@@ -573,6 +573,8 @@
     },
     "erpPendingReceipt": {
       "actual_receipt_qty": "实际收货数量",
+      "item_receipt_title": "商品验收明细",
+      "item_shipment_qty": "发货数量",
       "actual_delivery_time": "实际签收时间",
       "attachment_count_exceeded": "每类最多上传9张图片",
       "attachment_tip": "选择后立即上传到ERP共用OSS；支持JPG、PNG、GIF、WEBP，单张不超过10MB",
@@ -593,6 +595,8 @@
       "inbound_qty": "入库数量",
       "loss_attachments": "损耗附件",
       "loss_qty": "损耗数量",
+      "product": "商品",
+      "total": "合计",
       "loss_qty_exceeded": "损耗数量不能大于实际收货数量",
       "loss_qty_integer": "损耗数量必须是整数",
       "loss_qty_non_negative": "损耗数量不能小于0",

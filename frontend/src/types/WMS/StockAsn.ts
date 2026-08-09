@@ -113,9 +113,12 @@ export interface UpdateSortingVo {
 }
 
 export interface ErpPendingReceiptProductVO {
+  source_item_key: string
   task_item_id?: number | null
   allocation_id?: number | null
   commodity_id?: number | null
+  order_user_id?: number | null
+  dept_id?: number | null
   sku: string
   product_name: string
   quantity?: number | null

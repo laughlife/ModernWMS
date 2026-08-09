@@ -13,7 +13,7 @@ namespace ModernWMS.WMS.Services;
 /// <summary>
 /// ERP-backed pending receipt query for the Shenzhen warehouse.
 /// </summary>
-public class ErpPendingReceiptService : IErpPendingReceiptService
+public partial class ErpPendingReceiptService : IErpPendingReceiptService
 {
     private const long ShenzhenWarehouseId = 320118;
     private const string WaitReceiptStatus = "WAIT_RECEIPT";
@@ -210,7 +210,7 @@ public class ErpPendingReceiptService : IErpPendingReceiptService
     }
 
     /// <summary>
-    /// Saves the WMS receipt record while keeping ERP source tables read-only.
+    /// Confirms product-level receipt and posts the same business event to ERP and WMS ledgers.
     /// </summary>
     public async Task<(bool flag, string message, long inboundQty)> ConfirmAsync(
         ErpReceiptConfirmInputViewModel input,
@@ -218,89 +218,151 @@ public class ErpPendingReceiptService : IErpPendingReceiptService
     {
         await using var transaction = await _ruoyiDbContext.Database
             .BeginTransactionAsync(IsolationLevel.Serializable);
-        var shipment = await _ruoyiDbContext.LogisticsInfos
-            .FirstOrDefaultAsync(t => t.id == input.shipment_id
-                && !t.deleted
-                && t.lifecycle_status == WaitReceiptStatus
-                && t.to_warehouse_id == ShenzhenWarehouseId);
-        if (shipment == null)
+        try
         {
-            return (false, "未找到可收货的深圳自建仓货件", 0);
-        }
-        if (shipment.source_version != input.source_version)
-        {
-            return (false, "货件数据已更新，请刷新列表后重新确认", 0);
-        }
+            var existingReceipt = await _ruoyiDbContext.ReceiptRecords
+                .AsNoTracking()
+                .FirstOrDefaultAsync(t => t.shipment_id == input.shipment_id);
+            if (existingReceipt != null)
+            {
+                await transaction.CommitAsync();
+                return (true, "该货件已完成签收入库", existingReceipt.inbound_qty);
+            }
+            var stockRecordCount = await ScalarAsync<long>(
+                """
+                SELECT COUNT(*) FROM trk_stock_record
+                 WHERE biz_type='RECEIPT_IN' AND biz_id=@shipmentId AND deleted=b'0'
+                """,
+                ("@shipmentId", input.shipment_id));
+            if (stockRecordCount > 0)
+            {
+                return (false, "该货件已生成入库流水，请勿重复提交", 0);
+            }
 
-        var shipmentQty = shipment.shipment_qty ?? 0;
-        if (input.actual_receipt_qty < 0 || input.actual_receipt_qty > shipmentQty)
-        {
-            return (false, "实际收货数量必须在 0 到发货数量之间", 0);
-        }
-        if (input.loss_qty < 0 || input.loss_qty > input.actual_receipt_qty)
-        {
-            return (false, "损耗数量必须在 0 到实际收货数量之间", 0);
-        }
+            await LockShipmentAsync(input.shipment_id);
+            var shipment = await _ruoyiDbContext.LogisticsInfos
+                .FirstOrDefaultAsync(t => t.id == input.shipment_id
+                    && !t.deleted
+                    && t.lifecycle_status == WaitReceiptStatus
+                    && t.to_warehouse_id == ShenzhenWarehouseId);
+            if (shipment == null)
+            {
+                return (false, "未找到可收货的深圳自建仓货件", 0);
+            }
+            if (shipment.source_version != input.source_version)
+            {
+                return (false, "货件数据已更新，请刷新列表后重新确认", 0);
+            }
 
-        var freightPaymentStatus = input.receipt_freight_payment_status?.Trim().ToUpperInvariant() ?? string.Empty;
-        if (freightPaymentStatus is not ("NO_PAY" or "PAY"))
-        {
-            return (false, "运费支付状态无效", 0);
-        }
-        if (freightPaymentStatus == "PAY"
-            && (input.receipt_freight_amount == null || input.receipt_freight_amount <= 0))
-        {
-            return (false, "支付运费时必须填写大于 0 的金额", 0);
-        }
-        if (input.loss_qty > 0 && string.IsNullOrWhiteSpace(input.loss_reason))
-        {
-            return (false, "存在损耗时必须填写损耗原因", 0);
-        }
-        if ((input.loss_reason?.Length ?? 0) > 500 || (input.receipt_remark?.Length ?? 0) > 500)
-        {
-            return (false, "损耗原因和收货备注不能超过 500 个字符", 0);
-        }
-        if (!ValidateImages(input.receipt_freight_files, input.shipment_id, "freight")
-            || !ValidateImages(input.loss_files, input.shipment_id, "loss")
-            || !ValidateImages(input.receipt_files, input.shipment_id, "receipt"))
-        {
-            return (false, "附件数量或 OSS 路径无效", 0);
-        }
+            var products = ParseProducts(shipment.product_snapshot_json);
+            if (products.Count == 0 || products.Any(t => t.quantity == null || t.quantity < 0))
+            {
+                return (false, "货件商品快照为空或数量无效，不能签收入库", 0);
+            }
+            if (products.Select(t => t.source_item_key).Distinct(StringComparer.Ordinal).Count() != products.Count
+                || input.items.Count != products.Count
+                || input.items.Select(t => t.source_item_key).Distinct(StringComparer.Ordinal).Count() != input.items.Count)
+            {
+                return (false, "收货商品行与货件快照不一致，请刷新后重试", 0);
+            }
 
-        var inboundQty = input.actual_receipt_qty - input.loss_qty;
-        var now = DateTime.Now;
-        var records = _ruoyiDbContext.ReceiptRecords;
-        var entity = await records.FirstOrDefaultAsync(t => t.shipment_id == input.shipment_id);
-        if (entity == null)
-        {
-            entity = new ErpReceiptRecordEntity
+            var itemMap = input.items.ToDictionary(t => t.source_item_key, StringComparer.Ordinal);
+            foreach (var product in products)
+            {
+                if (!itemMap.TryGetValue(product.source_item_key, out var item)
+                    || item.commodity_id != product.commodity_id
+                    || !string.Equals(item.commodity_sku.Trim(), product.sku.Trim(), StringComparison.Ordinal)
+                    || item.shipment_qty != product.quantity)
+                {
+                    return (false, "收货商品行与货件快照不一致，请刷新后重试", 0);
+                }
+                if (item.actual_receipt_qty < 0 || item.actual_receipt_qty > item.shipment_qty)
+                {
+                    return (false, $"商品 {product.sku} 的实际收货数量必须在 0 到发货数量之间", 0);
+                }
+                if (item.loss_qty < 0 || item.loss_qty > item.actual_receipt_qty)
+                {
+                    return (false, $"商品 {product.sku} 的损耗数量必须在 0 到实际收货数量之间", 0);
+                }
+            }
+
+            var snapshotShipmentQty = products.Sum(t => t.quantity ?? 0);
+            if (snapshotShipmentQty != shipment.shipment_qty)
+            {
+                return (false, "货件商品数量合计与货件表头不一致，请先修正 ERP 数据", 0);
+            }
+
+            var actualReceiptQty = input.items.Sum(t => t.actual_receipt_qty);
+            var lossQty = input.items.Sum(t => t.loss_qty);
+            var inboundQty = checked(actualReceiptQty - lossQty);
+
+            var freightPaymentStatus = input.receipt_freight_payment_status?.Trim().ToUpperInvariant() ?? string.Empty;
+            if (freightPaymentStatus is not ("NO_PAY" or "PAY"))
+            {
+                return (false, "运费支付状态无效", 0);
+            }
+            if (freightPaymentStatus == "PAY"
+                && (input.receipt_freight_amount == null || input.receipt_freight_amount <= 0))
+            {
+                return (false, "支付运费时必须填写大于 0 的金额", 0);
+            }
+            if (lossQty > 0 && string.IsNullOrWhiteSpace(input.loss_reason))
+            {
+                return (false, "存在损耗时必须填写损耗原因", 0);
+            }
+            if ((input.loss_reason?.Length ?? 0) > 500 || (input.receipt_remark?.Length ?? 0) > 500)
+            {
+                return (false, "损耗原因和收货备注不能超过 500 个字符", 0);
+            }
+            if (!ValidateImages(input.receipt_freight_files, input.shipment_id, "freight")
+                || !ValidateImages(input.loss_files, input.shipment_id, "loss")
+                || !ValidateImages(input.receipt_files, input.shipment_id, "receipt"))
+            {
+                return (false, "附件数量或 OSS 路径无效", 0);
+            }
+
+            var now = DateTime.Now;
+            var entity = new ErpReceiptRecordEntity
             {
                 shipment_id = input.shipment_id,
                 source_version = input.source_version,
+                actual_receipt_qty = actualReceiptQty,
+                loss_qty = lossQty,
+                inbound_qty = inboundQty,
+                receipt_freight_payment_status = freightPaymentStatus,
+                receipt_freight_amount = freightPaymentStatus == "PAY" ? input.receipt_freight_amount : null,
+                receipt_freight_files_json = SerializeImages(
+                    freightPaymentStatus == "PAY" ? input.receipt_freight_files : []),
+                receipt_files_json = SerializeImages(input.receipt_files),
+                loss_reason = lossQty > 0 ? input.loss_reason.Trim() : string.Empty,
+                loss_files_json = SerializeImages(lossQty > 0 ? input.loss_files : []),
+                receipt_remark = input.receipt_remark?.Trim() ?? string.Empty,
                 creator = Truncate(currentUser.user_name, 64),
                 create_time = now,
+                last_update_time = now,
                 tenant_id = currentUser.tenant_id
             };
-            await records.AddAsync(entity);
+            _ruoyiDbContext.ReceiptRecords.Add(entity);
+            await _ruoyiDbContext.SaveChangesAsync();
+
+            await ApplyInventoryReceiptAsync(
+                shipment,
+                products,
+                input,
+                entity.id,
+                actualReceiptQty,
+                lossQty,
+                inboundQty,
+                freightPaymentStatus,
+                currentUser,
+                now);
+            await transaction.CommitAsync();
+            return (true, "收货确认成功", inboundQty);
         }
-
-        entity.actual_receipt_qty = input.actual_receipt_qty;
-        entity.source_version = input.source_version;
-        entity.loss_qty = input.loss_qty;
-        entity.inbound_qty = inboundQty;
-        entity.receipt_freight_payment_status = freightPaymentStatus;
-        entity.receipt_freight_amount = freightPaymentStatus == "PAY" ? input.receipt_freight_amount : null;
-        entity.receipt_freight_files_json = SerializeImages(
-            freightPaymentStatus == "PAY" ? input.receipt_freight_files : []);
-        entity.receipt_files_json = SerializeImages(input.receipt_files);
-        entity.loss_reason = input.loss_qty > 0 ? input.loss_reason.Trim() : string.Empty;
-        entity.loss_files_json = SerializeImages(input.loss_qty > 0 ? input.loss_files : []);
-        entity.receipt_remark = input.receipt_remark?.Trim() ?? string.Empty;
-        entity.last_update_time = now;
-
-        await _ruoyiDbContext.SaveChangesAsync();
-        await transaction.CommitAsync();
-        return (true, "收货确认成功", inboundQty);
+        catch (InvalidOperationException ex)
+        {
+            return (false, ex.Message, 0);
+        }
     }
 
     private static bool ValidateImages(
@@ -411,17 +473,27 @@ public class ErpPendingReceiptService : IErpPendingReceiptService
                 return [];
             }
 
-            return document.RootElement.EnumerateArray().Select(item => new ErpPendingReceiptProductViewModel
+            return document.RootElement.EnumerateArray().Select((item, index) =>
             {
-                task_item_id = GetInt64(item, "taskItemId"),
-                allocation_id = GetInt64(item, "allocationId"),
-                commodity_id = GetInt64(item, "commodityId"),
-                sku = GetString(item, "commoditySku"),
-                product_name = GetString(item, "commodityName"),
-                quantity = GetInt64(item, "shipmentQty") ?? GetInt64(item, "allocationQty"),
-                usage_type = GetString(item, "usageType"),
-                order_user_name = GetString(item, "userName"),
-                dept_name = FirstNotEmpty(GetString(item, "deptName"), GetString(item, "groupName"))
+                var taskItemId = GetInt64(item, "taskItemId");
+                var allocationId = GetInt64(item, "allocationId");
+                var commodityId = GetInt64(item, "commodityId");
+                var sku = GetString(item, "commoditySku");
+                return new ErpPendingReceiptProductViewModel
+                {
+                    source_item_key = BuildSourceItemKey(taskItemId, allocationId, commodityId, sku, index),
+                    task_item_id = taskItemId,
+                    allocation_id = allocationId,
+                    commodity_id = commodityId,
+                    order_user_id = GetInt64(item, "userId"),
+                    dept_id = GetInt64(item, "deptId"),
+                    sku = sku,
+                    product_name = GetString(item, "commodityName"),
+                    quantity = GetInt64(item, "shipmentQty") ?? GetInt64(item, "allocationQty"),
+                    usage_type = GetString(item, "usageType"),
+                    order_user_name = GetString(item, "userName"),
+                    dept_name = FirstNotEmpty(GetString(item, "deptName"), GetString(item, "groupName"))
+                };
             }).ToList();
         }
         catch (JsonException)
@@ -453,6 +525,17 @@ public class ErpPendingReceiptService : IErpPendingReceiptService
         }
 
         return long.TryParse(value.ToString(), out number) ? number : null;
+    }
+
+    private static string BuildSourceItemKey(
+        long? taskItemId,
+        long? allocationId,
+        long? commodityId,
+        string sku,
+        int index)
+    {
+        var skuFallback = commodityId == null ? Truncate(sku, 64) : string.Empty;
+        return $"{taskItemId ?? 0}:{allocationId ?? 0}:{commodityId ?? 0}:{skuFallback}:{index}";
     }
 
     private static string FirstNotEmpty(params string[] values)

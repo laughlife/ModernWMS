@@ -38,50 +38,58 @@
             </div>
           </div>
 
+          <div class="receiptItemsBlock">
+            <div class="receiptItemsTitle">{{ $t('wms.erpPendingReceipt.item_receipt_title') }}</div>
+            <v-table density="compact" class="receiptItemsTable">
+              <thead>
+                <tr>
+                  <th>{{ $t('wms.erpPendingReceipt.product') }}</th>
+                  <th>{{ $t('wms.erpPendingReceipt.item_shipment_qty') }}</th>
+                  <th>{{ $t('wms.erpPendingReceipt.actual_receipt_qty') }}</th>
+                  <th>{{ $t('wms.erpPendingReceipt.loss_qty') }}</th>
+                  <th>{{ $t('wms.erpPendingReceipt.inbound_qty') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in data.form.items" :key="item.sourceItemKey">
+                  <td>
+                    <div class="receiptProductName">{{ item.productName || '-' }}</div>
+                    <div class="receiptProductSku">{{ item.commoditySku || '-' }}</div>
+                  </td>
+                  <td class="receiptNumberCell">{{ item.shipmentQty }}</td>
+                  <td>
+                    <v-text-field
+                      v-model.number="item.actualReceiptQty"
+                      type="number" min="0" :max="item.shipmentQty" step="1"
+                      variant="outlined" density="compact" hide-details="auto"
+                      :rules="method.actualQtyRules(item)"
+                    ></v-text-field>
+                  </td>
+                  <td>
+                    <v-text-field
+                      v-model.number="item.lossQty"
+                      type="number" min="0" :max="item.actualReceiptQty" step="1"
+                      variant="outlined" density="compact" hide-details="auto"
+                      :rules="method.lossQtyRules(item)"
+                    ></v-text-field>
+                  </td>
+                  <td class="receiptNumberCell receiptInboundCell">{{ method.itemInboundQty(item) }}</td>
+                </tr>
+              </tbody>
+              <tfoot>
+                <tr>
+                  <th>{{ $t('wms.erpPendingReceipt.total') }}</th>
+                  <th class="receiptNumberCell">{{ shipmentQtyTotal }}</th>
+                  <th class="receiptNumberCell">{{ actualReceiptQtyTotal }}</th>
+                  <th class="receiptNumberCell">{{ lossQtyTotal }}</th>
+                  <th class="receiptNumberCell receiptInboundCell">{{ inboundQty }}</th>
+                </tr>
+              </tfoot>
+            </v-table>
+            <div class="receiptQtyTip">{{ $t('wms.erpPendingReceipt.receipt_qty_tip') }}</div>
+          </div>
+
           <div class="receiptFormGrid">
-            <div class="receiptFieldControl">
-              <v-text-field
-                v-model.number="data.form.actualReceiptQty"
-                type="number"
-                min="0"
-                :max="data.currentRow?.shipment_qty ?? undefined"
-                step="1"
-                variant="outlined"
-                density="comfortable"
-                :label="$t('wms.erpPendingReceipt.actual_receipt_qty')"
-                :rules="data.rules.actualReceiptQty"
-              ></v-text-field>
-              <div class="receiptQtyTip">{{ $t('wms.erpPendingReceipt.receipt_qty_tip') }}</div>
-            </div>
-
-            <div class="receiptFormRow receiptControlRow">
-              <span class="receiptLabel requiredLabel">{{ $t('wms.erpPendingReceipt.loss_qty') }}</span>
-              <v-text-field
-                v-model.number="data.form.lossQty"
-                type="number"
-                min="0"
-                :max="data.form.actualReceiptQty"
-                step="1"
-                variant="outlined"
-                density="comfortable"
-                hide-details="auto"
-                :aria-label="$t('wms.erpPendingReceipt.loss_qty')"
-                :rules="data.rules.lossQty"
-              ></v-text-field>
-            </div>
-
-            <div class="receiptFormRow receiptControlRow">
-              <span class="receiptLabel">{{ $t('wms.erpPendingReceipt.inbound_qty') }}</span>
-              <v-text-field
-                :model-value="inboundQty"
-                type="number"
-                variant="outlined"
-                density="comfortable"
-                hide-details
-                readonly
-                :aria-label="$t('wms.erpPendingReceipt.inbound_qty')"
-              ></v-text-field>
-            </div>
 
             <div class="receiptFormRow">
               <span class="receiptLabel requiredLabel">{{ $t('wms.erpPendingReceipt.receipt_freight_payment_status') }}</span>
@@ -196,6 +204,15 @@ import type { ErpPendingReceiptVO } from '@/types/WMS/StockAsn'
 import ErpReceiptImageUpload from './erp-receipt-image-upload.vue'
 
 type ReceiptFreightPaymentStatus = 'NO_PAY' | 'PAY'
+type ReceiptItemForm = {
+  sourceItemKey: string
+  commodityId?: number | null
+  commoditySku: string
+  productName: string
+  shipmentQty: number
+  actualReceiptQty: number
+  lossQty: number
+}
 
 const formRef = ref()
 const emit = defineEmits<{
@@ -207,8 +224,7 @@ const data = reactive({
   submitting: false,
   currentRow: null as ErpPendingReceiptVO | null,
   form: {
-    actualReceiptQty: 0,
-    lossQty: 0,
+    items: [] as ReceiptItemForm[],
     receiptFreightPaymentStatus: 'NO_PAY' as ReceiptFreightPaymentStatus,
     receiptFreightAmount: null as number | null,
     receiptFreightFiles: [] as ErpReceiptOssImage[],
@@ -218,16 +234,6 @@ const data = reactive({
     receiptRemark: ''
   },
   rules: {
-    actualReceiptQty: [
-      (value: number) => Number.isInteger(Number(value)) || i18n.global.t('wms.erpPendingReceipt.receipt_qty_integer'),
-      (value: number) => Number(value) >= 0 || i18n.global.t('wms.erpPendingReceipt.receipt_qty_non_negative'),
-      (value: number) => Number(value) <= (data.currentRow?.shipment_qty ?? 0) || i18n.global.t('wms.erpPendingReceipt.receipt_qty_exceeded')
-    ],
-    lossQty: [
-      (value: number) => Number.isInteger(Number(value)) || i18n.global.t('wms.erpPendingReceipt.loss_qty_integer'),
-      (value: number) => Number(value) >= 0 || i18n.global.t('wms.erpPendingReceipt.loss_qty_non_negative'),
-      (value: number) => Number(value) <= Number(data.form.actualReceiptQty || 0) || i18n.global.t('wms.erpPendingReceipt.loss_qty_exceeded')
-    ],
     receiptFreightAmount: [
       (value: number | null) => !shouldPayFreight.value || Number(value) > 0 || i18n.global.t('wms.erpPendingReceipt.freight_amount_required')
     ],
@@ -238,8 +244,11 @@ const data = reactive({
 })
 
 const shouldPayFreight = computed(() => data.form.receiptFreightPaymentStatus === 'PAY')
-const inboundQty = computed(() => Math.max(0, Number(data.form.actualReceiptQty || 0) - Number(data.form.lossQty || 0)))
-const showLossFields = computed(() => Number(data.form.lossQty || 0) > 0)
+const shipmentQtyTotal = computed(() => data.form.items.reduce((sum, item) => sum + Number(item.shipmentQty || 0), 0))
+const actualReceiptQtyTotal = computed(() => data.form.items.reduce((sum, item) => sum + Number(item.actualReceiptQty || 0), 0))
+const lossQtyTotal = computed(() => data.form.items.reduce((sum, item) => sum + Number(item.lossQty || 0), 0))
+const inboundQty = computed(() => actualReceiptQtyTotal.value - lossQtyTotal.value)
+const showLossFields = computed(() => lossQtyTotal.value > 0)
 const uniqueText = (values: string[]) => [...new Set(values.map((value) => value.trim()).filter(Boolean))].join('、')
 const orderUserNames = computed(() => {
   const productUsers = uniqueText((data.currentRow?.product_list ?? []).map((product) => product.order_user_name))
@@ -252,8 +261,15 @@ const deptNames = computed(() => {
 const method = reactive({
   openDialog: (row: ErpPendingReceiptVO) => {
     data.currentRow = row
-    data.form.actualReceiptQty = row.shipment_qty
-    data.form.lossQty = 0
+    data.form.items = row.product_list.map((product) => ({
+      sourceItemKey: product.source_item_key,
+      commodityId: product.commodity_id,
+      commoditySku: product.sku,
+      productName: product.product_name,
+      shipmentQty: Number(product.quantity ?? 0),
+      actualReceiptQty: Number(product.quantity ?? 0),
+      lossQty: 0
+    }))
     data.form.receiptFreightPaymentStatus = row.source_freight_payment_type === 'COD' ? 'PAY' : 'NO_PAY'
     data.form.receiptFreightAmount = null
     data.form.receiptFreightFiles = []
@@ -277,8 +293,14 @@ const method = reactive({
       const response = await confirmErpReceipt({
         shipment_id: data.currentRow.id,
         source_version: data.currentRow.source_version,
-        actual_receipt_qty: Number(data.form.actualReceiptQty),
-        loss_qty: Number(data.form.lossQty),
+        items: data.form.items.map((item) => ({
+          source_item_key: item.sourceItemKey,
+          commodity_id: item.commodityId,
+          commodity_sku: item.commoditySku,
+          shipment_qty: Number(item.shipmentQty),
+          actual_receipt_qty: Number(item.actualReceiptQty),
+          loss_qty: Number(item.lossQty)
+        })),
         receipt_freight_payment_status: data.form.receiptFreightPaymentStatus,
         receipt_freight_amount: shouldPayFreight.value ? data.form.receiptFreightAmount : null,
         receipt_freight_files: shouldPayFreight.value ? data.form.receiptFreightFiles : [],
@@ -309,7 +331,18 @@ const method = reactive({
     }
     const type = data.currentRow?.source_freight_payment_type ?? ''
     return labels[type] || type || '-'
-  }
+  },
+  itemInboundQty: (item: ReceiptItemForm) => Math.max(0, Number(item.actualReceiptQty || 0) - Number(item.lossQty || 0)),
+  actualQtyRules: (item: ReceiptItemForm) => [
+    (value: number) => Number.isInteger(Number(value)) || i18n.global.t('wms.erpPendingReceipt.receipt_qty_integer'),
+    (value: number) => Number(value) >= 0 || i18n.global.t('wms.erpPendingReceipt.receipt_qty_non_negative'),
+    (value: number) => Number(value) <= item.shipmentQty || i18n.global.t('wms.erpPendingReceipt.receipt_qty_exceeded')
+  ],
+  lossQtyRules: (item: ReceiptItemForm) => [
+    (value: number) => Number.isInteger(Number(value)) || i18n.global.t('wms.erpPendingReceipt.loss_qty_integer'),
+    (value: number) => Number(value) >= 0 || i18n.global.t('wms.erpPendingReceipt.loss_qty_non_negative'),
+    (value: number) => Number(value) <= Number(item.actualReceiptQty || 0) || i18n.global.t('wms.erpPendingReceipt.loss_qty_exceeded')
+  ]
 })
 
 defineExpose({
@@ -395,6 +428,53 @@ defineExpose({
 
 .receiptFieldControl {
   min-width: 0;
+}
+
+.receiptItemsBlock {
+  margin-bottom: 20px;
+}
+
+.receiptItemsTitle {
+  color: rgb(var(--v-theme-on-surface));
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.receiptItemsTable {
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
+
+.receiptItemsTable th,
+.receiptItemsTable td {
+  min-width: 118px;
+  padding: 10px 12px !important;
+  vertical-align: middle;
+}
+
+.receiptItemsTable th:first-child,
+.receiptItemsTable td:first-child {
+  min-width: 220px;
+}
+
+.receiptProductName {
+  color: rgb(var(--v-theme-on-surface));
+  font-weight: 500;
+}
+
+.receiptProductSku {
+  color: rgba(var(--v-theme-on-surface), 0.58);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.receiptNumberCell {
+  text-align: center;
+}
+
+.receiptInboundCell {
+  color: rgb(var(--v-theme-primary));
+  font-weight: 700;
 }
 
 @media (max-width: 860px) {

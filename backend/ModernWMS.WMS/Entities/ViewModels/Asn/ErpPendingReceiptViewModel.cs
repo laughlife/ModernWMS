@@ -42,9 +42,12 @@ public class ErpPendingReceiptViewModel
 /// </summary>
 public class ErpPendingReceiptProductViewModel
 {
+    public string source_item_key { get; set; } = string.Empty;
     public long? task_item_id { get; set; }
     public long? allocation_id { get; set; }
     public long? commodity_id { get; set; }
+    public long? order_user_id { get; set; }
+    public long? dept_id { get; set; }
     public string sku { get; set; } = string.Empty;
     public string product_name { get; set; } = string.Empty;
     public long? quantity { get; set; }

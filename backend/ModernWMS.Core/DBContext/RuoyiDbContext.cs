@@ -4,9 +4,8 @@ using ModernWMS.Core.DBContext.Entities;
 namespace ModernWMS.Core.DBContext;
 
 /// <summary>
-/// Ruoyi 业务主数据库上下文。
-/// 与 WMS 主数据库上下文独立注册、独立连接，并支持完整的 EF Core 读写操作。
-/// Ruoyi 表按业务需要在此上下文中显式映射。
+/// Ruoyi/ERP 现有业务表上下文。
+/// 与 WMS 上下文共用同一个 ruoyi-vue-pro 数据库连接，Ruoyi 表按业务需要显式映射。
 /// </summary>
 public sealed class RuoyiDbContext : DbContext
 {
@@ -54,6 +53,26 @@ public sealed class RuoyiDbContext : DbContext
     public DbSet<ErpReceiptRecordEntity> ReceiptRecords => Set<ErpReceiptRecordEntity>();
 
     /// <summary>
+    /// Product-level WMS receipt results.
+    /// </summary>
+    public DbSet<ErpReceiptItemEntity> ReceiptItems => Set<ErpReceiptItemEntity>();
+
+    /// <summary>
+    /// ERP commodity to WMS master-data mappings.
+    /// </summary>
+    public DbSet<ErpCommodityMapEntity> CommodityMaps => Set<ErpCommodityMapEntity>();
+
+    /// <summary>
+    /// ERP ownership to WMS goods-owner mappings.
+    /// </summary>
+    public DbSet<ErpGoodsOwnerMapEntity> GoodsOwnerMaps => Set<ErpGoodsOwnerMapEntity>();
+
+    /// <summary>
+    /// WMS physical inventory ledger.
+    /// </summary>
+    public DbSet<WmsStockRecordEntity> WmsStockRecords => Set<WmsStockRecordEntity>();
+
+    /// <summary>
     /// ERP logistics tracking snapshots.
     /// </summary>
     public DbSet<ErpTrackEntity> Tracks => Set<ErpTrackEntity>();
@@ -64,7 +83,7 @@ public sealed class RuoyiDbContext : DbContext
     public DbSet<ErpTrackEventEntity> TrackEvents => Set<ErpTrackEventEntity>();
 
     /// <summary>
-    /// ERP 文件存储配置（只读）。
+    /// ERP 文件存储配置。
     /// </summary>
     public DbSet<ErpFileConfigEntity> FileConfigs => Set<ErpFileConfigEntity>();
 
@@ -117,6 +136,38 @@ public sealed class RuoyiDbContext : DbContext
             entity.ToTable("wms_erp_receipt");
             entity.HasKey(t => t.id);
             entity.HasIndex(t => t.shipment_id).IsUnique();
+        });
+
+        modelBuilder.Entity<ErpReceiptItemEntity>(entity =>
+        {
+            entity.ToTable("wms_erp_receipt_item");
+            entity.HasKey(t => t.id);
+            entity.HasIndex(t => new { t.receipt_id, t.source_item_key }).IsUnique();
+        });
+
+        modelBuilder.Entity<ErpCommodityMapEntity>(entity =>
+        {
+            entity.ToTable("wms_erp_commodity_map");
+            entity.HasKey(t => t.id);
+            entity.HasIndex(t => new { t.tenant_id, t.erp_commodity_id }).IsUnique();
+        });
+
+        modelBuilder.Entity<ErpGoodsOwnerMapEntity>(entity =>
+        {
+            entity.ToTable("wms_erp_goods_owner_map");
+            entity.HasKey(t => t.id);
+            entity.HasIndex(t => new { t.tenant_id, t.erp_dept_id, t.erp_order_user_id })
+                .HasDatabaseName("UX_wms_owner_map_erp_owner")
+                .IsUnique();
+        });
+
+        modelBuilder.Entity<WmsStockRecordEntity>(entity =>
+        {
+            entity.ToTable("wms_stock_record");
+            entity.HasKey(t => t.id);
+            entity.HasIndex(t => new { t.biz_type, t.biz_id, t.biz_item_id, t.stock_id })
+                .HasDatabaseName("UX_wms_stock_record_biz")
+                .IsUnique();
         });
 
         modelBuilder.Entity<ErpTrackEntity>(entity =>

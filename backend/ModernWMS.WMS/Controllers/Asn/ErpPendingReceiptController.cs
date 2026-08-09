@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ModernWMS.Core.Controller;
 using ModernWMS.Core.Models;
@@ -11,6 +12,7 @@ namespace ModernWMS.WMS.Controllers;
 /// </summary>
 [Route("asn/erp-pending-receipt")]
 [ApiController]
+[Authorize]
 [ApiExplorerSettings(GroupName = "WMS")]
 public class ErpPendingReceiptController : BaseController
 {
