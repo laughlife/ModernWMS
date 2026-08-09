@@ -1,5 +1,6 @@
 using ModernWMS.Core.DI;
 using ModernWMS.Core.Models;
+using ModernWMS.Core.JWT;
 using ModernWMS.WMS.Entities.ViewModels;
 
 namespace ModernWMS.WMS.IServices;
@@ -12,4 +13,8 @@ public interface IErpPendingReceiptService : IDependency
     Task<(List<ErpPendingReceiptViewModel> data, int totals)> PageAsync(PageSearch pageSearch, bool delivered);
 
     Task<ErpPendingReceiptLogisticsViewModel?> GetLogisticsAsync(long shipmentId);
+
+    Task<(bool flag, string message, long inboundQty)> ConfirmAsync(
+        ErpReceiptConfirmInputViewModel input,
+        CurrentUser currentUser);
 }

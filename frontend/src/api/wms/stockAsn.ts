@@ -135,6 +135,28 @@ export interface ErpReceiptOssImage {
 
 export type ErpReceiptImageCategory = 'freight' | 'loss' | 'receipt'
 
+export interface ErpReceiptConfirmInput {
+  shipment_id: number
+  source_version: number
+  actual_receipt_qty: number
+  loss_qty: number
+  receipt_freight_payment_status: 'NO_PAY' | 'PAY'
+  receipt_freight_amount: number | null
+  receipt_freight_files: ErpReceiptOssImage[]
+  receipt_files: ErpReceiptOssImage[]
+  loss_reason: string
+  loss_files: ErpReceiptOssImage[]
+  receipt_remark: string
+}
+
+export const confirmErpReceipt = (data: ErpReceiptConfirmInput): Promise<ApiResult<number>> => {
+  return http<ApiResult<number>>({
+    url: '/asn/erp-pending-receipt/confirm',
+    method: 'post',
+    data
+  }).then((response) => unwrapApiResult<number>(response))
+}
+
 export const uploadErpReceiptImage = (
   file: File,
   shipmentId: number,

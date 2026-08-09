@@ -51,6 +51,18 @@ public class ErpPendingReceiptController : BaseController
             : ResultModel<ErpPendingReceiptLogisticsViewModel>.Success(data);
     }
 
+    /// <summary>
+    /// Confirms a receipt and saves its server-calculated inbound quantity.
+    /// </summary>
+    [HttpPost("confirm")]
+    public async Task<ResultModel<long>> ConfirmAsync(ErpReceiptConfirmInputViewModel input)
+    {
+        var (flag, message, inboundQty) = await _erpPendingReceiptService.ConfirmAsync(input, CurrentUser);
+        return flag
+            ? ResultModel<long>.Success(inboundQty, message)
+            : ResultModel<long>.Error(message);
+    }
+
     private async Task<ResultModel<PageData<ErpPendingReceiptViewModel>>> BuildPageAsync(
         PageSearch pageSearch,
         bool delivered)

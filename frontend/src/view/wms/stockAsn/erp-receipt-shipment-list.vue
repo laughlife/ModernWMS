@@ -105,7 +105,7 @@
   </div>
 
   <ErpLogisticsDetail ref="logisticsDetailRef" />
-  <ErpReceiptConfirm ref="receiptConfirmRef" />
+  <ErpReceiptConfirm ref="receiptConfirmRef" @saved="method.getStockAsnList" />
 </template>
 
 <script lang="ts" setup>

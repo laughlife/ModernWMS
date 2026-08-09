@@ -1,7 +1,9 @@
+using System.Data;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using ModernWMS.Core.DBContext;
 using ModernWMS.Core.DBContext.Entities;
+using ModernWMS.Core.JWT;
 using ModernWMS.Core.Models;
 using ModernWMS.WMS.Entities.ViewModels;
 using ModernWMS.WMS.IServices;
@@ -37,7 +39,8 @@ public class ErpPendingReceiptService : IErpPendingReceiptService
             .AsNoTracking()
             .Where(t => !t.deleted
                 && t.lifecycle_status == WaitReceiptStatus
-                && t.to_warehouse_id == ShenzhenWarehouseId);
+                && t.to_warehouse_id == ShenzhenWarehouseId
+                && !_ruoyiDbContext.ReceiptRecords.Any(receipt => receipt.shipment_id == t.id));
 
         // 中文说明：两个页签只按最新物流签收事实拆分；没有轨迹、空状态、在途及其它状态都留在待到货。
         query = query.Where(shipment => _ruoyiDbContext.Tracks
@@ -204,6 +207,127 @@ public class ErpPendingReceiptService : IErpPendingReceiptService
             actual_delivery_time = track?.actual_delivery_time,
             event_list = events
         };
+    }
+
+    /// <summary>
+    /// Saves the WMS receipt record while keeping ERP source tables read-only.
+    /// </summary>
+    public async Task<(bool flag, string message, long inboundQty)> ConfirmAsync(
+        ErpReceiptConfirmInputViewModel input,
+        CurrentUser currentUser)
+    {
+        await using var transaction = await _ruoyiDbContext.Database
+            .BeginTransactionAsync(IsolationLevel.Serializable);
+        var shipment = await _ruoyiDbContext.LogisticsInfos
+            .FirstOrDefaultAsync(t => t.id == input.shipment_id
+                && !t.deleted
+                && t.lifecycle_status == WaitReceiptStatus
+                && t.to_warehouse_id == ShenzhenWarehouseId);
+        if (shipment == null)
+        {
+            return (false, "未找到可收货的深圳自建仓货件", 0);
+        }
+        if (shipment.source_version != input.source_version)
+        {
+            return (false, "货件数据已更新，请刷新列表后重新确认", 0);
+        }
+
+        var shipmentQty = shipment.shipment_qty ?? 0;
+        if (input.actual_receipt_qty < 0 || input.actual_receipt_qty > shipmentQty)
+        {
+            return (false, "实际收货数量必须在 0 到发货数量之间", 0);
+        }
+        if (input.loss_qty < 0 || input.loss_qty > input.actual_receipt_qty)
+        {
+            return (false, "损耗数量必须在 0 到实际收货数量之间", 0);
+        }
+
+        var freightPaymentStatus = input.receipt_freight_payment_status?.Trim().ToUpperInvariant() ?? string.Empty;
+        if (freightPaymentStatus is not ("NO_PAY" or "PAY"))
+        {
+            return (false, "运费支付状态无效", 0);
+        }
+        if (freightPaymentStatus == "PAY"
+            && (input.receipt_freight_amount == null || input.receipt_freight_amount <= 0))
+        {
+            return (false, "支付运费时必须填写大于 0 的金额", 0);
+        }
+        if (input.loss_qty > 0 && string.IsNullOrWhiteSpace(input.loss_reason))
+        {
+            return (false, "存在损耗时必须填写损耗原因", 0);
+        }
+        if ((input.loss_reason?.Length ?? 0) > 500 || (input.receipt_remark?.Length ?? 0) > 500)
+        {
+            return (false, "损耗原因和收货备注不能超过 500 个字符", 0);
+        }
+        if (!ValidateImages(input.receipt_freight_files, input.shipment_id, "freight")
+            || !ValidateImages(input.loss_files, input.shipment_id, "loss")
+            || !ValidateImages(input.receipt_files, input.shipment_id, "receipt"))
+        {
+            return (false, "附件数量或 OSS 路径无效", 0);
+        }
+
+        var inboundQty = input.actual_receipt_qty - input.loss_qty;
+        var now = DateTime.Now;
+        var records = _ruoyiDbContext.ReceiptRecords;
+        var entity = await records.FirstOrDefaultAsync(t => t.shipment_id == input.shipment_id);
+        if (entity == null)
+        {
+            entity = new ErpReceiptRecordEntity
+            {
+                shipment_id = input.shipment_id,
+                source_version = input.source_version,
+                creator = Truncate(currentUser.user_name, 64),
+                create_time = now,
+                tenant_id = currentUser.tenant_id
+            };
+            await records.AddAsync(entity);
+        }
+
+        entity.actual_receipt_qty = input.actual_receipt_qty;
+        entity.source_version = input.source_version;
+        entity.loss_qty = input.loss_qty;
+        entity.inbound_qty = inboundQty;
+        entity.receipt_freight_payment_status = freightPaymentStatus;
+        entity.receipt_freight_amount = freightPaymentStatus == "PAY" ? input.receipt_freight_amount : null;
+        entity.receipt_freight_files_json = SerializeImages(
+            freightPaymentStatus == "PAY" ? input.receipt_freight_files : []);
+        entity.receipt_files_json = SerializeImages(input.receipt_files);
+        entity.loss_reason = input.loss_qty > 0 ? input.loss_reason.Trim() : string.Empty;
+        entity.loss_files_json = SerializeImages(input.loss_qty > 0 ? input.loss_files : []);
+        entity.receipt_remark = input.receipt_remark?.Trim() ?? string.Empty;
+        entity.last_update_time = now;
+
+        await _ruoyiDbContext.SaveChangesAsync();
+        await transaction.CommitAsync();
+        return (true, "收货确认成功", inboundQty);
+    }
+
+    private static bool ValidateImages(
+        List<OssFileUploadViewModel>? images,
+        long shipmentId,
+        string category)
+    {
+        images ??= [];
+        if (images.Count > 9)
+        {
+            return false;
+        }
+
+        var requiredPrefix = $"modernwms/erp-receipt/{category}/{shipmentId}/";
+        return images.All(image => !string.IsNullOrWhiteSpace(image.path)
+            && image.path.StartsWith(requiredPrefix, StringComparison.Ordinal));
+    }
+
+    private static string SerializeImages(List<OssFileUploadViewModel>? images)
+    {
+        return JsonSerializer.Serialize(images ?? []);
+    }
+
+    private static string Truncate(string? value, int maxLength)
+    {
+        var normalized = value?.Trim() ?? string.Empty;
+        return normalized.Length <= maxLength ? normalized : normalized[..maxLength];
     }
 
     private static string FindSearchText(PageSearch pageSearch, string name)

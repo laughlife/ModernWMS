@@ -54,6 +54,35 @@
               <div class="receiptQtyTip">{{ $t('wms.erpPendingReceipt.receipt_qty_tip') }}</div>
             </div>
 
+            <div class="receiptFormRow receiptControlRow">
+              <span class="receiptLabel requiredLabel">{{ $t('wms.erpPendingReceipt.loss_qty') }}</span>
+              <v-text-field
+                v-model.number="data.form.lossQty"
+                type="number"
+                min="0"
+                :max="data.form.actualReceiptQty"
+                step="1"
+                variant="outlined"
+                density="comfortable"
+                hide-details="auto"
+                :aria-label="$t('wms.erpPendingReceipt.loss_qty')"
+                :rules="data.rules.lossQty"
+              ></v-text-field>
+            </div>
+
+            <div class="receiptFormRow receiptControlRow">
+              <span class="receiptLabel">{{ $t('wms.erpPendingReceipt.inbound_qty') }}</span>
+              <v-text-field
+                :model-value="inboundQty"
+                type="number"
+                variant="outlined"
+                density="comfortable"
+                hide-details
+                readonly
+                :aria-label="$t('wms.erpPendingReceipt.inbound_qty')"
+              ></v-text-field>
+            </div>
+
             <div class="receiptFormRow">
               <span class="receiptLabel requiredLabel">{{ $t('wms.erpPendingReceipt.receipt_freight_payment_status') }}</span>
               <v-btn-toggle v-model="data.form.receiptFreightPaymentStatus" color="primary" mandatory divided>
@@ -92,26 +121,30 @@
           </template>
 
           <template v-if="showLossFields">
-            <div class="receiptInfoRow">
-              <span class="receiptLabel">{{ $t('wms.erpPendingReceipt.loss_qty') }}</span>
-              <span class="receiptValue lossValue">{{ lossQty }}</span>
+            <div class="receiptFormRow receiptControlRow">
+              <span class="receiptLabel requiredLabel">{{ $t('wms.erpPendingReceipt.loss_reason') }}</span>
+              <v-textarea
+                v-model="data.form.lossReason"
+                variant="outlined"
+                rows="3"
+                maxlength="500"
+                counter
+                hide-details="auto"
+                :aria-label="$t('wms.erpPendingReceipt.loss_reason')"
+                :rules="data.rules.lossReason"
+              ></v-textarea>
             </div>
-            <v-textarea
-              v-model="data.form.lossReason"
-              variant="outlined"
-              rows="3"
-              maxlength="500"
-              counter
-              :label="$t('wms.erpPendingReceipt.loss_reason')"
-              :rules="data.rules.lossReason"
-            ></v-textarea>
-            <erp-receipt-image-upload
-              v-model="data.form.lossFiles"
-              :shipment-id="data.currentRow?.id ?? 0"
-              category="loss"
-              icon="mdi-image-multiple-outline"
-              :label="$t('wms.erpPendingReceipt.loss_attachments')"
-            ></erp-receipt-image-upload>
+            <div class="receiptFormRow receiptControlRow">
+              <span class="receiptLabel">{{ $t('wms.erpPendingReceipt.loss_attachments') }}</span>
+              <erp-receipt-image-upload
+                v-model="data.form.lossFiles"
+                :shipment-id="data.currentRow?.id ?? 0"
+                category="loss"
+                icon="mdi-image-multiple-outline"
+                :label="$t('wms.erpPendingReceipt.loss_attachments')"
+                hide-label
+              ></erp-receipt-image-upload>
+            </div>
           </template>
 
           <div class="receiptFormRow receiptControlRow">
@@ -137,7 +170,7 @@
           ></v-textarea>
 
           <v-alert type="info" variant="tonal" density="compact">
-            {{ $t('wms.erpPendingReceipt.receipt_submit_pending') }}
+            {{ $t('wms.erpPendingReceipt.receipt_inbound_tip') }}
           </v-alert>
         </v-form>
       </v-card-text>
@@ -146,7 +179,9 @@
 
       <v-card-actions class="justify-end px-6 py-4">
         <v-btn variant="text" @click="method.closeDialog">{{ $t('system.page.close') }}</v-btn>
-        <v-btn color="primary" variant="flat" disabled>{{ $t('system.page.confirm') }}</v-btn>
+        <v-btn color="primary" variant="flat" :loading="data.submitting" @click="method.submit">
+          {{ $t('system.page.confirm') }}
+        </v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>
@@ -154,20 +189,26 @@
 
 <script lang="ts" setup>
 import { computed, nextTick, reactive, ref } from 'vue'
+import { confirmErpReceipt, type ErpReceiptOssImage } from '@/api/wms/stockAsn'
+import { hookComponent } from '@/components/system'
 import i18n from '@/languages/i18n'
 import type { ErpPendingReceiptVO } from '@/types/WMS/StockAsn'
-import type { ErpReceiptOssImage } from '@/api/wms/stockAsn'
 import ErpReceiptImageUpload from './erp-receipt-image-upload.vue'
 
 type ReceiptFreightPaymentStatus = 'NO_PAY' | 'PAY'
 
 const formRef = ref()
+const emit = defineEmits<{
+  (event: 'saved'): void
+}>()
 
 const data = reactive({
   showDialog: false,
+  submitting: false,
   currentRow: null as ErpPendingReceiptVO | null,
   form: {
     actualReceiptQty: 0,
+    lossQty: 0,
     receiptFreightPaymentStatus: 'NO_PAY' as ReceiptFreightPaymentStatus,
     receiptFreightAmount: null as number | null,
     receiptFreightFiles: [] as ErpReceiptOssImage[],
@@ -182,6 +223,11 @@ const data = reactive({
       (value: number) => Number(value) >= 0 || i18n.global.t('wms.erpPendingReceipt.receipt_qty_non_negative'),
       (value: number) => Number(value) <= (data.currentRow?.shipment_qty ?? 0) || i18n.global.t('wms.erpPendingReceipt.receipt_qty_exceeded')
     ],
+    lossQty: [
+      (value: number) => Number.isInteger(Number(value)) || i18n.global.t('wms.erpPendingReceipt.loss_qty_integer'),
+      (value: number) => Number(value) >= 0 || i18n.global.t('wms.erpPendingReceipt.loss_qty_non_negative'),
+      (value: number) => Number(value) <= Number(data.form.actualReceiptQty || 0) || i18n.global.t('wms.erpPendingReceipt.loss_qty_exceeded')
+    ],
     receiptFreightAmount: [
       (value: number | null) => !shouldPayFreight.value || Number(value) > 0 || i18n.global.t('wms.erpPendingReceipt.freight_amount_required')
     ],
@@ -192,8 +238,8 @@ const data = reactive({
 })
 
 const shouldPayFreight = computed(() => data.form.receiptFreightPaymentStatus === 'PAY')
-const lossQty = computed(() => Math.max(0, (data.currentRow?.shipment_qty ?? 0) - Number(data.form.actualReceiptQty || 0)))
-const showLossFields = computed(() => data.currentRow?.source_type === 'STOCK_DISPATCH' && lossQty.value > 0)
+const inboundQty = computed(() => Math.max(0, Number(data.form.actualReceiptQty || 0) - Number(data.form.lossQty || 0)))
+const showLossFields = computed(() => Number(data.form.lossQty || 0) > 0)
 const uniqueText = (values: string[]) => [...new Set(values.map((value) => value.trim()).filter(Boolean))].join('、')
 const orderUserNames = computed(() => {
   const productUsers = uniqueText((data.currentRow?.product_list ?? []).map((product) => product.order_user_name))
@@ -207,6 +253,7 @@ const method = reactive({
   openDialog: (row: ErpPendingReceiptVO) => {
     data.currentRow = row
     data.form.actualReceiptQty = row.shipment_qty
+    data.form.lossQty = 0
     data.form.receiptFreightPaymentStatus = row.source_freight_payment_type === 'COD' ? 'PAY' : 'NO_PAY'
     data.form.receiptFreightAmount = null
     data.form.receiptFreightFiles = []
@@ -214,11 +261,45 @@ const method = reactive({
     data.form.lossReason = ''
     data.form.lossFiles = []
     data.form.receiptRemark = ''
+    data.submitting = false
     data.showDialog = true
     nextTick(() => formRef.value?.resetValidation?.())
   },
   closeDialog: () => {
     data.showDialog = false
+  },
+  submit: async () => {
+    const validation = await formRef.value?.validate?.()
+    if (!validation?.valid || !data.currentRow || data.submitting) return
+
+    data.submitting = true
+    try {
+      const response = await confirmErpReceipt({
+        shipment_id: data.currentRow.id,
+        source_version: data.currentRow.source_version,
+        actual_receipt_qty: Number(data.form.actualReceiptQty),
+        loss_qty: Number(data.form.lossQty),
+        receipt_freight_payment_status: data.form.receiptFreightPaymentStatus,
+        receipt_freight_amount: shouldPayFreight.value ? data.form.receiptFreightAmount : null,
+        receipt_freight_files: shouldPayFreight.value ? data.form.receiptFreightFiles : [],
+        receipt_files: data.form.receiptFiles,
+        loss_reason: showLossFields.value ? data.form.lossReason : '',
+        loss_files: showLossFields.value ? data.form.lossFiles : [],
+        receipt_remark: data.form.receiptRemark
+      })
+      if (!response.isSuccess) {
+        hookComponent.$message({ type: 'error', content: response.errorMessage })
+        return
+      }
+      hookComponent.$message({
+        type: 'success',
+        content: i18n.global.t('wms.erpPendingReceipt.receipt_confirm_success', { qty: response.data })
+      })
+      data.showDialog = false
+      emit('saved')
+    } finally {
+      data.submitting = false
+    }
   },
   sourceFreightPaymentType: () => {
     const labels: Record<string, string> = {
@@ -312,13 +393,8 @@ defineExpose({
   min-width: 0;
 }
 
-
 .receiptFieldControl {
   min-width: 0;
-}
-
-.lossValue {
-  color: rgb(var(--v-theme-error));
 }
 
 @media (max-width: 860px) {

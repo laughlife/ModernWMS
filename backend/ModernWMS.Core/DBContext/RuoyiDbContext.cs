@@ -49,6 +49,11 @@ public sealed class RuoyiDbContext : DbContext
     public DbSet<ErpLogisticsInfoEntity> LogisticsInfos => Set<ErpLogisticsInfoEntity>();
 
     /// <summary>
+    /// ModernWMS receipt records used to exclude already-confirmed ERP shipments.
+    /// </summary>
+    public DbSet<ErpReceiptRecordEntity> ReceiptRecords => Set<ErpReceiptRecordEntity>();
+
+    /// <summary>
     /// ERP logistics tracking snapshots.
     /// </summary>
     public DbSet<ErpTrackEntity> Tracks => Set<ErpTrackEntity>();
@@ -105,6 +110,13 @@ public sealed class RuoyiDbContext : DbContext
         {
             entity.ToTable("trk_logistics_info");
             entity.HasKey(t => t.id);
+        });
+
+        modelBuilder.Entity<ErpReceiptRecordEntity>(entity =>
+        {
+            entity.ToTable("wms_erp_receipt");
+            entity.HasKey(t => t.id);
+            entity.HasIndex(t => t.shipment_id).IsUnique();
         });
 
         modelBuilder.Entity<ErpTrackEntity>(entity =>
