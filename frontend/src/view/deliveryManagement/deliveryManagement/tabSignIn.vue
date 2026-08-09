@@ -75,7 +75,6 @@
           <span>{{ `${row.weighing_weight} ${GetUnit('weight', row.weight_unit)}` }}</span>
         </template>
       </vxe-column>
-      <vxe-column field="package_person" :title="$t('wms.deliveryManagement.package_person')"></vxe-column>
       <vxe-column field="weighing_person" :title="$t('wms.deliveryManagement.weighing_person')"></vxe-column>
       <vxe-column field="waybill_no" :title="$t('wms.deliveryManagement.waybill_no')"></vxe-column>
       <vxe-column field="carrier" :title="$t('wms.deliveryManagement.carrier')"></vxe-column>

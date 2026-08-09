@@ -78,14 +78,12 @@
           <span>{{ `${row.volume} ${GetUnit('volume', row.volume_unit)}` }}</span>
         </template>
       </vxe-column>
-      <vxe-column field="package_no" :title="$t('wms.deliveryManagement.package_no')"></vxe-column>
       <vxe-column field="weighing_weight" :title="$t('wms.deliveryManagement.weighing_weight')">
         <template #default="{ row }">
           <span>{{ `${row.weighing_weight} ${GetUnit('weight', row.weight_unit)}` }}</span>
         </template>
       </vxe-column>
       <vxe-column field="weighing_no" :title="$t('wms.deliveryManagement.weighing_no')"></vxe-column>
-      <vxe-column field="pick_checker" :title="$t('wms.deliveryManagement.pick_checker')"></vxe-column>
       <vxe-column field="creator" :title="$t('wms.deliveryManagement.creator')"></vxe-column>
       <vxe-date-column
         field="create_time"
