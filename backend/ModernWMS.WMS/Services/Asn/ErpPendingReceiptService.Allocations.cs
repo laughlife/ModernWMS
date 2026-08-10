@@ -155,6 +155,7 @@ public partial class ErpPendingReceiptService
         long? deptId,
         CurrentUser currentUser)
     {
+        await using var connectionLease = await OpenConnectionLeaseAsync();
         await using var command = CreateCommand(
             """
             WITH RECURSIVE dept_chain AS
@@ -209,6 +210,7 @@ public partial class ErpPendingReceiptService
         var idParameters = receiptItemIds.Select((id, index) => ($"@id{index}", (object?)id)).ToArray();
         var parameters = idParameters.Append(("@tenantId", (object?)tenantId)).ToArray();
         var placeholders = string.Join(",", idParameters.Select(t => t.Item1));
+        await using var connectionLease = await OpenConnectionLeaseAsync();
         await using var command = CreateCommand(
             $"""
             SELECT receipt_item_id,warehouse_area_id,warehouse_area_name,

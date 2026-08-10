@@ -468,6 +468,7 @@ public partial class ErpPendingReceiptService
 
     private async Task<CommoditySnapshot?> ReadCommodityAsync(long commodityId)
     {
+        await using var connectionLease = await OpenConnectionLeaseAsync();
         await using var command = CreateCommand(
             """
             SELECT COALESCE(sku,''),COALESCE(name,''),COALESCE(spu,''),COALESCE(spu_name,''),
@@ -836,12 +837,14 @@ public partial class ErpPendingReceiptService
 
     private async Task<int> ExecuteAsync(string sql, params (string Name, object? Value)[] parameters)
     {
+        await using var connectionLease = await OpenConnectionLeaseAsync();
         await using var command = CreateCommand(sql, parameters);
         return await command.ExecuteNonQueryAsync();
     }
 
     private async Task<T> ScalarAsync<T>(string sql, params (string Name, object? Value)[] parameters)
     {
+        await using var connectionLease = await OpenConnectionLeaseAsync();
         await using var command = CreateCommand(sql, parameters);
         var value = await command.ExecuteScalarAsync();
         if (value == null || value == DBNull.Value)
@@ -850,6 +853,40 @@ public partial class ErpPendingReceiptService
         }
         var targetType = Nullable.GetUnderlyingType(typeof(T)) ?? typeof(T);
         return (T)Convert.ChangeType(value, targetType);
+    }
+
+    private async Task<ConnectionLease> OpenConnectionLeaseAsync()
+    {
+        var connection = _ruoyiDbContext.Database.GetDbConnection();
+        if (connection.State == ConnectionState.Open)
+        {
+            return new ConnectionLease(_ruoyiDbContext, false);
+        }
+
+        await _ruoyiDbContext.Database.OpenConnectionAsync();
+        return new ConnectionLease(_ruoyiDbContext, true);
+    }
+
+    private sealed class ConnectionLease : IAsyncDisposable
+    {
+        private readonly ModernWMS.Core.DBContext.RuoyiDbContext _dbContext;
+        private readonly bool _closeOnDispose;
+
+        public ConnectionLease(
+            ModernWMS.Core.DBContext.RuoyiDbContext dbContext,
+            bool closeOnDispose)
+        {
+            _dbContext = dbContext;
+            _closeOnDispose = closeOnDispose;
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            if (_closeOnDispose)
+            {
+                await _dbContext.Database.CloseConnectionAsync();
+            }
+        }
     }
 
     private sealed record CommoditySnapshot(

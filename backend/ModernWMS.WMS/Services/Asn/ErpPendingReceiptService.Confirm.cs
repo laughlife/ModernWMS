@@ -95,6 +95,7 @@ public partial class ErpPendingReceiptService
 
     private async Task<PurchaseTaskRow?> ScalarTaskRowAsync(long taskId)
     {
+        await using var connectionLease = await OpenConnectionLeaseAsync();
         await using var command = CreateCommand(
             """
             SELECT id, task_type, action, production_action, total_num,
