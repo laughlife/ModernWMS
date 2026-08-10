@@ -114,10 +114,11 @@ $zipTempPath = Join-Path $publishRoot "$packageName.tmp.zip"
 $resolvedPublishRoot = [IO.Path]::GetFullPath($publishRoot).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
 $resolvedStagingRoot = [IO.Path]::GetFullPath($stagingRoot)
 $resolvedFrontendBuildRoot = [IO.Path]::GetFullPath($frontendBuildRoot)
+$resolvedZipPath = [IO.Path]::GetFullPath($zipPath)
 
-foreach ($temporaryPath in @($resolvedStagingRoot, $resolvedFrontendBuildRoot)) {
-    if (-not $temporaryPath.StartsWith($resolvedPublishRoot, [StringComparison]::OrdinalIgnoreCase)) {
-        throw "临时发布目录超出允许范围：$temporaryPath"
+foreach ($publishPath in @($resolvedStagingRoot, $resolvedFrontendBuildRoot, $resolvedZipPath)) {
+    if (-not $publishPath.StartsWith($resolvedPublishRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "发布路径超出允许范围：$publishPath"
     }
 }
 
@@ -236,6 +237,9 @@ try {
     }) -Force
     $publishedProductionConfig | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $productionConfigPath -Encoding utf8
 
+    if (Test-Path -LiteralPath $resolvedZipPath -PathType Leaf) {
+        Remove-Item -LiteralPath $resolvedZipPath -Force
+    }
     Compress-Archive -Path (Join-Path $stagingRoot '*') -DestinationPath $zipTempPath -CompressionLevel Optimal
     if (-not (Test-Path -LiteralPath $zipTempPath -PathType Leaf)) {
         throw "ZIP 临时包生成失败：$zipTempPath"
@@ -263,7 +267,7 @@ try {
         throw "ZIP 内容校验失败，包含非发布文件：$unexpectedEntry"
     }
 
-    Move-Item -LiteralPath $zipTempPath -Destination $zipPath -Force
+    Move-Item -LiteralPath $zipTempPath -Destination $zipPath
     Remove-Item -LiteralPath $resolvedStagingRoot -Recurse -Force
 }
 catch {
