@@ -137,6 +137,50 @@ export interface ConfirmItem {
   weighing_volume?: number
 }
 
+export interface DispatchWeighingShipmentVO {
+  id: number
+  dispatch_no: string
+  dispatch_status: number
+  fba_shipment_id: number
+  fba_no: string
+  main_image: string
+  commodity_name: string
+  fba_sku: string
+  shop_name: string
+  dept_name: string
+  order_user_name: string
+  shipment_total_qty: number
+  variant_qty: number
+  box_count: number
+  weighed_box_count: number
+  weighing_weight: number
+  weighing_volume: number
+  is_todo: boolean
+}
+
+export interface DispatchWeighingBoxVO {
+  erp_box_id: number
+  box_no: string
+  tracking_id: string
+  box_index: number
+  weighing_weight: number
+  weighing_length: number
+  weighing_width: number
+  weighing_height: number
+  weighing_volume: number
+  is_weighed: boolean
+}
+
+export interface SaveDispatchWeighingBoxVO {
+  dispatch_no: string
+  fba_shipment_id: number
+  erp_box_id: number
+  weighing_weight: number
+  weighing_length: number
+  weighing_width: number
+  weighing_height: number
+}
+
 export interface DeliveryBatchAllocationVO {
   id: number
   dateFrom: string

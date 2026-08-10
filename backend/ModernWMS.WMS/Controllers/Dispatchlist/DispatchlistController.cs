@@ -213,6 +213,50 @@ namespace ModernWMS.WMS.Controllers
         }
 
         /// <summary>
+        /// FBA shipment-level weighing workbench.
+        /// </summary>
+        [HttpPost("weighing-shipments")]
+        public async Task<ResultModel<PageData<DispatchWeighingShipmentViewModel>>> WeighingShipments(PageSearch pageSearch)
+        {
+            var (data, totals) = await _dispatchlistPickingService.GetWeighingShipmentsAsync(pageSearch, CurrentUser);
+            return ResultModel<PageData<DispatchWeighingShipmentViewModel>>.Success(new PageData<DispatchWeighingShipmentViewModel>
+            {
+                Rows = data,
+                Totals = totals
+            });
+        }
+
+        /// <summary>
+        /// Get all physical boxes belonging to one FBA shipment.
+        /// </summary>
+        [HttpGet("weighing-boxes")]
+        public async Task<ResultModel<List<DispatchWeighingBoxViewModel>>> WeighingBoxes(string dispatchNo, long shipmentId)
+        {
+            var data = await _dispatchlistPickingService.GetWeighingBoxesAsync(dispatchNo, shipmentId, CurrentUser);
+            return ResultModel<List<DispatchWeighingBoxViewModel>>.Success(data);
+        }
+
+        /// <summary>
+        /// Save one box's physical weight and dimensions.
+        /// </summary>
+        [HttpPost("weighing-box")]
+        public async Task<ResultModel<string>> SaveWeighingBox(SaveDispatchWeighingBoxViewModel viewModel)
+        {
+            var (flag, msg) = await _dispatchlistPickingService.SaveWeighingBoxAsync(viewModel, CurrentUser);
+            return flag ? ResultModel<string>.Success(msg) : ResultModel<string>.Error(msg);
+        }
+
+        /// <summary>
+        /// Copy one measured box to all unmeasured boxes of the same FBA shipment.
+        /// </summary>
+        [HttpPost("copy-weighing-box")]
+        public async Task<ResultModel<string>> CopyWeighingBox(CopyDispatchWeighingBoxViewModel viewModel)
+        {
+            var (flag, msg) = await _dispatchlistPickingService.CopyWeighingBoxAsync(viewModel, CurrentUser);
+            return flag ? ResultModel<string>.Success(msg) : ResultModel<string>.Error(msg);
+        }
+
+        /// <summary>
         /// Complete picking for selected dispatch rows.
         /// </summary>
         [HttpPost("complete-picking")]

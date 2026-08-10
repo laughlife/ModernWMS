@@ -10,6 +10,7 @@ import {
   CancleOrderVO,
   SetCarrierVO
 } from '@/types/DeliveryManagement/DeliveryManagement'
+import type { SaveDispatchWeighingBoxVO } from '@/types/DeliveryManagement/DeliveryManagement'
 
 // Get Pre shipment
 export const getShipment = (data: PageConfigProps) => http({
@@ -91,14 +92,28 @@ export const getToBeWeighed = (data: PageConfigProps) => http({
 
 // Get Weight
 export const getWeighed = (data: PageConfigProps) => http({
-    url: '/dispatchlist/list',
+    url: '/dispatchlist/weighing-shipments',
     method: 'post',
-    data: {
-      ...data,
-      // sqlTitle: 'dispatch_status=5'
-      sqlTitle: 'weight'
-    }
+    data
   })
+
+export const getWeighingBoxes = (dispatchNo: string, shipmentId: number) => http({
+  url: '/dispatchlist/weighing-boxes',
+  method: 'get',
+  params: { dispatchNo, shipmentId }
+})
+
+export const saveWeighingBox = (data: SaveDispatchWeighingBoxVO) => http({
+  url: '/dispatchlist/weighing-box',
+  method: 'post',
+  data
+})
+
+export const copyWeighingBox = (dispatch_no: string, fba_shipment_id: number, source_erp_box_id: number) => http({
+  url: '/dispatchlist/copy-weighing-box',
+  method: 'post',
+  data: { dispatch_no, fba_shipment_id, source_erp_box_id }
+})
 
 // Get To Be Delivery
 export const getToBeDelivery = (data: PageConfigProps) => http({

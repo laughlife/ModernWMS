@@ -497,6 +497,35 @@ namespace ModernWMS.Migrations
                     b.ToTable("wms_company");
                 });
 
+            modelBuilder.Entity("ModernWMS.WMS.Entities.Models.DispatchWeighingBoxEntity", b =>
+                {
+                    b.Property<int>("id").ValueGeneratedOnAdd().HasColumnType("int");
+                    b.Property<int>("box_index").HasColumnType("int");
+                    b.Property<string>("box_no").IsRequired().HasMaxLength(64).HasColumnType("varchar(64)");
+                    b.Property<long?>("copied_from_erp_box_id").HasColumnType("bigint");
+                    b.Property<DateTime>("create_time").HasColumnType("datetime(6)");
+                    b.Property<string>("dispatch_no").IsRequired().HasMaxLength(32).HasColumnType("varchar(32)");
+                    b.Property<long>("erp_box_id").HasColumnType("bigint");
+                    b.Property<string>("fba_no").IsRequired().HasMaxLength(64).HasColumnType("varchar(64)");
+                    b.Property<long>("fba_shipment_id").HasColumnType("bigint");
+                    b.Property<DateTime>("last_update_time").IsConcurrencyToken().HasColumnType("datetime(6)");
+                    b.Property<long>("tenant_id").HasColumnType("bigint");
+                    b.Property<string>("tracking_id").IsRequired().HasMaxLength(128).HasColumnType("varchar(128)");
+                    b.Property<decimal>("weighing_height").HasColumnType("decimal(18,2)");
+                    b.Property<decimal>("weighing_length").HasColumnType("decimal(18,2)");
+                    b.Property<string>("weighing_person").IsRequired().HasMaxLength(64).HasColumnType("varchar(64)");
+                    b.Property<int>("weighing_person_id").HasColumnType("int");
+                    b.Property<DateTime>("weighing_time").HasColumnType("datetime(6)");
+                    b.Property<decimal>("weighing_volume").HasColumnType("decimal(18,2)");
+                    b.Property<decimal>("weighing_weight").HasColumnType("decimal(18,2)");
+                    b.Property<decimal>("weighing_width").HasColumnType("decimal(18,2)");
+                    b.HasKey("id");
+                    b.HasIndex("tenant_id", "dispatch_no");
+                    b.HasIndex("tenant_id", "erp_box_id").IsUnique();
+                    b.HasIndex("tenant_id", "fba_shipment_id");
+                    b.ToTable("wms_dispatch_weighing_box");
+                });
+
             modelBuilder.Entity("ModernWMS.WMS.Entities.Models.DispatchlistEntity", b =>
                 {
                     b.Property<int>("id")
