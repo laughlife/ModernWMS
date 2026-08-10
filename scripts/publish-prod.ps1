@@ -1,13 +1,5 @@
 [CmdletBinding()]
-param(
-    [Parameter(Mandatory = $true)]
-    [ValidateNotNullOrEmpty()]
-    [string]$FrontendOrigin,
-
-    [Parameter(Mandatory = $true)]
-    [ValidateNotNullOrEmpty()]
-    [string]$BackendBaseUrl
-)
+param()
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -45,21 +37,29 @@ function Invoke-CheckedCommand {
     }
 }
 
-$frontendUri = Get-AbsoluteHttpUri -Value $FrontendOrigin -ParameterName 'FrontendOrigin'
-if ($frontendUri.AbsolutePath -ne '/' -or $frontendUri.Query -or $frontendUri.Fragment) {
-    throw "FrontendOrigin 只能包含协议、域名和端口，不能包含路径、查询参数或片段：$FrontendOrigin"
-}
+function Get-DotEnvValue {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Content,
 
-$backendUri = Get-AbsoluteHttpUri -Value $BackendBaseUrl -ParameterName 'BackendBaseUrl'
-if ($backendUri.Query -or $backendUri.Fragment) {
-    throw "BackendBaseUrl 不能包含查询参数或片段：$BackendBaseUrl"
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    $escapedName = [Regex]::Escape($Name)
+    $match = [Regex]::Match($Content, "(?m)^[ \t]*$escapedName[ \t]*=[ \t]*(.*?)[ \t]*$")
+    if (-not $match.Success) {
+        throw "生产环境配置缺少 $Name。"
+    }
+
+    return $match.Groups[1].Value.Trim().Trim("'", '"')
 }
-$normalizedFrontendOrigin = $frontendUri.GetLeftPart([UriPartial]::Authority)
-$normalizedBackendBaseUrl = $backendUri.AbsoluteUri.TrimEnd('/')
 
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $frontendRoot = Join-Path $repositoryRoot 'frontend'
 $backendProject = Join-Path $repositoryRoot 'backend\ModernWMS\ModernWMS.csproj'
+$frontendProductionEnv = Join-Path $frontendRoot '.env.production'
+$backendProductionConfig = Join-Path $repositoryRoot 'backend\ModernWMS\appsettings.Production.json'
 $publishRoot = Join-Path $repositoryRoot 'artifacts\publish'
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $packageName = "ModernWMS-prod-$timestamp"
@@ -86,35 +86,51 @@ if (-not (Test-Path -LiteralPath $frontendRoot -PathType Container)) {
 if (-not (Test-Path -LiteralPath $backendProject -PathType Leaf)) {
     throw "后端项目不存在：$backendProject"
 }
+if (-not (Test-Path -LiteralPath $frontendProductionEnv -PathType Leaf)) {
+    throw "前端生产配置不存在：$frontendProductionEnv"
+}
+if (-not (Test-Path -LiteralPath $backendProductionConfig -PathType Leaf)) {
+    throw "后端生产配置不存在：$backendProductionConfig"
+}
 if ((Test-Path -LiteralPath $stagingRoot) -or
     (Test-Path -LiteralPath $zipPath)) {
     throw "本次发布目标已存在，请稍后重新执行：$packageName"
 }
 
-$frontendProductionEnv = Join-Path $frontendRoot '.env.production'
 $frontendProductionEnvContent = Get-Content -LiteralPath $frontendProductionEnv -Raw
-if ($frontendProductionEnvContent -match '(?m)^[ \t]*VITE_SERVER_PORT[ \t]*=[ \t]*\S+') {
-    throw 'frontend/.env.production 中的 VITE_SERVER_PORT 必须为空，正式后端地址由 BackendBaseUrl 完整提供。'
+$backendBasePath = Get-DotEnvValue -Content $frontendProductionEnvContent -Name 'VITE_BASE_PATH'
+$backendPort = Get-DotEnvValue -Content $frontendProductionEnvContent -Name 'VITE_SERVER_PORT'
+if ([string]::IsNullOrWhiteSpace($backendBasePath)) {
+    throw '请先在 frontend/.env.production 中配置 VITE_BASE_PATH。'
+}
+$backendBaseUrl = if ([string]::IsNullOrWhiteSpace($backendPort)) {
+    $backendBasePath.TrimEnd('/')
+} else {
+    "$($backendBasePath.TrimEnd('/')):$backendPort"
+}
+$backendUri = Get-AbsoluteHttpUri -Value $backendBaseUrl -ParameterName 'frontend/.env.production 后端地址'
+if ($backendUri.Query -or $backendUri.Fragment) {
+    throw "frontend/.env.production 后端地址不能包含查询参数或片段：$backendBaseUrl"
+}
+$normalizedBackendBaseUrl = $backendUri.AbsoluteUri.TrimEnd('/')
+
+$productionConfig = Get-Content -LiteralPath $backendProductionConfig -Raw | ConvertFrom-Json
+$allowedOrigins = @($productionConfig.Cors.AllowedOrigins)
+if ($allowedOrigins.Count -eq 0) {
+    throw '请先在 backend/ModernWMS/appsettings.Production.json 的 Cors.AllowedOrigins 中配置正式前端地址。'
+}
+$normalizedFrontendOrigins = foreach ($allowedOrigin in $allowedOrigins) {
+    $frontendUri = Get-AbsoluteHttpUri -Value $allowedOrigin -ParameterName 'Cors.AllowedOrigins'
+    if ($frontendUri.AbsolutePath -ne '/' -or $frontendUri.Query -or $frontendUri.Fragment) {
+        throw "Cors.AllowedOrigins 只能包含协议、域名和端口：$allowedOrigin"
+    }
+    $frontendUri.GetLeftPart([UriPartial]::Authority)
 }
 
 New-Item -ItemType Directory -Path $frontendPackageRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $backendPackageRoot -Force | Out-Null
 
-$environmentVariableNames = @(
-    'ENV',
-    'VITE_BASE_PATH',
-    'VITE_SERVER_PORT'
-)
-$previousEnvironment = @{}
-foreach ($name in $environmentVariableNames) {
-    $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
-}
-
 try {
-    [Environment]::SetEnvironmentVariable('ENV', 'production', 'Process')
-    [Environment]::SetEnvironmentVariable('VITE_BASE_PATH', $normalizedBackendBaseUrl, 'Process')
-    [Environment]::SetEnvironmentVariable('VITE_SERVER_PORT', '', 'Process')
-
     Push-Location $frontendRoot
     try {
         Invoke-CheckedCommand -Command 'npm.cmd' -Arguments @('ci')
@@ -147,12 +163,6 @@ try {
         throw "后端发布目录缺少生产配置：$productionConfigPath"
     }
 
-    $productionConfig = Get-Content -LiteralPath $productionConfigPath -Raw | ConvertFrom-Json
-    $productionConfig.Cors.AllowedOrigins = @($normalizedFrontendOrigin)
-    $productionConfig |
-        ConvertTo-Json -Depth 20 |
-        Set-Content -LiteralPath $productionConfigPath -Encoding utf8
-
     Compress-Archive -Path (Join-Path $stagingRoot '*') -DestinationPath $zipPath -CompressionLevel Optimal
     if (-not (Test-Path -LiteralPath $zipPath -PathType Leaf)) {
         throw "ZIP 包生成失败：$zipPath"
@@ -165,13 +175,8 @@ catch {
     }
     throw
 }
-finally {
-    foreach ($name in $environmentVariableNames) {
-        [Environment]::SetEnvironmentVariable($name, $previousEnvironment[$name], 'Process')
-    }
-}
 
 Write-Host "发布完成。"
 Write-Host "ZIP 包：$zipPath"
-Write-Host "前端来源：$normalizedFrontendOrigin"
+Write-Host "前端来源：$($normalizedFrontendOrigins -join ', ')"
 Write-Host "后端地址：$normalizedBackendBaseUrl"
