@@ -31,10 +31,13 @@
           <ProductImage :src="row.main_image" :alt="row.commodity_name || row.spu_name" :width="112" :height="112" />
         </template>
       </vxe-column>
-      <vxe-column field="commodity_name" :title="$t('wms.deliveryManagement.productInfo')" min-width="260">
+      <vxe-column field="commodity_name" :title="$t('wms.deliveryManagement.productInfo')" min-width="280" align="left" header-align="left">
         <template #default="{ row }">
-          <div class="primary-text">{{ row.commodity_name || row.spu_name || '-' }}</div>
-          <div class="secondary-text">{{ $t('wms.deliveryManagement.fnSku') }}：{{ row.fba_sku || '-' }}</div>
+          <div class="product-info-cell">
+            <div class="primary-text">{{ row.commodity_name || row.spu_name || '-' }}</div>
+            <div class="secondary-text">{{ $t('wms.deliveryManagement.fnSku') }}：{{ row.fba_sku || '-' }}</div>
+            <div class="secondary-text">{{ $t('wms.deliveryManagement.shopName') }}：{{ row.shop_name || '-' }}</div>
+          </div>
         </template>
       </vxe-column>
       <vxe-column field="dept_name" :title="$t('wms.deliveryManagement.shippingPersonnel')" min-width="180">
@@ -72,7 +75,7 @@
       <thead>
         <tr>
           <th>{{ $t('wms.deliveryManagement.productImage') }}</th>
-          <th>{{ $t('wms.deliveryManagement.productInfo') }}</th>
+          <th class="product-info-cell">{{ $t('wms.deliveryManagement.productInfo') }}</th>
           <th>{{ $t('wms.deliveryManagement.shippingPersonnel') }}</th>
           <th>{{ $t('wms.deliveryManagement.quantityLabel') }}</th>
           <th>{{ $t('wms.deliveryManagement.variantLabel') }}</th>
@@ -82,9 +85,10 @@
       <tbody>
         <tr v-for="row in data.printRows" :key="row.id">
           <td><img v-if="row.main_image" :src="row.main_image" referrerpolicy="no-referrer" :alt="row.commodity_name || row.spu_name" /></td>
-          <td>
+          <td class="product-info-cell">
             <div class="primary-text">{{ row.commodity_name || row.spu_name || '-' }}</div>
             <div class="secondary-text">{{ $t('wms.deliveryManagement.fnSku') }}：{{ row.fba_sku || '-' }}</div>
+            <div class="secondary-text">{{ $t('wms.deliveryManagement.shopName') }}：{{ row.shop_name || '-' }}</div>
           </td>
           <td>
             <div class="primary-text">{{ row.dept_name || '-' }}</div>
@@ -230,6 +234,7 @@ defineExpose({ getGoodsToBePicked: method.getGoodsToBePicked })
 .print-area h2 { margin: 0 0 16px; text-align: center; }
 .print-area table { width: 100%; border-collapse: collapse; }
 .print-area th, .print-area td { padding: 8px; border: 1px solid #333; text-align: center; vertical-align: middle; }
+.print-area .product-info-cell { text-align: left; }
 .primary-text { font-weight: 500; }
 .secondary-text { margin-top: 4px; font-size: 12px; opacity: 0.72; }
 .print-area img { width: 112px; height: 112px; object-fit: contain; }

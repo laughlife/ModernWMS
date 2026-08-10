@@ -58,8 +58,9 @@ public class DispatchlistPickingService : IDispatchlistPickingService
             .ToDictionaryAsync(t => t.erp_commodity_id, t => t.wms_sku_id);
         var moveByNo = moves.ToDictionary(t => t.no);
         var itemsByMove = items.GroupBy(t => t.stock_move_id).ToDictionary(t => t.Key, t => t.ToList());
+        var snapshotByItem = items.ToDictionary(t => t.id, ParseSnapshot);
 
-        var snapshotItemIds = items.Select(t => ParseSnapshot(t).fbaShipmentItemId)
+        var snapshotItemIds = snapshotByItem.Values.Select(t => t.fbaShipmentItemId)
             .Where(t => t.HasValue)
             .Select(t => t.GetValueOrDefault())
             .Distinct()
@@ -69,6 +70,17 @@ public class DispatchlistPickingService : IDispatchlistPickingService
                 .Where(t => !t.deleted && snapshotItemIds.Contains(t.id))
                 .ToDictionaryAsync(t => t.id)
             : new Dictionary<long, ModernWMS.Core.DBContext.Entities.ErpFbaShipmentItemEntity>();
+        var shipmentIds = snapshotByItem.Values.Select(t => t.fbaShipmentId)
+            .Where(t => t.HasValue)
+            .Select(t => t.GetValueOrDefault())
+            .Concat(shipmentItemMap.Values.Select(t => t.shipment_id))
+            .Distinct()
+            .ToList();
+        var shipmentMap = shipmentIds.Count > 0
+            ? await _ruoyiDbContext.FbaShipments.AsNoTracking()
+                .Where(t => !t.deleted && shipmentIds.Contains(t.id))
+                .ToDictionaryAsync(t => t.id)
+            : new Dictionary<long, ModernWMS.Core.DBContext.Entities.ErpFbaShipmentEntity>();
 
         foreach (var row in rows)
         {
@@ -86,7 +98,7 @@ public class DispatchlistPickingService : IDispatchlistPickingService
                     && skuMap.TryGetValue(t.commodity_id.Value, out var wmsSkuId)
                     && wmsSkuId == row.sku_id)
                 .ToList();
-            var snapshots = sourceItems.Select(ParseSnapshot).ToList();
+            var snapshots = sourceItems.Select(t => snapshotByItem[t.id]).ToList();
             var shipmentItem = snapshots.Select(t => t.fbaShipmentItemId)
                 .Where(t => t.HasValue && shipmentItemMap.ContainsKey(t.GetValueOrDefault()))
                 .Select(t => shipmentItemMap[t.GetValueOrDefault()])
@@ -103,6 +115,11 @@ public class DispatchlistPickingService : IDispatchlistPickingService
                 : string.Join(", ", snapshots.Select(t => t.fbaSku)
                     .Where(t => !string.IsNullOrWhiteSpace(t))
                     .Distinct(StringComparer.OrdinalIgnoreCase));
+            var shipmentId = shipmentItem?.shipment_id
+                ?? snapshots.Select(t => t.fbaShipmentId).FirstOrDefault(t => t.HasValue);
+            row.shop_name = shipmentId.HasValue && shipmentMap.TryGetValue(shipmentId.Value, out var shipment)
+                ? shipment.shop_name ?? string.Empty
+                : string.Empty;
             row.variant_qty = snapshots.Count > 0
                 ? snapshots.Sum(t => t.variantQty ?? 1)
                 : 1;
@@ -219,6 +236,7 @@ public class DispatchlistPickingService : IDispatchlistPickingService
                 commodityName = GetString(root, "commodityName"),
                 fbaSku = GetString(root, "fbaSku"),
                 variantQty = GetInt64(root, "variantQty"),
+                fbaShipmentId = GetInt64(root, "fbaShipmentId"),
                 fbaShipmentItemId = GetInt64(root, "fbaShipmentItemId"),
                 preparedTime = GetDateTime(root, "preparedTime")
             };
@@ -265,6 +283,7 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         public string commodityName { get; init; } = string.Empty;
         public string fbaSku { get; init; } = string.Empty;
         public long? variantQty { get; init; }
+        public long? fbaShipmentId { get; init; }
         public long? fbaShipmentItemId { get; init; }
         public DateTime? preparedTime { get; init; }
     }

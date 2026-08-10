@@ -305,6 +305,11 @@ namespace ModernWMS.WMS.Entities.ViewModels
         public string fba_sku { get; set; } = string.Empty;
 
         /// <summary>
+        /// 所属店铺
+        /// </summary>
+        public string shop_name { get; set; } = string.Empty;
+
+        /// <summary>
         /// 当前拣货商品包含的变体数
         /// </summary>
         public long variant_qty { get; set; } = 1;
