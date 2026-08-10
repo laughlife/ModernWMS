@@ -29,11 +29,21 @@ public class FbaShipmentController : BaseController
     [HttpPost("page")]
     public async Task<ResultModel<PageData<FbaShipmentViewModel>>> PageAsync(PageSearch pageSearch)
     {
-        var (data, totals) = await _fbaShipmentService.PageAsync(pageSearch);
+        var (data, totals) = await _fbaShipmentService.PageAsync(pageSearch, CurrentUser);
         return ResultModel<PageData<FbaShipmentViewModel>>.Success(new PageData<FbaShipmentViewModel>
         {
             Rows = data,
             Totals = totals
         });
+    }
+
+    /// <summary>
+    /// Creates the WMS dispatch and stock locks, then moves the FBA shipment into pending picking.
+    /// </summary>
+    [HttpPost("{stockMoveId:long}/prepare-picking")]
+    public async Task<ResultModel<string>> PreparePickingAsync(long stockMoveId)
+    {
+        var (flag, msg) = await _fbaShipmentService.PreparePickingAsync(stockMoveId, CurrentUser);
+        return flag ? ResultModel<string>.Success(msg) : ResultModel<string>.Error(msg);
     }
 }

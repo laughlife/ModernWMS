@@ -6,3 +6,8 @@ export const getFbaShipmentPage = (data: PageConfigProps) => http({
   method: 'post',
   data
 })
+
+export const prepareFbaShipmentPicking = (stockMoveId: number) => http({
+  url: `/fba-shipment/${stockMoveId}/prepare-picking`,
+  method: 'post'
+})

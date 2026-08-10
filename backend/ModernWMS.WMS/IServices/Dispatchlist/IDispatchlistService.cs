@@ -40,6 +40,16 @@ namespace ModernWMS.WMS.IServices
          Task<(bool flag, string msg)> AddAsync(List<DispatchlistAddViewModel> viewModel, CurrentUser currentUser);
 
         /// <summary>
+        /// Create and lock a prepared outbound order so it enters the pending-picking list.
+        /// </summary>
+        Task<(bool flag, string msg)> PreparePickingAsync(
+            string dispatchNo,
+            int warehouseId,
+            int goodsOwnerId,
+            List<DispatchlistAddViewModel> viewModels,
+            CurrentUser currentUser);
+
+        /// <summary>
         /// Dispatchlist details with available stock
         /// </summary>
         /// <param name="dispatch_no">dispatch_no</param>

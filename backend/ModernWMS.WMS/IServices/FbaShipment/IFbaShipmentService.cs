@@ -1,4 +1,5 @@
 using ModernWMS.Core.DI;
+using ModernWMS.Core.JWT;
 using ModernWMS.Core.Models;
 using ModernWMS.WMS.Entities.ViewModels;
 
@@ -9,5 +10,7 @@ namespace ModernWMS.WMS.IServices;
 /// </summary>
 public interface IFbaShipmentService : IDependency
 {
-    Task<(List<FbaShipmentViewModel> data, int totals)> PageAsync(PageSearch pageSearch);
+    Task<(List<FbaShipmentViewModel> data, int totals)> PageAsync(PageSearch pageSearch, CurrentUser currentUser);
+
+    Task<(bool flag, string msg)> PreparePickingAsync(long stockMoveId, CurrentUser currentUser);
 }

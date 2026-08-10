@@ -3,7 +3,9 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using ModernWMS.Core.DBContext;
 using ModernWMS.Core.DBContext.Entities;
+using ModernWMS.Core.JWT;
 using ModernWMS.Core.Models;
+using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels;
 using ModernWMS.WMS.IServices;
 
@@ -19,13 +21,20 @@ public class FbaShipmentService : IFbaShipmentService
     private const string WaitShipmentStatus = "WAIT_SHIPMENT";
 
     private readonly RuoyiDbContext _ruoyiDbContext;
+    private readonly SqlDBContext _wmsDbContext;
+    private readonly IDispatchlistService _dispatchlistService;
 
-    public FbaShipmentService(RuoyiDbContext ruoyiDbContext)
+    public FbaShipmentService(
+        RuoyiDbContext ruoyiDbContext,
+        SqlDBContext wmsDbContext,
+        IDispatchlistService dispatchlistService)
     {
         _ruoyiDbContext = ruoyiDbContext;
+        _wmsDbContext = wmsDbContext;
+        _dispatchlistService = dispatchlistService;
     }
 
-    public async Task<(List<FbaShipmentViewModel> data, int totals)> PageAsync(PageSearch pageSearch)
+    public async Task<(List<FbaShipmentViewModel> data, int totals)> PageAsync(PageSearch pageSearch, CurrentUser currentUser)
     {
         var keyword = FindSearchText(pageSearch, "keyword");
         var deptName = FindSearchText(pageSearch, "dept_name");
@@ -37,6 +46,17 @@ public class FbaShipmentService : IFbaShipmentService
                 && t.status == WaitShipmentStatus
                 && t.shipment_status == WaitShipmentStatus
                 && t.from_warehouse_id == ShenzhenWarehouseId);
+
+        var preparedDispatchNos = await _wmsDbContext.GetDbSet<DispatchlistEntity>()
+            .AsNoTracking()
+            .Where(t => t.tenant_id == currentUser.tenant_id)
+            .Select(t => t.dispatch_no)
+            .Distinct()
+            .ToListAsync();
+        if (preparedDispatchNos.Count > 0)
+        {
+            query = query.Where(t => !preparedDispatchNos.Contains(t.no));
+        }
 
         if (!string.IsNullOrWhiteSpace(keyword))
         {
@@ -115,6 +135,85 @@ public class FbaShipmentService : IFbaShipmentService
         return (data, totals);
     }
 
+    public async Task<(bool flag, string msg)> PreparePickingAsync(long stockMoveId, CurrentUser currentUser)
+    {
+        var move = await _ruoyiDbContext.StockMoves.AsNoTracking()
+            .FirstOrDefaultAsync(t => t.id == stockMoveId
+                && !t.deleted
+                && t.transfer_type == FbaTransferType
+                && t.status == WaitShipmentStatus
+                && t.shipment_status == WaitShipmentStatus
+                && t.from_warehouse_id == ShenzhenWarehouseId);
+        if (move == null)
+        {
+            return (false, "FBA发货单不存在、状态已变化或不属于深圳自建仓");
+        }
+        if (string.IsNullOrWhiteSpace(move.no) || move.no.Length > 32)
+        {
+            return (false, "ERP发货准备单号为空或超过WMS发货单号长度限制");
+        }
+
+        var moveItems = await _ruoyiDbContext.StockMoveItems.AsNoTracking()
+            .Where(t => !t.deleted && t.stock_move_id == stockMoveId)
+            .OrderBy(t => t.id)
+            .ToListAsync();
+        if (moveItems.Count == 0)
+        {
+            return (false, "FBA发货单没有可拣货的商品明细");
+        }
+
+        var commodityIds = moveItems
+            .Where(t => t.commodity_id.HasValue)
+            .Select(t => t.commodity_id!.Value)
+            .Distinct()
+            .ToList();
+        var commodityMaps = await _ruoyiDbContext.CommodityMaps.AsNoTracking()
+            .Where(t => t.tenant_id == currentUser.tenant_id && commodityIds.Contains(t.erp_commodity_id))
+            .ToDictionaryAsync(t => t.erp_commodity_id);
+        var missingItem = moveItems.FirstOrDefault(t => !t.commodity_id.HasValue || !commodityMaps.ContainsKey(t.commodity_id.Value));
+        if (missingItem != null)
+        {
+            return (false, $"商品 {missingItem.commodity_sku ?? missingItem.commodity_name ?? missingItem.id.ToString()} 未匹配WMS SKU");
+        }
+
+        var requestedItems = new List<DispatchlistAddViewModel>();
+        foreach (var group in moveItems.GroupBy(t => commodityMaps[t.commodity_id!.Value].wms_sku_id))
+        {
+            var quantity = group.Sum(t => ParseSnapshot(t.product_snapshot_json, t.remark).shipment_total_qty ?? t.qty);
+            if (quantity <= 0 || quantity > int.MaxValue)
+            {
+                return (false, $"WMS SKU {group.Key} 的拣货数量无效");
+            }
+            requestedItems.Add(new DispatchlistAddViewModel { sku_id = group.Key, qty = (int)quantity });
+        }
+
+        var warehouse = await _wmsDbContext.GetDbSet<WarehouseEntity>().AsNoTracking()
+            .FirstOrDefaultAsync(t => t.tenant_id == currentUser.tenant_id
+                && t.erp_warehouse_id == ShenzhenWarehouseId
+                && t.is_valid);
+        if (warehouse == null)
+        {
+            return (false, "有座山深圳仓尚未绑定有效的WMS仓库");
+        }
+
+        var ownerMap = await _ruoyiDbContext.GoodsOwnerMaps.AsNoTracking()
+            .FirstOrDefaultAsync(t => t.tenant_id == currentUser.tenant_id
+                && t.erp_dept_id == (move.dept_id ?? 0)
+                && t.erp_order_user_id == (move.order_user_id ?? 0));
+        if (ownerMap == null || !await _wmsDbContext.GetDbSet<GoodsownerEntity>().AsNoTracking()
+            .AnyAsync(t => t.id == ownerMap.wms_goods_owner_id && t.tenant_id == currentUser.tenant_id && t.is_valid))
+        {
+            return (false, "发货归属尚未匹配有效的WMS库存所属人");
+        }
+
+        return await _dispatchlistService.PreparePickingAsync(
+            move.no,
+            warehouse.id,
+            ownerMap.wms_goods_owner_id,
+            requestedItems,
+            currentUser);
+    }
+
     private static FbaShipmentViewModel BuildViewModel(
         ErpStockMoveEntity move,
         List<ErpStockMoveItemEntity> moveItems,
@@ -162,6 +261,11 @@ public class FbaShipmentService : IFbaShipmentService
             ? boxesByShipment.GetValueOrDefault(fbaShipmentId) ?? []
             : [];
         var inventoryReady = itemViewModels.Count > 0 && itemViewModels.All(t => t.inventory_ready);
+        var trackingNumbers = new[] { move.tracking_no ?? string.Empty }
+            .Concat(boxes.Select(t => t.tracking_id ?? string.Empty))
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
         return new FbaShipmentViewModel
         {
@@ -188,11 +292,10 @@ public class FbaShipmentService : IFbaShipmentService
             primary_tracking_no = move.tracking_no ?? string.Empty,
             product_count = itemViewModels.Count,
             shipment_total_qty = itemViewModels.Sum(t => t.shipment_total_qty),
-            frozen_qty = move.frozen_qty,
-            box_quantity = shipment?.box_quantity ?? shipment?.carton_num ?? boxes.Count,
-            tracking_count = boxes.Count(t => !string.IsNullOrWhiteSpace(t.tracking_id)),
+            locked_qty = move.frozen_qty,
+            tracking_numbers = trackingNumbers,
             inventory_ready = inventoryReady,
-            inventory_status_name = inventoryReady ? "库存已冻结" : "库存待核对",
+            inventory_status_name = inventoryReady ? "库存已锁定" : "库存待核对",
             prepared_time = firstSnapshot.prepared_time ?? move.create_time,
             source_update_time = move.update_time,
             item_list = itemViewModels

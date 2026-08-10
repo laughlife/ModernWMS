@@ -117,32 +117,28 @@
           </div>
         </template>
       </vxe-column>
-      <vxe-column :title="$t('wms.deliveryManagement.shopInfo')" min-width="160">
+      <vxe-column :title="$t('wms.deliveryManagement.shopInfo')" min-width="220">
         <template #default="{ row }">
           <div class="leftCell">
             <div class="primaryText">{{ row.shop_name || '-' }}</div>
             <div class="secondaryText">{{ row.fba_status || '-' }}</div>
+            <div class="secondaryText">{{ method.formatOwner(row) }}</div>
           </div>
         </template>
       </vxe-column>
-      <vxe-column :title="$t('wms.deliveryManagement.ownerInfo')" min-width="170">
+      <vxe-column :title="$t('wms.deliveryManagement.productQtyTracking')" min-width="260" align="left" :show-overflow="false">
         <template #default="{ row }">
-          <div class="leftCell">
-            <div class="primaryText">{{ row.dept_name || '-' }}</div>
-            <div class="secondaryText">{{ row.order_user_name || '-' }}</div>
+          <div class="leftCell combinedInfo">
+            <div>{{ $t('wms.deliveryManagement.productLabel') }}：{{ row.product_count }} {{ $t('wms.deliveryManagement.productUnit') }}</div>
+            <div>{{ $t('wms.deliveryManagement.quantityLabel') }}：{{ row.shipment_total_qty }} {{ $t('wms.deliveryManagement.pieceUnit') }}</div>
+            <div class="trackingInfo">
+              <span>{{ $t('wms.deliveryManagement.trackingNo') }}：</span>
+              <template v-if="row.tracking_numbers?.length">
+                <span v-for="trackingNo in row.tracking_numbers" :key="trackingNo" class="trackingNo">{{ trackingNo }}</span>
+              </template>
+              <span v-else>-</span>
+            </div>
           </div>
-        </template>
-      </vxe-column>
-      <vxe-column :title="$t('wms.deliveryManagement.quantityInfo')" width="140">
-        <template #default="{ row }">
-          <div>{{ row.product_count }} {{ $t('wms.deliveryManagement.productUnit') }}</div>
-          <div class="secondaryText">{{ row.shipment_total_qty }} {{ $t('wms.deliveryManagement.pieceUnit') }}</div>
-        </template>
-      </vxe-column>
-      <vxe-column :title="$t('wms.deliveryManagement.boxTrackingInfo')" width="140">
-        <template #default="{ row }">
-          <div>{{ row.box_quantity }} {{ $t('wms.deliveryManagement.boxUnit') }}</div>
-          <div class="secondaryText">{{ row.tracking_count }} {{ $t('wms.deliveryManagement.trackingUnit') }}</div>
         </template>
       </vxe-column>
       <vxe-column :title="$t('wms.deliveryManagement.freightForwarder')" min-width="150">
@@ -151,11 +147,25 @@
         </template>
       </vxe-column>
       <vxe-column field="prepared_time" :title="$t('wms.deliveryManagement.preparedTime')" min-width="170"></vxe-column>
-      <vxe-column :title="$t('wms.deliveryManagement.inventoryStatus')" width="135" fixed="right">
+      <vxe-column :title="$t('wms.deliveryManagement.inventoryStatus')" width="135">
         <template #default="{ row }">
           <v-chip :color="row.inventory_ready ? 'success' : 'warning'" size="small" variant="tonal">
             {{ row.inventory_status_name }}
           </v-chip>
+        </template>
+      </vxe-column>
+      <vxe-column field="operate" :title="$t('system.page.operate')" width="130" fixed="right" :resizable="false">
+        <template #default="{ row }">
+          <v-btn
+            color="primary"
+            size="small"
+            variant="flat"
+            :disabled="!row.inventory_ready || data.preparingId !== null"
+            :loading="data.preparingId === row.stock_move_id"
+            @click="method.preparePicking(row)"
+          >
+            {{ $t('wms.deliveryManagement.preparePicking') }}
+          </v-btn>
         </template>
       </vxe-column>
     </vxe-table>
@@ -170,7 +180,7 @@
 <script lang="ts" setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import type { VxePagerEvents } from 'vxe-table'
-import { getFbaShipmentPage } from '@/api/wms/fbaShipment'
+import { getFbaShipmentPage, prepareFbaShipmentPicking } from '@/api/wms/fbaShipment'
 import { hookComponent } from '@/components/system'
 import BtnGroup from '@/components/system/btnGroup.vue'
 import ProductImage from '@/components/system/product-image.vue'
@@ -188,6 +198,7 @@ const xTable = ref()
 const data = reactive({
   searchForm: { dept_name: '', order_user_name: '', keyword: '' },
   tableData: ref<FbaShipmentVO[]>([]),
+  preparingId: null as number | null,
   tablePage: reactive({
     total: 0,
     pageIndex: 1,
@@ -200,6 +211,32 @@ const data = reactive({
 })
 
 const method = reactive({
+  formatOwner: (row: FbaShipmentVO) => {
+    const owner = [row.dept_name, row.order_user_name].filter(Boolean).join('/')
+    return owner || '-'
+  },
+  preparePicking: (row: FbaShipmentVO) => {
+    hookComponent.$dialog({
+      content: i18n.global.t('wms.deliveryManagement.preparePickingConfirm'),
+      handleConfirm: async () => {
+        data.preparingId = row.stock_move_id
+        try {
+          const { data: res } = await prepareFbaShipmentPicking(row.stock_move_id)
+          if (!res.isSuccess) {
+            hookComponent.$message({ type: 'error', content: res.errorMessage })
+            return
+          }
+          hookComponent.$message({
+            type: 'success',
+            content: i18n.global.t('wms.deliveryManagement.preparePickingSuccess')
+          })
+          await method.getPage()
+        } finally {
+          data.preparingId = null
+        }
+      }
+    })
+  },
   getPage: async () => {
     const { data: res } = await getFbaShipmentPage(data.tablePage)
     if (!res.isSuccess) {
@@ -225,7 +262,7 @@ const method = reactive({
       table: xTable.value,
       filename: i18n.global.t('wms.deliveryManagement.fbaShipment'),
       columnFilterMethod({ column }: any) {
-        return !['expand'].includes(column?.type)
+        return !['expand'].includes(column?.type) && column?.field !== 'operate'
       }
     })
   }
@@ -301,6 +338,23 @@ defineExpose({ getFbaShipment: method.getPage })
   margin-top: 4px;
   color: rgba(var(--v-theme-on-surface), 0.6);
   font-size: 12px;
+}
+
+.combinedInfo {
+  padding: 8px 0;
+  line-height: 22px;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.trackingInfo {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 6px;
+}
+
+.trackingNo {
+  display: block;
 }
 
 .productDetail {

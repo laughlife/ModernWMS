@@ -18,6 +18,7 @@ using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels;
 using ModernWMS.WMS.IServices;
 using System.Collections.Generic;
+using System.Data;
 
 namespace ModernWMS.WMS.Services
 {
@@ -530,6 +531,104 @@ namespace ModernWMS.WMS.Services
         }
 
         /// <summary>
+        /// Create a prepared outbound order and lock its WMS stock for picking.
+        /// </summary>
+        public async Task<(bool flag, string msg)> PreparePickingAsync(
+            string dispatchNo,
+            int warehouseId,
+            int goodsOwnerId,
+            List<DispatchlistAddViewModel> viewModels,
+            CurrentUser currentUser)
+        {
+            if (string.IsNullOrWhiteSpace(dispatchNo) || dispatchNo.Length > 32
+                || warehouseId <= 0 || goodsOwnerId <= 0 || viewModels.Count == 0
+                || viewModels.Any(t => t.sku_id <= 0 || t.qty <= 0)
+                || viewModels.GroupBy(t => t.sku_id).Any(t => t.Count() > 1))
+            {
+                return (false, "FBA发货单的拣货数据无效");
+            }
+
+            await using var transaction = await _dBContext.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+            var dispatchSet = _dBContext.GetDbSet<DispatchlistEntity>();
+            if (await dispatchSet.AnyAsync(t => t.tenant_id == currentUser.tenant_id && t.dispatch_no == dispatchNo))
+            {
+                return (false, "该FBA发货单已经准备拣货，请勿重复操作");
+            }
+
+            var skuIds = viewModels.Select(t => t.sku_id).ToList();
+            var skus = await _dBContext.GetDbSet<SkuEntity>()
+                .Where(t => skuIds.Contains(t.id))
+                .ToListAsync();
+            if (skus.Count != skuIds.Count)
+            {
+                return (false, "FBA商品未完整匹配到WMS商品资料");
+            }
+
+            var now = DateTime.Now;
+            var entities = viewModels.Select(t =>
+            {
+                var sku = skus.First(s => s.id == t.sku_id);
+                return new DispatchlistEntity
+                {
+                    dispatch_no = dispatchNo,
+                    dispatch_status = 0,
+                    sku_id = t.sku_id,
+                    qty = t.qty,
+                    weight = sku.weight * t.qty,
+                    volume = sku.volume * t.qty,
+                    creator = currentUser.user_name,
+                    create_time = now,
+                    last_update_time = now,
+                    tenant_id = currentUser.tenant_id
+                };
+            }).ToList();
+            await dispatchSet.AddRangeAsync(entities);
+            await _dBContext.SaveChangesAsync();
+
+            var confirmDetails = await ConfirmOrderCheck(dispatchNo, currentUser);
+            if (confirmDetails.Count != viewModels.Count)
+            {
+                return (false, "FBA商品未完整生成WMS拣货数据");
+            }
+
+            foreach (var detail in confirmDetails)
+            {
+                var eligiblePicks = detail.pick_list
+                    .Where(t => t.warehouse_id == warehouseId && t.goods_owner_id == goodsOwnerId && t.qty_available > 0)
+                    .OrderByDescending(t => t.qty_available)
+                    .ToList();
+                eligiblePicks.ForEach(t => t.pick_qty = 0);
+                var allocatedQty = 0;
+                foreach (var pick in eligiblePicks)
+                {
+                    pick.pick_qty = Math.Min(detail.qty - allocatedQty, pick.qty_available);
+                    allocatedQty += pick.pick_qty;
+                    if (allocatedQty >= detail.qty)
+                    {
+                        break;
+                    }
+                }
+                detail.pick_list = eligiblePicks;
+                detail.qty_available = eligiblePicks.Sum(t => t.qty_available);
+                detail.confirm = allocatedQty == detail.qty;
+            }
+
+            var insufficient = confirmDetails.FirstOrDefault(t => !t.confirm);
+            if (insufficient != null)
+            {
+                return (false, $"商品 {insufficient.sku_code} 在对应仓库和所属人下的可用库存不足");
+            }
+
+            var result = await ConfirmOrder(confirmDetails, currentUser);
+            if (!result.flag)
+            {
+                return result;
+            }
+            await transaction.CommitAsync();
+            return (true, "已生成待拣货单");
+        }
+
+        /// <summary>
         /// delete a record
         /// </summary>
         /// <param name="dispatch_no">dispatch_no</param>
@@ -575,7 +674,7 @@ namespace ModernWMS.WMS.Services
             var location_DBSet = _dBContext.GetDbSet<GoodslocationEntity>();
             var stock_group_datas = from stock in stock_DbSet.AsNoTracking()
                                     join gl in _dBContext.GetDbSet<GoodslocationEntity>().AsNoTracking() on stock.goods_location_id equals gl.id
-                                    where stock.tenant_id == currentUser.user_id
+                                    where stock.tenant_id == currentUser.tenant_id
                                     group stock by new { stock.id, stock.sku_id, stock.goods_location_id, stock.goods_owner_id, stock.series_number, stock.expiry_date, stock.price,stock.putaway_date } into sg
                                     select new
                                     {
@@ -666,6 +765,7 @@ namespace ModernWMS.WMS.Services
                                    dispatch_status = dl.dispatch_status,
                                    bar_code = sku.bar_code,
                                    dispatch_no = dl.dispatch_no,
+                                   warehouse_id = gl == null ? 0 : gl.warehouse_id,
                                    location_name = gl.location_name == null ? "" : gl.location_name,
                                    warehouse_area_name = gl.warehouse_area_name == null ? "" : gl.warehouse_area_name,
                                    warehouse_name = gl.warehouse_name == null ? "" : gl.warehouse_name,
@@ -712,6 +812,7 @@ namespace ModernWMS.WMS.Services
                                     stock_id = d.stock_id,
                                     dispatchlist_id = r.dispatchlist_id,
                                     goods_location_id = d.goods_location_id,
+                                    warehouse_id = d.warehouse_id,
                                     qty_available = d.qty_available,
                                     goods_owner_id = d.goods_owner_id,
                                     goods_owner_name = d.goods_owner_name,

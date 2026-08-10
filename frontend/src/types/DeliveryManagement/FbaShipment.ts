@@ -42,9 +42,8 @@ export interface FbaShipmentVO {
   primary_tracking_no: string
   product_count: number
   shipment_total_qty: number
-  frozen_qty: number
-  box_quantity: number
-  tracking_count: number
+  locked_qty: number
+  tracking_numbers: string[]
   inventory_ready: boolean
   inventory_status_name: string
   prepared_time: string
