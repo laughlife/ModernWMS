@@ -1,5 +1,5 @@
 <template>
-  <v-dialog v-model="dialogVisible" max-width="820" persistent>
+  <v-dialog v-model="dialogVisible" max-width="1320" persistent>
     <v-card>
       <v-card-title class="dialog-title">
         <span>{{ $t('wms.deliveryManagement.boxWeighing') }}：{{ shipment?.fba_no }}</span>
@@ -18,6 +18,10 @@
               <tr>
                 <th>{{ $t('wms.deliveryManagement.boxNo') }}</th>
                 <th>{{ $t('wms.deliveryManagement.weighingWeightKg') }}</th>
+                <th>{{ $t('wms.deliveryManagement.weighingLength') }}</th>
+                <th>{{ $t('wms.deliveryManagement.weighingWidth') }}</th>
+                <th>{{ $t('wms.deliveryManagement.weighingHeight') }}</th>
+                <th>{{ $t('wms.deliveryManagement.volumeCm3') }}</th>
                 <th>{{ $t('system.page.operate') }}</th>
               </tr>
             </thead>
@@ -28,6 +32,10 @@
                   <small v-if="box.tracking_id">{{ box.tracking_id }}</small>
                 </td>
                 <td><v-text-field v-model.number="box.weighing_weight" type="number" min="0.01" step="0.01" density="compact" hide-details /></td>
+                <td><v-text-field v-model.number="box.weighing_length" type="number" min="0.01" step="0.01" density="compact" hide-details /></td>
+                <td><v-text-field v-model.number="box.weighing_width" type="number" min="0.01" step="0.01" density="compact" hide-details /></td>
+                <td><v-text-field v-model.number="box.weighing_height" type="number" min="0.01" step="0.01" density="compact" hide-details /></td>
+                <td>{{ volumeOf(box) || '-' }}</td>
                 <td>
                   <div class="box-actions">
                     <v-btn
@@ -68,10 +76,16 @@ const dialogVisible = ref(false)
 const shipment = ref<DispatchWeighingShipmentVO | null>(null)
 const boxes = ref<DispatchWeighingBoxVO[]>([])
 
-const validBox = (box: DispatchWeighingBoxVO) => Number(box.weighing_weight) > 0
+const validBox = (box: DispatchWeighingBoxVO) =>
+  Number(box.weighing_weight) > 0 && Number(box.weighing_length) > 0 && Number(box.weighing_width) > 0 && Number(box.weighing_height) > 0
 
 const submitting = ref(false)
 const completedCount = computed(() => boxes.value.filter(validBox).length)
+
+const volumeOf = (box: DispatchWeighingBoxVO) => {
+  const volume = Number(box.weighing_length) * Number(box.weighing_width) * Number(box.weighing_height)
+  return Number.isFinite(volume) && volume > 0 ? Number(volume.toFixed(2)) : 0
+}
 
 const loadBoxes = async () => {
   if (!shipment.value) return
@@ -92,13 +106,15 @@ const openDialog = async (row: DispatchWeighingShipmentVO) => {
 
 const closeDialog = () => {
   dialogVisible.value = false
-  emit('saved')
 }
 
 const copyToRemaining = (source: DispatchWeighingBoxVO) => {
   for (const box of boxes.value) {
     if (box.erp_box_id === source.erp_box_id || box.is_weighed) continue
     box.weighing_weight = Number(source.weighing_weight)
+    box.weighing_length = Number(source.weighing_length)
+    box.weighing_width = Number(source.weighing_width)
+    box.weighing_height = Number(source.weighing_height)
   }
 }
 
@@ -106,7 +122,7 @@ const confirmAll = async () => {
   if (!shipment.value || boxes.value.length === 0) return
   const incomplete = boxes.value.find((box) => !validBox(box))
   if (incomplete) {
-    hookComponent.$message({ type: 'error', content: `${incomplete.box_no} 的重量未填写` })
+    hookComponent.$message({ type: 'error', content: `${incomplete.box_no} 的重量或长宽高未填写完整` })
     return
   }
 
@@ -116,7 +132,10 @@ const confirmAll = async () => {
       dispatch_no: shipment.value!.dispatch_no,
       fba_shipment_id: shipment.value!.fba_shipment_id,
       erp_box_id: box.erp_box_id,
-      weighing_weight: Number(box.weighing_weight)
+      weighing_weight: Number(box.weighing_weight),
+      weighing_length: Number(box.weighing_length),
+      weighing_width: Number(box.weighing_width),
+      weighing_height: Number(box.weighing_height)
     })))
     if (!res.isSuccess) {
       hookComponent.$message({ type: 'error', content: res.errorMessage })
@@ -137,11 +156,11 @@ defineExpose({ openDialog })
 .dialog-title { display: flex; align-items: center; justify-content: space-between; }
 .progress-text { font-size: 14px; font-weight: 400; opacity: 0.7; }
 .box-table-wrap { overflow-x: auto; }
-.box-table { width: 100%; min-width: 620px; border-collapse: collapse; }
+.box-table { width: 100%; min-width: 1120px; border-collapse: collapse; }
 .box-table th, .box-table td { padding: 10px 8px; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); text-align: center; }
 .box-table th { white-space: nowrap; }
 .box-table td:not(.box-no) { min-width: 130px; }
 .box-no { min-width: 210px; text-align: left !important; font-weight: 600; }
 .box-no small { display: block; margin-top: 4px; opacity: 0.65; font-weight: 400; }
-.box-actions { display: flex; justify-content: center; gap: 8px; min-width: 180px; }
+.box-actions { display: flex; justify-content: center; gap: 8px; min-width: 210px; }
 </style>

@@ -341,7 +341,10 @@ public class DispatchlistPickingService : IDispatchlistPickingService
             {
                 if (!shipments.TryGetValue(shipmentGroup.Key, out var shipment)) continue;
                 var shipmentBoxes = boxes.Where(t => t.shipment_id == shipment.id).ToList();
-                var shipmentMeasurements = measured.Where(t => t.dispatch_no == move.no && t.fba_shipment_id == shipment.id).ToList();
+                var shipmentBoxIds = shipmentBoxes.Select(t => t.id).ToHashSet();
+                var shipmentMeasurements = measured.Where(t => t.dispatch_no == move.no
+                    && t.fba_shipment_id == shipment.id
+                    && shipmentBoxIds.Contains(t.erp_box_id)).ToList();
                 var groupShipmentItems = shipmentGroup.Select(t => snapshots[t.id].fbaShipmentItemId)
                     .Where(t => t.HasValue && shipmentItems.ContainsKey(t.Value))
                     .Select(t => shipmentItems[t!.Value]).ToList();
@@ -371,6 +374,10 @@ public class DispatchlistPickingService : IDispatchlistPickingService
                     variant_qty = Math.Max(1, shipmentGroup.Select(t => snapshots[t.id].fbaShipmentItemId ?? t.id).Distinct().Count()),
                     box_count = shipmentBoxes.Count,
                     weighed_box_count = shipmentMeasurements.Count(t => t.weighing_weight > 0),
+                    dimension_started_box_count = shipmentMeasurements.Count(t =>
+                        t.weighing_length > 0 || t.weighing_width > 0 || t.weighing_height > 0),
+                    dimension_measured_box_count = shipmentMeasurements.Count(t =>
+                        t.weighing_length > 0 && t.weighing_width > 0 && t.weighing_height > 0),
                     weighing_weight = shipmentMeasurements.Sum(t => t.weighing_weight)
                 });
             }
@@ -419,7 +426,11 @@ public class DispatchlistPickingService : IDispatchlistPickingService
                 weighing_width = value?.weighing_width ?? 0,
                 weighing_height = value?.weighing_height ?? 0,
                 weighing_volume = value?.weighing_volume ?? 0,
-                is_weighed = value?.weighing_weight > 0
+                is_weighed = value != null
+                    && value.weighing_weight > 0
+                    && value.weighing_length > 0
+                    && value.weighing_width > 0
+                    && value.weighing_height > 0
             };
         }).ToList();
     }
@@ -431,7 +442,7 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         if (viewModels == null || viewModels.Count == 0)
             return (false, "没有可保存的箱号数据");
         if (viewModels.Any(t => !IsValidMeasurement(t)))
-            return (false, "每个箱子的重量都必须大于0");
+            return (false, "每个箱子的重量和长宽高都必须大于0");
 
         var dispatchNo = viewModels[0].dispatch_no;
         var shipmentId = viewModels[0].fba_shipment_id;
@@ -485,7 +496,8 @@ public class DispatchlistPickingService : IDispatchlistPickingService
             }
 
             var value = valuesByBoxId[box.id];
-            ApplyMeasurement(entity, value.weighing_weight, currentUser, now, null);
+            ApplyMeasurement(entity, value.weighing_weight, value.weighing_length, value.weighing_width,
+                value.weighing_height, currentUser, now, null);
         }
 
         await _wmsDbContext.SaveChangesAsync();
@@ -520,7 +532,10 @@ public class DispatchlistPickingService : IDispatchlistPickingService
             .Where(t => t.tenant_id == currentUser.tenant_id && t.dispatch_no == dispatchNo && boxIds.Contains(t.erp_box_id))
             .ToListAsync();
         if (measurements.Select(t => t.erp_box_id).Distinct().Count() != boxIds.Distinct().Count()
-            || measurements.Any(t => t.weighing_weight <= 0)) return;
+            || measurements.Any(t => t.weighing_weight <= 0
+                || t.weighing_length <= 0
+                || t.weighing_width <= 0
+                || t.weighing_height <= 0)) return;
 
         var rows = await _wmsDbContext.GetDbSet<DispatchlistEntity>()
             .Where(t => t.tenant_id == currentUser.tenant_id && t.dispatch_no == dispatchNo
@@ -577,16 +592,17 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         return result.Distinct().ToList();
     }
 
-    private static bool IsValidMeasurement(SaveDispatchWeighingBoxViewModel vm) => vm.weighing_weight > 0;
+    private static bool IsValidMeasurement(SaveDispatchWeighingBoxViewModel vm) =>
+        vm.weighing_weight > 0 && vm.weighing_length > 0 && vm.weighing_width > 0 && vm.weighing_height > 0;
 
-    private static void ApplyMeasurement(DispatchWeighingBoxEntity entity, decimal weight,
-        CurrentUser currentUser, DateTime now, long? copiedFrom)
+    private static void ApplyMeasurement(DispatchWeighingBoxEntity entity, decimal weight, decimal length, decimal width,
+        decimal height, CurrentUser currentUser, DateTime now, long? copiedFrom)
     {
         entity.weighing_weight = Math.Round(weight, 2);
-        entity.weighing_length = 0;
-        entity.weighing_width = 0;
-        entity.weighing_height = 0;
-        entity.weighing_volume = 0;
+        entity.weighing_length = Math.Round(length, 2);
+        entity.weighing_width = Math.Round(width, 2);
+        entity.weighing_height = Math.Round(height, 2);
+        entity.weighing_volume = Math.Round(length * width * height, 2);
         entity.weighing_person_id = currentUser.user_id;
         entity.weighing_person = currentUser.user_name;
         entity.weighing_time = now;
