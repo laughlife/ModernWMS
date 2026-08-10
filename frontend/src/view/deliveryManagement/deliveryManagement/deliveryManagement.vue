@@ -5,6 +5,14 @@
         <v-icon>mdi-truck-fast-outline</v-icon>
         <p class="tabItemTitle">{{ $t('wms.deliveryManagement.fbaShipment') }}</p>
       </v-tab>
+      <v-tab value="tabGoodsToBePicked">
+        <v-icon>mdi-dolly</v-icon>
+        <p class="tabItemTitle">{{ $t('wms.deliveryManagement.goodsToBePicked') }}</p>
+      </v-tab>
+      <v-tab value="tabPicked">
+        <v-icon>mdi-human-dolly</v-icon>
+        <p class="tabItemTitle">{{ $t('wms.deliveryManagement.picked') }}</p>
+      </v-tab>
       <v-tab value="tabWeighed">
         <v-icon>mdi-basket-fill</v-icon>
         <p class="tabItemTitle">{{ $t('wms.deliveryManagement.weighed') }}</p>
@@ -25,6 +33,12 @@
           <v-window-item value="tabFbaShipment">
             <FbaShipmentList ref="fbaShipmentRef" />
           </v-window-item>
+          <v-window-item value="tabGoodsToBePicked">
+            <TabGoodsToBePicked ref="goodsToBePickedRef" />
+          </v-window-item>
+          <v-window-item value="tabPicked">
+            <TabPicked ref="pickedRef" />
+          </v-window-item>
           <v-window-item value="tabWeighed">
             <TabWeighed ref="weighedRef" />
           </v-window-item>
@@ -44,11 +58,15 @@
 import { nextTick, ref } from 'vue'
 import FbaShipmentList from './fba-shipment-list.vue'
 import TabDelivered from './tabDelivered.vue'
+import TabGoodsToBePicked from './tabGoodsToBePicked.vue'
+import TabPicked from './tabPicked.vue'
 import TabSignIn from './tabSignIn.vue'
 import TabWeighed from './tabWeighed.vue'
 
 const activeTab = ref('tabFbaShipment')
 const fbaShipmentRef = ref<InstanceType<typeof FbaShipmentList>>()
+const goodsToBePickedRef = ref<InstanceType<typeof TabGoodsToBePicked>>()
+const pickedRef = ref<InstanceType<typeof TabPicked>>()
 const weighedRef = ref<InstanceType<typeof TabWeighed>>()
 const deliveredRef = ref<InstanceType<typeof TabDelivered>>()
 const signInRef = ref<InstanceType<typeof TabSignIn>>()
@@ -58,6 +76,12 @@ const changeTab = (tab: unknown): void => {
     switch (tab) {
       case 'tabFbaShipment':
         fbaShipmentRef.value?.getFbaShipment()
+        break
+      case 'tabGoodsToBePicked':
+        goodsToBePickedRef.value?.getGoodsToBePicked()
+        break
+      case 'tabPicked':
+        pickedRef.value?.getPicked()
         break
       case 'tabWeighed':
         weighedRef.value?.getWeighed()
