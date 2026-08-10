@@ -488,6 +488,7 @@
       "quantityIsZero": "请保证选择的商品至少有一项出库数量大于0!",
       "quantityOverflow": "发货数量之和不能超出发货单数量",
       "quantityLabel": "数量",
+      "quantityVariant": "数量/变体",
       "variantLabel": "变体",
       "setFreight": "设置承运单位",
       "shipment": "发货单",
@@ -524,6 +525,12 @@
       "weighing_no": "称重单号",
       "weighing_person": "称重员",
       "weighing_weight": "称重重量",
+      "weighingWeightKg": "称重重量(kg)",
+      "weighingLength": "长度(cm)",
+      "weighingWidth": "宽度(cm)",
+      "weighingHeight": "高度(cm)",
+      "dimensionsCm": "长宽高(cm)",
+      "volumeCm3": "体积(cm³)",
       "weight": "总重量"
     },
     "deliveryBatchAllocation": {

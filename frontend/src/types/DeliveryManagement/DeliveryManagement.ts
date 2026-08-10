@@ -36,6 +36,11 @@ export interface DeliveryManagementDetailVO extends DeliveryManagementVO {
   weight?: number
   volume?: number
   weight_unit?: number
+  weighing_weight?: number
+  weighing_length?: number
+  weighing_width?: number
+  weighing_height?: number
+  weighing_volume?: number
   main_image?: string
   commodity_name?: string
   fba_sku?: string
@@ -80,6 +85,9 @@ export interface WeighVO {
   dispatch_status?: number
   weighing_qty?: number
   weighing_weight?: number
+  weighing_length?: number
+  weighing_width?: number
+  weighing_height?: number
   picked_qty?: number
 }
 
@@ -123,6 +131,10 @@ export interface ConfirmItem {
   picked_qty?: number
   weight?: number
   weight_unit?: string
+  weighing_length?: number
+  weighing_width?: number
+  weighing_height?: number
+  weighing_volume?: number
 }
 
 export interface DeliveryBatchAllocationVO {

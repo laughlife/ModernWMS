@@ -597,6 +597,18 @@ namespace ModernWMS.Migrations
                     b.Property<decimal>("weighing_weight")
                         .HasColumnType("decimal(18,2)");
 
+                    b.Property<decimal>("weighing_height")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("weighing_length")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("weighing_volume")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("weighing_width")
+                        .HasColumnType("decimal(18,2)");
+
                     b.Property<decimal>("weight")
                         .HasColumnType("decimal(18,2)");
 

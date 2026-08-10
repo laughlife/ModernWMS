@@ -133,6 +133,10 @@ namespace ModernWMS.WMS.Services
                             weighing_no = d.weighing_no,
                             weighing_person = d.weighing_person,
                             weighing_weight = d.weighing_weight,
+                            weighing_length = d.weighing_length,
+                            weighing_width = d.weighing_width,
+                            weighing_height = d.weighing_height,
+                            weighing_volume = d.weighing_volume,
                             waybill_no = d.waybill_no,
                             carrier = d.carrier,
                             freightfee = d.freightfee,
@@ -323,15 +327,16 @@ namespace ModernWMS.WMS.Services
         /// </summary>
         /// <param name="dispatch_id">dispatch_id</param>
         /// <returns></returns>
-        public async Task<List<DispatchpicklistViewModel>> GetPickListByDispatchID(int dispatch_id)
+        public async Task<List<DispatchpicklistViewModel>> GetPickListByDispatchID(int dispatch_id, CurrentUser currentUser)
         {
             var datas = await (from dpl in _dBContext.GetDbSet<DispatchpicklistEntity>().AsNoTracking()
+                               join dispatch in _dBContext.GetDbSet<DispatchlistEntity>().AsNoTracking() on dpl.dispatchlist_id equals dispatch.id
                                join sku in _dBContext.GetDbSet<SkuEntity>().AsNoTracking() on dpl.sku_id equals sku.id
                                join spu in _dBContext.GetDbSet<SpuEntity>().AsNoTracking() on sku.spu_id equals spu.id
                                join owner in _dBContext.GetDbSet<GoodsownerEntity>().AsNoTracking() on dpl.goods_owner_id equals owner.id into o_left
                                from owner in o_left.DefaultIfEmpty()
                                join location in _dBContext.GetDbSet<GoodslocationEntity>().AsNoTracking() on dpl.goods_location_id equals location.id
-                               where dpl.dispatchlist_id == dispatch_id
+                               where dpl.dispatchlist_id == dispatch_id && dispatch.tenant_id == currentUser.tenant_id
                                select new DispatchpicklistViewModel
                                {
                                    id = dpl.id,
@@ -1107,66 +1112,6 @@ namespace ModernWMS.WMS.Services
         }
 
         /// <summary>
-        /// cancel dispatchlist detail opration
-        /// </summary>
-        /// <param name="id">dispatchlist_id</param>
-        /// <returns></returns>
-        public async Task<(bool flag, string msg)> CancelDispatchlistDetailOpration(int id)
-        {
-            var DBSet = _dBContext.GetDbSet<DispatchlistEntity>();
-            var entity = await DBSet.Where(t => t.id == id).FirstOrDefaultAsync();
-            var now_time = DateTime.Now;
-            if (entity == null)
-            {
-                return (false, _stringLocalizer["not_exists_entity"]);
-            }
-            if (entity.dispatch_status == 4)
-            {
-                if (entity.weighing_no == "")
-                {
-                    entity.dispatch_status = 3;
-                }
-                else
-                {
-                    entity.dispatch_status = 5;
-                }
-                entity.package_no = "";
-                entity.package_qty = 0;
-                entity.package_time = UtilConvert.MinDate;
-                entity.package_person = "";
-            }
-            else if (entity.dispatch_status == 5)
-            {
-                if (entity.package_no == "")
-                {
-                    entity.dispatch_status = 3;
-                }
-                else
-                {
-                    entity.dispatch_status = 4;
-                }
-                entity.weighing_no = "";
-                entity.weighing_qty = 0;
-                entity.weighing_weight = 0;
-                entity.weighing_person = "";
-            }
-            else
-            {
-                return (false, _stringLocalizer["status_changed"]);
-            }
-            entity.last_update_time = now_time;
-            var qty = await _dBContext.SaveChangesAsync();
-            if (qty > 0)
-            {
-                return (true, _stringLocalizer["operation_success"]);
-            }
-            else
-            {
-                return (false, _stringLocalizer["operation_failed"]);
-            }
-        }
-
-        /// <summary>
         /// confirm dispatchpicklist picked by dispatch_no
         /// </summary>
         /// <param name="dispatch_no">dispatch_no</param>
@@ -1365,7 +1310,9 @@ namespace ModernWMS.WMS.Services
         {
             var DBSet = _dBContext.GetDbSet<DispatchlistEntity>();
             var dispatchlist_id_list = viewModels.Select(t => t.id).ToList();
-            var entities = await DBSet.Where(t => dispatchlist_id_list.Contains(t.id)).ToListAsync();
+            var entities = await DBSet
+                .Where(t => dispatchlist_id_list.Contains(t.id) && t.tenant_id == currentUser.tenant_id)
+                .ToListAsync();
             var now_time = DateTime.Now;
             var code = GetPackageOrWeightCode();
             foreach (var vm in viewModels)
@@ -1375,14 +1322,25 @@ namespace ModernWMS.WMS.Services
                 {
                     return (false, "[202]" + _stringLocalizer["data_changed"]);
                 }
-                if ((entity.weighing_qty + vm.weighing_qty) > entity.picked_qty)
+                if ((entity.weighing_qty + vm.weighing_qty) != entity.picked_qty)
                 {
-                    return (false, "[202]" + _stringLocalizer["unweightqty_lessthen"]);
+                    return (false, "[202]" + _stringLocalizer["weigh_all_qty"]);
+                }
+                if (vm.weighing_weight <= 0
+                    || vm.weighing_length <= 0 || vm.weighing_length > 9999.99m
+                    || vm.weighing_width <= 0 || vm.weighing_width > 9999.99m
+                    || vm.weighing_height <= 0 || vm.weighing_height > 9999.99m)
+                {
+                    return (false, "[202]" + _stringLocalizer["weigh_measurement_invalid"]);
                 }
                 entity.last_update_time = now_time;
                 entity.weighing_person = currentUser.user_name;
                 entity.weighing_qty += vm.weighing_qty;
                 entity.weighing_weight += vm.weighing_weight;
+                entity.weighing_length = vm.weighing_length;
+                entity.weighing_width = vm.weighing_width;
+                entity.weighing_height = vm.weighing_height;
+                entity.weighing_volume = Math.Round(vm.weighing_length * vm.weighing_width * vm.weighing_height, 2, MidpointRounding.AwayFromZero);
                 entity.weighing_no = code;
                 entity.dispatch_status = 5;
             }
@@ -1400,7 +1358,7 @@ namespace ModernWMS.WMS.Services
                 {
                     foreach (var entry in ex.Entries)
                     {
-                        if (entry.Entity is StockEntity)
+                        if (entry.Entity is DispatchlistEntity)
                         {
                             var proposedValues = entry.CurrentValues;
                             var databaseValues = entry.GetDatabaseValues();
@@ -1410,18 +1368,19 @@ namespace ModernWMS.WMS.Services
                             {
                                 return (false, "[202]" + _stringLocalizer["data_changed"]);
                             }
-                            if (UtilConvert.ObjToInt(databaseValues["weighing_qty"]) + t_vm.weighing_qty > t_vm.picked_qty)
+                            if (UtilConvert.ObjToInt(databaseValues["weighing_qty"]) + t_vm.weighing_qty != t_vm.picked_qty)
                             {
-                                return (false, "[202]" + _stringLocalizer["data_changed"]);
+                                return (false, "[202]" + _stringLocalizer["weigh_all_qty"]);
                             }
                             else
                             {
                                 proposedValues["weighing_qty"] = UtilConvert.ObjToInt(databaseValues["weighing_qty"]) + t_vm.weighing_qty;
-                                proposedValues["weighing_weight"] = UtilConvert.ObjToInt(databaseValues["weighing_weight"]) + t_vm.weighing_weight;
-                                if (UtilConvert.ObjToInt(databaseValues["weighing_qty"]) + t_vm.weighing_qty == UtilConvert.ObjToInt(databaseValues["picked_qty"]))
-                                {
-                                    proposedValues["dispatch_status"] = 5;
-                                }
+                                proposedValues["weighing_weight"] = UtilConvert.ObjToDecimal(databaseValues["weighing_weight"]) + t_vm.weighing_weight;
+                                proposedValues["weighing_length"] = t_vm.weighing_length;
+                                proposedValues["weighing_width"] = t_vm.weighing_width;
+                                proposedValues["weighing_height"] = t_vm.weighing_height;
+                                proposedValues["weighing_volume"] = Math.Round(t_vm.weighing_length * t_vm.weighing_width * t_vm.weighing_height, 2, MidpointRounding.AwayFromZero);
+                                proposedValues["dispatch_status"] = 5;
                                 proposedValues["last_update_time"] = now_time;
                             }
                             // Refresh original values to bypass next concurrency check

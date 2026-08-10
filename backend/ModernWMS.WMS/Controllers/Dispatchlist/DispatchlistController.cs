@@ -60,7 +60,7 @@ namespace ModernWMS.WMS.Controllers
         public async Task<ResultModel<PageData<DispatchlistViewModel>>> PageAsync(PageSearch pageSearch)
         {
             var (data, totals) = await _dispatchlistService.PageAsync(pageSearch, CurrentUser);
-            if (pageSearch.sqlTitle == "dispatch_status=2" || pageSearch.sqlTitle == "dispatch_status=3")
+            if (pageSearch.sqlTitle == "dispatch_status=2" || pageSearch.sqlTitle == "dispatch_status=3" || pageSearch.sqlTitle == "weight")
             {
                 await _dispatchlistPickingService.EnrichPickingRowsAsync(data, CurrentUser);
             }
@@ -154,7 +154,7 @@ namespace ModernWMS.WMS.Controllers
         [HttpGet("pick-list")]
         public async Task<ResultModel<List<DispatchpicklistViewModel>>> GetPickListByDispatchID(int dispatch_id)
         {
-            var datas = await _dispatchlistService.GetPickListByDispatchID(dispatch_id);
+            var datas = await _dispatchlistService.GetPickListByDispatchID(dispatch_id, CurrentUser);
             return ResultModel<List<DispatchpicklistViewModel>>.Success(datas);
         }
         /// <summary>
@@ -393,14 +393,14 @@ namespace ModernWMS.WMS.Controllers
             }
         }
         /// <summary>
-        /// cancel dispatchlist detail opration
+        /// undo one weighing row to its previous state
         /// </summary>
         /// <param name="id">id</param>
         /// <returns></returns>
-        [HttpPut("cancel-order")]
-        public async Task<ResultModel<string>> CancelDispatchlistDetailOpration(int id)
+        [HttpPut("undo-weighing")]
+        public async Task<ResultModel<string>> UndoWeighing(int id)
         {
-            var (flag, msg) = await _dispatchlistService.CancelDispatchlistDetailOpration(id);
+            var (flag, msg) = await _dispatchlistPickingService.UndoWeighingAsync(id, CurrentUser);
             if (flag)
             {
                 return ResultModel<string>.Success(msg);

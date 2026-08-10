@@ -22,15 +22,54 @@
                   :label="isSignIn ? $t('wms.deliveryManagement.damagedQuantity') : $t('wms.deliveryManagement.detailQty')"
                   variant="outlined"
                   clearable
+                  :readonly="isWeight"
                 ></v-text-field>
               </v-col>
               <v-col v-if="isWeight" :cols="2">
                 <v-text-field
                   v-model="item.weight"
                   :rules="data.rules.weight"
-                  :label="$t('wms.deliveryManagement.detailWeight') + '(' + item.weight_unit + ')'"
+                  :label="$t('wms.deliveryManagement.weighingWeightKg')"
                   variant="outlined"
                   clearable
+                ></v-text-field>
+              </v-col>
+              <v-col v-if="isWeight" :cols="3">
+                <v-text-field
+                  v-model="item.weighing_length"
+                  :rules="data.rules.measurement"
+                  :label="$t('wms.deliveryManagement.weighingLength')"
+                  variant="outlined"
+                  clearable
+                  @update:model-value="method.calculateVolume(item)"
+                ></v-text-field>
+              </v-col>
+              <v-col v-if="isWeight" :cols="3">
+                <v-text-field
+                  v-model="item.weighing_width"
+                  :rules="data.rules.measurement"
+                  :label="$t('wms.deliveryManagement.weighingWidth')"
+                  variant="outlined"
+                  clearable
+                  @update:model-value="method.calculateVolume(item)"
+                ></v-text-field>
+              </v-col>
+              <v-col v-if="isWeight" :cols="3">
+                <v-text-field
+                  v-model="item.weighing_height"
+                  :rules="data.rules.measurement"
+                  :label="$t('wms.deliveryManagement.weighingHeight')"
+                  variant="outlined"
+                  clearable
+                  @update:model-value="method.calculateVolume(item)"
+                ></v-text-field>
+              </v-col>
+              <v-col v-if="isWeight" :cols="3">
+                <v-text-field
+                  v-model="item.weighing_volume"
+                  :label="$t('wms.deliveryManagement.volumeCm3')"
+                  variant="outlined"
+                  readonly
                 ></v-text-field>
               </v-col>
             </v-row>
@@ -70,13 +109,23 @@ const data = reactive({
   rules: {
     qty: [],
     weight: [
-      (val: number) => !!val || `${ i18n.global.t('system.checkText.mustInput') }${ i18n.global.t('wms.deliveryManagement.detailQty') }!`,
-      (val: number) => IsDecimal(val, 'nonNegative', 15, 3) === '' || IsDecimal(val, 'nonNegative', 15, 3)
+      (val: number) => !!val || `${ i18n.global.t('system.checkText.mustInput') }${ i18n.global.t('wms.deliveryManagement.weighing_weight') }!`,
+      (val: number) => IsDecimal(val, 'greaterThanZero', 15, 2) === '' || IsDecimal(val, 'greaterThanZero', 15, 2)
+    ],
+    measurement: [
+      (val: number) => !!val || i18n.global.t('system.checkText.mustInput'),
+      (val: number) => IsDecimal(val, 'greaterThanZero', 6, 2) === '' || IsDecimal(val, 'greaterThanZero', 6, 2)
     ]
   } as any
 })
 
 const method = reactive({
+  calculateVolume: (item: ConfirmItem) => {
+    const length = Number(item.weighing_length ?? 0)
+    const width = Number(item.weighing_width ?? 0)
+    const height = Number(item.weighing_height ?? 0)
+    item.weighing_volume = Number((length * width * height).toFixed(2))
+  },
   openDialog: (dataList: ConfirmItem[] = []) => {
     data.list = dataList
 
@@ -121,7 +170,17 @@ const method = reactive({
         (item) => IsInteger(item.qty, 'greaterThanZero') !== ''
           || Number(item.qty) <= 0
           || Number(item.qty) > item.maxQty
-          || (item.weight && IsDecimal(item.weight, 'nonNegative', 15, 3) !== '')
+          || (props.isWeight && (
+            !item.weight
+            || Number(item.weight) <= 0
+            || IsDecimal(item.weight, 'greaterThanZero', 15, 2) !== ''
+            || !item.weighing_length
+            || !item.weighing_width
+            || !item.weighing_height
+            || IsDecimal(item.weighing_length, 'greaterThanZero', 6, 2) !== ''
+            || IsDecimal(item.weighing_width, 'greaterThanZero', 6, 2) !== ''
+            || IsDecimal(item.weighing_height, 'greaterThanZero', 6, 2) !== ''
+          ))
       )
       if (verificationFailedList.length > 0) {
         const errMsgStrList = verificationFailedList.map(

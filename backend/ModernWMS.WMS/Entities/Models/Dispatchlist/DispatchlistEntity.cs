@@ -127,9 +127,29 @@ namespace ModernWMS.WMS.Entities.Models
         public string weighing_person { get; set; }  = string.Empty;
 
         /// <summary>
-        /// weighing_weight
+        /// weighing_weight (kg)
         /// </summary>
         public decimal weighing_weight { get; set; }  = 0;
+
+        /// <summary>
+        /// Measured length in centimeters.
+        /// </summary>
+        public decimal weighing_length { get; set; } = 0;
+
+        /// <summary>
+        /// Measured width in centimeters.
+        /// </summary>
+        public decimal weighing_width { get; set; } = 0;
+
+        /// <summary>
+        /// Measured height in centimeters.
+        /// </summary>
+        public decimal weighing_height { get; set; } = 0;
+
+        /// <summary>
+        /// Measured volume in cubic centimeters.
+        /// </summary>
+        public decimal weighing_volume { get; set; } = 0;
 
         /// <summary>
         /// waybill_no

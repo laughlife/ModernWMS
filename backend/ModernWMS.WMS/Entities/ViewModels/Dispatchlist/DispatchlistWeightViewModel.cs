@@ -45,10 +45,19 @@ namespace ModernWMS.WMS.Entities.ViewModels
         public int weighing_qty { get; set; } = 0;
 
         /// <summary>
-        /// weighing_weight
+        /// weighing_weight (kg)
         /// </summary>
         [Display(Name = "weighing_weight")]
         public decimal weighing_weight { get; set; } = 0;
+
+        [Display(Name = "weighing_length")]
+        public decimal weighing_length { get; set; } = 0;
+
+        [Display(Name = "weighing_width")]
+        public decimal weighing_width { get; set; } = 0;
+
+        [Display(Name = "weighing_height")]
+        public decimal weighing_height { get; set; } = 0;
 
         /// <summary>
         /// picked_qty

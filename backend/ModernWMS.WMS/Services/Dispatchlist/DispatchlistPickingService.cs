@@ -56,7 +56,7 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         var skuMap = await _ruoyiDbContext.CommodityMaps.AsNoTracking()
             .Where(t => t.tenant_id == currentUser.tenant_id && commodityIds.Contains(t.erp_commodity_id))
             .ToDictionaryAsync(t => t.erp_commodity_id, t => t.wms_sku_id);
-        var moveByNo = moves.ToDictionary(t => t.no);
+        var movesByNo = moves.GroupBy(t => t.no).ToDictionary(t => t.Key, t => t.ToList());
         var itemsByMove = items.GroupBy(t => t.stock_move_id).ToDictionary(t => t.Key, t => t.ToList());
         var snapshotByItem = items.ToDictionary(t => t.id, ParseSnapshot);
 
@@ -84,10 +84,22 @@ public class DispatchlistPickingService : IDispatchlistPickingService
 
         foreach (var row in rows)
         {
-            if (!moveByNo.TryGetValue(row.dispatch_no, out var move))
+            if (!movesByNo.TryGetValue(row.dispatch_no, out var candidateMoves))
             {
                 continue;
             }
+
+            var matchingMoves = candidateMoves
+                .Where(move => (itemsByMove.GetValueOrDefault(move.id) ?? [])
+                    .Any(item => item.commodity_id.HasValue
+                        && skuMap.TryGetValue(item.commodity_id.Value, out var wmsSkuId)
+                        && wmsSkuId == row.sku_id))
+                .ToList();
+            if (matchingMoves.Count != 1)
+            {
+                continue;
+            }
+            var move = matchingMoves[0];
 
             row.dept_name = move.dept_name ?? string.Empty;
             row.order_user_name = move.order_user_name ?? string.Empty;
@@ -206,6 +218,30 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         }
 
         entity.dispatch_status = 4;
+        entity.last_update_time = DateTime.Now;
+        return await SaveAsync();
+    }
+
+    public async Task<(bool flag, string msg)> UndoWeighingAsync(int id, CurrentUser currentUser)
+    {
+        var entity = await _wmsDbContext.GetDbSet<DispatchlistEntity>()
+            .FirstOrDefaultAsync(t => t.id == id
+                && t.tenant_id == currentUser.tenant_id
+                && (t.dispatch_status == 4 || t.dispatch_status == 5));
+        if (entity == null)
+        {
+            return (false, _stringLocalizer["data_changed"]);
+        }
+
+        entity.dispatch_status = entity.dispatch_status == 5 ? (byte)4 : (byte)3;
+        entity.weighing_no = string.Empty;
+        entity.weighing_qty = 0;
+        entity.weighing_weight = 0;
+        entity.weighing_length = 0;
+        entity.weighing_width = 0;
+        entity.weighing_height = 0;
+        entity.weighing_volume = 0;
+        entity.weighing_person = string.Empty;
         entity.last_update_time = DateTime.Now;
         return await SaveAsync();
     }

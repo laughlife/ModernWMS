@@ -225,9 +225,9 @@ export const handleSignIn = (data: SignInVO[]) => http({
     data
   })
 
-// Undo to previous step by detail
-export const cancelOrderByDetail = (id: number) => http({
-    url: '/dispatchlist/cancel-order',
+// Undo one weighing row to its previous state
+export const undoWeighing = (id: number) => http({
+    url: '/dispatchlist/undo-weighing',
     method: 'put',
     params: {
       id

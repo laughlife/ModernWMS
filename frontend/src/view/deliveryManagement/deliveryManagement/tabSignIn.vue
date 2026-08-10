@@ -72,7 +72,7 @@
       </vxe-column>
       <vxe-column field="weighing_weight" :title="$t('wms.deliveryManagement.weighing_weight')">
         <template #default="{ row }">
-          <span>{{ `${row.weighing_weight} ${GetUnit('weight', row.weight_unit)}` }}</span>
+          <span>{{ `${row.weighing_weight} kg` }}</span>
         </template>
       </vxe-column>
       <vxe-column field="weighing_person" :title="$t('wms.deliveryManagement.weighing_person')"></vxe-column>

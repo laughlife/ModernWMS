@@ -16,4 +16,6 @@ public interface IDispatchlistPickingService : IDependency
     Task<(bool flag, string msg)> RepickAsync(int id, CurrentUser currentUser);
 
     Task<(bool flag, string msg)> StartWeighingAsync(int id, CurrentUser currentUser);
+
+    Task<(bool flag, string msg)> UndoWeighingAsync(int id, CurrentUser currentUser);
 }

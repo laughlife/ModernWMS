@@ -159,7 +159,7 @@ namespace ModernWMS.WMS.IServices
         /// </summary>
         /// <param name="dispatch_id">dispatch_id</param>
         /// <returns></returns>
-        Task<List<DispatchpicklistViewModel>> GetPickListByDispatchID(int dispatch_id);
+        Task<List<DispatchpicklistViewModel>> GetPickListByDispatchID(int dispatch_id, CurrentUser currentUser);
 
         /// <summary>
         ///  cancel order opration 
@@ -168,14 +168,6 @@ namespace ModernWMS.WMS.IServices
         /// <param name="currentUser">current user</param>
         /// <returns></returns>
         Task<(bool flag, string msg)> CancelOrderOpration(CancelOrderOprationViewModel viewModel, CurrentUser currentUser);
-
-        /// <summary>
-        /// cancel dispatchlist detail opration
-        /// </summary>
-        /// <param name="id">dispatchlist_id</param>
-        /// <returns></returns>
-        Task<(bool flag, string msg)> CancelDispatchlistDetailOpration(int id);
-
 
         /// <summary>
         /// Excel Import

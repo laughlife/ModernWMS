@@ -193,6 +193,26 @@ namespace ModernWMS.WMS.Entities.ViewModels
         public decimal weighing_weight { get; set; } = 0;
 
         /// <summary>
+        /// Measured length for this weighing, in centimeters.
+        /// </summary>
+        public decimal weighing_length { get; set; } = 0;
+
+        /// <summary>
+        /// Measured width for this weighing, in centimeters.
+        /// </summary>
+        public decimal weighing_width { get; set; } = 0;
+
+        /// <summary>
+        /// Measured height for this weighing, in centimeters.
+        /// </summary>
+        public decimal weighing_height { get; set; } = 0;
+
+        /// <summary>
+        /// Volume calculated from this weighing's dimensions, in cubic centimeters.
+        /// </summary>
+        public decimal weighing_volume { get; set; } = 0;
+
+        /// <summary>
         /// waybill_no
         /// </summary>
         [Display(Name = "waybill_no")]
