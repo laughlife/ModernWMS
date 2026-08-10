@@ -218,4 +218,14 @@ defineExpose({ getGoodsToBePicked: method.getGoodsToBePicked })
 .print-area table { width: 100%; border-collapse: collapse; }
 .print-area th, .print-area td { padding: 8px; border: 1px solid #333; text-align: center; vertical-align: middle; }
 .print-area img { width: 56px; height: 56px; object-fit: contain; }
+
+@media print {
+  .print-area {
+    position: static;
+    left: auto;
+    top: auto;
+    width: 100%;
+    padding: 0;
+  }
+}
 </style>
