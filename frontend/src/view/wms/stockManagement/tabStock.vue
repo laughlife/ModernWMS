@@ -38,7 +38,7 @@
       height: cardHeight
     }"
   >
-    <vxe-table ref="xTableWarehouse" :column-config="{ minWidth: '100px' }" :row-config="{ height: 76 }" :data="data.tableData" :height="tableHeight" align="center">
+    <vxe-table ref="xTableWarehouse" :column-config="{ minWidth: '100px' }" :data="data.tableData" :height="tableHeight" align="center">
       <template #empty>
         {{ i18n.global.t('system.page.noData') }}
       </template>
@@ -49,10 +49,12 @@
           <product-image :src="row.product_image" :alt="row.spu_name" :width="56" :height="56" class="product-img" />
         </template>
       </vxe-column>
-      <vxe-column field="spu_name" :title="$t('wms.stockList.spu_name')"></vxe-column>
-      <vxe-column field="sku_code" :title="$t('wms.stockList.sku_code')">
+      <vxe-column field="spu_name" :title="$t('wms.stockList.product_info')" min-width="360" align="left" header-align="left" :show-overflow="false">
         <template #default="{ row }">
-          <div :class="'text-decoration-none'" @click="method.showSkuInfo(row)"> {{ row.sku_code }}</div>
+          <div class="product-info" @click="method.showSkuInfo(row)">
+            <div class="product-info__name">{{ row.spu_name }}</div>
+            <div class="product-info__sku">SKU：{{ row.sku_code }}</div>
+          </div>
         </template>
       </vxe-column>
       <vxe-column field="qty" :title="$t('wms.stockList.qty')"></vxe-column>
@@ -238,5 +240,22 @@ watch(
 
 .product-img {
   margin: 0 auto;
+}
+
+.product-info {
+  padding: 10px 0;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.product-info__name,
+.product-info__sku {
+  line-height: 22px;
+}
+
+.product-info__sku {
+  color: rgba(0, 0, 0, 0.6);
 }
 </style>

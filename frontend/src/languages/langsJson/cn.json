@@ -750,6 +750,7 @@
     },
     "stockList": {
       "image": "商品图片",
+      "product_info": "商品信息",
       "product_keyword": "商品名称/SKU",
       "qty": "数量",
       "qty_asn": "到货通知书数量",
