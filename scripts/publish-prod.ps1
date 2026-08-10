@@ -63,11 +63,16 @@ $backendProject = Join-Path $repositoryRoot 'backend\ModernWMS\ModernWMS.csproj'
 $publishRoot = Join-Path $repositoryRoot 'artifacts\publish'
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $packageName = "ModernWMS-prod-$timestamp"
-$packageRoot = Join-Path $publishRoot $packageName
 $stagingRoot = Join-Path $publishRoot "$packageName.staging"
 $frontendPackageRoot = Join-Path $stagingRoot 'frontend'
 $backendPackageRoot = Join-Path $stagingRoot 'backend'
 $zipPath = Join-Path $publishRoot "$packageName.zip"
+$resolvedPublishRoot = [IO.Path]::GetFullPath($publishRoot).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+$resolvedStagingRoot = [IO.Path]::GetFullPath($stagingRoot)
+
+if (-not $resolvedStagingRoot.StartsWith($resolvedPublishRoot, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "临时发布目录超出允许范围：$resolvedStagingRoot"
+}
 
 foreach ($requiredCommand in @('npm.cmd', 'dotnet')) {
     if (-not (Get-Command $requiredCommand -ErrorAction SilentlyContinue)) {
@@ -82,7 +87,6 @@ if (-not (Test-Path -LiteralPath $backendProject -PathType Leaf)) {
     throw "后端项目不存在：$backendProject"
 }
 if ((Test-Path -LiteralPath $stagingRoot) -or
-    (Test-Path -LiteralPath $packageRoot) -or
     (Test-Path -LiteralPath $zipPath)) {
     throw "本次发布目标已存在，请稍后重新执行：$packageName"
 }
@@ -149,8 +153,11 @@ try {
         ConvertTo-Json -Depth 20 |
         Set-Content -LiteralPath $productionConfigPath -Encoding utf8
 
-    Move-Item -LiteralPath $stagingRoot -Destination $packageRoot
-    Compress-Archive -Path (Join-Path $packageRoot '*') -DestinationPath $zipPath -CompressionLevel Optimal
+    Compress-Archive -Path (Join-Path $stagingRoot '*') -DestinationPath $zipPath -CompressionLevel Optimal
+    if (-not (Test-Path -LiteralPath $zipPath -PathType Leaf)) {
+        throw "ZIP 包生成失败：$zipPath"
+    }
+    Remove-Item -LiteralPath $resolvedStagingRoot -Recurse -Force
 }
 catch {
     if (Test-Path -LiteralPath $stagingRoot) {
@@ -165,7 +172,6 @@ finally {
 }
 
 Write-Host "发布完成。"
-Write-Host "发布目录：$packageRoot"
 Write-Host "ZIP 包：$zipPath"
 Write-Host "前端来源：$normalizedFrontendOrigin"
 Write-Host "后端地址：$normalizedBackendBaseUrl"
