@@ -46,16 +46,28 @@
     </main>
 
     <footer class="login-footer">
-      <a href="https://modernwms.ikeyly.com" target="_blank" rel="noopener noreferrer">
-        版权所有 © 2023 <strong>南阳有座山物流管理系统</strong>
-      </a>
-      <button type="button" @click="method.toICP">闽ICP备2021008548号</button>
+      <div class="login-footer-support">技术支持：南阳锐翼网络科技有限责任公司</div>
+      <div class="login-footer-registration">
+        <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">
+          <v-icon icon="mdi-shield-check" size="18" />
+          <span>豫ICP备2025141776号-1</span>
+        </a>
+        <span class="login-footer-divider" aria-hidden="true">|</span>
+        <a
+          href="https://beian.mps.gov.cn/#/query/webSearch?code=41130202000523"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <v-icon icon="mdi-shield-check" size="18" />
+          <span>豫公网安备41130202000523号</span>
+        </a>
+      </div>
     </footer>
   </div>
 </template>
 
 <script lang="ts" setup>
-import { onMounted, reactive } from 'vue'
+import { onMounted } from 'vue'
 import LoginForm from '@/components/login/login-form.vue'
 import Logo from '@/components/system/logo.vue'
 import { emitter } from '@/utils/bus'
@@ -86,12 +98,6 @@ const capabilities = [
     icon: 'mdi-chart-pie'
   }
 ]
-
-const method = reactive({
-  toICP: () => {
-    window.open('https://beian.miit.gov.cn/', '_blank')
-  }
-})
 
 // Return to the login interface to clear the status
 onMounted(() => {
@@ -278,35 +284,41 @@ onMounted(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  gap: 10px;
   box-sizing: border-box;
   color: #7f899c;
   background: rgba(237, 244, 255, 0.72);
   font-size: 13px;
 
   a {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
     color: inherit;
     text-decoration: none;
-  }
-
-  strong {
-    color: #2875e9;
-    font-weight: 500;
-  }
-
-  button {
-    padding: 0;
-    color: #929bad;
-    background: transparent;
-    border: 0;
-    font: inherit;
-    cursor: pointer;
 
     &:hover,
     &:focus-visible {
       color: #2875e9;
     }
   }
+}
+
+.login-footer-support {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.login-footer-registration {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  color: #929bad;
+}
+
+.login-footer-divider {
+  color: #b5bdca;
 }
 
 @media (max-width: 1180px) {
@@ -401,6 +413,11 @@ onMounted(() => {
   .login-footer {
     min-height: 70px;
     font-size: 11px;
+  }
+
+  .login-footer-registration {
+    flex-wrap: wrap;
+    gap: 6px 12px;
   }
 }
 </style>

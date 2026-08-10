@@ -55,11 +55,53 @@ function Get-DotEnvValue {
     return $match.Groups[1].Value.Trim().Trim("'", '"')
 }
 
+function Get-UserSecretValue {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$SecretLines,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    $prefix = "$Name = "
+    $line = $SecretLines | Where-Object { $_.StartsWith($prefix, [StringComparison]::Ordinal) } | Select-Object -First 1
+    if ([string]::IsNullOrWhiteSpace($line)) {
+        throw "开发环境 User Secrets 缺少 $Name，无法生成生产发布包。"
+    }
+
+    return $line.Substring($prefix.Length)
+}
+
+function Set-ConnectionStringValue {
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Data.Common.DbConnectionStringBuilder]$Builder,
+
+        [Parameter(Mandatory = $true)]
+        [string[]]$CandidateKeys,
+
+        [Parameter(Mandatory = $true)]
+        [string]$DefaultKey,
+
+        [Parameter(Mandatory = $true)]
+        [object]$Value
+    )
+
+    $existingKey = @($Builder.Keys) |
+        Where-Object { $candidate = $_; $CandidateKeys | Where-Object { $_.Equals($candidate, [StringComparison]::OrdinalIgnoreCase) } } |
+        Select-Object -First 1
+    $targetKey = if ($null -ne $existingKey) { [string]$existingKey } else { $DefaultKey }
+    $Builder[$targetKey] = $Value
+}
+
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $frontendRoot = Join-Path $repositoryRoot 'frontend'
 $backendProject = Join-Path $repositoryRoot 'backend\ModernWMS\ModernWMS.csproj'
 $frontendProductionEnv = Join-Path $frontendRoot '.env.production'
 $backendProductionConfig = Join-Path $repositoryRoot 'backend\ModernWMS\appsettings.Production.json'
+$productionDatabaseHost = '192.168.100.112'
+$productionDatabasePort = 8866
 $publishRoot = Join-Path $repositoryRoot 'artifacts\publish'
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $packageName = "ModernWMS-prod-$timestamp"
@@ -127,6 +169,17 @@ $normalizedFrontendOrigins = foreach ($allowedOrigin in $allowedOrigins) {
     $frontendUri.GetLeftPart([UriPartial]::Authority)
 }
 
+$secretLines = & dotnet user-secrets list --project $backendProject
+if ($LASTEXITCODE -ne 0) {
+    throw '读取开发环境 User Secrets 失败，无法生成生产发布包。'
+}
+$developmentConnectionString = Get-UserSecretValue -SecretLines $secretLines -Name 'ConnectionStrings:MySqlConn'
+$developmentSigningKey = Get-UserSecretValue -SecretLines $secretLines -Name 'TokenSettings:SigningKey'
+$productionConnectionBuilder = [System.Data.Common.DbConnectionStringBuilder]::new()
+$productionConnectionBuilder.set_ConnectionString($developmentConnectionString)
+Set-ConnectionStringValue -Builder $productionConnectionBuilder -CandidateKeys @('Server', 'Data Source', 'Host') -DefaultKey 'Server' -Value $productionDatabaseHost
+Set-ConnectionStringValue -Builder $productionConnectionBuilder -CandidateKeys @('Port') -DefaultKey 'Port' -Value $productionDatabasePort
+
 New-Item -ItemType Directory -Path $frontendPackageRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $backendPackageRoot -Force | Out-Null
 
@@ -163,6 +216,15 @@ try {
         throw "后端发布目录缺少生产配置：$productionConfigPath"
     }
 
+    $publishedProductionConfig = Get-Content -LiteralPath $productionConfigPath -Raw | ConvertFrom-Json
+    $publishedProductionConfig | Add-Member -NotePropertyName 'ConnectionStrings' -NotePropertyValue ([pscustomobject]@{
+        MySqlConn = $productionConnectionBuilder.get_ConnectionString()
+    }) -Force
+    $publishedProductionConfig | Add-Member -NotePropertyName 'TokenSettings' -NotePropertyValue ([pscustomobject]@{
+        SigningKey = $developmentSigningKey
+    }) -Force
+    $publishedProductionConfig | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $productionConfigPath -Encoding utf8
+
     Compress-Archive -Path (Join-Path $stagingRoot '*') -DestinationPath $zipPath -CompressionLevel Optimal
     if (-not (Test-Path -LiteralPath $zipPath -PathType Leaf)) {
         throw "ZIP 包生成失败：$zipPath"
@@ -180,3 +242,4 @@ Write-Host "发布完成。"
 Write-Host "ZIP 包：$zipPath"
 Write-Host "前端来源：$($normalizedFrontendOrigins -join ', ')"
 Write-Host "后端地址：$normalizedBackendBaseUrl"
+Write-Host "生产数据库：$productionDatabaseHost`:$productionDatabasePort（账号和密码沿用开发环境 User Secrets）"
