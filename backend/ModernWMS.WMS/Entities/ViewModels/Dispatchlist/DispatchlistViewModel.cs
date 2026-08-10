@@ -300,9 +300,14 @@ namespace ModernWMS.WMS.Entities.ViewModels
         public string commodity_name { get; set; } = string.Empty;
 
         /// <summary>
-        /// FN_SKU（FBA SKU）
+        /// FNSKU（FBA SKU）
         /// </summary>
         public string fba_sku { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 当前拣货商品包含的变体数
+        /// </summary>
+        public long variant_qty { get; set; } = 1;
 
         /// <summary>
         /// 小组（发货小组）

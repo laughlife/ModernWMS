@@ -39,6 +39,7 @@ export interface DeliveryManagementDetailVO extends DeliveryManagementVO {
   main_image?: string
   commodity_name?: string
   fba_sku?: string
+  variant_qty?: number
   dept_name?: string
   order_user_name?: string
   prepared_time?: string

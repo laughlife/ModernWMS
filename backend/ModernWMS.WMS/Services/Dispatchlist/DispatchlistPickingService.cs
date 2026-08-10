@@ -103,6 +103,9 @@ public class DispatchlistPickingService : IDispatchlistPickingService
                 : string.Join(", ", snapshots.Select(t => t.fbaSku)
                     .Where(t => !string.IsNullOrWhiteSpace(t))
                     .Distinct(StringComparer.OrdinalIgnoreCase));
+            row.variant_qty = snapshots.Count > 0
+                ? snapshots.Sum(t => t.variantQty ?? 1)
+                : 1;
             var preparedTime = snapshots.Where(t => t.preparedTime.HasValue)
                 .Select(t => t.preparedTime!.Value)
                 .DefaultIfEmpty()
@@ -215,6 +218,7 @@ public class DispatchlistPickingService : IDispatchlistPickingService
                 mainImage = GetString(root, "mainImage"),
                 commodityName = GetString(root, "commodityName"),
                 fbaSku = GetString(root, "fbaSku"),
+                variantQty = GetInt64(root, "variantQty"),
                 fbaShipmentItemId = GetInt64(root, "fbaShipmentItemId"),
                 preparedTime = GetDateTime(root, "preparedTime")
             };
@@ -260,6 +264,7 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         public string mainImage { get; init; } = string.Empty;
         public string commodityName { get; init; } = string.Empty;
         public string fbaSku { get; init; } = string.Empty;
+        public long? variantQty { get; init; }
         public long? fbaShipmentItemId { get; init; }
         public DateTime? preparedTime { get; init; }
     }

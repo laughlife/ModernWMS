@@ -26,18 +26,27 @@
     <vxe-table ref="xTable" :column-config="{ minWidth: '120px' }" :data="data.tableData" :height="tableHeight" align="center">
       <template #empty>{{ i18n.global.t('system.page.noData') }}</template>
       <vxe-column type="checkbox" width="52"></vxe-column>
-      <vxe-column field="main_image" :title="$t('wms.deliveryManagement.productImage')" width="92">
+      <vxe-column field="main_image" :title="$t('wms.deliveryManagement.productImage')" width="132">
         <template #default="{ row }">
-          <ProductImage :src="row.main_image" :alt="row.commodity_name || row.spu_name" :width="56" :height="56" />
+          <ProductImage :src="row.main_image" :alt="row.commodity_name || row.spu_name" :width="112" :height="112" />
         </template>
       </vxe-column>
-      <vxe-column field="commodity_name" :title="$t('wms.deliveryManagement.spu_name')" min-width="220">
-        <template #default="{ row }">{{ row.commodity_name || row.spu_name }}</template>
+      <vxe-column field="commodity_name" :title="$t('wms.deliveryManagement.productInfo')" min-width="260">
+        <template #default="{ row }">
+          <div class="primary-text">{{ row.commodity_name || row.spu_name || '-' }}</div>
+          <div class="secondary-text">{{ $t('wms.deliveryManagement.fnSku') }}：{{ row.fba_sku || '-' }}</div>
+        </template>
       </vxe-column>
-      <vxe-column field="fba_sku" :title="$t('wms.deliveryManagement.fnSku')" min-width="160"></vxe-column>
-      <vxe-column field="dept_name" :title="$t('wms.deliveryManagement.deptName')" min-width="140"></vxe-column>
-      <vxe-column field="order_user_name" :title="$t('wms.deliveryManagement.operatorName')" min-width="140"></vxe-column>
+      <vxe-column field="dept_name" :title="$t('wms.deliveryManagement.shippingPersonnel')" min-width="180">
+        <template #default="{ row }">
+          <div class="primary-text">{{ row.dept_name || '-' }}</div>
+          <div class="secondary-text">{{ row.order_user_name || '-' }}</div>
+        </template>
+      </vxe-column>
       <vxe-column field="qty" :title="$t('wms.deliveryManagement.quantityLabel')" width="100"></vxe-column>
+      <vxe-column field="variant_qty" :title="$t('wms.deliveryManagement.variantLabel')" width="100">
+        <template #default="{ row }">{{ row.variant_qty ?? 1 }} {{ $t('wms.deliveryManagement.variantLabel') }}</template>
+      </vxe-column>
       <vxe-date-column
         field="prepared_time"
         width="170"
@@ -63,22 +72,26 @@
       <thead>
         <tr>
           <th>{{ $t('wms.deliveryManagement.productImage') }}</th>
-          <th>{{ $t('wms.deliveryManagement.spu_name') }}</th>
-          <th>{{ $t('wms.deliveryManagement.fnSku') }}</th>
-          <th>{{ $t('wms.deliveryManagement.deptName') }}</th>
-          <th>{{ $t('wms.deliveryManagement.operatorName') }}</th>
+          <th>{{ $t('wms.deliveryManagement.productInfo') }}</th>
+          <th>{{ $t('wms.deliveryManagement.shippingPersonnel') }}</th>
           <th>{{ $t('wms.deliveryManagement.quantityLabel') }}</th>
+          <th>{{ $t('wms.deliveryManagement.variantLabel') }}</th>
           <th>{{ $t('wms.deliveryManagement.packingCreatedTime') }}</th>
         </tr>
       </thead>
       <tbody>
         <tr v-for="row in data.printRows" :key="row.id">
           <td><img v-if="row.main_image" :src="row.main_image" referrerpolicy="no-referrer" :alt="row.commodity_name || row.spu_name" /></td>
-          <td>{{ row.commodity_name || row.spu_name }}</td>
-          <td>{{ row.fba_sku }}</td>
-          <td>{{ row.dept_name }}</td>
-          <td>{{ row.order_user_name }}</td>
+          <td>
+            <div class="primary-text">{{ row.commodity_name || row.spu_name || '-' }}</div>
+            <div class="secondary-text">{{ $t('wms.deliveryManagement.fnSku') }}：{{ row.fba_sku || '-' }}</div>
+          </td>
+          <td>
+            <div class="primary-text">{{ row.dept_name || '-' }}</div>
+            <div class="secondary-text">{{ row.order_user_name || '-' }}</div>
+          </td>
           <td>{{ row.qty }}</td>
+          <td>{{ row.variant_qty ?? 1 }} {{ $t('wms.deliveryManagement.variantLabel') }}</td>
           <td>{{ method.formatDateTime(row.prepared_time) }}</td>
         </tr>
       </tbody>
@@ -217,7 +230,9 @@ defineExpose({ getGoodsToBePicked: method.getGoodsToBePicked })
 .print-area h2 { margin: 0 0 16px; text-align: center; }
 .print-area table { width: 100%; border-collapse: collapse; }
 .print-area th, .print-area td { padding: 8px; border: 1px solid #333; text-align: center; vertical-align: middle; }
-.print-area img { width: 56px; height: 56px; object-fit: contain; }
+.primary-text { font-weight: 500; }
+.secondary-text { margin-top: 4px; font-size: 12px; opacity: 0.72; }
+.print-area img { width: 112px; height: 112px; object-fit: contain; }
 
 @media print {
   .print-area {
