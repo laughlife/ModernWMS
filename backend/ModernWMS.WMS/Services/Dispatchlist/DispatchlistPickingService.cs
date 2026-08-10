@@ -370,9 +370,8 @@ public class DispatchlistPickingService : IDispatchlistPickingService
                     shipment_total_qty = shipment.quantity ?? wmsRows.Sum(t => t.qty),
                     variant_qty = Math.Max(1, shipmentGroup.Select(t => snapshots[t.id].fbaShipmentItemId ?? t.id).Distinct().Count()),
                     box_count = shipmentBoxes.Count,
-                    weighed_box_count = shipmentMeasurements.Count,
-                    weighing_weight = shipmentMeasurements.Sum(t => t.weighing_weight),
-                    weighing_volume = shipmentMeasurements.Sum(t => t.weighing_volume)
+                    weighed_box_count = shipmentMeasurements.Count(t => t.weighing_weight > 0),
+                    weighing_weight = shipmentMeasurements.Sum(t => t.weighing_weight)
                 });
             }
         }
@@ -420,100 +419,83 @@ public class DispatchlistPickingService : IDispatchlistPickingService
                 weighing_width = value?.weighing_width ?? 0,
                 weighing_height = value?.weighing_height ?? 0,
                 weighing_volume = value?.weighing_volume ?? 0,
-                is_weighed = value != null
+                is_weighed = value?.weighing_weight > 0
             };
         }).ToList();
     }
 
-    public async Task<(bool flag, string msg)> SaveWeighingBoxAsync(
-        SaveDispatchWeighingBoxViewModel viewModel,
+    public async Task<(bool flag, string msg)> SaveWeighingBoxesAsync(
+        List<SaveDispatchWeighingBoxViewModel> viewModels,
         CurrentUser currentUser)
     {
-        if (!IsValidMeasurement(viewModel)) return (false, "重量和长宽高必须大于0");
-        if (!await CanAccessShipmentAsync(viewModel.dispatch_no, viewModel.fba_shipment_id, currentUser))
-            return (false, _stringLocalizer["data_changed"]);
-        var box = await _ruoyiDbContext.FbaShipmentBoxes.AsNoTracking()
-            .FirstOrDefaultAsync(t => !t.deleted && t.id == viewModel.erp_box_id && t.shipment_id == viewModel.fba_shipment_id);
-        if (box == null) return (false, "箱号不存在或已失效");
-        var fbaNo = await _ruoyiDbContext.FbaShipments.AsNoTracking()
-            .Where(t => !t.deleted && t.id == viewModel.fba_shipment_id)
-            .Select(t => t.amazon_shipment_id)
-            .FirstOrDefaultAsync() ?? string.Empty;
+        if (viewModels == null || viewModels.Count == 0)
+            return (false, "没有可保存的箱号数据");
+        if (viewModels.Any(t => !IsValidMeasurement(t)))
+            return (false, "每个箱子的重量都必须大于0");
 
-        await using var transaction = await _wmsDbContext.Database.BeginTransactionAsync();
-        var set = _wmsDbContext.GetDbSet<DispatchWeighingBoxEntity>();
-        var entity = await set.FirstOrDefaultAsync(t => t.tenant_id == currentUser.tenant_id && t.erp_box_id == box.id);
-        if (entity != null && (entity.dispatch_no != viewModel.dispatch_no || entity.fba_shipment_id != viewModel.fba_shipment_id))
-            return (false, "该箱号已关联其它WMS发货单");
-        var now = DateTime.Now;
-        if (entity == null)
-        {
-            entity = new DispatchWeighingBoxEntity
-            {
-                tenant_id = currentUser.tenant_id,
-                dispatch_no = viewModel.dispatch_no,
-                fba_shipment_id = viewModel.fba_shipment_id,
-                fba_no = fbaNo,
-                erp_box_id = box.id,
-                box_no = box.box_id,
-                box_index = box.idx ?? 0,
-                tracking_id = box.tracking_id ?? string.Empty,
-                create_time = now
-            };
-            set.Add(entity);
-        }
-        ApplyMeasurement(entity, viewModel.weighing_weight, viewModel.weighing_length, viewModel.weighing_width,
-            viewModel.weighing_height, currentUser, now, null);
-        await _wmsDbContext.SaveChangesAsync();
-        await CompleteDispatchIfReadyAsync(viewModel.dispatch_no, currentUser);
-        await transaction.CommitAsync();
-        return (true, _stringLocalizer["operation_success"]);
-    }
-
-    public async Task<(bool flag, string msg)> CopyWeighingBoxAsync(
-        CopyDispatchWeighingBoxViewModel viewModel,
-        CurrentUser currentUser)
-    {
-        if (!await CanAccessShipmentAsync(viewModel.dispatch_no, viewModel.fba_shipment_id, currentUser))
+        var dispatchNo = viewModels[0].dispatch_no;
+        var shipmentId = viewModels[0].fba_shipment_id;
+        if (string.IsNullOrWhiteSpace(dispatchNo)
+            || shipmentId <= 0
+            || viewModels.Any(t => t.dispatch_no != dispatchNo || t.fba_shipment_id != shipmentId)
+            || viewModels.Select(t => t.erp_box_id).Distinct().Count() != viewModels.Count)
+            return (false, "本次提交的箱号数据不属于同一个FBA货件");
+        if (!await CanAccessShipmentAsync(dispatchNo, shipmentId, currentUser))
             return (false, _stringLocalizer["data_changed"]);
-        var source = await _wmsDbContext.GetDbSet<DispatchWeighingBoxEntity>().AsNoTracking()
-            .FirstOrDefaultAsync(t => t.tenant_id == currentUser.tenant_id
-                && t.dispatch_no == viewModel.dispatch_no
-                && t.fba_shipment_id == viewModel.fba_shipment_id
-                && t.erp_box_id == viewModel.source_erp_box_id);
-        if (source == null) return (false, "请先完成当前箱子的称重");
 
         var boxes = await _ruoyiDbContext.FbaShipmentBoxes.AsNoTracking()
-            .Where(t => !t.deleted && t.shipment_id == viewModel.fba_shipment_id)
+            .Where(t => !t.deleted && t.shipment_id == shipmentId)
+            .OrderBy(t => t.idx).ThenBy(t => t.box_id)
             .ToListAsync();
+        var submittedIds = viewModels.Select(t => t.erp_box_id).ToHashSet();
+        if (boxes.Count == 0 || boxes.Count != viewModels.Count || boxes.Any(t => !submittedIds.Contains(t.id)))
+            return (false, "箱号数据已发生变化，请刷新后重新填写");
+
+        var fbaNo = await _ruoyiDbContext.FbaShipments.AsNoTracking()
+            .Where(t => !t.deleted && t.id == shipmentId)
+            .Select(t => t.amazon_shipment_id)
+            .FirstOrDefaultAsync() ?? string.Empty;
+        var valuesByBoxId = viewModels.ToDictionary(t => t.erp_box_id);
+
         await using var transaction = await _wmsDbContext.Database.BeginTransactionAsync();
         var set = _wmsDbContext.GetDbSet<DispatchWeighingBoxEntity>();
-        var existingIds = await set.AsNoTracking()
-            .Where(t => t.tenant_id == currentUser.tenant_id
-                && t.dispatch_no == viewModel.dispatch_no
-                && t.fba_shipment_id == viewModel.fba_shipment_id)
-            .Select(t => t.erp_box_id).ToListAsync();
+        var existing = await set.Where(t => t.tenant_id == currentUser.tenant_id && submittedIds.Contains(t.erp_box_id))
+            .ToDictionaryAsync(t => t.erp_box_id);
+        if (existing.Values.Any(t => t.dispatch_no != dispatchNo || t.fba_shipment_id != shipmentId))
+            return (false, "存在已关联其它WMS发货单的箱号");
+
         var now = DateTime.Now;
-        foreach (var box in boxes.Where(t => !existingIds.Contains(t.id)))
+        foreach (var box in boxes)
         {
-            var entity = new DispatchWeighingBoxEntity
+            if (!existing.TryGetValue(box.id, out var entity))
             {
-                tenant_id = currentUser.tenant_id,
-                dispatch_no = viewModel.dispatch_no,
-                fba_shipment_id = viewModel.fba_shipment_id,
-                fba_no = source.fba_no,
-                erp_box_id = box.id,
-                box_no = box.box_id,
-                box_index = box.idx ?? 0,
-                tracking_id = box.tracking_id ?? string.Empty,
-                create_time = now
-            };
-            ApplyMeasurement(entity, source.weighing_weight, source.weighing_length, source.weighing_width,
-                source.weighing_height, currentUser, now, source.erp_box_id);
-            set.Add(entity);
+                entity = new DispatchWeighingBoxEntity
+                {
+                    tenant_id = currentUser.tenant_id,
+                    dispatch_no = dispatchNo,
+                    fba_shipment_id = shipmentId,
+                    fba_no = fbaNo,
+                    erp_box_id = box.id,
+                    box_no = box.box_id,
+                    box_index = box.idx ?? 0,
+                    tracking_id = box.tracking_id ?? string.Empty,
+                    create_time = now
+                };
+                set.Add(entity);
+            }
+
+            var value = valuesByBoxId[box.id];
+            ApplyMeasurement(entity, value.weighing_weight, currentUser, now, null);
         }
+
         await _wmsDbContext.SaveChangesAsync();
-        await CompleteDispatchIfReadyAsync(viewModel.dispatch_no, currentUser);
+        var latestBoxIds = await _ruoyiDbContext.FbaShipmentBoxes.AsNoTracking()
+            .Where(t => !t.deleted && t.shipment_id == shipmentId)
+            .Select(t => t.id)
+            .ToListAsync();
+        if (latestBoxIds.Count != submittedIds.Count || latestBoxIds.Any(t => !submittedIds.Contains(t)))
+            return (false, "箱号数据已发生变化，请刷新后重新填写");
+        await CompleteDispatchIfReadyAsync(dispatchNo, currentUser);
         await transaction.CommitAsync();
         return (true, _stringLocalizer["operation_success"]);
     }
@@ -537,7 +519,8 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         var measurements = await _wmsDbContext.GetDbSet<DispatchWeighingBoxEntity>()
             .Where(t => t.tenant_id == currentUser.tenant_id && t.dispatch_no == dispatchNo && boxIds.Contains(t.erp_box_id))
             .ToListAsync();
-        if (measurements.Select(t => t.erp_box_id).Distinct().Count() != boxIds.Distinct().Count()) return;
+        if (measurements.Select(t => t.erp_box_id).Distinct().Count() != boxIds.Distinct().Count()
+            || measurements.Any(t => t.weighing_weight <= 0)) return;
 
         var rows = await _wmsDbContext.GetDbSet<DispatchlistEntity>()
             .Where(t => t.tenant_id == currentUser.tenant_id && t.dispatch_no == dispatchNo
@@ -594,17 +577,16 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         return result.Distinct().ToList();
     }
 
-    private static bool IsValidMeasurement(SaveDispatchWeighingBoxViewModel vm) =>
-        vm.weighing_weight > 0 && vm.weighing_length > 0 && vm.weighing_width > 0 && vm.weighing_height > 0;
+    private static bool IsValidMeasurement(SaveDispatchWeighingBoxViewModel vm) => vm.weighing_weight > 0;
 
-    private static void ApplyMeasurement(DispatchWeighingBoxEntity entity, decimal weight, decimal length, decimal width,
-        decimal height, CurrentUser currentUser, DateTime now, long? copiedFrom)
+    private static void ApplyMeasurement(DispatchWeighingBoxEntity entity, decimal weight,
+        CurrentUser currentUser, DateTime now, long? copiedFrom)
     {
         entity.weighing_weight = Math.Round(weight, 2);
-        entity.weighing_length = Math.Round(length, 2);
-        entity.weighing_width = Math.Round(width, 2);
-        entity.weighing_height = Math.Round(height, 2);
-        entity.weighing_volume = Math.Round(length * width * height, 2);
+        entity.weighing_length = 0;
+        entity.weighing_width = 0;
+        entity.weighing_height = 0;
+        entity.weighing_volume = 0;
         entity.weighing_person_id = currentUser.user_id;
         entity.weighing_person = currentUser.user_name;
         entity.weighing_time = now;

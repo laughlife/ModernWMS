@@ -237,22 +237,12 @@ namespace ModernWMS.WMS.Controllers
         }
 
         /// <summary>
-        /// Save one box's physical weight and dimensions.
+        /// Validate and atomically save every box of one FBA shipment.
         /// </summary>
-        [HttpPost("weighing-box")]
-        public async Task<ResultModel<string>> SaveWeighingBox(SaveDispatchWeighingBoxViewModel viewModel)
+        [HttpPost("confirm-weighing-boxes")]
+        public async Task<ResultModel<string>> ConfirmWeighingBoxes(List<SaveDispatchWeighingBoxViewModel> viewModels)
         {
-            var (flag, msg) = await _dispatchlistPickingService.SaveWeighingBoxAsync(viewModel, CurrentUser);
-            return flag ? ResultModel<string>.Success(msg) : ResultModel<string>.Error(msg);
-        }
-
-        /// <summary>
-        /// Copy one measured box to all unmeasured boxes of the same FBA shipment.
-        /// </summary>
-        [HttpPost("copy-weighing-box")]
-        public async Task<ResultModel<string>> CopyWeighingBox(CopyDispatchWeighingBoxViewModel viewModel)
-        {
-            var (flag, msg) = await _dispatchlistPickingService.CopyWeighingBoxAsync(viewModel, CurrentUser);
+            var (flag, msg) = await _dispatchlistPickingService.SaveWeighingBoxesAsync(viewModels, CurrentUser);
             return flag ? ResultModel<string>.Success(msg) : ResultModel<string>.Error(msg);
         }
 

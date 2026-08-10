@@ -154,7 +154,6 @@ export interface DispatchWeighingShipmentVO {
   box_count: number
   weighed_box_count: number
   weighing_weight: number
-  weighing_volume: number
   is_todo: boolean
 }
 
@@ -176,9 +175,6 @@ export interface SaveDispatchWeighingBoxVO {
   fba_shipment_id: number
   erp_box_id: number
   weighing_weight: number
-  weighing_length: number
-  weighing_width: number
-  weighing_height: number
 }
 
 export interface DeliveryBatchAllocationVO {

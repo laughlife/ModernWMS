@@ -464,7 +464,7 @@
       "boxUnit": "箱",
       "boxNo": "箱号",
       "boxWeighing": "FBA货件逐箱称重",
-      "boxMeasurementTip": "长宽高为本次称重现场实测数据，体积按长×宽×高自动计算。",
+      "boxMeasurementTip": "重量暂由人工录入，后续接入称重机。全部箱子的重量填写完整后，点击确定统一保存。",
       "noBoxData": "ERP装箱数据中暂无可称重箱号，请先补齐真实箱号。",
       "copyToOtherBoxes": "一键复制到其它箱",
       "picker":"拣货员",

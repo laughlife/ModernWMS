@@ -103,16 +103,10 @@ export const getWeighingBoxes = (dispatchNo: string, shipmentId: number) => http
   params: { dispatchNo, shipmentId }
 })
 
-export const saveWeighingBox = (data: SaveDispatchWeighingBoxVO) => http({
-  url: '/dispatchlist/weighing-box',
+export const confirmWeighingBoxes = (data: SaveDispatchWeighingBoxVO[]) => http({
+  url: '/dispatchlist/confirm-weighing-boxes',
   method: 'post',
   data
-})
-
-export const copyWeighingBox = (dispatch_no: string, fba_shipment_id: number, source_erp_box_id: number) => http({
-  url: '/dispatchlist/copy-weighing-box',
-  method: 'post',
-  data: { dispatch_no, fba_shipment_id, source_erp_box_id }
 })
 
 // Get To Be Delivery

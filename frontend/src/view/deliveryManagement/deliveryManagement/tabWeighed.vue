@@ -52,12 +52,6 @@
       <vxe-column field="weighing_weight" :title="$t('wms.deliveryManagement.weighing_weight')" width="130">
         <template #default="{ row }">{{ row.weighing_weight ? `${row.weighing_weight} kg` : '-' }}</template>
       </vxe-column>
-      <vxe-column :title="$t('wms.deliveryManagement.dimensionsCm')" width="135">
-        <template #default>{{ $t('wms.deliveryManagement.measureByBox') }}</template>
-      </vxe-column>
-      <vxe-column field="weighing_volume" :title="$t('wms.deliveryManagement.volumeCm3')" width="140">
-        <template #default="{ row }">{{ row.weighing_volume || '-' }}</template>
-      </vxe-column>
       <vxe-column field="operate" :title="$t('system.page.operate')" width="250" :resizable="false">
         <template #default="{ row }">
           <div class="row-actions">

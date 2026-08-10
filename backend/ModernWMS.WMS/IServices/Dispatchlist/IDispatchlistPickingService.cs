@@ -24,7 +24,5 @@ public interface IDispatchlistPickingService : IDependency
 
     Task<List<DispatchWeighingBoxViewModel>> GetWeighingBoxesAsync(string dispatchNo, long shipmentId, CurrentUser currentUser);
 
-    Task<(bool flag, string msg)> SaveWeighingBoxAsync(SaveDispatchWeighingBoxViewModel viewModel, CurrentUser currentUser);
-
-    Task<(bool flag, string msg)> CopyWeighingBoxAsync(CopyDispatchWeighingBoxViewModel viewModel, CurrentUser currentUser);
+    Task<(bool flag, string msg)> SaveWeighingBoxesAsync(List<SaveDispatchWeighingBoxViewModel> viewModels, CurrentUser currentUser);
 }

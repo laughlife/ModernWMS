@@ -20,7 +20,6 @@ public class DispatchWeighingShipmentViewModel
     public int box_count { get; set; }
     public int weighed_box_count { get; set; }
     public decimal weighing_weight { get; set; }
-    public decimal weighing_volume { get; set; }
     public bool is_todo => box_count == 0 || weighed_box_count < box_count;
 }
 
@@ -46,18 +45,4 @@ public class SaveDispatchWeighingBoxViewModel
     public long erp_box_id { get; set; }
     [Range(typeof(decimal), "0.01", "999999999")]
     public decimal weighing_weight { get; set; }
-    [Range(typeof(decimal), "0.01", "99999")]
-    public decimal weighing_length { get; set; }
-    [Range(typeof(decimal), "0.01", "99999")]
-    public decimal weighing_width { get; set; }
-    [Range(typeof(decimal), "0.01", "99999")]
-    public decimal weighing_height { get; set; }
-}
-
-public class CopyDispatchWeighingBoxViewModel
-{
-    [Required]
-    public string dispatch_no { get; set; } = string.Empty;
-    public long fba_shipment_id { get; set; }
-    public long source_erp_box_id { get; set; }
 }
