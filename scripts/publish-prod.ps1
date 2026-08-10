@@ -109,7 +109,7 @@ $stagingRoot = Join-Path $publishRoot "$packageName.staging"
 $frontendBuildRoot = Join-Path $publishRoot "$packageName.frontend-build"
 $frontendPackageRoot = Join-Path $stagingRoot 'frontend'
 $backendPackageRoot = Join-Path $stagingRoot 'backend'
-$zipPath = Join-Path $publishRoot "$packageName.zip"
+$zipPath = Join-Path $publishRoot 'wms.zip'
 $zipTempPath = Join-Path $publishRoot "$packageName.tmp.zip"
 $resolvedPublishRoot = [IO.Path]::GetFullPath($publishRoot).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
 $resolvedStagingRoot = [IO.Path]::GetFullPath($stagingRoot)
@@ -141,8 +141,7 @@ if (-not (Test-Path -LiteralPath $backendProductionConfig -PathType Leaf)) {
 }
 if ((Test-Path -LiteralPath $stagingRoot) -or
     (Test-Path -LiteralPath $frontendBuildRoot) -or
-    (Test-Path -LiteralPath $zipTempPath) -or
-    (Test-Path -LiteralPath $zipPath)) {
+    (Test-Path -LiteralPath $zipTempPath)) {
     throw "本次发布目标已存在，请稍后重新执行：$packageName"
 }
 
@@ -264,7 +263,7 @@ try {
         throw "ZIP 内容校验失败，包含非发布文件：$unexpectedEntry"
     }
 
-    Move-Item -LiteralPath $zipTempPath -Destination $zipPath
+    Move-Item -LiteralPath $zipTempPath -Destination $zipPath -Force
     Remove-Item -LiteralPath $resolvedStagingRoot -Recurse -Force
 }
 catch {
