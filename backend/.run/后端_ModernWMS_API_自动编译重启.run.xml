@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="后端：ModernWMS API（自动编译重启，请使用运行）" type="RunDotNetWatch" factoryName="RunDotNetWatch" focusToolWindowBeforeRun="true">
+  <configuration default="false" name="后端：自动编译重启" type="RunDotNetWatch" factoryName="RunDotNetWatch" focusToolWindowBeforeRun="true">
     <option name="exePath" value="$PROJECT_DIR$/ModernWMS/bin/Debug/net10.0/ModernWMS.exe" />
     <option name="programParameters" value="" />
     <option name="projectFilePath" value="$PROJECT_DIR$/ModernWMS/ModernWMS.csproj" />
