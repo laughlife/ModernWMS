@@ -291,6 +291,7 @@ namespace ModernWMS.WMS.Services
                             qty_locked = (dp.qty_locked == null ? 0 : dp.qty_locked) + (pl.qty_locked == null ? 0 : pl.qty_locked) + (m.qty_locked == null ? 0 : m.qty_locked),
                             qty = sg.qty,
                             location_name = gl.location_name,
+                            warehouse_area_id = gl.warehouse_area_id,
                             warehouse_area_name = gl.warehouse_area_name,
                             warehouse_id = wh.id,
                             warehouse_name = wh.warehouse_name,

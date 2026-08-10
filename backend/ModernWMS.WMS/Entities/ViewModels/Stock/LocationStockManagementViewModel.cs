@@ -30,6 +30,11 @@ namespace ModernWMS.WMS.Entities.ViewModels
         public int warehouse_id { get; set; } = 0;
 
         /// <summary>
+        /// warehouse_area_id
+        /// </summary>
+        public int warehouse_area_id { get; set; } = 0;
+
+        /// <summary>
         /// location_name
         /// </summary>
         public string location_name { get; set; } = string.Empty;

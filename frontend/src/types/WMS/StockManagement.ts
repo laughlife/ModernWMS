@@ -1,6 +1,7 @@
 export interface StockLocationVO {
     warehouse_id: number
     warehouse_name: string
+    warehouse_area_id: number
     location_name: string
     warehouse_area_name: string
     spu_name: string

@@ -26,16 +26,19 @@
             ></v-select>
           </v-col>
           <v-col cols="4">
-            <v-text-field
-              v-model="data.searchForm.location_name"
+            <v-select
+              v-model="data.searchForm.warehouse_area_id"
+              :items="data.warehouseAreaOptions"
+              item-title="area_name"
+              item-value="id"
               clearable
               hide-details
               density="comfortable"
               class="searchInput ml-5 mt-1"
-              :label="$t('wms.stockLocation.location_name')"
+              :label="$t('base.warehouseSetting.area_name')"
               variant="solo"
-            >
-            </v-text-field>
+              :disabled="!data.searchForm.warehouse_id"
+            ></v-select>
           </v-col>
           <v-col cols="4"></v-col>
         </v-row>
@@ -109,7 +112,8 @@ import { DEBOUNCE_TIME } from '@/constant/system'
 import { setSearchObject, getMenuAuthorityList } from '@/utils/common'
 import { SearchObject, btnGroupItem } from '@/types/System/Form'
 import { getStockLocationList } from '@/api/wms/stockManagement'
-import { getWarehouseSelect } from '@/api/base/warehouseSetting'
+import { getWarehouseAreaSelect, getWarehouseSelect } from '@/api/base/warehouseSetting'
+import type { WarehouseAreaVO } from '@/types/Base/Warehouse'
 import i18n from '@/languages/i18n'
 import customPager from '@/components/custom-pager.vue'
 import skuInfo from './sku-info.vue'
@@ -130,10 +134,11 @@ const data = reactive({
   showDialog: false,
   showDialogShowInfo: false,
   warehouseOptions: [] as WarehouseOption[],
+  warehouseAreaOptions: [] as WarehouseAreaVO[],
   warehouseOptionsLoaded: false,
   searchForm: {
     warehouse_id: '',
-    location_name: ''
+    warehouse_area_id: ''
   },
   activeTab: null,
   tableData: ref<StockLocationVO[]>([]),
@@ -181,6 +186,25 @@ const method = reactive({
       method.getStockLocationList()
     }
   },
+  loadWarehouseAreaOptions: async () => {
+    const warehouseId = Number(data.searchForm.warehouse_id)
+    if (!warehouseId) {
+      data.warehouseAreaOptions = []
+      return
+    }
+    const { data: res } = await getWarehouseAreaSelect(warehouseId)
+    if (!res.isSuccess) {
+      hookComponent.$message({
+        type: 'error',
+        content: res.errorMessage
+      })
+      data.warehouseAreaOptions = []
+      return
+    }
+    if (Number(data.searchForm.warehouse_id) === warehouseId) {
+      data.warehouseAreaOptions = res.data.filter((area: WarehouseAreaVO) => area.is_valid)
+    }
+  },
   // Refresh data
   refresh: () => {
     method.getStockLocationList()
@@ -217,7 +241,7 @@ const method = reactive({
     })
   },
   sureSearch: () => {
-    data.tablePage.searchObjects = setSearchObject(data.searchForm, ['warehouse_id'])
+    data.tablePage.searchObjects = setSearchObject(data.searchForm, ['warehouse_id', 'warehouse_area_id'])
     method.getStockLocationList()
   }
 })
@@ -246,6 +270,13 @@ const tableHeight = computed(() => computedTableHeight({}))
 defineExpose({
   getStockLocationList: method.getStockLocationList
 })
+watch(
+  () => data.searchForm.warehouse_id,
+  async () => {
+    data.searchForm.warehouse_area_id = ''
+    await method.loadWarehouseAreaOptions()
+  }
+)
 watch(
   () => data.searchForm,
   () => {
