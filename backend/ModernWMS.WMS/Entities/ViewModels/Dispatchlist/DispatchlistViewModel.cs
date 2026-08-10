@@ -289,7 +289,36 @@ namespace ModernWMS.WMS.Entities.ViewModels
         /// pick_checker
         /// </summary>
         public string pick_checker { get; set; } = string.Empty;
+        /// <summary>
+        /// 产品图片（FBA 商品主图）
+        /// </summary>
+        public string main_image { get; set; } = string.Empty;
 
+        /// <summary>
+        /// 产品名称（FBA 商品名称，无则回退 WMS 商品名称）
+        /// </summary>
+        public string commodity_name { get; set; } = string.Empty;
+
+        /// <summary>
+        /// FN_SKU（FBA SKU）
+        /// </summary>
+        public string fba_sku { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 小组（发货小组）
+        /// </summary>
+        public string dept_name { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 运营名称（发货人）
+        /// </summary>
+        public string order_user_name { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 创建装箱的日期
+        /// </summary>
+        [DataType(DataType.DateTime, ErrorMessage = "DataType_DateTime")]
+        public DateTime? prepared_time { get; set; }
         #endregion Property
     }
 }

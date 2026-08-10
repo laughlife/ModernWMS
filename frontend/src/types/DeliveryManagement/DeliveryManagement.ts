@@ -36,6 +36,12 @@ export interface DeliveryManagementDetailVO extends DeliveryManagementVO {
   weight?: number
   volume?: number
   weight_unit?: number
+  main_image?: string
+  commodity_name?: string
+  fba_sku?: string
+  dept_name?: string
+  order_user_name?: string
+  prepared_time?: string
   is_todo: boolean
 }
 

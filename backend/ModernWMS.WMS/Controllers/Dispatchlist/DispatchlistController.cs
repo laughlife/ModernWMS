@@ -24,6 +24,7 @@ namespace ModernWMS.WMS.Controllers
         /// dispatchlist Service
         /// </summary>
         private readonly IDispatchlistService _dispatchlistService;
+        private readonly IDispatchlistPickingService _dispatchlistPickingService;
 
         /// <summary>
         /// Localizer Service
@@ -40,10 +41,12 @@ namespace ModernWMS.WMS.Controllers
         public DispatchlistController(
             IDispatchlistService dispatchlistService
           , IStringLocalizer<ModernWMS.Core.MultiLanguage> stringLocalizer
+          , IDispatchlistPickingService dispatchlistPickingService
             )
         {
             this._dispatchlistService = dispatchlistService;
             this._stringLocalizer = stringLocalizer;
+            this._dispatchlistPickingService = dispatchlistPickingService;
         }
         #endregion
 
@@ -57,6 +60,10 @@ namespace ModernWMS.WMS.Controllers
         public async Task<ResultModel<PageData<DispatchlistViewModel>>> PageAsync(PageSearch pageSearch)
         {
             var (data, totals) = await _dispatchlistService.PageAsync(pageSearch, CurrentUser);
+            if (pageSearch.sqlTitle == "dispatch_status=2" || pageSearch.sqlTitle == "dispatch_status=3")
+            {
+                await _dispatchlistPickingService.EnrichPickingRowsAsync(data, CurrentUser);
+            }
 
             return ResultModel<PageData<DispatchlistViewModel>>.Success(new PageData<DispatchlistViewModel>
             {
@@ -203,6 +210,36 @@ namespace ModernWMS.WMS.Controllers
             {
                 return ResultModel<string>.Error(msg);
             }
+        }
+
+        /// <summary>
+        /// Complete picking for selected dispatch rows.
+        /// </summary>
+        [HttpPost("complete-picking")]
+        public async Task<ResultModel<string>> CompletePicking([FromBody] List<int> ids)
+        {
+            var (flag, msg) = await _dispatchlistPickingService.CompletePickingAsync(ids, CurrentUser);
+            return flag ? ResultModel<string>.Success(msg) : ResultModel<string>.Error(msg);
+        }
+
+        /// <summary>
+        /// Return one picked row to pending picking.
+        /// </summary>
+        [HttpPut("repick")]
+        public async Task<ResultModel<string>> Repick(int id)
+        {
+            var (flag, msg) = await _dispatchlistPickingService.RepickAsync(id, CurrentUser);
+            return flag ? ResultModel<string>.Success(msg) : ResultModel<string>.Error(msg);
+        }
+
+        /// <summary>
+        /// Move one picked row into the weighing stage.
+        /// </summary>
+        [HttpPut("start-weighing")]
+        public async Task<ResultModel<string>> StartWeighing(int id)
+        {
+            var (flag, msg) = await _dispatchlistPickingService.StartWeighingAsync(id, CurrentUser);
+            return flag ? ResultModel<string>.Success(msg) : ResultModel<string>.Error(msg);
         }
 
         /// <summary>

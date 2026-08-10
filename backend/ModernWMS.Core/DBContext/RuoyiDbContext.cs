@@ -118,6 +118,11 @@ public sealed class RuoyiDbContext : DbContext
     public DbSet<ErpFbaSpdBoxEntity> FbaShipmentBoxes => Set<ErpFbaSpdBoxEntity>();
 
     /// <summary>
+    /// ERP FBA shipment items with the authoritative FN SKU and product image.
+    /// </summary>
+    public DbSet<ErpFbaShipmentItemEntity> FbaShipmentItems => Set<ErpFbaShipmentItemEntity>();
+
+    /// <summary>
     /// 显式映射当前已接入 ModernWMS 的 Ruoyi 业务实体。
     /// </summary>
     /// <param name="modelBuilder">model builder</param>
@@ -254,6 +259,12 @@ public sealed class RuoyiDbContext : DbContext
         modelBuilder.Entity<ErpFbaSpdBoxEntity>(entity =>
         {
             entity.ToTable("erp_fba_spd_box");
+            entity.HasKey(t => t.id);
+        });
+
+        modelBuilder.Entity<ErpFbaShipmentItemEntity>(entity =>
+        {
+            entity.ToTable("erp_fba_shipment_item");
             entity.HasKey(t => t.id);
         });
 

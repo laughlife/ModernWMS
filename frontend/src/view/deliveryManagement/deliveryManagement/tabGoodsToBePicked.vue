@@ -1,30 +1,12 @@
 <template>
   <div class="operateArea">
     <v-row no-gutters>
-      <!-- Operate Btn -->
-      <v-col cols="3" class="col">
-        <!-- <tooltip-btn icon="mdi-refresh" :tooltip-text="$t('system.page.refresh')" @click="method.refresh"></tooltip-btn>
-        <tooltip-btn icon="mdi-export-variant" :tooltip-text="$t('system.page.export')" @click="method.exportTable"> </tooltip-btn> -->
-
+      <v-col cols="4" class="col">
         <BtnGroup :authority-list="data.authorityList" :btn-list="data.btnList" />
       </v-col>
-
-      <!-- Search Input -->
-      <v-col cols="9">
+      <v-col cols="8">
         <v-row no-gutters @keyup.enter="method.sureSearch">
-          <v-col cols="4">
-            <v-text-field
-              v-model="data.searchForm.dispatch_no"
-              clearable
-              hide-details
-              density="comfortable"
-              class="searchInput ml-5 mt-1"
-              :label="$t('wms.deliveryManagement.dispatch_no')"
-              variant="solo"
-            >
-            </v-text-field>
-          </v-col>
-          <v-col cols="4">
+          <v-col cols="6">
             <v-text-field
               v-model="data.searchForm.spu_name"
               clearable
@@ -33,60 +15,35 @@
               class="searchInput ml-5 mt-1"
               :label="$t('wms.deliveryManagement.spu_name')"
               variant="solo"
-            >
-            </v-text-field>
+            ></v-text-field>
           </v-col>
         </v-row>
       </v-col>
     </v-row>
   </div>
 
-  <!-- Table -->
-  <div
-    class="mt-5"
-    :style="{
-      height: cardHeight
-    }"
-  >
-    <vxe-table ref="xTable" :column-config="{ minWidth: '100px' }" :data="data.tableData" :height="tableHeight" align="center">
-      <template #empty>
-        {{ i18n.global.t('system.page.noData') }}
-      </template>
-      <vxe-column type="seq" width="60"></vxe-column>
-      <!-- <vxe-column type="checkbox" width="50"></vxe-column> -->
-      <vxe-column field="dispatch_no" :title="$t('wms.deliveryManagement.dispatch_no')"></vxe-column>
-      <vxe-column field="spu_code" :title="$t('wms.deliveryManagement.spu_code')"></vxe-column>
-      <vxe-column field="spu_description" width="200px" :title="$t('wms.deliveryManagement.spu_description')"></vxe-column>
-      <vxe-column field="spu_name" :title="$t('wms.deliveryManagement.spu_name')"></vxe-column>
-      <vxe-column field="sku_code" :title="$t('wms.deliveryManagement.sku_code')"></vxe-column>
-      <vxe-column field="bar_code" :title="$t('wms.deliveryManagement.bar_code')"></vxe-column>
-      <vxe-column field="qty" :title="$t('wms.deliveryManagement.order_qty')"></vxe-column>
-      <vxe-column field="unpicked_qty" :title="$t('wms.deliveryManagement.unpicked_qty')"></vxe-column>
-      <vxe-column field="picked_qty" :title="$t('wms.deliveryManagement.picked_qty')"></vxe-column>
-      <vxe-column field="weight" :title="$t('wms.deliveryManagement.detailWeight')">
+  <div class="mt-5" :style="{ height: cardHeight }">
+    <vxe-table ref="xTable" :column-config="{ minWidth: '120px' }" :data="data.tableData" :height="tableHeight" align="center">
+      <template #empty>{{ i18n.global.t('system.page.noData') }}</template>
+      <vxe-column type="checkbox" width="52"></vxe-column>
+      <vxe-column field="main_image" :title="$t('wms.deliveryManagement.productImage')" width="92">
         <template #default="{ row }">
-          <span>{{ `${row.weight} ${GetUnit('weight', row.weight_unit)}` }}</span>
+          <ProductImage :src="row.main_image" :alt="row.commodity_name || row.spu_name" :width="56" :height="56" />
         </template>
       </vxe-column>
-      <vxe-column field="volume" :title="$t('wms.deliveryManagement.detailVolume')">
-        <template #default="{ row }">
-          <span>{{ `${row.volume} ${GetUnit('volume', row.volume_unit)}` }}</span>
-        </template>
+      <vxe-column field="commodity_name" :title="$t('wms.deliveryManagement.spu_name')" min-width="220">
+        <template #default="{ row }">{{ row.commodity_name || row.spu_name }}</template>
       </vxe-column>
-      <vxe-column field="creator" :title="$t('wms.deliveryManagement.creator')"></vxe-column>
+      <vxe-column field="fba_sku" :title="$t('wms.deliveryManagement.fnSku')" min-width="160"></vxe-column>
+      <vxe-column field="dept_name" :title="$t('wms.deliveryManagement.deptName')" min-width="140"></vxe-column>
+      <vxe-column field="order_user_name" :title="$t('wms.deliveryManagement.operatorName')" min-width="140"></vxe-column>
+      <vxe-column field="qty" :title="$t('wms.deliveryManagement.quantityLabel')" width="100"></vxe-column>
       <vxe-date-column
-        field="create_time"
-        width="170px"
+        field="prepared_time"
+        width="170"
         format="yyyy-MM-dd HH:mm"
-        :title="$t('wms.deliveryManagement.create_time')"
+        :title="$t('wms.deliveryManagement.packingCreatedTime')"
       ></vxe-date-column>
-      <vxe-column field="operate" :title="$t('system.page.operate')" width="120" :resizable="false" show-overflow>
-        <template #default="{ row }">
-          <div style="width: 100%; display: flex; justify-content: center">
-            <tooltip-btn :flat="true" icon="mdi-eye-outline" :tooltip-text="$t('system.page.view')" @click="method.viewRow(row)"></tooltip-btn>
-          </div>
-        </template>
-      </vxe-column>
     </vxe-table>
     <custom-pager
       :current-page="data.tablePage.pageIndex"
@@ -96,76 +53,87 @@
       :page-sizes="PAGE_SIZE"
       :layouts="PAGE_LAYOUT"
       @page-change="method.handlePageChange"
-    >
-    </custom-pager>
-    <SearchDeliveredDetail :id="data.showDeliveredDetailID" :source-type="'picking'" :show-dialog="data.showDeliveredDetail" @close="method.closeDeliveredDetail" />
+    ></custom-pager>
+  </div>
+
+  <button ref="printButtonRef" v-print="'#pickingPrintArea'" class="print-trigger" type="button"></button>
+  <div id="pickingPrintArea" class="print-area">
+    <h2>{{ $t('wms.deliveryManagement.pickingList') }}</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>{{ $t('wms.deliveryManagement.productImage') }}</th>
+          <th>{{ $t('wms.deliveryManagement.spu_name') }}</th>
+          <th>{{ $t('wms.deliveryManagement.fnSku') }}</th>
+          <th>{{ $t('wms.deliveryManagement.deptName') }}</th>
+          <th>{{ $t('wms.deliveryManagement.operatorName') }}</th>
+          <th>{{ $t('wms.deliveryManagement.quantityLabel') }}</th>
+          <th>{{ $t('wms.deliveryManagement.packingCreatedTime') }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-for="row in data.printRows" :key="row.id">
+          <td><img v-if="row.main_image" :src="row.main_image" referrerpolicy="no-referrer" :alt="row.commodity_name || row.spu_name" /></td>
+          <td>{{ row.commodity_name || row.spu_name }}</td>
+          <td>{{ row.fba_sku }}</td>
+          <td>{{ row.dept_name }}</td>
+          <td>{{ row.order_user_name }}</td>
+          <td>{{ row.qty }}</td>
+          <td>{{ method.formatDateTime(row.prepared_time) }}</td>
+        </tr>
+      </tbody>
+    </table>
   </div>
 </template>
 
 <script lang="ts" setup>
-import { computed, ref, reactive, watch, onMounted } from 'vue'
-import { VxePagerEvents } from 'vxe-table'
-import { computedCardHeight, computedTableHeight } from '@/constant/style'
-import { DeliveryManagementDetailVO } from '@/types/DeliveryManagement/DeliveryManagement'
-import { PAGE_SIZE, PAGE_LAYOUT, DEFAULT_PAGE_SIZE } from '@/constant/vxeTable'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import type { VxePagerEvents } from 'vxe-table'
+import { completePicking, getGoodsToBePicked } from '@/api/wms/deliveryManagement'
 import { hookComponent } from '@/components/system'
-import { getGoodsToBePicked } from '@/api/wms/deliveryManagement'
-import tooltipBtn from '@/components/tooltip-btn.vue'
-import i18n from '@/languages/i18n'
-import { GetUnit } from '@/constant/commodityManagement'
-import customPager from '@/components/custom-pager.vue'
-import { setSearchObject, getMenuAuthorityList } from '@/utils/common'
-import { TablePage, btnGroupItem } from '@/types/System/Form'
-import SearchDeliveredDetail from './search-delivered-detail.vue'
-import { exportData } from '@/utils/exportTable'
-import { DEBOUNCE_TIME } from '@/constant/system'
 import BtnGroup from '@/components/system/btnGroup.vue'
+import ProductImage from '@/components/system/product-image.vue'
+import { computedCardHeight, computedTableHeight } from '@/constant/style'
+import { DEBOUNCE_TIME } from '@/constant/system'
+import { DEFAULT_PAGE_SIZE, PAGE_LAYOUT, PAGE_SIZE } from '@/constant/vxeTable'
+import i18n from '@/languages/i18n'
+import type { btnGroupItem, TablePage } from '@/types/System/Form'
+import type { DeliveryManagementDetailVO } from '@/types/DeliveryManagement/DeliveryManagement'
+import { getMenuAuthorityList, setSearchObject } from '@/utils/common'
+import customPager from '@/components/custom-pager.vue'
 
 const xTable = ref()
+const printButtonRef = ref<HTMLButtonElement>()
 
 const data = reactive({
-  showDeliveredDetailID: 0,
-  showDeliveredDetail: false,
-  dialogForm: {
-    id: 0
-  },
-  searchForm: {
-    dispatch_no: '',
-    spu_name: ''
-  },
-  timer: ref<any>(null),
-  activeTab: null,
-  tableData: ref<DeliveryManagementDetailVO[]>([]),
-  tablePage: ref<TablePage>({
+  searchForm: { spu_name: '' },
+  timer: ref<ReturnType<typeof setTimeout> | null>(null),
+  tableData: [] as DeliveryManagementDetailVO[],
+  printRows: [] as DeliveryManagementDetailVO[],
+  tablePage: {
     total: 0,
     pageIndex: 1,
     pageSize: DEFAULT_PAGE_SIZE,
     searchObjects: []
-  }),
+  } as TablePage,
   btnList: [] as btnGroupItem[],
-  // Menu operation permissions
   authorityList: getMenuAuthorityList()
 })
 
+const requireSelection = (): DeliveryManagementDetailVO[] => {
+  const rows = (xTable.value?.getCheckboxRecords() ?? []) as DeliveryManagementDetailVO[]
+  if (rows.length === 0) {
+    hookComponent.$message({ type: 'error', content: i18n.global.t('base.userManagement.checkboxIsNull') })
+  }
+  return rows
+}
+
 const method = reactive({
-  closeDeliveredDetail: () => {
-    data.showDeliveredDetail = false
-  },
-  viewRow: (row: DeliveryManagementDetailVO) => {
-    data.showDeliveredDetailID = row.id
-    data.showDeliveredDetail = true
-  },
-  // Refresh data
-  refresh: () => {
-    method.getGoodsToBePicked()
-  },
+  refresh: () => method.getGoodsToBePicked(),
   getGoodsToBePicked: async () => {
     const { data: res } = await getGoodsToBePicked(data.tablePage)
     if (!res.isSuccess) {
-      hookComponent.$message({
-        type: 'error',
-        content: res.errorMessage
-      })
+      hookComponent.$message({ type: 'error', content: res.errorMessage })
       return
     }
     data.tableData = res.data.rows
@@ -174,38 +142,51 @@ const method = reactive({
   handlePageChange: ref<VxePagerEvents.PageChange>(({ currentPage, pageSize }) => {
     data.tablePage.pageIndex = currentPage
     data.tablePage.pageSize = pageSize
-
     method.getGoodsToBePicked()
   }),
-  exportTable: () => {
-    const $table = xTable.value
-    exportData({
-      table: $table,
-      filename: i18n.global.t('wms.deliveryManagement.goodsToBePicked'),
-      columnFilterMethod({ column }: any) {
-        return !['checkbox'].includes(column?.type) && !['operate'].includes(column?.field)
-      }
-    })
-  },
   sureSearch: () => {
     data.tablePage.searchObjects = setSearchObject(data.searchForm)
     method.getGoodsToBePicked()
+  },
+  printSelected: async () => {
+    const rows = requireSelection()
+    if (rows.length === 0) return
+    data.printRows = [...rows]
+    await nextTick()
+    printButtonRef.value?.click()
+  },
+  completeSelected: () => {
+    const rows = requireSelection()
+    if (rows.length === 0) return
+    hookComponent.$dialog({
+      content: i18n.global.t('wms.deliveryManagement.completePickingConfirm'),
+      handleConfirm: async () => {
+        const { data: res } = await completePicking(rows.map((row) => row.id))
+        if (!res.isSuccess) {
+          hookComponent.$message({ type: 'error', content: res.errorMessage })
+          return
+        }
+        hookComponent.$message({ type: 'success', content: res.data })
+        await method.getGoodsToBePicked()
+      }
+    })
+  },
+  formatDateTime: (value?: string) => {
+    if (!value) return ''
+    const date = new Date(value)
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false })
   }
 })
 
 onMounted(() => {
   data.btnList = [
+    { name: i18n.global.t('system.page.refresh'), icon: 'mdi-refresh', code: '', click: method.refresh },
+    { name: i18n.global.t('system.page.print'), icon: 'mdi-printer', code: '', click: method.printSelected },
     {
-      name: i18n.global.t('system.page.refresh'),
-      icon: 'mdi-refresh',
-      code: '',
-      click: method.refresh
-    },
-    {
-      name: i18n.global.t('system.page.export'),
-      icon: 'mdi-export-variant',
-      code: 'picked-export',
-      click: method.exportTable
+      name: i18n.global.t('wms.deliveryManagement.completePicking'),
+      icon: 'mdi-check-all',
+      code: 'picked-confirm',
+      click: method.completeSelected
     }
   ]
 })
@@ -216,37 +197,25 @@ const tableHeight = computed(() => computedTableHeight({}))
 watch(
   () => data.searchForm,
   () => {
-    // debounce
-    if (data.timer) {
-      clearTimeout(data.timer)
-    }
+    if (data.timer) clearTimeout(data.timer)
     data.timer = setTimeout(() => {
       data.timer = null
       method.sureSearch()
     }, DEBOUNCE_TIME)
   },
-  {
-    deep: true
-  }
+  { deep: true }
 )
 
-defineExpose({
-  getGoodsToBePicked: method.getGoodsToBePicked
-})
+defineExpose({ getGoodsToBePicked: method.getGoodsToBePicked })
 </script>
 
 <style lang="less" scoped>
-.operateArea {
-  width: 100%;
-  min-width: 760px;
-  display: flex;
-  align-items: center;
-  border-radius: 10px;
-  padding: 0 10px;
-}
-
-.col {
-  display: flex;
-  align-items: center;
-}
+.operateArea { width: 100%; min-width: 760px; display: flex; align-items: center; border-radius: 10px; padding: 0 10px; }
+.col { display: flex; align-items: center; }
+.print-trigger { position: fixed; left: -10000px; width: 1px; height: 1px; opacity: 0; }
+.print-area { position: fixed; left: -10000px; top: 0; width: 1000px; padding: 20px; background: white; color: #000; }
+.print-area h2 { margin: 0 0 16px; text-align: center; }
+.print-area table { width: 100%; border-collapse: collapse; }
+.print-area th, .print-area td { padding: 8px; border: 1px solid #333; text-align: center; vertical-align: middle; }
+.print-area img { width: 56px; height: 56px; object-fit: contain; }
 </style>

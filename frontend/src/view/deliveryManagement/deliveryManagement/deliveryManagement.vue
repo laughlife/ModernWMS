@@ -37,7 +37,7 @@
             <TabGoodsToBePicked ref="goodsToBePickedRef" />
           </v-window-item>
           <v-window-item value="tabPicked">
-            <TabPicked ref="pickedRef" />
+            <TabPicked ref="pickedRef" @go-to-weighing="handleGoToWeighing" @go-to-picking="handleGoToPicking" />
           </v-window-item>
           <v-window-item value="tabWeighed">
             <TabWeighed ref="weighedRef" />
@@ -70,6 +70,20 @@ const pickedRef = ref<InstanceType<typeof TabPicked>>()
 const weighedRef = ref<InstanceType<typeof TabWeighed>>()
 const deliveredRef = ref<InstanceType<typeof TabDelivered>>()
 const signInRef = ref<InstanceType<typeof TabSignIn>>()
+
+const handleGoToPicking = (): void => {
+  activeTab.value = 'tabGoodsToBePicked'
+  nextTick(() => {
+    goodsToBePickedRef.value?.getGoodsToBePicked()
+  })
+}
+
+const handleGoToWeighing = (): void => {
+  activeTab.value = 'tabWeighed'
+  nextTick(() => {
+    weighedRef.value?.getWeighed()
+  })
+}
 
 const changeTab = (tab: unknown): void => {
   nextTick(() => {

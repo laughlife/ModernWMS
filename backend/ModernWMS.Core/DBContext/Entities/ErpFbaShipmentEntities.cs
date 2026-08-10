@@ -122,3 +122,23 @@ public class ErpFbaSpdBoxEntity
     public string? length_unit { get; set; }
     public bool deleted { get; set; }
 }
+
+/// <summary>
+/// ERP FBA shipment item that carries the authoritative FN SKU and product image.
+/// </summary>
+[Table("erp_fba_shipment_item")]
+public class ErpFbaShipmentItemEntity
+{
+    public long id { get; set; }
+    public long shipment_id { get; set; }
+    public string? msku { get; set; }
+    public string? fn_sku { get; set; }
+    public long? commodity_id { get; set; }
+    public string? commodity_sku { get; set; }
+    public string? commodity_name { get; set; }
+    public string? title { get; set; }
+    public string? main_image { get; set; }
+    public int? quantity { get; set; }
+    public DateTime? create_time { get; set; }
+    public bool deleted { get; set; }
+}

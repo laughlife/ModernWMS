@@ -176,6 +176,27 @@ export const confirmPicking = (dispatch_no: string) => http({
     }
   })
 
+// Complete picking for selected dispatch rows
+export const completePicking = (data: number[]) => http({
+    url: '/dispatchlist/complete-picking',
+    method: 'post',
+    data
+  })
+
+// Return one picked row to pending picking
+export const repick = (id: number) => http({
+    url: '/dispatchlist/repick',
+    method: 'put',
+    params: { id }
+  })
+
+// Move one picked row into the weighing stage
+export const startWeighing = (id: number) => http({
+    url: '/dispatchlist/start-weighing',
+    method: 'put',
+    params: { id }
+  })
+
 // Pack
 export const handlePackage = (data: PackageVO[]) => http({
     url: '/dispatchlist/package',
