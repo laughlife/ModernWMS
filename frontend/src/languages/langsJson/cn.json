@@ -109,7 +109,7 @@
           "unloaded": "待卸货"
         },
         "stockManagement": {
-          "area": "库位列表",
+          "area": "库区列表",
           "stock": "库存列表"
         },
         "warehouseSetting": {
@@ -782,7 +782,7 @@
     },
     "stockManagement": {
       "stock": "库存列表",
-      "stockLocation": "库位列表"
+      "stockLocation": "库区列表"
     },
     "warehouseWorking": {
       "warehouseAdjust": {

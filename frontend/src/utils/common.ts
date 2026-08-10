@@ -20,12 +20,13 @@ export const setSearchObject = (searchForm: any, preciseSearchCols: string[] = [
         operator = SearchOperator.EQUAL
       }
 
-      if (searchValue && searchValue.trim() !== '') {
+      const normalizedSearchValue = String(searchValue ?? '').trim()
+      if (searchValue && normalizedSearchValue !== '') {
         searchObjects.push({
           name: key,
           operator,
-          text: searchValue,
-          value: searchValue
+          text: normalizedSearchValue,
+          value: normalizedSearchValue
         })
       }
     }
