@@ -36,7 +36,7 @@
           <div class="product-info-cell">
             <div class="primary-text">{{ row.commodity_name || row.spu_name || '-' }}</div>
             <div class="secondary-text">{{ $t('wms.deliveryManagement.fnSku') }}：{{ row.fba_sku || '-' }}</div>
-            <div class="secondary-text">{{ $t('wms.deliveryManagement.shopName') }}：{{ row.shop_name || '-' }}</div>
+            <div class="secondary-text">{{ row.shop_name || '-' }}</div>
           </div>
         </template>
       </vxe-column>
@@ -88,7 +88,7 @@
           <td class="product-info-cell">
             <div class="primary-text">{{ row.commodity_name || row.spu_name || '-' }}</div>
             <div class="secondary-text">{{ $t('wms.deliveryManagement.fnSku') }}：{{ row.fba_sku || '-' }}</div>
-            <div class="secondary-text">{{ $t('wms.deliveryManagement.shopName') }}：{{ row.shop_name || '-' }}</div>
+            <div class="secondary-text">{{ row.shop_name || '-' }}</div>
           </td>
           <td>
             <div class="primary-text">{{ row.dept_name || '-' }}</div>

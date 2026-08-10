@@ -503,7 +503,6 @@
       "spu_name": "商品名称",
       "state": "状态",
       "shopInfo": "店铺/状态",
-      "shopName": "所属店铺",
       "stockOccupiedQty": "当前锁定库存",
       "stockSku": "库存SKU",
       "toBeDelivered": "待出库",
