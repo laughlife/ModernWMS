@@ -1,7 +1,0 @@
-<component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="一键启动：前端 + 后端" type="CompoundRunConfigurationType" factoryName="Compound Run Configuration">
-    <toRun name="后端：ModernWMS API（热更新）" type="RunDotNetWatch" />
-    <toRun name="前端：Vite" type="js.build_tools.npm" />
-    <method v="2" />
-  </configuration>
-</component>
