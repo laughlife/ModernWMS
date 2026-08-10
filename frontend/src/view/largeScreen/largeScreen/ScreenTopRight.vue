@@ -18,7 +18,7 @@
 <script setup lang="ts">
 import { reactive, onMounted, onUnmounted } from 'vue'
 import { getStockList } from '@/api/wms/stockManagement'
-import { StockLocationVO } from '@/types/WMS/StockManagement'
+import { StockVO } from '@/types/WMS/StockManagement'
 import i18n from '@/languages/i18n'
 
 const config = reactive({
@@ -43,7 +43,7 @@ let refreshTimer: ReturnType<typeof setInterval>
 const method = reactive({
   getStockList: async () => {
     const { data: res } = await getStockList({ total: 0, pageIndex: 1, pageSize: 99999 })
-    config.data = res.data.rows.map((item: StockLocationVO) => [item.spu_code, item.spu_name, item.sku_code, item.qty, item.qty_available])
+    config.data = res.data.rows.map((item: StockVO) => [item.spu_code, item.spu_name, item.sku_code, item.qty, item.qty_available])
   }
 })
 onMounted(() => {

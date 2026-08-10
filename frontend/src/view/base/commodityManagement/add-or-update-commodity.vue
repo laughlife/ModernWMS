@@ -484,9 +484,7 @@ const method = reactive({
       })
       return
     }
-    data.combobox.supplier_name = supplierRes.data
-      .filter((item: SupplierVO) => item.is_valid)
-      .map((item: SupplierVO) => ({ value: item.id, label: item.supplier_name }))
+    data.combobox.supplier_name = supplierRes.data.map((item: SupplierVO) => ({ value: item.id, label: item.supplier_name }))
   },
   closeDialog: () => {
     emit('close')

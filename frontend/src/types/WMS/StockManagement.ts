@@ -4,6 +4,7 @@ export interface StockLocationVO {
     warehouse_area_id: number
     location_name: string
     warehouse_area_name: string
+    spu_code: string
     spu_name: string
     product_image: string
     sku_id: number
@@ -15,6 +16,7 @@ export interface StockLocationVO {
 }
 
 export interface StockVO {
+    spu_code: string
     spu_name: string
     product_image: string
     sku_code: string

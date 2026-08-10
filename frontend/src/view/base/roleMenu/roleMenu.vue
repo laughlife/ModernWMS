@@ -130,6 +130,7 @@ import { computedCardHeight } from '@/constant/style'
 import type { DataProps, MenuOption, RoleMenuVO } from '@/types/Base/RoleMenu'
 import { getMenus, getUserAuthority, updateRoleMenuBatch } from '@/api/base/roleMenu'
 import { getUserRoleAll } from '@/api/base/userRoleSetting'
+import { unwrapApiResult } from '@/utils/http/apiResult'
 import { hookComponent } from '@/components/system'
 import i18n from '@/languages/i18n'
 import NavListVue from '@/components/page/nav-list.vue'
@@ -411,10 +412,7 @@ const method = reactive({
     })
     try {
       const response = await updateRoleMenuBatch(payload)
-      const res = response?.data ?? (typeof response?.isSuccess === 'boolean' ? response : undefined)
-      if (!res) {
-        return
-      }
+      const res = unwrapApiResult<unknown>(response)
       if (!res?.isSuccess) {
         method.showError(res?.errorMessage)
         return

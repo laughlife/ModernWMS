@@ -106,14 +106,19 @@ $publishRoot = Join-Path $repositoryRoot 'artifacts\publish'
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $packageName = "ModernWMS-prod-$timestamp"
 $stagingRoot = Join-Path $publishRoot "$packageName.staging"
+$frontendBuildRoot = Join-Path $publishRoot "$packageName.frontend-build"
 $frontendPackageRoot = Join-Path $stagingRoot 'frontend'
 $backendPackageRoot = Join-Path $stagingRoot 'backend'
 $zipPath = Join-Path $publishRoot "$packageName.zip"
+$zipTempPath = Join-Path $publishRoot "$packageName.tmp.zip"
 $resolvedPublishRoot = [IO.Path]::GetFullPath($publishRoot).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
 $resolvedStagingRoot = [IO.Path]::GetFullPath($stagingRoot)
+$resolvedFrontendBuildRoot = [IO.Path]::GetFullPath($frontendBuildRoot)
 
-if (-not $resolvedStagingRoot.StartsWith($resolvedPublishRoot, [StringComparison]::OrdinalIgnoreCase)) {
-    throw "临时发布目录超出允许范围：$resolvedStagingRoot"
+foreach ($temporaryPath in @($resolvedStagingRoot, $resolvedFrontendBuildRoot)) {
+    if (-not $temporaryPath.StartsWith($resolvedPublishRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "临时发布目录超出允许范围：$temporaryPath"
+    }
 }
 
 foreach ($requiredCommand in @('npm.cmd', 'dotnet')) {
@@ -135,6 +140,8 @@ if (-not (Test-Path -LiteralPath $backendProductionConfig -PathType Leaf)) {
     throw "后端生产配置不存在：$backendProductionConfig"
 }
 if ((Test-Path -LiteralPath $stagingRoot) -or
+    (Test-Path -LiteralPath $frontendBuildRoot) -or
+    (Test-Path -LiteralPath $zipTempPath) -or
     (Test-Path -LiteralPath $zipPath)) {
     throw "本次发布目标已存在，请稍后重新执行：$packageName"
 }
@@ -182,9 +189,14 @@ Set-ConnectionStringValue -Builder $productionConnectionBuilder -CandidateKeys @
 
 New-Item -ItemType Directory -Path $frontendPackageRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $backendPackageRoot -Force | Out-Null
+New-Item -ItemType Directory -Path $frontendBuildRoot -Force | Out-Null
 
 try {
-    Push-Location $frontendRoot
+    Get-ChildItem -LiteralPath $frontendRoot -Force |
+        Where-Object { $_.Name -notin @('node_modules', 'dist', 'test-results', 'artifacts', '.git') } |
+        Copy-Item -Destination $frontendBuildRoot -Recurse -Force
+
+    Push-Location $frontendBuildRoot
     try {
         Invoke-CheckedCommand -Command 'npm.cmd' -Arguments @('ci')
         Invoke-CheckedCommand -Command 'npm.cmd' -Arguments @('run', 'build', '--', '--mode', 'production')
@@ -193,7 +205,7 @@ try {
         Pop-Location
     }
 
-    $frontendDist = Join-Path $frontendRoot 'dist'
+    $frontendDist = Join-Path $frontendBuildRoot 'dist'
     if (-not (Test-Path -LiteralPath $frontendDist -PathType Container)) {
         throw "前端构建完成后未找到 dist 目录：$frontendDist"
     }
@@ -225,17 +237,54 @@ try {
     }) -Force
     $publishedProductionConfig | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $productionConfigPath -Encoding utf8
 
-    Compress-Archive -Path (Join-Path $stagingRoot '*') -DestinationPath $zipPath -CompressionLevel Optimal
-    if (-not (Test-Path -LiteralPath $zipPath -PathType Leaf)) {
-        throw "ZIP 包生成失败：$zipPath"
+    Compress-Archive -Path (Join-Path $stagingRoot '*') -DestinationPath $zipTempPath -CompressionLevel Optimal
+    if (-not (Test-Path -LiteralPath $zipTempPath -PathType Leaf)) {
+        throw "ZIP 临时包生成失败：$zipTempPath"
     }
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zipArchive = [System.IO.Compression.ZipFile]::OpenRead($zipTempPath)
+    try {
+        $zipEntries = @($zipArchive.Entries | ForEach-Object { $_.FullName.Replace('\', '/') })
+    }
+    finally {
+        $zipArchive.Dispose()
+    }
+    foreach ($requiredEntry in @('frontend/index.html', 'backend/ModernWMS.dll')) {
+        if ($zipEntries -notcontains $requiredEntry) {
+            throw "ZIP 内容校验失败，缺少：$requiredEntry"
+        }
+    }
+    $unexpectedEntry = $zipEntries | Where-Object {
+        $_ -match '(^|/)(node_modules|\.git|src)(/|$)' -or
+        $_ -match '(^|/)package-lock\.json$' -or
+        $_ -like '*.frontend-build/*'
+    } | Select-Object -First 1
+    if ($null -ne $unexpectedEntry) {
+        throw "ZIP 内容校验失败，包含非发布文件：$unexpectedEntry"
+    }
+
+    Move-Item -LiteralPath $zipTempPath -Destination $zipPath
     Remove-Item -LiteralPath $resolvedStagingRoot -Recurse -Force
 }
 catch {
+    if (Test-Path -LiteralPath $zipTempPath) {
+        Remove-Item -LiteralPath $zipTempPath -Force
+    }
     if (Test-Path -LiteralPath $stagingRoot) {
         Write-Warning "发布失败，未完成内容保留在：$stagingRoot"
     }
     throw
+}
+finally {
+    if (Test-Path -LiteralPath $resolvedFrontendBuildRoot) {
+        try {
+            Remove-Item -LiteralPath $resolvedFrontendBuildRoot -Recurse -Force
+        }
+        catch {
+            Write-Warning "前端临时构建目录清理失败，可稍后手动删除：$resolvedFrontendBuildRoot"
+        }
+    }
 }
 
 Write-Host "发布完成。"
