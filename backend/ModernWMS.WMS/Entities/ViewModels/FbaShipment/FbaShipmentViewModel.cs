@@ -25,11 +25,9 @@ public class FbaShipmentViewModel
     public long? freight_forwarder_id { get; set; }
     public string freight_forwarder_name { get; set; } = string.Empty;
     public string logistics_name { get; set; } = string.Empty;
-    public string primary_tracking_no { get; set; } = string.Empty;
     public int product_count { get; set; }
     public long shipment_total_qty { get; set; }
     public long locked_qty { get; set; }
-    public List<string> tracking_numbers { get; set; } = [];
     public bool inventory_ready { get; set; }
     public string inventory_status_name { get; set; } = string.Empty;
     public DateTime prepared_time { get; set; }

@@ -117,12 +117,6 @@ public class FbaShipmentService : IFbaShipmentService
             : await _ruoyiDbContext.FbaShipments.AsNoTracking()
                 .Where(t => !t.deleted && fbaShipmentIds.Contains(t.id))
                 .ToDictionaryAsync(t => t.id);
-        var boxes = fbaShipmentIds.Count == 0
-            ? new List<ErpFbaSpdBoxEntity>()
-            : await _ruoyiDbContext.FbaShipmentBoxes.AsNoTracking()
-                .Where(t => !t.deleted && fbaShipmentIds.Contains(t.shipment_id))
-                .ToListAsync();
-        var boxesByShipment = boxes.GroupBy(t => t.shipment_id).ToDictionary(t => t.Key, t => t.ToList());
         var itemsByMove = moveItems.GroupBy(t => t.stock_move_id).ToDictionary(t => t.Key, t => t.ToList());
 
         var data = moves.Select(move => BuildViewModel(
@@ -130,8 +124,7 @@ public class FbaShipmentService : IFbaShipmentService
             itemsByMove.GetValueOrDefault(move.id) ?? [],
             snapshots,
             stocks,
-            fbaShipments,
-            boxesByShipment)).ToList();
+            fbaShipments)).ToList();
         return (data, totals);
     }
 
@@ -219,8 +212,7 @@ public class FbaShipmentService : IFbaShipmentService
         List<ErpStockMoveItemEntity> moveItems,
         Dictionary<long, PreparedItemSnapshot> snapshots,
         Dictionary<long, ErpBusinessStockEntity> stocks,
-        Dictionary<long, ErpFbaShipmentEntity> fbaShipments,
-        Dictionary<long, List<ErpFbaSpdBoxEntity>> boxesByShipment)
+        Dictionary<long, ErpFbaShipmentEntity> fbaShipments)
     {
         var itemViewModels = moveItems.Select(item =>
         {
@@ -257,15 +249,7 @@ public class FbaShipmentService : IFbaShipmentService
             .FirstOrDefault(t => t?.fba_shipment_id.HasValue == true) ?? new PreparedItemSnapshot();
         var fbaShipmentId = firstSnapshot.fba_shipment_id ?? 0;
         var shipment = fbaShipmentId > 0 ? fbaShipments.GetValueOrDefault(fbaShipmentId) : null;
-        var boxes = fbaShipmentId > 0
-            ? boxesByShipment.GetValueOrDefault(fbaShipmentId) ?? []
-            : [];
         var inventoryReady = itemViewModels.Count > 0 && itemViewModels.All(t => t.inventory_ready);
-        var trackingNumbers = new[] { move.tracking_no ?? string.Empty }
-            .Concat(boxes.Select(t => t.tracking_id ?? string.Empty))
-            .Where(t => !string.IsNullOrWhiteSpace(t))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
 
         return new FbaShipmentViewModel
         {
@@ -289,11 +273,9 @@ public class FbaShipmentService : IFbaShipmentService
             freight_forwarder_id = move.to_freight_forwarder_id,
             freight_forwarder_name = move.to_freight_forwarder_name ?? string.Empty,
             logistics_name = move.logistics_name ?? string.Empty,
-            primary_tracking_no = move.tracking_no ?? string.Empty,
             product_count = itemViewModels.Count,
             shipment_total_qty = itemViewModels.Sum(t => t.shipment_total_qty),
             locked_qty = move.frozen_qty,
-            tracking_numbers = trackingNumbers,
             inventory_ready = inventoryReady,
             inventory_status_name = inventoryReady ? "库存已锁定" : "库存待核对",
             prepared_time = firstSnapshot.prepared_time ?? move.create_time,

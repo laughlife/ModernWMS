@@ -126,18 +126,11 @@
           </div>
         </template>
       </vxe-column>
-      <vxe-column :title="$t('wms.deliveryManagement.productQtyTracking')" min-width="260" align="left" :show-overflow="false">
+      <vxe-column :title="$t('wms.deliveryManagement.productQuantity')" min-width="220" align="left" :show-overflow="false">
         <template #default="{ row }">
           <div class="leftCell combinedInfo">
             <div>{{ $t('wms.deliveryManagement.productLabel') }}：{{ row.product_count }} {{ $t('wms.deliveryManagement.productUnit') }}</div>
             <div>{{ $t('wms.deliveryManagement.quantityLabel') }}：{{ row.shipment_total_qty }} {{ $t('wms.deliveryManagement.pieceUnit') }}</div>
-            <div class="trackingInfo">
-              <span>{{ $t('wms.deliveryManagement.trackingNo') }}：</span>
-              <template v-if="row.tracking_numbers?.length">
-                <span v-for="trackingNo in row.tracking_numbers" :key="trackingNo" class="trackingNo">{{ trackingNo }}</span>
-              </template>
-              <span v-else>-</span>
-            </div>
           </div>
         </template>
       </vxe-column>
@@ -345,16 +338,6 @@ defineExpose({ getFbaShipment: method.getPage })
   line-height: 22px;
   overflow-wrap: anywhere;
   white-space: normal;
-}
-
-.trackingInfo {
-  display: flex;
-  flex-wrap: wrap;
-  column-gap: 6px;
-}
-
-.trackingNo {
-  display: block;
 }
 
 .productDetail {
