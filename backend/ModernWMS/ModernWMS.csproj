@@ -7,7 +7,9 @@
     <UserSecretsId>modernwms-ruiyi-7b722e6a-0b50-4ed5-9f19-8e289e3dd9f7</UserSecretsId>
   </PropertyGroup>
 
-  <Target Name="StopLockedModernWmsProcess" BeforeTargets="BeforeBuild" Condition="'$(OS)' == 'Windows_NT'">
+  <Target Name="StopLockedModernWmsProcess"
+          BeforeTargets="BeforeBuild"
+          Condition="'$(OS)' == 'Windows_NT' and '$(DotNetWatchBuild)' != 'true' and '$(DOTNET_WATCH)' != '1'">
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\Build\StopLockedModernWms.ps1&quot; -ExecutablePath &quot;$(TargetPath)&quot;" />
   </Target>
 

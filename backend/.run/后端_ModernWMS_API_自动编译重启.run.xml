@@ -1,11 +1,12 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="后端：ModernWMS API（热更新）" type="RunDotNetWatch" factoryName="RunDotNetWatch" focusToolWindowBeforeRun="true">
+  <configuration default="false" name="后端：ModernWMS API（自动编译重启，请使用运行）" type="RunDotNetWatch" factoryName="RunDotNetWatch" focusToolWindowBeforeRun="true">
     <option name="exePath" value="$PROJECT_DIR$/ModernWMS/bin/Debug/net10.0/ModernWMS.exe" />
     <option name="programParameters" value="" />
     <option name="projectFilePath" value="$PROJECT_DIR$/ModernWMS/ModernWMS.csproj" />
     <option name="projectTfm" value="net10.0" />
-    <option name="restartOnRudeEditEditor" value="true" />
+    <option name="suppressHotReload" value="true" />
     <option name="suppressBrowserLaunch" value="true" />
+    <option name="suppressBrowserRefresh" value="true" />
     <option name="workingDirectory" value="$PROJECT_DIR$/ModernWMS" />
     <method v="2" />
   </configuration>
