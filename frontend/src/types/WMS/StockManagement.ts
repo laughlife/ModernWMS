@@ -11,21 +11,17 @@ export interface StockLocationVO {
     qty: number
     qty_available: number
     qty_locked: number
-    qty_frozen: number
+    goods_owner_name: string
 }
 
 export interface StockVO {
-    spu_code: string
     spu_name: string
+    product_image: string
     sku_code: string
     sku_id: number
     qty: number
     qty_available: number
     qty_locked: number
-    qty_frozen: number
-    qty_asn: number
-    qty_to_unload: number
     qty_to_sort: number
     qty_sorted: number
-    shortage_qty: number
 }

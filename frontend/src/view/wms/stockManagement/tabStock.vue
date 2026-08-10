@@ -16,12 +16,12 @@
           <v-col cols="4"></v-col>
           <v-col cols="4">
             <v-text-field
-              v-model="data.searchForm.spu_name"
+              v-model="data.searchForm.product_keyword"
               clearable
               hide-details
               density="comfortable"
               class="searchInput ml-5 mt-1"
-              :label="$t('wms.stockList.spu_name')"
+              :label="$t('wms.stockList.product_keyword')"
               variant="solo"
             >
             </v-text-field>
@@ -38,13 +38,17 @@
       height: cardHeight
     }"
   >
-    <vxe-table ref="xTableWarehouse" :column-config="{ minWidth: '100px' }" :data="data.tableData" :height="tableHeight" align="center">
+    <vxe-table ref="xTableWarehouse" :column-config="{ minWidth: '100px' }" :row-config="{ height: 76 }" :data="data.tableData" :height="tableHeight" align="center">
       <template #empty>
         {{ i18n.global.t('system.page.noData') }}
       </template>
       <vxe-column type="seq" width="60"></vxe-column>
       <vxe-column type="checkbox" width="50"></vxe-column>
-      <vxe-column field="spu_code" :title="$t('wms.stockList.spu_code')"></vxe-column>
+      <vxe-column field="product_image" :title="$t('wms.stockList.image')" width="92">
+        <template #default="{ row }">
+          <product-image :src="row.product_image" :alt="row.spu_name" :width="56" :height="56" class="product-img" />
+        </template>
+      </vxe-column>
       <vxe-column field="spu_name" :title="$t('wms.stockList.spu_name')"></vxe-column>
       <vxe-column field="sku_code" :title="$t('wms.stockList.sku_code')">
         <template #default="{ row }">
@@ -54,12 +58,8 @@
       <vxe-column field="qty" :title="$t('wms.stockList.qty')"></vxe-column>
       <vxe-column field="qty_available" :title="$t('wms.stockList.qty_available')"></vxe-column>
       <vxe-column field="qty_locked" :title="$t('wms.stockList.qty_locked')"></vxe-column>
-      <vxe-column field="qty_frozen" :title="$t('wms.stockList.qty_frozen')"></vxe-column>
-      <vxe-column field="qty_asn" :title="$t('wms.stockList.qty_asn')"></vxe-column>
-      <vxe-column field="qty_to_unload" :title="$t('wms.stockList.qty_to_unload')"></vxe-column>
       <vxe-column field="qty_to_sort" :title="$t('wms.stockList.qty_to_sort')"></vxe-column>
       <vxe-column field="qty_sorted" :title="$t('wms.stockList.qty_sorted')"></vxe-column>
-      <vxe-column field="shortage_qty" :title="$t('wms.stockList.shortage_qty')"></vxe-column>
     </vxe-table>
     <custom-pager
       :current-page="data.tablePage.pageIndex"
@@ -89,6 +89,7 @@ import { getStockList } from '@/api/wms/stockManagement'
 import i18n from '@/languages/i18n'
 import customPager from '@/components/custom-pager.vue'
 import skuInfo from './sku-info.vue'
+import ProductImage from '@/components/system/product-image.vue'
 import { exportData } from '@/utils/exportTable'
 import BtnGroup from '@/components/system/btnGroup.vue'
 
@@ -99,7 +100,7 @@ const data = reactive({
   showDialog: false,
   showDialogShowInfo: false,
   searchForm: {
-    spu_name: ''
+    product_keyword: ''
   },
   activeTab: null,
   tableData: ref<StockVO[]>([]),
@@ -233,5 +234,9 @@ watch(
 .col {
   display: flex;
   align-items: center;
+}
+
+.product-img {
+  margin: 0 auto;
 }
 </style>

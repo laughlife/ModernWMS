@@ -53,7 +53,7 @@
       height: cardHeight
     }"
   >
-    <vxe-table ref="xTableStockLocation" :column-config="{ minWidth: '100px' }" :row-config="{ height: 76 }" :data="data.tableData" :height="tableHeight" align="center">
+    <vxe-table ref="xTableStockLocation" :column-config="{ minWidth: '100px' }" :row-config="{ height: 88 }" :data="data.tableData" :height="tableHeight" align="center">
       <template #empty>
         {{ i18n.global.t('system.page.noData') }}
       </template>
@@ -64,11 +64,12 @@
           <product-image :src="row.product_image" :alt="row.spu_name" :width="56" :height="56" class="product-img" />
         </template>
       </vxe-column>
-      <vxe-column field="warehouse_name" :title="$t('wms.stockLocation.warehouse_location')" min-width="150">
+      <vxe-column field="warehouse_name" :title="$t('wms.stockLocation.warehouse_location')" min-width="180">
         <template #default="{ row }">
           <div class="cell-wh">
             <div class="cell-line">{{ row.warehouse_name }}</div>
             <div class="cell-line cell-sub">{{ row.warehouse_area_name || row.location_name }}</div>
+            <div class="cell-line cell-sub">{{ $t('wms.stockLocation.goods_owner') }}：{{ row.goods_owner_name || '-' }}</div>
           </div>
         </template>
       </vxe-column>

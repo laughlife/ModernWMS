@@ -85,11 +85,6 @@ namespace ModernWMS.WMS.Entities.ViewModels
         public int qty_locked { get; set; } = 0;
 
         /// <summary>
-        /// quantity frozen
-        /// </summary>
-        public int qty_frozen { get; set; } = 0;
-
-        /// <summary>
         /// goods owner name
         /// </summary>
         public string goods_owner_name { get; set; } = string.Empty;

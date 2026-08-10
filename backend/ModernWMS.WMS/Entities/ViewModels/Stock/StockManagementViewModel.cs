@@ -46,6 +46,11 @@ namespace ModernWMS.WMS.Entities.ViewModels
         public int sku_id { get; set; } = 0;
 
         /// <summary>
+        /// product image url
+        /// </summary>
+        public string product_image { get; set; } = string.Empty;
+
+        /// <summary>
         /// quantity
         /// </summary>
         public int qty { get; set; } = 0;
@@ -59,11 +64,6 @@ namespace ModernWMS.WMS.Entities.ViewModels
         /// quantity locked
         /// </summary>
         public int qty_locked { get; set; } = 0;
-
-        /// <summary>
-        /// quantity frozen
-        /// </summary>
-        public int qty_frozen { get; set; } = 0;
 
         /// <summary>
         /// asn qty

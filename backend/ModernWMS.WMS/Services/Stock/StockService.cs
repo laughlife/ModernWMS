@@ -79,12 +79,19 @@ namespace ModernWMS.WMS.Services
         /// <returns></returns>
         public async Task<(List<StockManagementViewModel> data, int totals)> StockPageAsync(PageSearch pageSearch, CurrentUser currentUser)
         {
+            var productKeyword = pageSearch.searchObjects
+                .FirstOrDefault(t => string.Equals(t.Name, "product_keyword", StringComparison.OrdinalIgnoreCase))
+                ?.Text
+                ?.Trim() ?? string.Empty;
             QueryCollection queries = new QueryCollection();
             if (pageSearch.searchObjects.Any())
             {
                 pageSearch.searchObjects.ForEach(s =>
                 {
-                    queries.Add(s);
+                    if (!string.Equals(s.Name, "product_keyword", StringComparison.OrdinalIgnoreCase))
+                    {
+                        queries.Add(s);
+                    }
                 });
             }
 
@@ -166,20 +173,24 @@ namespace ModernWMS.WMS.Services
                             sku_code = sku.sku_code,
                             qty_asn = ag.qty_asn == null ? 0 : ag.qty_asn,
                             qty_available = (sg.qty_normal == null ? 0 : sg.qty_normal) - (sg.qty_normal_frozen == null ? 0 : sg.qty_normal_frozen) - (dp.qty_locked == null ? 0 : dp.qty_locked) - (pl.qty_normal_locked == null ? 0 : pl.qty_normal_locked) - (m.qty_normal_locked == null ? 0 : m.qty_normal_locked),
-                            qty_frozen = sg.qty_frozen == null ? 0 : sg.qty_frozen,
-                            qty_locked = (dp.qty_locked == null ? 0 : dp.qty_locked) + (pl.qty_locked == null ? 0 : pl.qty_locked) + (m.qty_locked == null ? 0 : m.qty_locked),
+                            qty_locked = (sg.qty_frozen == null ? 0 : sg.qty_frozen) + (dp.qty_locked == null ? 0 : dp.qty_locked) + (pl.qty_locked == null ? 0 : pl.qty_locked) + (m.qty_locked == null ? 0 : m.qty_locked),
                             qty_sorted = ag.qty_sorted == null ? 0 : ag.qty_sorted,
                             qty_to_sort = ag.qty_to_sort == null ? 0 : ag.qty_to_sort,
                             shortage_qty = ag.shortage_qty == null ? 0 : ag.shortage_qty,
                             qty_to_unload = ag.qty_to_unload == null ? 0 : ag.qty_to_unload,
                             qty = sg.qty == null ? 0 : sg.qty,
                         };
+            if (!string.IsNullOrWhiteSpace(productKeyword))
+            {
+                query = query.Where(t => t.spu_name.Contains(productKeyword) || t.sku_code.Contains(productKeyword));
+            }
             query = query.Where(t => t.qty_asn > 0 || t.qty > 0).Where(queries.AsExpression<StockManagementViewModel>());
             int totals = await query.CountAsync();
             var list = await query.OrderBy(t => t.sku_code)
                        .Skip((pageSearch.pageIndex - 1) * pageSearch.pageSize)
                        .Take(pageSearch.pageSize)
                        .ToListAsync();
+            await PopulateProductImagesAsync(list, currentUser.tenant_id, t => t.sku_id, (t, url) => t.product_image = url);
             return (list, totals);
         }
 
@@ -287,8 +298,7 @@ namespace ModernWMS.WMS.Services
                             spu_name = spu.spu_name,
                             sku_code = sku.sku_code,
                             qty_available = gl.warehouse_area_property == 5 ? 0 : (sg.qty - sg.qty_frozen - (dp.qty_locked == null ? 0 : dp.qty_locked) - (pl.qty_locked == null ? 0 : pl.qty_locked) - (m.qty_locked == null ? 0 : m.qty_locked)),
-                            qty_frozen = sg.qty_frozen,
-                            qty_locked = (dp.qty_locked == null ? 0 : dp.qty_locked) + (pl.qty_locked == null ? 0 : pl.qty_locked) + (m.qty_locked == null ? 0 : m.qty_locked),
+                            qty_locked = sg.qty_frozen + (dp.qty_locked == null ? 0 : dp.qty_locked) + (pl.qty_locked == null ? 0 : pl.qty_locked) + (m.qty_locked == null ? 0 : m.qty_locked),
                             qty = sg.qty,
                             location_name = gl.location_name,
                             warehouse_area_id = gl.warehouse_area_id,
@@ -305,23 +315,25 @@ namespace ModernWMS.WMS.Services
                        .Skip((pageSearch.pageIndex - 1) * pageSearch.pageSize)
                        .Take(pageSearch.pageSize)
                        .ToListAsync();
-            await PopulateProductImagesAsync(list, currentUser.tenant_id);
+            await PopulateProductImagesAsync(list, currentUser.tenant_id, t => t.sku_id, (t, url) => t.product_image = url);
             return (list, totals);
         }
 
         /// <summary>
-        /// Fill ERP product images for stock location rows by sku mapping.
+        /// Fill ERP product images for stock rows by sku mapping.
         /// </summary>
-        /// <param name="rows">stock location page rows</param>
+        /// <param name="rows">stock page rows</param>
         /// <param name="tenantId">current tenant id</param>
-        private async Task PopulateProductImagesAsync(List<LocationStockManagementViewModel> rows, long tenantId)
+        /// <param name="skuIdSelector">sku id selector</param>
+        /// <param name="imageSetter">product image setter</param>
+        private async Task PopulateProductImagesAsync<T>(List<T> rows, long tenantId, Func<T, int> skuIdSelector, Action<T, string> imageSetter)
         {
             if (rows.Count == 0)
             {
                 return;
             }
 
-            var skuIds = rows.Select(t => t.sku_id).Distinct().ToList();
+            var skuIds = rows.Select(skuIdSelector).Distinct().ToList();
             var maps = await (from m in _ruoyiDbContext.CommodityMaps.AsNoTracking()
                               where m.tenant_id == tenantId && skuIds.Contains(m.wms_sku_id)
                               select new { m.wms_sku_id, m.erp_commodity_id }).ToListAsync();
@@ -347,9 +359,9 @@ namespace ModernWMS.WMS.Services
 
             rows.ForEach(t =>
             {
-                if (imageBySkuId.TryGetValue(t.sku_id, out var url))
+                if (imageBySkuId.TryGetValue(skuIdSelector(t), out var url))
                 {
-                    t.product_image = url;
+                    imageSetter(t, url);
                 }
             });
         }
@@ -757,8 +769,7 @@ namespace ModernWMS.WMS.Services
                             sku_code = sku.sku_code,
                             sku_name = sku.sku_name,
                             qty_available = gl.warehouse_area_property == 5 ? 0 : (sg.qty - sg.qty_frozen - (dp.qty_locked == null ? 0 : dp.qty_locked) - (pl.qty_locked == null ? 0 : pl.qty_locked) - (m.qty_locked == null ? 0 : m.qty_locked)),
-                            qty_frozen = sg.qty_frozen,
-                            qty_locked = (dp.qty_locked == null ? 0 : dp.qty_locked) + (pl.qty_locked == null ? 0 : pl.qty_locked) + (m.qty_locked == null ? 0 : m.qty_locked),
+                            qty_locked = sg.qty_frozen + (dp.qty_locked == null ? 0 : dp.qty_locked) + (pl.qty_locked == null ? 0 : pl.qty_locked) + (m.qty_locked == null ? 0 : m.qty_locked),
                             qty = sg.qty,
                             location_name = gl.location_name,
                             warehouse_id = gl.warehouse_id,
