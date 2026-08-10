@@ -96,7 +96,7 @@ namespace ModernWMS.WMS.Services
             }
             else if (pageSearch.sqlTitle.Equals("weight"))
             {
-                DbSet = DbSet.Where(t => t.picked_qty == t.qty && (t.dispatch_status.Equals(3) || (t.weighing_qty < t.picked_qty && t.dispatch_status.Equals(4)) || t.dispatch_status.Equals(5)));
+                DbSet = DbSet.Where(t => t.picked_qty == t.qty && ((t.weighing_qty < t.picked_qty && t.dispatch_status.Equals(4)) || t.dispatch_status.Equals(5)));
             }
             else if (pageSearch.sqlTitle.Equals("delivery"))
             {
