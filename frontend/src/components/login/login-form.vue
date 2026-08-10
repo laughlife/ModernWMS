@@ -76,8 +76,8 @@ const data = reactive({
   showDialog: false,
   valid: true,
   showPassword: false,
-  userName: 'admin', // 240507 刘福: 默认账号 admin 1
-  password: '1',
+  userName: '',
+  password: '',
   remember: false,
   dialogForm: {
     id: 0,
