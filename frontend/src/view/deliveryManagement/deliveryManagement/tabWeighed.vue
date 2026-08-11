@@ -43,7 +43,6 @@
                 <tr v-for="box in row.box_list" :key="box.erp_box_id">
                   <td class="box-no-cell">
                     <div>{{ box.box_no || '-' }}</div>
-                    <small v-if="box.tracking_id">{{ box.tracking_id }}</small>
                   </td>
                   <td>{{ formatMeasurement(box.weighing_weight, 'kg') }}</td>
                   <td>{{ formatMeasurement(box.weighing_length, 'cm') }}</td>
@@ -262,6 +261,5 @@ defineExpose({ getWeighed: method.getWeighed })
 .box-detail-loading { min-height: 88px; display: flex; align-items: center; justify-content: center; }
 .box-detail th { white-space: nowrap; font-weight: 600; }
 .box-no-cell { text-align: left; font-weight: 600; }
-.box-no-cell small { display: block; margin-top: 3px; font-weight: 400; opacity: 0.62; }
 .box-detail-empty { padding: 24px !important; text-align: center !important; opacity: 0.62; }
 </style>

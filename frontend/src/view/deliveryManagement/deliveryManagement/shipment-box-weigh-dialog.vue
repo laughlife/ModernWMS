@@ -26,18 +26,23 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="box in boxes" :key="box.erp_box_id">
+              <tr v-for="(box, rowIndex) in boxes" :key="box.erp_box_id">
                 <td class="box-no">
                   <div>{{ box.box_no }}</div>
-                  <small v-if="box.tracking_id">{{ box.tracking_id }}</small>
                 </td>
-                <td><v-text-field v-model.number="box.weighing_weight" type="number" min="0.01" step="0.01" density="compact" hide-details /></td>
-                <td><v-text-field v-model.number="box.weighing_length" type="number" min="0.01" step="0.01" density="compact" hide-details /></td>
-                <td><v-text-field v-model.number="box.weighing_width" type="number" min="0.01" step="0.01" density="compact" hide-details /></td>
-                <td><v-text-field v-model.number="box.weighing_height" type="number" min="0.01" step="0.01" density="compact" hide-details /></td>
+                <td><v-text-field v-model.number="box.weighing_weight" :id="inputId(box, 'weight')" type="number" min="0.01" step="0.01" density="compact" hide-details @keydown.enter.prevent="focusNext(rowIndex, 'weight')" @keydown.tab.exact.prevent="focusNext(rowIndex, 'weight')" /></td>
+                <td><v-text-field v-model.number="box.weighing_length" :id="inputId(box, 'length')" type="number" min="0.01" step="0.01" density="compact" hide-details @keydown.enter.prevent="focusNext(rowIndex, 'length')" @keydown.tab.exact.prevent="focusNext(rowIndex, 'length')" /></td>
+                <td><v-text-field v-model.number="box.weighing_width" :id="inputId(box, 'width')" type="number" min="0.01" step="0.01" density="compact" hide-details @keydown.enter.prevent="focusNext(rowIndex, 'width')" @keydown.tab.exact.prevent="focusNext(rowIndex, 'width')" /></td>
+                <td><v-text-field v-model.number="box.weighing_height" :id="inputId(box, 'height')" type="number" min="0.01" step="0.01" density="compact" hide-details @keydown.enter.prevent="focusNext(rowIndex, 'height')" @keydown.tab.exact.prevent="focusNext(rowIndex, 'height')" /></td>
                 <td>{{ volumeOf(box) || '-' }}</td>
                 <td>
                   <div class="box-actions">
+                    <v-btn
+                      size="small"
+                      color="primary"
+                      variant="tonal"
+                      @click="startSequentialWeighing(rowIndex)"
+                    >依次称重</v-btn>
                     <v-btn
                       v-if="validBox(box) && completedCount < boxes.length"
                       size="small"
@@ -63,13 +68,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import { confirmWeighingBoxes, getWeighingBoxes } from '@/api/wms/deliveryManagement'
 import { hookComponent } from '@/components/system'
 import type {
   DispatchWeighingBoxVO,
   DispatchWeighingShipmentVO
 } from '@/types/DeliveryManagement/DeliveryManagement'
+import { getNextWeighingField } from './weighingFocus'
+import type { WeighingField } from './weighingFocus'
 
 const emit = defineEmits<{ saved: [] }>()
 const dialogVisible = ref(false)
@@ -87,6 +94,29 @@ const volumeOf = (box: DispatchWeighingBoxVO) => {
   return Number.isFinite(volume) && volume > 0 ? Number(volume.toFixed(2)) : 0
 }
 
+const inputId = (box: DispatchWeighingBoxVO, field: WeighingField) =>
+  `box-weighing-${box.erp_box_id}-${field}`
+
+const focusInput = (rowIndex: number, field: WeighingField) => {
+  const box = boxes.value[rowIndex]
+  if (!box) return
+  document.getElementById(inputId(box, field))?.focus()
+}
+
+const focusNext = (rowIndex: number, field: WeighingField) => {
+  const target = getNextWeighingField(rowIndex, field, boxes.value.length)
+  if (target) focusInput(target.rowIndex, target.field)
+}
+
+const startSequentialWeighing = async (rowIndex: number) => {
+  await nextTick()
+  focusInput(rowIndex, 'weight')
+  hookComponent.$message({
+    type: 'info',
+    content: '待接入称重机，并等待工程师调试完毕后开放功能。'
+  })
+}
+
 const loadBoxes = async () => {
   if (!shipment.value) return
   const { data: res } = await getWeighingBoxes(shipment.value.dispatch_no, shipment.value.fba_shipment_id)
@@ -95,6 +125,8 @@ const loadBoxes = async () => {
     return
   }
   boxes.value = res.data
+  await nextTick()
+  focusInput(0, 'weight')
 }
 
 const openDialog = async (row: DispatchWeighingShipmentVO) => {
@@ -161,6 +193,5 @@ defineExpose({ openDialog })
 .box-table th { white-space: nowrap; }
 .box-table td:not(.box-no) { min-width: 130px; }
 .box-no { min-width: 210px; text-align: left !important; font-weight: 600; }
-.box-no small { display: block; margin-top: 4px; opacity: 0.65; font-weight: 400; }
-.box-actions { display: flex; justify-content: center; gap: 8px; min-width: 210px; }
+.box-actions { display: flex; justify-content: center; gap: 8px; min-width: 260px; }
 </style>
