@@ -1,5 +1,5 @@
 <template>
-  <v-dialog v-model="data.showDialog" width="1400" max-width="calc(100vw - 48px)" transition="dialog-top-transition">
+  <v-dialog v-model="data.showDialog" width="1080" max-width="calc(100vw - 48px)" transition="dialog-top-transition">
     <v-card max-height="85vh">
       <v-toolbar color="white" :title="$t('wms.erpPendingReceipt.logistics_detail_title')">
         <template #append>
