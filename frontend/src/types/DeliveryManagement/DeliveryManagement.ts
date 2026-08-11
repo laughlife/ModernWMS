@@ -47,6 +47,11 @@ export interface DeliveryManagementDetailVO extends DeliveryManagementVO {
   shop_name?: string
   variant_qty?: number
   box_count?: number
+  fba_shipment_id?: number
+  carrier?: string
+  carrier_warehouse_id?: number | null
+  carrier_unit?: string
+  volume_divisor?: number
   dept_name?: string
   order_user_name?: string
   prepared_time?: string
@@ -181,6 +186,21 @@ export interface SaveDispatchWeighingBoxVO {
   weighing_length: number
   weighing_width: number
   weighing_height: number
+}
+
+export interface OutboundCarrierOptionVO {
+  id: number
+  name: string
+}
+
+export interface SetOutboundVolumeDivisorVO {
+  id: number
+  volume_divisor: number
+}
+
+export interface SetOutboundCarrierVO {
+  id: number
+  carrier_warehouse_id: number
 }
 
 export interface DeliveryBatchAllocationVO {

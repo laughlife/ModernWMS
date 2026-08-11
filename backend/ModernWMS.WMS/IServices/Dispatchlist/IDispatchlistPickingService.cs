@@ -22,6 +22,12 @@ public interface IDispatchlistPickingService : IDependency
 
     Task<(bool flag, string msg)> UndoDeliveryAsync(int id, CurrentUser currentUser);
 
+    Task<List<OutboundCarrierOptionViewModel>> GetOutboundCarrierOptionsAsync();
+
+    Task<(bool flag, string msg)> SetOutboundVolumeDivisorAsync(SetOutboundVolumeDivisorViewModel viewModel, CurrentUser currentUser);
+
+    Task<(bool flag, string msg)> SetOutboundCarrierAsync(SetOutboundCarrierViewModel viewModel, CurrentUser currentUser);
+
     Task<(List<DispatchWeighingShipmentViewModel> data, int totals)> GetWeighingShipmentsAsync(PageSearch pageSearch, CurrentUser currentUser);
 
     Task<List<DispatchWeighingBoxViewModel>> GetWeighingBoxesAsync(string dispatchNo, long shipmentId, CurrentUser currentUser);

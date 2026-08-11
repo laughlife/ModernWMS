@@ -162,6 +162,22 @@ namespace ModernWMS.WMS.Entities.Models
         public string carrier { get; set; }  = string.Empty;
 
         /// <summary>
+        /// Logical foreign key to the ERP domestic warehouse used as outbound carrier.
+        /// </summary>
+        public long? carrier_warehouse_id { get; set; }
+
+        /// <summary>
+        /// Snapshot of the selected outbound carrier unit warehouse name.
+        /// </summary>
+        [MaxLength(256)]
+        public string carrier_unit { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Divisor used to calculate volumetric weight from measured box volume.
+        /// </summary>
+        public int? volume_divisor { get; set; }
+
+        /// <summary>
         /// freightfee
         /// </summary>
         public decimal freightfee { get; set; }  = 0;

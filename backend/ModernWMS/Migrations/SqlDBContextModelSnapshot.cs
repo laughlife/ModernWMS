@@ -539,6 +539,14 @@ namespace ModernWMS.Migrations
                         .IsRequired()
                         .HasColumnType("longtext");
 
+                    b.Property<long?>("carrier_warehouse_id")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("carrier_unit")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
                     b.Property<DateTime>("create_time")
                         .HasColumnType("datetime(6)");
 
@@ -607,6 +615,9 @@ namespace ModernWMS.Migrations
 
                     b.Property<decimal>("volume")
                         .HasColumnType("decimal(18,2)");
+
+                    b.Property<int?>("volume_divisor")
+                        .HasColumnType("int");
 
                     b.Property<string>("waybill_no")
                         .IsRequired()

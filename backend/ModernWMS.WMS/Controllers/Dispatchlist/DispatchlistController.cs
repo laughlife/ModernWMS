@@ -3,6 +3,7 @@
  * developer：NoNo
  */
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using ModernWMS.Core.Controller;
 using ModernWMS.Core.Models;
 using ModernWMS.WMS.Entities.ViewModels;
@@ -456,6 +457,39 @@ namespace ModernWMS.WMS.Controllers
         public async Task<ResultModel<string>> UndoDelivery(int id)
         {
             var (flag, msg) = await _dispatchlistPickingService.UndoDeliveryAsync(id, CurrentUser);
+            return flag ? ResultModel<string>.Success(msg) : ResultModel<string>.Error(msg);
+        }
+
+        /// <summary>
+        /// Get ERP domestic warehouses that can be selected as an outbound carrier unit.
+        /// </summary>
+        [Authorize]
+        [HttpGet("outbound-carrier-options")]
+        public async Task<ResultModel<List<OutboundCarrierOptionViewModel>>> GetOutboundCarrierOptions()
+        {
+            var data = await _dispatchlistPickingService.GetOutboundCarrierOptionsAsync();
+            return ResultModel<List<OutboundCarrierOptionViewModel>>.Success(data);
+        }
+
+        /// <summary>
+        /// Set the volumetric divisor for one pending outbound row.
+        /// </summary>
+        [Authorize]
+        [HttpPut("outbound-volume-divisor")]
+        public async Task<ResultModel<string>> SetOutboundVolumeDivisor(SetOutboundVolumeDivisorViewModel viewModel)
+        {
+            var (flag, msg) = await _dispatchlistPickingService.SetOutboundVolumeDivisorAsync(viewModel, CurrentUser);
+            return flag ? ResultModel<string>.Success(msg) : ResultModel<string>.Error(msg);
+        }
+
+        /// <summary>
+        /// Set the carrier unit for one pending outbound row.
+        /// </summary>
+        [Authorize]
+        [HttpPut("outbound-carrier")]
+        public async Task<ResultModel<string>> SetOutboundCarrier(SetOutboundCarrierViewModel viewModel)
+        {
+            var (flag, msg) = await _dispatchlistPickingService.SetOutboundCarrierAsync(viewModel, CurrentUser);
             return flag ? ResultModel<string>.Success(msg) : ResultModel<string>.Error(msg);
         }
 

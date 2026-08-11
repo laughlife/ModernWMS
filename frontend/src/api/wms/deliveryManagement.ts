@@ -11,6 +11,7 @@ import {
   SetCarrierVO
 } from '@/types/DeliveryManagement/DeliveryManagement'
 import type { SaveDispatchWeighingBoxVO } from '@/types/DeliveryManagement/DeliveryManagement'
+import type { SetOutboundCarrierVO, SetOutboundVolumeDivisorVO } from '@/types/DeliveryManagement/DeliveryManagement'
 import { getOutboundStatusQuery } from '@/utils/outboundFlow'
 
 // Get Pre shipment
@@ -249,6 +250,23 @@ export const undoDelivery = (id: number) => http({
     method: 'put',
     params: { id }
   })
+
+export const getOutboundCarrierOptions = () => http({
+  url: '/dispatchlist/outbound-carrier-options',
+  method: 'get'
+})
+
+export const setOutboundVolumeDivisor = (data: SetOutboundVolumeDivisorVO) => http({
+  url: '/dispatchlist/outbound-volume-divisor',
+  method: 'put',
+  data
+})
+
+export const setOutboundCarrier = (data: SetOutboundCarrierVO) => http({
+  url: '/dispatchlist/outbound-carrier',
+  method: 'put',
+  data
+})
 
 // Undo to previous step by dispatch
 export const cancelOrderByDispatch = (data: CancleOrderVO) => http({

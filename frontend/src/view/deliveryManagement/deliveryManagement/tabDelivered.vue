@@ -24,9 +24,16 @@
       <template #empty>{{ i18n.global.t('system.page.noData') }}</template>
       <vxe-column type="seq" width="60" />
       <vxe-column type="checkbox" width="50" fixed="left" />
-      <vxe-column :title="$t('wms.deliveryManagement.state')" width="100">
-        <template #default>
-          <v-chip size="small" color="warning" variant="tonal">{{ $t('wms.deliveryManagement.toBeDelivered') }}</v-chip>
+      <vxe-column :title="$t('wms.deliveryManagement.state')" width="250" align="left" header-align="left">
+        <template #default="{ row }">
+          <div class="outbound-status-cell">
+            <div :class="row.volume_divisor ? 'status-ready' : 'status-missing'">
+              {{ row.volume_divisor ? `材积比：${row.volume_divisor}` : '未指定材积比' }}
+            </div>
+            <div :class="row.carrier_unit ? 'status-ready' : 'status-missing'">
+              {{ row.carrier_unit ? `承运单位：${row.carrier_unit}` : '未指定承运单位' }}
+            </div>
+          </div>
         </template>
       </vxe-column>
       <vxe-column field="main_image" :title="$t('wms.deliveryManagement.productImage')" width="92">
@@ -60,9 +67,15 @@
         <template #default="{ row }">{{ formatMeasurement(row.weighing_weight, 'kg') }}</template>
       </vxe-column>
       <vxe-column field="creator" :title="$t('wms.deliveryManagement.creator')" width="140" />
-      <vxe-column field="operate" :title="$t('system.page.operate')" width="80" fixed="right" :resizable="false">
+      <vxe-column field="operate" :title="$t('system.page.operate')" width="150" fixed="right" :resizable="false">
         <template #default="{ row }">
           <div class="row-actions">
+            <TooltipBtn :flat="true" icon="mdi-calculator-variant" tooltip-text="设置材积比"
+              :disabled="!row.fba_shipment_id || !data.authorityList.includes('delivered-setCarrier')"
+              @click="volumeDivisorDialogRef?.openDialog(row)" />
+            <TooltipBtn :flat="true" icon="mdi-warehouse" tooltip-text="设置承运单位"
+              :disabled="!data.authorityList.includes('delivered-setCarrier')"
+              @click="carrierDialogRef?.openDialog(row)" />
             <TooltipBtn :flat="true" icon="mdi-send-outline" tooltip-text="出库"
               :disabled="!data.authorityList.includes('delivered-delivery')" @click="method.deliverRow(row)" />
           </div>
@@ -72,6 +85,8 @@
     <custom-pager :current-page="data.tablePage.pageIndex" :page-size="data.tablePage.pageSize" perfect
       :total="data.tablePage.total" :page-sizes="PAGE_SIZE" :layouts="PAGE_LAYOUT" @page-change="method.handlePageChange" />
     <ToBeFreightfee :show-dialog="data.showSetFreight" @close="method.freightfeeClose" @submit="method.freightfeeSubmit" />
+    <OutboundVolumeDivisorDialog ref="volumeDivisorDialogRef" @saved="method.refresh" />
+    <OutboundCarrierDialog ref="carrierDialogRef" @saved="method.refresh" />
   </div>
 </template>
 
@@ -94,8 +109,12 @@ import { getMenuAuthorityList, setSearchObject } from '@/utils/common'
 import { buildDeliveryPayload, buildSingleDeliveryPayload } from '@/utils/outboundFlow'
 import { exportData } from '@/utils/exportTable'
 import ToBeFreightfee from './to-be-freightfee.vue'
+import OutboundVolumeDivisorDialog from './outbound-volume-divisor-dialog.vue'
+import OutboundCarrierDialog from './outbound-carrier-dialog.vue'
 
 const xTable = ref()
+const volumeDivisorDialogRef = ref<InstanceType<typeof OutboundVolumeDivisorDialog>>()
+const carrierDialogRef = ref<InstanceType<typeof OutboundCarrierDialog>>()
 const data = reactive({
   searchForm: { dispatch_no: '', spu_name: '' },
   showSetFreight: false,
@@ -212,5 +231,8 @@ defineExpose({ getDelivery: method.getDelivery })
 .product-info-cell, .quantity-info-cell { line-height: 22px; }
 .primary-text { font-weight: 600; color: rgba(var(--v-theme-on-surface), 0.9); }
 .secondary-text { margin-top: 2px; color: rgba(var(--v-theme-on-surface), 0.62); }
-.row-actions { display: flex; justify-content: center; }
+.outbound-status-cell { line-height: 24px; white-space: normal; }
+.status-ready { color: rgba(var(--v-theme-on-surface), 0.85); }
+.status-missing { color: rgb(var(--v-theme-error)); }
+.row-actions { display: flex; justify-content: center; gap: 4px; }
 </style>

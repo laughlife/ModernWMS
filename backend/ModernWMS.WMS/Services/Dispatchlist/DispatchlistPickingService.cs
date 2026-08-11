@@ -15,6 +15,17 @@ namespace ModernWMS.WMS.Services;
 /// </summary>
 public class DispatchlistPickingService : IDispatchlistPickingService
 {
+    private static readonly int[] AllowedVolumeDivisors = [5000, 6000, 7000, 8000];
+    private const string OutboundSettingAuthority = "delivered-setCarrier";
+    private static readonly string[] ExcludedCarrierWarehouseNames =
+    [
+        "有座山深圳仓",
+        "南阳有座山公司-样品专用",
+        "海外-领星OMS校准仓",
+        "包材",
+        "南阳"
+    ];
+
     private readonly SqlDBContext _wmsDbContext;
     private readonly RuoyiDbContext _ruoyiDbContext;
     private readonly IStringLocalizer<ModernWMS.Core.MultiLanguage> _stringLocalizer;
@@ -136,6 +147,7 @@ public class DispatchlistPickingService : IDispatchlistPickingService
                     .Distinct(StringComparer.OrdinalIgnoreCase));
             var shipmentId = shipmentItem?.shipment_id
                 ?? snapshots.Select(t => t.fbaShipmentId).FirstOrDefault(t => t.HasValue);
+            row.fba_shipment_id = shipmentId ?? 0;
             row.shop_name = shipmentId.HasValue && shipmentMap.TryGetValue(shipmentId.Value, out var shipment)
                 ? shipment.shop_name ?? string.Empty
                 : string.Empty;
@@ -375,6 +387,157 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         catch (DbUpdateConcurrencyException)
         {
             await transaction.RollbackAsync();
+            return (false, _stringLocalizer["data_changed"]);
+        }
+    }
+
+    public async Task<List<OutboundCarrierOptionViewModel>> GetOutboundCarrierOptionsAsync()
+    {
+        return await _ruoyiDbContext.Warehouses.AsNoTracking()
+            .Where(t => !t.deleted
+                && t.attr == "国内仓库"
+                && t.name != null
+                && !ExcludedCarrierWarehouseNames.Contains(t.name))
+            .OrderBy(t => t.name)
+            .ThenBy(t => t.id)
+            .Select(t => new OutboundCarrierOptionViewModel
+            {
+                id = t.id,
+                name = t.name ?? string.Empty
+            })
+            .ToListAsync();
+    }
+
+    public async Task<(bool flag, string msg)> SetOutboundVolumeDivisorAsync(
+        SetOutboundVolumeDivisorViewModel viewModel,
+        CurrentUser currentUser)
+    {
+        if (!await HasOutboundSettingAuthorityAsync(currentUser))
+        {
+            return (false, "没有待出库设置权限");
+        }
+
+        if (!AllowedVolumeDivisors.Contains(viewModel.volume_divisor))
+        {
+            return (false, _stringLocalizer["data_changed"]);
+        }
+
+        var row = await GetPendingOutboundRowAsync(viewModel.id, currentUser);
+        if (row == null)
+        {
+            return (false, _stringLocalizer["data_changed"]);
+        }
+        if (row.volume_divisor == viewModel.volume_divisor)
+        {
+            return (true, _stringLocalizer["operation_success"]);
+        }
+
+        var now = DateTime.Now;
+        row.volume_divisor = viewModel.volume_divisor;
+        row.last_update_time = now;
+
+        return await SaveOutboundSettingsAsync();
+    }
+
+    public async Task<(bool flag, string msg)> SetOutboundCarrierAsync(
+        SetOutboundCarrierViewModel viewModel,
+        CurrentUser currentUser)
+    {
+        if (!await HasOutboundSettingAuthorityAsync(currentUser))
+        {
+            return (false, "没有待出库设置权限");
+        }
+
+        var carrier = await _ruoyiDbContext.Warehouses.AsNoTracking()
+            .Where(t => t.id == viewModel.carrier_warehouse_id
+                && !t.deleted
+                && t.attr == "国内仓库"
+                && t.name != null
+                && !ExcludedCarrierWarehouseNames.Contains(t.name))
+            .Select(t => new { t.id, t.name })
+            .FirstOrDefaultAsync();
+        if (carrier == null)
+        {
+            return (false, _stringLocalizer["data_changed"]);
+        }
+
+        var row = await GetPendingOutboundRowAsync(viewModel.id, currentUser);
+        if (row == null)
+        {
+            return (false, _stringLocalizer["data_changed"]);
+        }
+        if (row.carrier_warehouse_id == carrier.id && row.carrier_unit == carrier.name)
+        {
+            return (true, _stringLocalizer["operation_success"]);
+        }
+
+        var now = DateTime.Now;
+        row.carrier_warehouse_id = carrier.id;
+        row.carrier_unit = carrier.name ?? string.Empty;
+        row.last_update_time = now;
+
+        return await SaveOutboundSettingsAsync();
+    }
+
+    private async Task<DispatchlistEntity?> GetPendingOutboundRowAsync(int id, CurrentUser currentUser)
+    {
+        return await _wmsDbContext.GetDbSet<DispatchlistEntity>()
+            .FirstOrDefaultAsync(t => t.id == id
+                && t.tenant_id == currentUser.tenant_id
+                && t.dispatch_status == 5);
+    }
+
+    private async Task<bool> HasOutboundSettingAuthorityAsync(CurrentUser currentUser)
+    {
+        var roleName = currentUser.user_role?.Trim() ?? string.Empty;
+        if (string.Equals(roleName, "admin", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var roleId = await _wmsDbContext.GetDbSet<UserroleEntity>().AsNoTracking()
+            .Where(t => t.tenant_id == currentUser.tenant_id
+                && t.is_valid
+                && t.role_name == roleName)
+            .Select(t => (int?)t.id)
+            .FirstOrDefaultAsync();
+        if (!roleId.HasValue)
+        {
+            return false;
+        }
+
+        var actionAuthorities = await _wmsDbContext.GetDbSet<RolemenuEntity>().AsNoTracking()
+            .Where(t => t.tenant_id == currentUser.tenant_id
+                && t.userrole_id == roleId.Value
+                && t.authority == 1)
+            .Select(t => t.menu_actions_authority)
+            .ToListAsync();
+
+        return actionAuthorities.Any(actions =>
+        {
+            try
+            {
+                return (JsonSerializer.Deserialize<List<string>>(actions) ?? [])
+                    .Any(action => string.Equals(action?.Trim(), OutboundSettingAuthority, StringComparison.Ordinal));
+            }
+            catch (JsonException)
+            {
+                return false;
+            }
+        });
+    }
+
+    private async Task<(bool flag, string msg)> SaveOutboundSettingsAsync()
+    {
+        try
+        {
+            var saved = await _wmsDbContext.SaveChangesAsync();
+            return saved > 0
+                ? (true, _stringLocalizer["operation_success"])
+                : (false, _stringLocalizer["operation_failed"]);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
             return (false, _stringLocalizer["data_changed"]);
         }
     }

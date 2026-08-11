@@ -226,6 +226,13 @@ namespace ModernWMS.WMS.Entities.ViewModels
         [MaxLength(256, ErrorMessage = "MaxLength")]
         public string carrier { get; set; } = string.Empty;
 
+        public long? carrier_warehouse_id { get; set; }
+
+        [MaxLength(256, ErrorMessage = "MaxLength")]
+        public string carrier_unit { get; set; } = string.Empty;
+
+        public int? volume_divisor { get; set; }
+
         /// <summary>
         /// freightfee
         /// </summary>
@@ -338,6 +345,8 @@ namespace ModernWMS.WMS.Entities.ViewModels
         /// 当前 FBA 货件箱数
         /// </summary>
         public int box_count { get; set; } = 0;
+
+        public long fba_shipment_id { get; set; } = 0;
 
         /// <summary>
         /// 小组（发货小组）
