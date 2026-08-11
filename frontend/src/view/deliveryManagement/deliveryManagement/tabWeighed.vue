@@ -110,7 +110,8 @@
               :flat="true"
               icon="mdi-send-outline"
               tooltip-text="去出库"
-              :disabled="row.is_todo"
+              :disabled="deliveryFlowAction(row) === 'stay'
+                || (deliveryFlowAction(row) === 'confirm-weighing' && !data.authorityList.includes('weighed-weigh'))"
               @click="method.goToDeliveryRow(row)"
             />
           </div>
@@ -126,7 +127,7 @@
 <script lang="ts" setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import type { VxePagerEvents, VxeTableEvents } from 'vxe-table'
-import { getWeighed, getWeighingBoxes, undoWeighing } from '@/api/wms/deliveryManagement'
+import { completeWeighing, getWeighed, getWeighingBoxes, undoWeighing } from '@/api/wms/deliveryManagement'
 import { hookComponent } from '@/components/system'
 import BtnGroup from '@/components/system/btnGroup.vue'
 import ProductImage from '@/components/system/product-image.vue'
@@ -139,7 +140,7 @@ import i18n from '@/languages/i18n'
 import type { DispatchWeighingBoxVO, DispatchWeighingShipmentVO } from '@/types/DeliveryManagement/DeliveryManagement'
 import type { btnGroupItem, TablePage } from '@/types/System/Form'
 import { getMenuAuthorityList, setSearchObject } from '@/utils/common'
-import { getNextDeliveryTab } from './deliveryFlow'
+import { getDeliveryFlowAction } from './deliveryFlow'
 import type { DeliveryFlowTab } from './deliveryFlow'
 import ShipmentBoxWeighDialog from './shipment-box-weigh-dialog.vue'
 
@@ -193,6 +194,11 @@ const dimensionStatus = (row: WeighingTableRow) => resolveStatus(
 
 const formatMeasurement = (value: number, unit: string) => Number(value) > 0 ? `${value} ${unit}` : '-'
 
+const deliveryFlowAction = (row: DispatchWeighingShipmentVO) => getDeliveryFlowAction({
+  dispatchStatus: row.dispatch_status,
+  isTodo: !row.can_complete_dispatch
+})
+
 const boxVolume = (box: DispatchWeighingBoxVO) => {
   if (Number(box.weighing_volume) > 0) return Number(box.weighing_volume)
   const volume = Number(box.weighing_length) * Number(box.weighing_width) * Number(box.weighing_height)
@@ -218,9 +224,15 @@ const handleToggleRowExpand: VxeTableEvents.ToggleRowExpand<WeighingTableRow> = 
 const method = reactive({
   refresh: () => method.getWeighed(),
   weighRow: (row: DispatchWeighingShipmentVO) => boxDialogRef.value?.openDialog(row),
-  goToDeliveryRow: (row: DispatchWeighingShipmentVO) => {
-    const targetTab = getNextDeliveryTab(row.is_todo)
-    if (targetTab) emit('goToDelivery', targetTab)
+  goToDeliveryRow: async (row: DispatchWeighingShipmentVO) => {
+    const action = deliveryFlowAction(row)
+    if (action === 'stay') return
+    if (action === 'confirm-weighing') {
+      const { data: res } = await completeWeighing(row.id)
+      if (!res.isSuccess) { hookComponent.$message({ type: 'error', content: res.errorMessage }); return }
+      hookComponent.$message({ type: 'success', content: res.data })
+    }
+    emit('goToDelivery', 'tabDelivered')
   },
   backToThePreviousStep: (row: DispatchWeighingShipmentVO) => {
     hookComponent.$dialog({

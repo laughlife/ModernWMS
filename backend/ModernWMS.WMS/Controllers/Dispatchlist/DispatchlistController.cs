@@ -462,6 +462,17 @@ namespace ModernWMS.WMS.Controllers
         }
 
         /// <summary>
+        /// Validate a returned weighing dispatch and move it back to pending outbound.
+        /// </summary>
+        [Authorize]
+        [HttpPut("complete-weighing")]
+        public async Task<ResultModel<string>> CompleteWeighing(int id)
+        {
+            var (flag, msg) = await _dispatchlistPickingService.CompleteWeighingAsync(id, CurrentUser);
+            return flag ? ResultModel<string>.Success(msg) : ResultModel<string>.Error(msg);
+        }
+
+        /// <summary>
         /// Return one completed outbound dispatch to pending outbound and restore stock.
         /// </summary>
         [HttpPut("undo-delivery")]

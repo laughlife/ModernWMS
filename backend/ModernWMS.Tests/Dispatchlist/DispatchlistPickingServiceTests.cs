@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Localization;
 using ModernWMS.Core.DBContext;
+using ModernWMS.Core.DBContext.Entities;
 using ModernWMS.Core.JWT;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Services;
@@ -103,12 +105,208 @@ public class DispatchlistPickingServiceTests
         Assert.Equal((byte)5, row.dispatch_status);
     }
 
+    [Fact]
+    public async Task CompleteWeighingAsync_moves_a_complete_returned_dispatch_back_to_pending_outbound()
+    {
+        await using var wmsDatabase = CreateWmsDatabase();
+        await using var ruoyiDatabase = CreateRuoyiDatabase();
+        var row = CreateDispatchRow(1, "DB20260811005", 4);
+        await wmsDatabase.Set<DispatchlistEntity>().AddAsync(row);
+        await wmsDatabase.Set<DispatchWeighingBoxEntity>().AddAsync(new DispatchWeighingBoxEntity
+        {
+            id = 1,
+            tenant_id = 1,
+            dispatch_no = row.dispatch_no,
+            fba_shipment_id = 99,
+            erp_box_id = 201,
+            weighing_weight = 12.5m,
+            weighing_length = 30,
+            weighing_width = 20,
+            weighing_height = 10,
+            weighing_volume = 6000
+        });
+        await ruoyiDatabase.StockMoves.AddAsync(new ErpStockMoveEntity { id = 10, no = row.dispatch_no });
+        await ruoyiDatabase.StockMoveItems.AddAsync(new ErpStockMoveItemEntity
+        {
+            id = 11,
+            stock_move_id = 10,
+            commodity_id = 101,
+            product_snapshot_json = "{\"fbaShipmentId\":99}"
+        });
+        await ruoyiDatabase.CommodityMaps.AddAsync(new ErpCommodityMapEntity
+        {
+            id = 12,
+            tenant_id = 1,
+            erp_commodity_id = 101,
+            wms_sku_id = row.sku_id
+        });
+        await ruoyiDatabase.FbaShipmentBoxes.AddAsync(new ErpFbaSpdBoxEntity
+        {
+            id = 201,
+            shipment_id = 99,
+            box_id = "BOX-1"
+        });
+        await wmsDatabase.SaveChangesAsync();
+        await ruoyiDatabase.SaveChangesAsync();
+
+        var service = new DispatchlistPickingService(wmsDatabase, ruoyiDatabase, new TestStringLocalizer());
+        var (flag, _) = await service.CompleteWeighingAsync(row.id, AdminUser());
+
+        Assert.True(flag);
+        Assert.Equal((byte)5, row.dispatch_status);
+        Assert.Equal(12.5m, row.weighing_weight);
+        Assert.Equal("朝阳仓", row.carrier_unit);
+    }
+
+    [Fact]
+    public async Task CompleteWeighingAsync_rejects_when_any_shipment_has_no_box()
+    {
+        await using var wmsDatabase = CreateWmsDatabase();
+        await using var ruoyiDatabase = CreateRuoyiDatabase();
+        var row = CreateDispatchRow(1, "DB20260811006", 4);
+        await wmsDatabase.Set<DispatchlistEntity>().AddAsync(row);
+        await wmsDatabase.Set<DispatchWeighingBoxEntity>().AddAsync(new DispatchWeighingBoxEntity
+        {
+            id = 1,
+            tenant_id = 1,
+            dispatch_no = row.dispatch_no,
+            fba_shipment_id = 99,
+            erp_box_id = 201,
+            weighing_weight = 12.5m,
+            weighing_length = 30,
+            weighing_width = 20,
+            weighing_height = 10
+        });
+        await ruoyiDatabase.StockMoves.AddAsync(new ErpStockMoveEntity { id = 10, no = row.dispatch_no });
+        await ruoyiDatabase.StockMoveItems.AddRangeAsync(
+            new ErpStockMoveItemEntity
+            {
+                id = 11,
+                stock_move_id = 10,
+                commodity_id = 101,
+                product_snapshot_json = "{\"fbaShipmentId\":99}"
+            },
+            new ErpStockMoveItemEntity
+            {
+                id = 12,
+                stock_move_id = 10,
+                commodity_id = 101,
+                product_snapshot_json = "{\"fbaShipmentId\":100}"
+            });
+        await ruoyiDatabase.CommodityMaps.AddAsync(new ErpCommodityMapEntity
+        {
+            id = 13,
+            tenant_id = 1,
+            erp_commodity_id = 101,
+            wms_sku_id = row.sku_id
+        });
+        await ruoyiDatabase.FbaShipmentBoxes.AddAsync(new ErpFbaSpdBoxEntity
+        {
+            id = 201,
+            shipment_id = 99,
+            box_id = "BOX-1"
+        });
+        await wmsDatabase.SaveChangesAsync();
+        await ruoyiDatabase.SaveChangesAsync();
+
+        var service = new DispatchlistPickingService(wmsDatabase, ruoyiDatabase, new TestStringLocalizer());
+        var (flag, _) = await service.CompleteWeighingAsync(row.id, AdminUser());
+
+        Assert.False(flag);
+        Assert.Equal((byte)4, row.dispatch_status);
+    }
+
+    [Fact]
+    public async Task CompleteWeighingAsync_rejects_mixed_dispatch_statuses()
+    {
+        await using var wmsDatabase = CreateWmsDatabase();
+        await using var ruoyiDatabase = CreateRuoyiDatabase();
+        var returnedRow = CreateDispatchRow(1, "DB20260811007", 4);
+        var pendingRow = CreateDispatchRow(2, "DB20260811007", 5);
+        await wmsDatabase.Set<DispatchlistEntity>().AddRangeAsync(returnedRow, pendingRow);
+        await wmsDatabase.SaveChangesAsync();
+
+        var service = new DispatchlistPickingService(wmsDatabase, ruoyiDatabase, new TestStringLocalizer());
+        var (flag, msg) = await service.CompleteWeighingAsync(returnedRow.id, AdminUser());
+
+        Assert.False(flag);
+        Assert.Equal("data_changed", msg);
+        Assert.Equal((byte)4, returnedRow.dispatch_status);
+        Assert.Equal((byte)5, pendingRow.dispatch_status);
+    }
+
+    [Fact]
+    public async Task SaveWeighingBoxesAsync_refreshes_dispatch_totals_while_status_is_pending_outbound()
+    {
+        await using var wmsDatabase = CreateWmsDatabase();
+        await using var ruoyiDatabase = CreateRuoyiDatabase();
+        var row = CreateDispatchRow(1, "DB20260811008", 5);
+        await wmsDatabase.Set<DispatchlistEntity>().AddAsync(row);
+        await wmsDatabase.Set<DispatchWeighingBoxEntity>().AddAsync(new DispatchWeighingBoxEntity
+        {
+            id = 1,
+            tenant_id = 1,
+            dispatch_no = row.dispatch_no,
+            fba_shipment_id = 99,
+            erp_box_id = 201,
+            weighing_weight = 12.5m,
+            weighing_length = 30,
+            weighing_width = 20,
+            weighing_height = 10,
+            weighing_volume = 6000
+        });
+        await ruoyiDatabase.StockMoves.AddAsync(new ErpStockMoveEntity { id = 10, no = row.dispatch_no });
+        await ruoyiDatabase.StockMoveItems.AddAsync(new ErpStockMoveItemEntity
+        {
+            id = 11,
+            stock_move_id = 10,
+            commodity_id = 101,
+            product_snapshot_json = "{\"fbaShipmentId\":99}"
+        });
+        await ruoyiDatabase.CommodityMaps.AddAsync(new ErpCommodityMapEntity
+        {
+            id = 12,
+            tenant_id = 1,
+            erp_commodity_id = 101,
+            wms_sku_id = row.sku_id
+        });
+        await ruoyiDatabase.FbaShipmentBoxes.AddAsync(new ErpFbaSpdBoxEntity
+        {
+            id = 201,
+            shipment_id = 99,
+            box_id = "BOX-1"
+        });
+        await wmsDatabase.SaveChangesAsync();
+        await ruoyiDatabase.SaveChangesAsync();
+
+        var service = new DispatchlistPickingService(wmsDatabase, ruoyiDatabase, new TestStringLocalizer());
+        var (flag, _) = await service.SaveWeighingBoxesAsync([
+            new SaveDispatchWeighingBoxViewModel
+            {
+                dispatch_no = row.dispatch_no,
+                fba_shipment_id = 99,
+                erp_box_id = 201,
+                weighing_weight = 20,
+                weighing_length = 40,
+                weighing_width = 30,
+                weighing_height = 20
+            }
+        ], AdminUser());
+
+        Assert.True(flag);
+        Assert.Equal((byte)5, row.dispatch_status);
+        Assert.Equal(20m, row.weighing_weight);
+        Assert.Equal(24000m, row.weighing_volume);
+    }
+
     private static DispatchlistEntity CreateDispatchRow(int id, string dispatchNo, byte status) => new()
     {
         id = id,
         dispatch_no = dispatchNo,
         dispatch_status = status,
         tenant_id = 1,
+        sku_id = 6,
+        picked_qty = 10,
         weighing_qty = 10,
         weighing_weight = 12.5m,
         weighing_length = 30,
@@ -125,6 +323,7 @@ public class DispatchlistPickingServiceTests
     {
         var options = new DbContextOptionsBuilder<SqlDBContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .ConfigureWarnings(t => t.Ignore(InMemoryEventId.TransactionIgnoredWarning))
             .Options;
         return new SqlDBContext(options);
     }

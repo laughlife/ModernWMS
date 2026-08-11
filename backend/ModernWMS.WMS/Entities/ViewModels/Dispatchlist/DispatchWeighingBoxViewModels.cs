@@ -23,6 +23,7 @@ public class DispatchWeighingShipmentViewModel
     public int dimension_measured_box_count { get; set; }
     public decimal weighing_weight { get; set; }
     public bool is_todo => box_count == 0 || weighed_box_count < box_count || dimension_measured_box_count < box_count;
+    public bool can_complete_dispatch { get; set; }
 }
 
 public class DispatchWeighingBoxViewModel

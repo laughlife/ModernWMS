@@ -163,6 +163,7 @@ export interface DispatchWeighingShipmentVO {
   dimension_measured_box_count: number
   weighing_weight: number
   is_todo: boolean
+  can_complete_dispatch: boolean
 }
 
 export interface DispatchWeighingBoxVO {

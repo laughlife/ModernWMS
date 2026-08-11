@@ -251,6 +251,12 @@ export const returnToWeighing = (id: number) => http({
   params: { id }
 })
 
+export const completeWeighing = (id: number) => http({
+  url: '/dispatchlist/complete-weighing',
+  method: 'put',
+  params: { id }
+})
+
 export const undoDelivery = (id: number) => http({
     url: '/dispatchlist/undo-delivery',
     method: 'put',

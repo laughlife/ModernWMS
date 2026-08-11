@@ -349,6 +349,53 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         }
     }
 
+    public async Task<(bool flag, string msg)> CompleteWeighingAsync(int id, CurrentUser currentUser)
+    {
+        if (id <= 0)
+        {
+            return (false, _stringLocalizer["data_changed"]);
+        }
+        if (!await HasActionAuthorityAsync(currentUser, WeighingAuthority))
+        {
+            return (false, "没有称重操作权限");
+        }
+
+        var entity = await _wmsDbContext.GetDbSet<DispatchlistEntity>().AsNoTracking()
+            .FirstOrDefaultAsync(t => t.id == id && t.tenant_id == currentUser.tenant_id);
+        if (entity == null)
+        {
+            return (false, _stringLocalizer["data_changed"]);
+        }
+
+        var dispatchRows = await _wmsDbContext.GetDbSet<DispatchlistEntity>().AsNoTracking()
+            .Where(t => t.dispatch_no == entity.dispatch_no && t.tenant_id == currentUser.tenant_id)
+            .ToListAsync();
+        if (dispatchRows.Count == 0)
+        {
+            return (false, _stringLocalizer["data_changed"]);
+        }
+        if (dispatchRows.All(t => t.dispatch_status == 5))
+        {
+            return (true, _stringLocalizer["operation_success"]);
+        }
+        if (dispatchRows.Any(t => t.dispatch_status != 4))
+        {
+            return (false, _stringLocalizer["data_changed"]);
+        }
+
+        try
+        {
+            var completed = await CompleteDispatchIfReadyAsync(entity.dispatch_no, currentUser);
+            return completed
+                ? (true, _stringLocalizer["operation_success"])
+                : (false, "称重数据不完整，请检查所有箱号的重量和长宽高");
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return (false, _stringLocalizer["data_changed"]);
+        }
+    }
+
     public async Task<(bool flag, string msg)> UndoDeliveryAsync(int id, CurrentUser currentUser)
     {
         if (id <= 0)
@@ -712,6 +759,15 @@ public class DispatchlistPickingService : IDispatchlistPickingService
             }
         }
 
+        foreach (var dispatchGroup in result.GroupBy(t => t.dispatch_no))
+        {
+            var canCompleteDispatch = dispatchGroup.All(t => !t.is_todo);
+            foreach (var row in dispatchGroup)
+            {
+                row.can_complete_dispatch = canCompleteDispatch;
+            }
+        }
+
         var dispatchSearch = FindSearchText(pageSearch, "dispatch_no");
         var productSearch = FindSearchText(pageSearch, "spu_name");
         if (!string.IsNullOrWhiteSpace(dispatchSearch))
@@ -851,12 +907,22 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         return shipmentIds.Contains(shipmentId);
     }
 
-    private async Task CompleteDispatchIfReadyAsync(string dispatchNo, CurrentUser currentUser)
+    private async Task<bool> CompleteDispatchIfReadyAsync(string dispatchNo, CurrentUser currentUser)
     {
+        var rows = await _wmsDbContext.GetDbSet<DispatchlistEntity>()
+            .Where(t => t.tenant_id == currentUser.tenant_id && t.dispatch_no == dispatchNo)
+            .ToListAsync();
+        if (rows.Count == 0) return false;
+        var isPendingOutbound = rows.All(t => t.dispatch_status == 5);
+        if (!isPendingOutbound && rows.Any(t => t.dispatch_status != 4)) return false;
+
         var shipmentIds = await GetShipmentIdsForDispatchAsync(dispatchNo, currentUser);
-        var boxIds = await _ruoyiDbContext.FbaShipmentBoxes.AsNoTracking()
-            .Where(t => !t.deleted && shipmentIds.Contains(t.shipment_id)).Select(t => t.id).ToListAsync();
-        if (boxIds.Count == 0) return;
+        if (shipmentIds.Count == 0) return false;
+        var boxes = await _ruoyiDbContext.FbaShipmentBoxes.AsNoTracking()
+            .Where(t => !t.deleted && shipmentIds.Contains(t.shipment_id))
+            .Select(t => new { t.id, t.shipment_id }).ToListAsync();
+        if (shipmentIds.Any(shipmentId => boxes.All(t => t.shipment_id != shipmentId))) return false;
+        var boxIds = boxes.Select(t => t.id).ToList();
         var measurements = await _wmsDbContext.GetDbSet<DispatchWeighingBoxEntity>()
             .Where(t => t.tenant_id == currentUser.tenant_id && t.dispatch_no == dispatchNo && boxIds.Contains(t.erp_box_id))
             .ToListAsync();
@@ -864,12 +930,8 @@ public class DispatchlistPickingService : IDispatchlistPickingService
             || measurements.Any(t => t.weighing_weight <= 0
                 || t.weighing_length <= 0
                 || t.weighing_width <= 0
-                || t.weighing_height <= 0)) return;
+                || t.weighing_height <= 0)) return false;
 
-        var rows = await _wmsDbContext.GetDbSet<DispatchlistEntity>()
-            .Where(t => t.tenant_id == currentUser.tenant_id && t.dispatch_no == dispatchNo
-                && (t.dispatch_status == 4 || t.dispatch_status == 5))
-            .ToListAsync();
         var now = DateTime.Now;
         var totalWeight = measurements.Sum(t => t.weighing_weight);
         var totalVolume = measurements.Sum(t => t.weighing_volume);
@@ -888,6 +950,7 @@ public class DispatchlistPickingService : IDispatchlistPickingService
             row.last_update_time = now;
         }
         await _wmsDbContext.SaveChangesAsync();
+        return true;
     }
 
     private async Task<List<long>> GetShipmentIdsForDispatchAsync(string dispatchNo, CurrentUser currentUser)
