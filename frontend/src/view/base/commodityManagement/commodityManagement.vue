@@ -106,11 +106,7 @@
                     :key="`${owner.dept_name}-${owner.order_user_name}`"
                     class="ownershipItem"
                   >
-                    <span class="ownershipLabel">{{ $t('base.commodityManagement.dept_name') }}</span>
-                    <span>{{ owner.dept_name || '-' }}</span>
-                    <span class="ownershipDivider"></span>
-                    <span class="ownershipLabel">{{ $t('base.commodityManagement.order_user_name') }}</span>
-                    <span>{{ owner.order_user_name || '-' }}</span>
+                    <span>{{ owner.dept_name || '-' }} | {{ owner.order_user_name || '-' }}</span>
                   </div>
                 </div>
                 <span v-else class="emptyValue">-</span>
@@ -305,18 +301,6 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   gap: 6px;
   text-align: left;
-}
-
-.ownershipLabel {
-  color: rgba(var(--v-theme-on-surface), 0.55);
-  font-size: 12px;
-}
-
-.ownershipDivider {
-  background: rgba(var(--v-border-color), var(--v-border-opacity));
-  height: 14px;
-  margin: 0 4px;
-  width: 1px;
 }
 
 @media (max-width: 959px) {
