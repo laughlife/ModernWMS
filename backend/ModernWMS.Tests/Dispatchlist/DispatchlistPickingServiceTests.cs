@@ -301,7 +301,7 @@ public class DispatchlistPickingServiceTests
     }
 
     [Fact]
-    public async Task EnrichPickingRowsAsync_uses_box_weight_sum_as_outbound_weight()
+    public async Task EnrichPickingRowsAsync_uses_box_measurement_sums_for_outbound_values()
     {
         await using var wmsDatabase = CreateWmsDatabase();
         await using var ruoyiDatabase = CreateRuoyiDatabase();
@@ -313,7 +313,8 @@ public class DispatchlistPickingServiceTests
                 dispatch_no = "DB20260811009",
                 fba_shipment_id = 99,
                 erp_box_id = 201,
-                weighing_weight = 21
+                weighing_weight = 21,
+                weighing_volume = 1_250_000
             },
             new DispatchWeighingBoxEntity
             {
@@ -322,7 +323,18 @@ public class DispatchlistPickingServiceTests
                 dispatch_no = "DB20260811009",
                 fba_shipment_id = 99,
                 erp_box_id = 202,
-                weighing_weight = 25
+                weighing_weight = 25,
+                weighing_volume = 1_500_000
+            },
+            new DispatchWeighingBoxEntity
+            {
+                id = 3,
+                tenant_id = 1,
+                dispatch_no = "DB20260811009",
+                fba_shipment_id = 99,
+                erp_box_id = 203,
+                weighing_weight = 14,
+                weighing_volume = 2_000_000
             });
         await ruoyiDatabase.StockMoves.AddAsync(new ErpStockMoveEntity { id = 10, no = "DB20260811009" });
         await ruoyiDatabase.StockMoveItems.AddAsync(new ErpStockMoveItemEntity
@@ -351,7 +363,8 @@ public class DispatchlistPickingServiceTests
                 dispatch_status = 5,
                 sku_id = 6,
                 weight = 20000,
-                weighing_weight = 40
+                weighing_weight = 40,
+                volume = 888_888
             }
         };
 
@@ -359,8 +372,9 @@ public class DispatchlistPickingServiceTests
         await service.EnrichPickingRowsAsync(rows, AdminUser());
 
         var row = Assert.Single(rows);
-        Assert.Equal(46m, row.weight);
-        Assert.Equal(46m, row.weighing_weight);
+        Assert.Equal(60m, row.weight);
+        Assert.Equal(60m, row.weighing_weight);
+        Assert.Equal(4.75m, row.volume);
     }
 
     private static DispatchlistEntity CreateDispatchRow(int id, string dispatchNo, byte status) => new()

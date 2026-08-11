@@ -60,8 +60,8 @@
       <vxe-column field="weight" title="重量(kg)" width="120">
         <template #default="{ row }">{{ formatMeasurement(row.weight, 'kg') }}</template>
       </vxe-column>
-      <vxe-column field="volume" title="体积(cm³)" width="130">
-        <template #default="{ row }">{{ formatMeasurement(row.volume, 'cm³') }}</template>
+      <vxe-column field="volume" title="体积(m³)" width="130">
+        <template #default="{ row }">{{ formatCubicMeters(row.volume) }}</template>
       </vxe-column>
       <vxe-column field="weighing_weight" :title="$t('wms.deliveryManagement.weighing_weight')" width="130">
         <template #default="{ row }">{{ formatMeasurement(row.weighing_weight, 'kg') }}</template>
@@ -129,6 +129,7 @@ const data = reactive({
 })
 
 const formatMeasurement = (value: number | undefined, unit: string) => Number(value) > 0 ? `${value} ${unit}` : '-'
+const formatCubicMeters = (value: number | undefined) => Number(value) > 0 ? `${Number(value).toFixed(2)} m³` : '-'
 
 const method = reactive({
   refresh: () => method.getDelivery(),

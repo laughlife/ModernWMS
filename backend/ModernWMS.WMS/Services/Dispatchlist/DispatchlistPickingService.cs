@@ -100,14 +100,20 @@ public class DispatchlistPickingService : IDispatchlistPickingService
                 .GroupBy(t => t.shipment_id)
                 .ToDictionaryAsync(t => t.Key, t => t.Count())
             : new Dictionary<long, int>();
-        var measuredWeightRows = await _wmsDbContext.GetDbSet<DispatchWeighingBoxEntity>().AsNoTracking()
+        var measuredBoxRows = await _wmsDbContext.GetDbSet<DispatchWeighingBoxEntity>().AsNoTracking()
             .Where(t => t.tenant_id == currentUser.tenant_id
                 && dispatchNos.Contains(t.dispatch_no)
                 && shipmentIds.Contains(t.fba_shipment_id))
             .GroupBy(t => new { t.dispatch_no, t.fba_shipment_id })
-            .Select(t => new { t.Key.dispatch_no, t.Key.fba_shipment_id, weight = t.Sum(x => x.weighing_weight) })
+            .Select(t => new
+            {
+                t.Key.dispatch_no,
+                t.Key.fba_shipment_id,
+                weight = t.Sum(x => x.weighing_weight),
+                volume = t.Sum(x => x.weighing_volume)
+            })
             .ToListAsync();
-        var measuredWeights = measuredWeightRows.ToDictionary(t => (t.dispatch_no, t.fba_shipment_id), t => t.weight);
+        var measuredBoxes = measuredBoxRows.ToDictionary(t => (t.dispatch_no, t.fba_shipment_id));
 
         foreach (var row in rows)
         {
@@ -164,11 +170,17 @@ public class DispatchlistPickingService : IDispatchlistPickingService
                 ? boxCount
                 : 0;
             if (shipmentId.HasValue
-                && measuredWeights.TryGetValue((row.dispatch_no, shipmentId.Value), out var measuredWeight)
-                && measuredWeight > 0)
+                && measuredBoxes.TryGetValue((row.dispatch_no, shipmentId.Value), out var measuredBox))
             {
-                row.weight = measuredWeight;
-                row.weighing_weight = measuredWeight;
+                if (measuredBox.weight > 0)
+                {
+                    row.weight = measuredBox.weight;
+                    row.weighing_weight = measuredBox.weight;
+                }
+                if (measuredBox.volume > 0)
+                {
+                    row.volume = measuredBox.volume / 1_000_000m;
+                }
             }
             row.variant_qty = snapshots.Count > 0
                 ? snapshots.Sum(t => t.variantQty ?? 1)
