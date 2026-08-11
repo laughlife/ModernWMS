@@ -58,13 +58,6 @@
           </div>
         </template>
       </vxe-column>
-      <vxe-column :title="$t('wms.deliveryManagement.state')" width="100">
-        <template #default="{ row }">
-          <v-chip size="small" :color="row.is_todo ? 'warning' : 'success'" variant="tonal">
-            {{ row.is_todo ? $t('wms.deliveryManagement.weighTodo') : $t('wms.deliveryManagement.weighReady') }}
-          </v-chip>
-        </template>
-      </vxe-column>
       <vxe-column field="main_image" :title="$t('wms.deliveryManagement.productImage')" width="92">
         <template #default="{ row }"><ProductImage :src="row.main_image" :alt="row.commodity_name" :width="56" :height="56" /></template>
       </vxe-column>
@@ -86,7 +79,7 @@
           <div class="secondary-text">{{ row.variant_qty }} {{ $t('wms.deliveryManagement.variantLabel') }}</div>
         </template>
       </vxe-column>
-      <vxe-column field="weighing_weight" :title="$t('wms.deliveryManagement.weighing_weight')" width="130">
+      <vxe-column :title="$t('wms.deliveryManagement.state')" width="130">
         <template #default="{ row }">
           <v-chip size="small" :color="weightStatus(row).color" variant="tonal">{{ weightStatus(row).label }}</v-chip>
         </template>

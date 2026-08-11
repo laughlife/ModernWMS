@@ -537,7 +537,7 @@
       "waybill_no": "运单号",
       "weigh": "称重",
       "weighReady": "已称重",
-      "weighPartial": "部分称重",
+      "weighPartial": "未全部称重",
       "weighTodo": "未称重",
       "measureReady": "已测量",
       "measurePartial": "部分测量",
