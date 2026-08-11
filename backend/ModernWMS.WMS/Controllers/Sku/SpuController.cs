@@ -2,6 +2,7 @@
  * date：2022-12-21
  * developer：NoNo
  */
+ using Microsoft.AspNetCore.Authorization;
  using Microsoft.AspNetCore.Mvc;
  using ModernWMS.Core.Controller;
  using ModernWMS.Core.Models;
@@ -60,6 +61,21 @@ namespace ModernWMS.WMS.Controllers
             var (data, totals) = await _spuService.PageAsync(pageSearch, CurrentUser);
 
             return ResultModel<PageData<SpuBothViewModel>>.Success(new PageData<SpuBothViewModel>
+            {
+                Rows = data,
+                Totals = totals
+            });
+        }
+        /// <summary>
+        /// Get the read-only SKU catalog used by commodity management.
+        /// </summary>
+        [Authorize]
+        [HttpPost("catalog")]
+        public async Task<ResultModel<PageData<CommodityCatalogViewModel>>> PageCatalogAsync(PageSearch pageSearch)
+        {
+            var (data, totals) = await _spuService.PageCatalogAsync(pageSearch, CurrentUser);
+
+            return ResultModel<PageData<CommodityCatalogViewModel>>.Success(new PageData<CommodityCatalogViewModel>
             {
                 Rows = data,
                 Totals = totals

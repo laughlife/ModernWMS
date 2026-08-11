@@ -7,6 +7,14 @@
       "phone": "电话"
     },
     "commodityManagement": {
+      "product_image": "商品图片",
+      "product_info": "商品信息",
+      "catalog_name": "商品名称",
+      "volume_cm3": "商品体积(cm³)",
+      "ownership": "商品所属",
+      "dept_name": "所属小组",
+      "order_user_name": "所属人",
+      "sku": "SKU",
       "bar_code": "商品条码",
       "brand": "品牌",
       "cost": "商品成本",

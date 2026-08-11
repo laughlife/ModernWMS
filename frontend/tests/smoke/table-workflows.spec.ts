@@ -18,7 +18,11 @@ const menus = [
   menu_actions: ['read', 'save', 'import', 'export', 'resetPwd']
 }))
 
-async function mockBackend(page: Page, userRequests: Array<Record<string, unknown>>) {
+async function mockBackend(
+  page: Page,
+  userRequests: Array<Record<string, unknown>>,
+  commodityRequests: Array<Record<string, unknown>> = []
+) {
   await page.route('http://127.0.0.1:21011/**', async (route) => {
     const request = route.request()
     const path = new URL(request.url()).pathname
@@ -39,6 +43,23 @@ async function mockBackend(page: Page, userRequests: Array<Record<string, unknow
       data = {
         rows: [{ id: 1, user_num: 'U001', user_name: 'Administrator', user_role: 'Admin', sex: 'male', contact_tel: '13800000000', is_valid: true }],
         totals: 40
+      }
+    } else if (path.endsWith('/spu/catalog')) {
+      commodityRequests.push(request.postDataJSON())
+      data = {
+        rows: [{
+          sku_id: 201,
+          sku_code: 'SKU-001',
+          sku_name: 'Demo Product',
+          product_image: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"></svg>',
+          volume_cm3: 24,
+          cost: 19.8,
+          ownerships: [
+            { dept_name: '北美一组', order_user_name: '张三' },
+            { dept_name: '欧洲二组', order_user_name: '李四' }
+          ]
+        }],
+        totals: 1
       }
     } else if (path.endsWith('/select-item') || path.endsWith('/all')) {
       data = []
@@ -98,22 +119,36 @@ test('VXE table pagination, filtering, export and import preview remain usable',
   expect(pageErrors).toEqual([])
 })
 
-test('VXE popup table cell editing remains usable', async ({ page }) => {
+test('commodity management shows the read-only product catalog', async ({ page }) => {
   const pageErrors: string[] = []
+  const commodityRequests: Array<Record<string, unknown>> = []
   page.on('pageerror', (error) => pageErrors.push(error.message))
-  await mockBackend(page, [])
+  await mockBackend(page, [], commodityRequests)
   await login(page)
 
   await page.evaluate(() => { window.location.hash = '#/commodityManagement' })
   await expect(page.locator('.v-breadcrumbs')).toContainText('商品管理')
-  await page.locator('.mdi-plus').first().click()
+  const table = page.locator('.vxe-table')
+  await expect(table).toContainText('商品图片')
+  await expect(table).toContainText('商品信息')
+  await expect(table).toContainText('商品体积(cm³)')
+  await expect(table).toContainText('商品成本')
+  await expect(table).toContainText('商品所属')
+  await expect(table).toContainText('Demo Product')
+  await expect(table).toContainText('SKU-001')
+  await expect(table).toContainText('24 cm³')
+  await expect(table).toContainText('¥19.80')
+  await expect(table).toContainText('北美一组')
+  await expect(table).toContainText('张三')
+  await expect(table).toContainText('欧洲二组')
+  await expect(table).toContainText('李四')
+  await expect(page.getByRole('button', { name: '查看大图：Demo Product' })).toBeVisible()
+  await expect.poll(() => commodityRequests.length).toBeGreaterThan(0)
 
-  const dialog = page.locator('.v-dialog')
-  await expect(dialog.locator('.vxe-table')).toBeVisible()
-  await dialog.locator('.mdi-plus').click()
-  await dialog.locator('.vxe-body--column').nth(1).click()
-  await expect(dialog.locator('.vxe-input--inner').first()).toBeVisible()
-  await dialog.locator('.vxe-input--inner').first().fill('SKU-EDIT-001')
+  await expect(page.locator('.mdi-plus')).toHaveCount(0)
+  await expect(page.locator('.mdi-pencil-outline')).toHaveCount(0)
+  await expect(page.locator('.mdi-delete-outline')).toHaveCount(0)
+  await expect(page.locator('.mdi-alarm-light')).toHaveCount(0)
 
   expect(pageErrors).toEqual([])
 })

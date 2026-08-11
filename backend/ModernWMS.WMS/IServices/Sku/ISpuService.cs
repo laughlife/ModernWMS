@@ -24,6 +24,13 @@ using ModernWMS.WMS.Entities.ViewModels;
         /// <returns></returns>
         Task<(List<SpuBothViewModel> data, int totals)> PageAsync(PageSearch pageSearch, CurrentUser currentUser);
         /// <summary>
+        /// Get the read-only SKU catalog.
+        /// </summary>
+        /// <param name="pageSearch">Pagination and search parameters.</param>
+        /// <param name="currentUser">Current tenant user.</param>
+        /// <returns>Catalog rows and total count.</returns>
+        Task<(List<CommodityCatalogViewModel> data, int totals)> PageCatalogAsync(PageSearch pageSearch, CurrentUser currentUser);
+        /// <summary>
         /// Get a record by id
         /// </summary>
         /// <param name="id">primary key</param>

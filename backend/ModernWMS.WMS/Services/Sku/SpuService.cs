@@ -29,6 +29,11 @@ namespace ModernWMS.WMS.Services
         private readonly SqlDBContext _dBContext;
 
         /// <summary>
+        /// The shared ERP database context used for read-only commodity enrichment.
+        /// </summary>
+        private readonly RuoyiDbContext _ruoyiDbContext;
+
+        /// <summary>
         /// Localizer Service
         /// </summary>
         private readonly IStringLocalizer<Core.MultiLanguage> _stringLocalizer;
@@ -39,13 +44,16 @@ namespace ModernWMS.WMS.Services
         ///Spu  constructor
         /// </summary>
         /// <param name="dBContext">The DBContext</param>
+        /// <param name="ruoyiDbContext">The shared ERP DBContext.</param>
         /// <param name="stringLocalizer">Localizer</param>
         public SpuService(
             SqlDBContext dBContext
+          , RuoyiDbContext ruoyiDbContext
           , IStringLocalizer<Core.MultiLanguage> stringLocalizer
             )
         {
             this._dBContext = dBContext;
+            this._ruoyiDbContext = ruoyiDbContext;
             this._stringLocalizer = stringLocalizer;
         }
         #endregion
@@ -129,6 +137,104 @@ namespace ModernWMS.WMS.Services
                        .Take(pageSearch.pageSize)
                        .ToListAsync();
             return (list, totals);
+        }
+
+        /// <summary>
+        /// Get a SKU-level, read-only commodity catalog enriched with ERP images and receipt ownership.
+        /// </summary>
+        public async Task<(List<CommodityCatalogViewModel> data, int totals)> PageCatalogAsync(
+            PageSearch pageSearch,
+            CurrentUser currentUser)
+        {
+            var queries = new QueryCollection();
+            pageSearch.searchObjects.ForEach(t => queries.Add(t));
+
+            var spus = _dBContext.GetDbSet<SpuEntity>().AsNoTracking();
+            var skus = _dBContext.GetDbSet<SkuEntity>().AsNoTracking();
+            var query = from sku in skus
+                        join spu in spus on sku.spu_id equals spu.id
+                        where spu.tenant_id == currentUser.tenant_id && spu.is_valid
+                        select new CommodityCatalogViewModel
+                        {
+                            sku_id = sku.id,
+                            sku_code = sku.sku_code,
+                            sku_name = sku.sku_name,
+                            volume_cm3 = spu.volume_unit == 1
+                                ? sku.volume * 1000M
+                                : spu.volume_unit == 2
+                                    ? sku.volume * 1000000M
+                                    : sku.volume,
+                            cost = sku.cost
+                        };
+
+            query = query.Where(queries.AsExpression<CommodityCatalogViewModel>());
+            var totals = await query.CountAsync();
+            var list = await query.OrderBy(t => t.sku_code)
+                .Skip((pageSearch.pageIndex - 1) * pageSearch.pageSize)
+                .Take(pageSearch.pageSize)
+                .ToListAsync();
+
+            await PopulateCatalogDetailsAsync(list, currentUser.tenant_id);
+            return (list, totals);
+        }
+
+        /// <summary>
+        /// Populate external image and ownership data in bounded batches for the current page.
+        /// </summary>
+        private async Task PopulateCatalogDetailsAsync(List<CommodityCatalogViewModel> rows, long tenantId)
+        {
+            if (rows.Count == 0)
+            {
+                return;
+            }
+
+            var skuIds = rows.Select(t => t.sku_id).Distinct().ToList();
+            var maps = await _ruoyiDbContext.CommodityMaps.AsNoTracking()
+                .Where(t => t.tenant_id == tenantId && skuIds.Contains(t.wms_sku_id))
+                .Select(t => new { t.wms_sku_id, t.erp_commodity_id })
+                .ToListAsync();
+            var commodityIds = maps.Select(t => t.erp_commodity_id.ToString()).Distinct().ToList();
+            var images = commodityIds.Count == 0
+                ? new Dictionary<string, string>()
+                : await _ruoyiDbContext.Commodities.AsNoTracking()
+                    .Where(t => commodityIds.Contains(t.id) && !string.IsNullOrEmpty(t.img_url))
+                    .ToDictionaryAsync(t => t.id, t => t.img_url);
+            var imageBySkuId = maps
+                .Where(t => images.ContainsKey(t.erp_commodity_id.ToString()))
+                .GroupBy(t => t.wms_sku_id)
+                .ToDictionary(t => t.Key, t => images[t.First().erp_commodity_id.ToString()]);
+
+            var ownershipRows = await _ruoyiDbContext.ReceiptItems.AsNoTracking()
+                .Where(t => t.tenant_id == tenantId && skuIds.Contains(t.wms_sku_id))
+                .Select(t => new { t.wms_sku_id, t.dept_name, t.order_user_name })
+                .Distinct()
+                .ToListAsync();
+            var ownershipsBySkuId = ownershipRows
+                .Where(t => !string.IsNullOrWhiteSpace(t.dept_name) || !string.IsNullOrWhiteSpace(t.order_user_name))
+                .GroupBy(t => t.wms_sku_id)
+                .ToDictionary(
+                    t => t.Key,
+                    t => t.Select(owner => new CommodityOwnershipViewModel
+                        {
+                            dept_name = (owner.dept_name ?? string.Empty).Trim(),
+                            order_user_name = (owner.order_user_name ?? string.Empty).Trim()
+                        })
+                        .DistinctBy(owner => new { owner.dept_name, owner.order_user_name })
+                        .OrderBy(owner => owner.dept_name)
+                        .ThenBy(owner => owner.order_user_name)
+                        .ToList());
+
+            foreach (var row in rows)
+            {
+                if (imageBySkuId.TryGetValue(row.sku_id, out var image))
+                {
+                    row.product_image = image;
+                }
+                if (ownershipsBySkuId.TryGetValue(row.sku_id, out var ownerships))
+                {
+                    row.ownerships = ownerships;
+                }
+            }
         }
 
         /// <summary>

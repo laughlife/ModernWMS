@@ -9,6 +9,13 @@ export const getSpuList = (data: PageConfigProps) => http({
     data
   })
 
+// Read-only SKU catalog used by commodity management
+export const getCommodityCatalog = (data: PageConfigProps) => http({
+    url: '/spu/catalog',
+    method: 'post',
+    data
+  })
+
 // Add a new form
 export const addSpu = (data: CommodityVO) => http({
     url: '/spu',

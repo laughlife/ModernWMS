@@ -31,6 +31,21 @@ export interface CommodityDetailVO {
   detailList: UpdateSaftyStockReqBodyVO[]
 }
 
+export interface CommodityOwnershipVO {
+  dept_name: string
+  order_user_name: string
+}
+
+export interface CommodityCatalogVO {
+  sku_id: number
+  sku_code: string
+  sku_name: string
+  product_image: string
+  volume_cm3: number
+  cost: number
+  ownerships: CommodityOwnershipVO[]
+}
+
 export interface CommodityDetailJoinMainVO {
   sku_id: number
   spu_id: number
