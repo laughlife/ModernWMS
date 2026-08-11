@@ -77,9 +77,24 @@
               </template>
             </vxe-column>
 
-            <vxe-column field="cost" width="160" :title="$t('base.commodityManagement.cost')">
+            <vxe-column field="total_qty" width="140" :title="$t('base.commodityManagement.total_qty')">
               <template #default="{ row }">
-                <span class="costValue">{{ formatCost(row.cost) }}</span>
+                <span class="numericValue">{{ formatQuantity(row.total_qty) }}</span>
+              </template>
+            </vxe-column>
+
+            <vxe-column field="cost_batches" min-width="320" :title="$t('base.commodityManagement.cost')">
+              <template #default="{ row }">
+                <div v-if="row.cost_batches?.length" class="costList">
+                  <div v-for="(batch, index) in row.cost_batches" :key="`${batch.batch_date}-${batch.purchaser_name}-${batch.unit_cost}-${index}`" class="costBatch">
+                    <span>{{ formatBatchDate(batch.batch_date) }}（{{ batch.purchaser_name || '-' }}）：</span>
+                    <strong>{{ formatCost(batch.unit_cost) }} × {{ formatQuantity(batch.quantity) }}</strong>
+                  </div>
+                  <div class="totalValue">
+                    {{ $t('base.commodityManagement.total_value') }}：<strong>{{ formatCost(row.total_value) }}</strong>
+                  </div>
+                </div>
+                <span v-else class="emptyValue">-</span>
               </template>
             </vxe-column>
 
@@ -148,6 +163,13 @@ const data = reactive({
 
 const formatVolume = (value?: number) => `${Number(value || 0).toLocaleString('zh-CN', { maximumFractionDigits: 3 })} cm³`
 const formatCost = (value?: number) => `¥${Number(value || 0).toFixed(2)}`
+const formatQuantity = (value?: number) => Number(value || 0).toLocaleString('zh-CN')
+const formatBatchDate = (value?: string) => {
+  const datePart = value?.slice(0, 10)
+  if (!datePart) return '-'
+  const [, month, day] = datePart.split('-')
+  return month && day ? `${month}-${day}` : datePart
+}
 
 const method = reactive({
   sureSearch: () => {
@@ -240,14 +262,34 @@ onBeforeUnmount(() => {
   color: rgba(var(--v-theme-on-surface), 0.6);
 }
 
-.numericValue,
-.costValue {
+.numericValue {
   font-variant-numeric: tabular-nums;
 }
 
-.costValue {
+.costList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0;
+  text-align: left;
+}
+
+.costBatch {
+  color: rgba(var(--v-theme-on-surface), 0.78);
+  white-space: nowrap;
+}
+
+.costBatch strong,
+.totalValue strong {
   color: rgb(var(--v-theme-primary));
-  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.totalValue {
+  border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  margin-top: 2px;
+  padding-top: 6px;
 }
 
 .ownershipList {

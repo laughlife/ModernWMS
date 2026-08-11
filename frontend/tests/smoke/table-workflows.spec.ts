@@ -53,7 +53,12 @@ async function mockBackend(
           sku_name: 'Demo Product',
           product_image: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"></svg>',
           volume_cm3: 24,
-          cost: 19.8,
+          total_qty: 600,
+          cost_batches: [
+            { batch_date: '2026-08-12T10:00:00', purchaser_name: '王五', unit_cost: 10, quantity: 500 },
+            { batch_date: '2026-08-13T11:00:00', purchaser_name: '赵六', unit_cost: 9, quantity: 100 }
+          ],
+          total_value: 5900,
           ownerships: [
             { dept_name: '北美一组', order_user_name: '张三' },
             { dept_name: '欧洲二组', order_user_name: '李四' }
@@ -132,12 +137,19 @@ test('commodity management shows the read-only product catalog', async ({ page }
   await expect(table).toContainText('商品图片')
   await expect(table).toContainText('商品信息')
   await expect(table).toContainText('商品体积(cm³)')
+  await expect(table).toContainText('商品总数')
   await expect(table).toContainText('商品成本')
   await expect(table).toContainText('商品所属')
   await expect(table).toContainText('Demo Product')
   await expect(table).toContainText('SKU-001')
   await expect(table).toContainText('24 cm³')
-  await expect(table).toContainText('¥19.80')
+  await expect(table).toContainText('600')
+  await expect(table).toContainText('08-12（王五）')
+  await expect(table).toContainText('¥10.00 × 500')
+  await expect(table).toContainText('08-13（赵六）')
+  await expect(table).toContainText('¥9.00 × 100')
+  await expect(table).toContainText('总价值：¥5900.00')
+  await expect(table.locator('.costList')).not.toContainText('采购人')
   await expect(table).toContainText('北美一组')
   await expect(table).toContainText('张三')
   await expect(table).toContainText('欧洲二组')

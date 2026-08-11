@@ -58,6 +58,16 @@ public sealed class RuoyiDbContext : DbContext
     public DbSet<ErpReceiptItemEntity> ReceiptItems => Set<ErpReceiptItemEntity>();
 
     /// <summary>
+    /// ERP purchase-task items used to read the purchase price for a received batch.
+    /// </summary>
+    public DbSet<ErpPurchaseTaskItemEntity> PurchaseTaskItems => Set<ErpPurchaseTaskItemEntity>();
+
+    /// <summary>
+    /// ERP purchase-task headers used to read the actual purchaser name.
+    /// </summary>
+    public DbSet<ErpPurchaseTaskEntity> PurchaseTasks => Set<ErpPurchaseTaskEntity>();
+
+    /// <summary>
     /// ERP commodity to WMS master-data mappings.
     /// </summary>
     public DbSet<ErpCommodityMapEntity> CommodityMaps => Set<ErpCommodityMapEntity>();
@@ -178,6 +188,18 @@ public sealed class RuoyiDbContext : DbContext
             entity.ToTable("wms_erp_receipt_item");
             entity.HasKey(t => t.id);
             entity.HasIndex(t => new { t.receipt_id, t.source_item_key }).IsUnique();
+        });
+
+        modelBuilder.Entity<ErpPurchaseTaskItemEntity>(entity =>
+        {
+            entity.ToTable("erp_purchase_task_item");
+            entity.HasKey(t => t.id);
+        });
+
+        modelBuilder.Entity<ErpPurchaseTaskEntity>(entity =>
+        {
+            entity.ToTable("erp_purchase_task");
+            entity.HasKey(t => t.id);
         });
 
         modelBuilder.Entity<ErpCommodityMapEntity>(entity =>

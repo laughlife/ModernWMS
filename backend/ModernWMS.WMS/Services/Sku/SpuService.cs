@@ -163,8 +163,7 @@ namespace ModernWMS.WMS.Services
                                 ? sku.volume * 1000M
                                 : spu.volume_unit == 2
                                     ? sku.volume * 1000000M
-                                    : sku.volume,
-                            cost = sku.cost
+                                    : sku.volume
                         };
 
             query = query.Where(queries.AsExpression<CommodityCatalogViewModel>());
@@ -204,12 +203,19 @@ namespace ModernWMS.WMS.Services
                 .GroupBy(t => t.wms_sku_id)
                 .ToDictionary(t => t.Key, t => images[t.First().erp_commodity_id.ToString()]);
 
-            var ownershipRows = await _ruoyiDbContext.ReceiptItems.AsNoTracking()
+            var receiptRows = await _ruoyiDbContext.ReceiptItems.AsNoTracking()
                 .Where(t => t.tenant_id == tenantId && skuIds.Contains(t.wms_sku_id))
-                .Select(t => new { t.wms_sku_id, t.dept_name, t.order_user_name })
-                .Distinct()
+                .Select(t => new
+                {
+                    t.wms_sku_id,
+                    t.task_item_id,
+                    t.dept_name,
+                    t.order_user_name,
+                    t.inbound_qty,
+                    t.receipt_time
+                })
                 .ToListAsync();
-            var ownershipsBySkuId = ownershipRows
+            var ownershipsBySkuId = receiptRows
                 .Where(t => !string.IsNullOrWhiteSpace(t.dept_name) || !string.IsNullOrWhiteSpace(t.order_user_name))
                 .GroupBy(t => t.wms_sku_id)
                 .ToDictionary(
@@ -224,6 +230,78 @@ namespace ModernWMS.WMS.Services
                         .ThenBy(owner => owner.order_user_name)
                         .ToList());
 
+            var taskItemIds = receiptRows
+                .Where(t => t.task_item_id.HasValue)
+                .Select(t => t.task_item_id!.Value)
+                .Distinct()
+                .ToList();
+            var purchaseItems = new Dictionary<long, (long taskId, decimal unitCost)>();
+            if (taskItemIds.Count > 0)
+            {
+                var purchaseItemRows = await _ruoyiDbContext.PurchaseTaskItems.AsNoTracking()
+                    .Where(t => !t.deleted && taskItemIds.Contains(t.id))
+                    .Select(t => new { t.id, t.task_id, t.per_purchase })
+                    .ToListAsync();
+                purchaseItems = purchaseItemRows.ToDictionary(
+                    t => t.id,
+                    t => (taskId: t.task_id, unitCost: t.per_purchase ?? 0M));
+            }
+            var purchaseTaskIds = purchaseItems.Values.Select(t => t.taskId).Distinct().ToList();
+            var purchaserNames = new Dictionary<long, string>();
+            if (purchaseTaskIds.Count > 0)
+            {
+                purchaserNames = await _ruoyiDbContext.PurchaseTasks.AsNoTracking()
+                    .Where(t => !t.deleted && purchaseTaskIds.Contains(t.id))
+                    .ToDictionaryAsync(t => t.id, t => t.purchaser_name ?? string.Empty);
+            }
+            var totalQtyBySkuId = receiptRows
+                .Where(t => t.inbound_qty > 0)
+                .GroupBy(t => t.wms_sku_id)
+                .ToDictionary(t => t.Key, t => t.Sum(item => item.inbound_qty));
+            var batchesBySkuId = receiptRows
+                .Where(t => t.inbound_qty > 0
+                    && t.task_item_id.HasValue
+                    && purchaseItems.ContainsKey(t.task_item_id.Value))
+                .Select(t => new
+                {
+                    t.wms_sku_id,
+                    task_item_id = t.task_item_id!.Value,
+                    batch_date = t.receipt_time.Date,
+                    purchase_item = purchaseItems[t.task_item_id.Value],
+                    quantity = t.inbound_qty
+                })
+                .Where(t => purchaserNames.ContainsKey(t.purchase_item.taskId))
+                .Select(t => new
+                {
+                    t.wms_sku_id,
+                    t.task_item_id,
+                    t.batch_date,
+                    purchaser_name = purchaserNames[t.purchase_item.taskId].Trim(),
+                    unit_cost = t.purchase_item.unitCost,
+                    t.quantity
+                })
+                .GroupBy(t => t.wms_sku_id)
+                .ToDictionary(
+                    t => t.Key,
+                    t => t.GroupBy(batch => new
+                        {
+                            batch.task_item_id,
+                            batch.batch_date,
+                            batch.purchaser_name,
+                            batch.unit_cost
+                        })
+                        .Select(batch => new CommodityCostBatchViewModel
+                        {
+                            batch_date = batch.Key.batch_date,
+                            purchaser_name = batch.Key.purchaser_name,
+                            unit_cost = batch.Key.unit_cost,
+                            quantity = batch.Sum(item => item.quantity)
+                        })
+                        .OrderBy(batch => batch.batch_date)
+                        .ThenBy(batch => batch.purchaser_name)
+                        .ThenBy(batch => batch.unit_cost)
+                        .ToList());
+
             foreach (var row in rows)
             {
                 if (imageBySkuId.TryGetValue(row.sku_id, out var image))
@@ -233,6 +311,15 @@ namespace ModernWMS.WMS.Services
                 if (ownershipsBySkuId.TryGetValue(row.sku_id, out var ownerships))
                 {
                     row.ownerships = ownerships;
+                }
+                if (totalQtyBySkuId.TryGetValue(row.sku_id, out var totalQty))
+                {
+                    row.total_qty = totalQty;
+                }
+                if (batchesBySkuId.TryGetValue(row.sku_id, out var batches))
+                {
+                    row.cost_batches = batches;
+                    row.total_value = batches.Sum(t => t.unit_cost * t.quantity);
                 }
             }
         }

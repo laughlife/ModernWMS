@@ -36,13 +36,22 @@ export interface CommodityOwnershipVO {
   order_user_name: string
 }
 
+export interface CommodityCostBatchVO {
+  batch_date: string
+  purchaser_name: string
+  unit_cost: number
+  quantity: number
+}
+
 export interface CommodityCatalogVO {
   sku_id: number
   sku_code: string
   sku_name: string
   product_image: string
   volume_cm3: number
-  cost: number
+  total_qty: number
+  cost_batches: CommodityCostBatchVO[]
+  total_value: number
   ownerships: CommodityOwnershipVO[]
 }
 
