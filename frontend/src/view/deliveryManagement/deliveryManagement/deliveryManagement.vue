@@ -1,32 +1,32 @@
 <template>
   <div class="container">
-    <v-tabs v-model="activeTab" stacked @update:model-value="changeTab">
+    <v-tabs v-model="activeTab" class="delivery-status-tabs" stacked @update:model-value="changeTab">
       <v-tab value="tabFbaShipment" data-status-tab="tabFbaShipment">
-        <v-badge class="status-count-badge" color="error" :content="statusCounts.tabFbaShipment" location="top end">
+        <v-badge class="status-count-badge" color="primary" :content="statusCounts.tabFbaShipment" location="top end">
           <v-icon>mdi-truck-fast-outline</v-icon>
         </v-badge>
         <p class="tabItemTitle">{{ $t('wms.deliveryManagement.fbaShipment') }}</p>
       </v-tab>
       <v-tab value="tabGoodsToBePicked" data-status-tab="tabGoodsToBePicked">
-        <v-badge class="status-count-badge" color="error" :content="statusCounts.tabGoodsToBePicked" location="top end">
+        <v-badge class="status-count-badge" color="primary" :content="statusCounts.tabGoodsToBePicked" location="top end">
           <v-icon>mdi-dolly</v-icon>
         </v-badge>
         <p class="tabItemTitle">{{ $t('wms.deliveryManagement.goodsToBePicked') }}</p>
       </v-tab>
       <v-tab value="tabPicked" data-status-tab="tabPicked">
-        <v-badge class="status-count-badge" color="error" :content="statusCounts.tabPicked" location="top end">
+        <v-badge class="status-count-badge" color="primary" :content="statusCounts.tabPicked" location="top end">
           <v-icon>mdi-human-dolly</v-icon>
         </v-badge>
         <p class="tabItemTitle">{{ $t('wms.deliveryManagement.picked') }}</p>
       </v-tab>
       <v-tab value="tabWeighed" data-status-tab="tabWeighed">
-        <v-badge class="status-count-badge" color="error" :content="statusCounts.tabWeighed" location="top end">
+        <v-badge class="status-count-badge" color="primary" :content="statusCounts.tabWeighed" location="top end">
           <v-icon>mdi-basket-fill</v-icon>
         </v-badge>
         <p class="tabItemTitle">{{ $t('wms.deliveryManagement.weighed') }}</p>
       </v-tab>
       <v-tab value="tabDelivered" data-status-tab="tabDelivered">
-        <v-badge class="status-count-badge" color="error" :content="statusCounts.tabDelivered" location="top end">
+        <v-badge class="status-count-badge" color="primary" :content="statusCounts.tabDelivered" location="top end">
           <v-icon>mdi-send-outline</v-icon>
         </v-badge>
         <p class="tabItemTitle">{{ $t('wms.deliveryManagement.toBeDelivered') }}</p>
@@ -172,3 +172,13 @@ const changeTab = (tab: unknown): void => {
 
 onMounted(refreshStatusCounts)
 </script>
+
+<style lang="less" scoped>
+.delivery-status-tabs {
+  margin-top: 12px;
+}
+
+.status-count-badge :deep(.v-badge__badge) {
+  transform: translateX(10px);
+}
+</style>
