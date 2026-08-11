@@ -20,4 +20,10 @@ test('login page presents the approved logistics layout', async ({ page }) => {
   await expect(page.getByTestId('login-hero-image')).toBeVisible()
   await expect(page.getByTestId('login-submit')).toBeVisible()
   await expect(page.getByText('SSO单点登录')).toHaveCount(0)
+
+  const footer = page.locator('.login-footer')
+  await expect(footer).toHaveCSS('color', 'rgb(23, 105, 232)')
+  await expect(footer.locator('.login-footer-registration')).toHaveCSS('color', 'rgb(23, 105, 232)')
+  await expect(footer.locator('.registration-icon')).toHaveCount(2)
+  await expect(footer.locator('.registration-icon').first()).toHaveAttribute('src', /china.*\.png/)
 })

@@ -49,7 +49,7 @@
       <div class="login-footer-support">技术支持：南阳锐翼网络科技有限责任公司</div>
       <div class="login-footer-registration">
         <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">
-          <v-icon icon="mdi-shield-check" size="18" />
+          <img class="registration-icon" src="@/assets/img/china.png" alt="" aria-hidden="true" />
           <span>豫ICP备2025141776号-1</span>
         </a>
         <span class="login-footer-divider" aria-hidden="true">|</span>
@@ -58,7 +58,7 @@
           target="_blank"
           rel="noopener noreferrer"
         >
-          <v-icon icon="mdi-shield-check" size="18" />
+          <img class="registration-icon" src="@/assets/img/china.png" alt="" aria-hidden="true" />
           <span>豫公网安备41130202000523号</span>
         </a>
       </div>
@@ -286,7 +286,7 @@ onMounted(() => {
   justify-content: center;
   gap: 10px;
   box-sizing: border-box;
-  color: #7f899c;
+  color: var(--brand-blue);
   background: rgba(237, 244, 255, 0.72);
   font-size: 13px;
 
@@ -299,7 +299,7 @@ onMounted(() => {
 
     &:hover,
     &:focus-visible {
-      color: #2875e9;
+      color: #0f55bd;
     }
   }
 }
@@ -314,11 +314,18 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   gap: 18px;
-  color: #929bad;
+  color: var(--brand-blue);
 }
 
 .login-footer-divider {
-  color: #b5bdca;
+  color: var(--brand-blue);
+}
+
+.registration-icon {
+  width: 18px;
+  height: 20px;
+  flex: 0 0 auto;
+  object-fit: contain;
 }
 
 @media (max-width: 1180px) {
