@@ -335,6 +335,11 @@ namespace ModernWMS.WMS.Entities.ViewModels
         public long variant_qty { get; set; } = 1;
 
         /// <summary>
+        /// 当前 FBA 货件箱数
+        /// </summary>
+        public int box_count { get; set; } = 0;
+
+        /// <summary>
         /// 小组（发货小组）
         /// </summary>
         public string dept_name { get; set; } = string.Empty;

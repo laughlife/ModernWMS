@@ -11,6 +11,7 @@ import {
   SetCarrierVO
 } from '@/types/DeliveryManagement/DeliveryManagement'
 import type { SaveDispatchWeighingBoxVO } from '@/types/DeliveryManagement/DeliveryManagement'
+import { getOutboundStatusQuery } from '@/utils/outboundFlow'
 
 // Get Pre shipment
 export const getShipment = (data: PageConfigProps) => http({
@@ -115,7 +116,7 @@ export const getToBeDelivery = (data: PageConfigProps) => http({
     method: 'post',
     data: {
       ...data,
-      sqlTitle: 'to_delivery'
+      sqlTitle: getOutboundStatusQuery('pending')
     }
   })
 
@@ -125,7 +126,7 @@ export const getDelivery = (data: PageConfigProps) => http({
     method: 'post',
     data: {
       ...data,
-      sqlTitle: 'delivery'
+      sqlTitle: getOutboundStatusQuery('completed')
     }
   })
 
@@ -241,6 +242,12 @@ export const undoWeighing = (id: number) => http({
     params: {
       id
     }
+  })
+
+export const undoDelivery = (id: number) => http({
+    url: '/dispatchlist/undo-delivery',
+    method: 'put',
+    params: { id }
   })
 
 // Undo to previous step by dispatch

@@ -21,7 +21,7 @@
         <v-icon>mdi-send-outline</v-icon>
         <p class="tabItemTitle">{{ $t('wms.deliveryManagement.toBeDelivered') }}</p>
       </v-tab>
-      <v-tab value="tabSignIn">
+      <v-tab value="tabCompleted">
         <v-icon>mdi-check-circle</v-icon>
         <p class="tabItemTitle">{{ $t('wms.deliveryManagement.deliveryReady') }}</p>
       </v-tab>
@@ -45,8 +45,8 @@
           <v-window-item value="tabDelivered">
             <TabDelivered ref="deliveredRef" />
           </v-window-item>
-          <v-window-item value="tabSignIn">
-            <TabSignIn ref="signInRef" />
+          <v-window-item value="tabCompleted">
+            <TabCompleted ref="completedRef" />
           </v-window-item>
         </v-window>
       </v-card-text>
@@ -60,7 +60,7 @@ import FbaShipmentList from './fba-shipment-list.vue'
 import TabDelivered from './tabDelivered.vue'
 import TabGoodsToBePicked from './tabGoodsToBePicked.vue'
 import TabPicked from './tabPicked.vue'
-import TabSignIn from './tabSignIn.vue'
+import TabCompleted from './tabCompleted.vue'
 import TabWeighed from './tabWeighed.vue'
 import type { DeliveryFlowTab } from './deliveryFlow'
 
@@ -70,7 +70,7 @@ const goodsToBePickedRef = ref<InstanceType<typeof TabGoodsToBePicked>>()
 const pickedRef = ref<InstanceType<typeof TabPicked>>()
 const weighedRef = ref<InstanceType<typeof TabWeighed>>()
 const deliveredRef = ref<InstanceType<typeof TabDelivered>>()
-const signInRef = ref<InstanceType<typeof TabSignIn>>()
+const completedRef = ref<InstanceType<typeof TabCompleted>>()
 
 const handleGoToPicking = (): void => {
   activeTab.value = 'tabGoodsToBePicked'
@@ -111,8 +111,8 @@ const changeTab = (tab: unknown): void => {
       case 'tabDelivered':
         deliveredRef.value?.getDelivery()
         break
-      case 'tabSignIn':
-        signInRef.value?.getSignIn()
+      case 'tabCompleted':
+        completedRef.value?.getCompleted()
         break
     }
   })

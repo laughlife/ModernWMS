@@ -60,7 +60,11 @@ namespace ModernWMS.WMS.Controllers
         public async Task<ResultModel<PageData<DispatchlistViewModel>>> PageAsync(PageSearch pageSearch)
         {
             var (data, totals) = await _dispatchlistService.PageAsync(pageSearch, CurrentUser);
-            if (pageSearch.sqlTitle == "dispatch_status=2" || pageSearch.sqlTitle == "dispatch_status=3" || pageSearch.sqlTitle == "weight")
+            if (pageSearch.sqlTitle == "dispatch_status=2"
+                || pageSearch.sqlTitle == "dispatch_status=3"
+                || pageSearch.sqlTitle == "dispatch_status=5"
+                || pageSearch.sqlTitle == "dispatch_status=6"
+                || pageSearch.sqlTitle == "weight")
             {
                 await _dispatchlistPickingService.EnrichPickingRowsAsync(data, CurrentUser);
             }
@@ -443,6 +447,16 @@ namespace ModernWMS.WMS.Controllers
             {
                 return ResultModel<string>.Error(msg);
             }
+        }
+
+        /// <summary>
+        /// Return one completed outbound dispatch to pending outbound and restore stock.
+        /// </summary>
+        [HttpPut("undo-delivery")]
+        public async Task<ResultModel<string>> UndoDelivery(int id)
+        {
+            var (flag, msg) = await _dispatchlistPickingService.UndoDeliveryAsync(id, CurrentUser);
+            return flag ? ResultModel<string>.Success(msg) : ResultModel<string>.Error(msg);
         }
 
 

@@ -20,6 +20,8 @@ public interface IDispatchlistPickingService : IDependency
 
     Task<(bool flag, string msg)> UndoWeighingAsync(int id, CurrentUser currentUser);
 
+    Task<(bool flag, string msg)> UndoDeliveryAsync(int id, CurrentUser currentUser);
+
     Task<(List<DispatchWeighingShipmentViewModel> data, int totals)> GetWeighingShipmentsAsync(PageSearch pageSearch, CurrentUser currentUser);
 
     Task<List<DispatchWeighingBoxViewModel>> GetWeighingBoxesAsync(string dispatchNo, long shipmentId, CurrentUser currentUser);

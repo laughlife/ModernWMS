@@ -82,6 +82,12 @@ public class DispatchlistPickingService : IDispatchlistPickingService
                 .Where(t => !t.deleted && shipmentIds.Contains(t.id))
                 .ToDictionaryAsync(t => t.id)
             : new Dictionary<long, ModernWMS.Core.DBContext.Entities.ErpFbaShipmentEntity>();
+        var boxCounts = shipmentIds.Count > 0
+            ? await _ruoyiDbContext.FbaShipmentBoxes.AsNoTracking()
+                .Where(t => !t.deleted && shipmentIds.Contains(t.shipment_id))
+                .GroupBy(t => t.shipment_id)
+                .ToDictionaryAsync(t => t.Key, t => t.Count())
+            : new Dictionary<long, int>();
 
         foreach (var row in rows)
         {
@@ -133,6 +139,9 @@ public class DispatchlistPickingService : IDispatchlistPickingService
             row.shop_name = shipmentId.HasValue && shipmentMap.TryGetValue(shipmentId.Value, out var shipment)
                 ? shipment.shop_name ?? string.Empty
                 : string.Empty;
+            row.box_count = shipmentId.HasValue && boxCounts.TryGetValue(shipmentId.Value, out var boxCount)
+                ? boxCount
+                : 0;
             row.variant_qty = snapshots.Count > 0
                 ? snapshots.Sum(t => t.variantQty ?? 1)
                 : 1;
@@ -271,6 +280,103 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         }
         _wmsDbContext.GetDbSet<DispatchWeighingBoxEntity>().RemoveRange(measurements);
         return await SaveAsync();
+    }
+
+    public async Task<(bool flag, string msg)> UndoDeliveryAsync(int id, CurrentUser currentUser)
+    {
+        if (id <= 0)
+        {
+            return (false, _stringLocalizer["data_changed"]);
+        }
+
+        await using var transaction = await _wmsDbContext.Database.BeginTransactionAsync();
+        try
+        {
+            var dispatchRow = await _wmsDbContext.GetDbSet<DispatchlistEntity>()
+                .FirstOrDefaultAsync(t => t.id == id
+                    && t.tenant_id == currentUser.tenant_id
+                    && t.dispatch_status == 6);
+            if (dispatchRow == null)
+            {
+                return (false, _stringLocalizer["data_changed"]);
+            }
+
+            var pickRows = await _wmsDbContext.GetDbSet<DispatchpicklistEntity>()
+                .Where(t => t.dispatchlist_id == id)
+                .ToListAsync();
+            if (pickRows.Count == 0 || pickRows.Any(t => !t.is_update_stock))
+            {
+                return (false, _stringLocalizer["data_changed"]);
+            }
+
+            var stockKeys = pickRows
+                .GroupBy(t => new
+                {
+                    t.goods_location_id,
+                    t.sku_id,
+                    t.goods_owner_id,
+                    t.series_number,
+                    t.expiry_date,
+                    t.price,
+                    t.putaway_date
+                })
+                .Select(t => new
+                {
+                    t.Key.goods_location_id,
+                    t.Key.sku_id,
+                    t.Key.goods_owner_id,
+                    t.Key.series_number,
+                    t.Key.expiry_date,
+                    t.Key.price,
+                    t.Key.putaway_date,
+                    picked_qty = t.Sum(p => p.picked_qty)
+                })
+                .ToList();
+            var skuIds = stockKeys.Select(t => t.sku_id).Distinct().ToList();
+            var locationIds = stockKeys.Select(t => t.goods_location_id).Distinct().ToList();
+            var stockRows = await _wmsDbContext.GetDbSet<StockEntity>()
+                .Where(stock => stock.tenant_id == currentUser.tenant_id
+                    && skuIds.Contains(stock.sku_id)
+                    && locationIds.Contains(stock.goods_location_id))
+                .ToListAsync();
+            var now = DateTime.Now;
+            foreach (var key in stockKeys)
+            {
+                var stock = stockRows.FirstOrDefault(t => t.goods_location_id == key.goods_location_id
+                    && t.sku_id == key.sku_id
+                    && t.goods_owner_id == key.goods_owner_id
+                    && t.series_number == key.series_number
+                    && t.expiry_date == key.expiry_date
+                    && t.price == key.price
+                    && t.putaway_date == key.putaway_date);
+                if (stock == null)
+                {
+                    return (false, _stringLocalizer["data_changed"]);
+                }
+                stock.qty += key.picked_qty;
+                stock.last_update_time = now;
+            }
+
+            dispatchRow.dispatch_status = 5;
+            dispatchRow.lock_qty = dispatchRow.picked_qty;
+            dispatchRow.actual_qty = 0;
+            dispatchRow.intrasit_qty = 0;
+            dispatchRow.last_update_time = now;
+            foreach (var pickRow in pickRows)
+            {
+                pickRow.is_update_stock = false;
+                pickRow.last_update_time = now;
+            }
+
+            await _wmsDbContext.SaveChangesAsync();
+            await transaction.CommitAsync();
+            return (true, _stringLocalizer["operation_success"]);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            await transaction.RollbackAsync();
+            return (false, _stringLocalizer["data_changed"]);
+        }
     }
 
     public async Task<(List<DispatchWeighingShipmentViewModel> data, int totals)> GetWeighingShipmentsAsync(
