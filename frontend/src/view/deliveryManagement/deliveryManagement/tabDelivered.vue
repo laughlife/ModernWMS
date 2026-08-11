@@ -67,9 +67,11 @@
         <template #default="{ row }">{{ formatMeasurement(row.weighing_weight, 'kg') }}</template>
       </vxe-column>
       <vxe-column field="creator" :title="$t('wms.deliveryManagement.creator')" width="140" />
-      <vxe-column field="operate" :title="$t('system.page.operate')" width="150" fixed="right" :resizable="false">
+      <vxe-column field="operate" :title="$t('system.page.operate')" width="190" fixed="right" :resizable="false">
         <template #default="{ row }">
           <div class="row-actions">
+            <TooltipBtn :flat="true" icon="mdi-arrow-left" tooltip-text="返回称重"
+              :disabled="!data.authorityList.includes('weighed-weigh')" @click="method.returnToWeighingRow(row)" />
             <TooltipBtn :flat="true" icon="mdi-calculator-variant" tooltip-text="设置材积比"
               :disabled="!row.fba_shipment_id || !data.authorityList.includes('delivered-setCarrier')"
               @click="volumeDivisorDialogRef?.openDialog(row)" />
@@ -93,7 +95,7 @@
 <script lang="ts" setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import type { VxePagerEvents } from 'vxe-table'
-import { getToBeDelivery, handleDelivery, setCarrier } from '@/api/wms/deliveryManagement'
+import { getToBeDelivery, handleDelivery, returnToWeighing, setCarrier } from '@/api/wms/deliveryManagement'
 import { hookComponent } from '@/components/system'
 import BtnGroup from '@/components/system/btnGroup.vue'
 import ProductImage from '@/components/system/product-image.vue'
@@ -115,6 +117,7 @@ import OutboundCarrierDialog from './outbound-carrier-dialog.vue'
 const xTable = ref()
 const volumeDivisorDialogRef = ref<InstanceType<typeof OutboundVolumeDivisorDialog>>()
 const carrierDialogRef = ref<InstanceType<typeof OutboundCarrierDialog>>()
+const emit = defineEmits<{ goToWeighing: [] }>()
 const data = reactive({
   searchForm: { dispatch_no: '', spu_name: '' },
   showSetFreight: false,
@@ -129,6 +132,18 @@ const formatMeasurement = (value: number | undefined, unit: string) => Number(va
 
 const method = reactive({
   refresh: () => method.getDelivery(),
+  returnToWeighingRow: (row: DeliveryManagementDetailVO) => {
+    hookComponent.$dialog({
+      content: '确认将该发货单返回称重状态吗？已填写的称重数据会保留，可在称重页修改。',
+      handleConfirm: async () => {
+        const { data: res } = await returnToWeighing(row.id)
+        if (!res.isSuccess) { hookComponent.$message({ type: 'error', content: res.errorMessage }); return }
+        hookComponent.$message({ type: 'success', content: res.data })
+        method.refresh()
+        emit('goToWeighing')
+      }
+    })
+  },
   getDelivery: async () => {
     const { data: res } = await getToBeDelivery(data.tablePage)
     if (!res.isSuccess) { hookComponent.$message({ type: 'error', content: res.errorMessage }); return }

@@ -451,6 +451,17 @@ namespace ModernWMS.WMS.Controllers
         }
 
         /// <summary>
+        /// Return one pending outbound dispatch to the weighing stage without deleting measurements.
+        /// </summary>
+        [Authorize]
+        [HttpPut("return-to-weighing")]
+        public async Task<ResultModel<string>> ReturnToWeighing(int id)
+        {
+            var (flag, msg) = await _dispatchlistPickingService.ReturnToWeighingAsync(id, CurrentUser);
+            return flag ? ResultModel<string>.Success(msg) : ResultModel<string>.Error(msg);
+        }
+
+        /// <summary>
         /// Return one completed outbound dispatch to pending outbound and restore stock.
         /// </summary>
         [HttpPut("undo-delivery")]

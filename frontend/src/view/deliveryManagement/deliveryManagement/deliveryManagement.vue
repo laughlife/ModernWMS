@@ -43,7 +43,7 @@
             <TabWeighed ref="weighedRef" @go-to-delivery="handleGoToDelivery" />
           </v-window-item>
           <v-window-item value="tabDelivered">
-            <TabDelivered ref="deliveredRef" />
+            <TabDelivered ref="deliveredRef" @go-to-weighing="handleGoToWeighing" />
           </v-window-item>
           <v-window-item value="tabCompleted">
             <TabCompleted ref="completedRef" />

@@ -20,6 +20,8 @@ public interface IDispatchlistPickingService : IDependency
 
     Task<(bool flag, string msg)> UndoWeighingAsync(int id, CurrentUser currentUser);
 
+    Task<(bool flag, string msg)> ReturnToWeighingAsync(int id, CurrentUser currentUser);
+
     Task<(bool flag, string msg)> UndoDeliveryAsync(int id, CurrentUser currentUser);
 
     Task<List<OutboundCarrierOptionViewModel>> GetOutboundCarrierOptionsAsync();

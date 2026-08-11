@@ -17,6 +17,7 @@ public class DispatchlistPickingService : IDispatchlistPickingService
 {
     private static readonly int[] AllowedVolumeDivisors = [5000, 6000, 7000, 8000];
     private const string OutboundSettingAuthority = "delivered-setCarrier";
+    private const string WeighingAuthority = "weighed-weigh";
     private static readonly string[] ExcludedCarrierWarehouseNames =
     [
         "有座山深圳仓",
@@ -294,6 +295,60 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         return await SaveAsync();
     }
 
+    public async Task<(bool flag, string msg)> ReturnToWeighingAsync(int id, CurrentUser currentUser)
+    {
+        if (id <= 0)
+        {
+            return (false, _stringLocalizer["data_changed"]);
+        }
+        if (!await HasActionAuthorityAsync(currentUser, WeighingAuthority))
+        {
+            return (false, "没有称重操作权限");
+        }
+
+        var entity = await _wmsDbContext.GetDbSet<DispatchlistEntity>().AsNoTracking()
+            .FirstOrDefaultAsync(t => t.id == id
+                && t.tenant_id == currentUser.tenant_id);
+        if (entity == null)
+        {
+            return (false, _stringLocalizer["data_changed"]);
+        }
+
+        var dispatchRows = await _wmsDbContext.GetDbSet<DispatchlistEntity>()
+            .Where(t => t.dispatch_no == entity.dispatch_no && t.tenant_id == currentUser.tenant_id)
+            .ToListAsync();
+        if (dispatchRows.Count == 0)
+        {
+            return (false, _stringLocalizer["data_changed"]);
+        }
+        if (dispatchRows.All(t => t.dispatch_status == 4))
+        {
+            return (true, _stringLocalizer["operation_success"]);
+        }
+        if (dispatchRows.Any(t => t.dispatch_status != 5))
+        {
+            return (false, _stringLocalizer["data_changed"]);
+        }
+
+        var now = DateTime.Now;
+        foreach (var row in dispatchRows)
+        {
+            row.dispatch_status = 4;
+            row.last_update_time = now;
+        }
+        try
+        {
+            var saved = await _wmsDbContext.SaveChangesAsync();
+            return saved > 0
+                ? (true, _stringLocalizer["operation_success"])
+                : (false, _stringLocalizer["operation_failed"]);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return (false, _stringLocalizer["data_changed"]);
+        }
+    }
+
     public async Task<(bool flag, string msg)> UndoDeliveryAsync(int id, CurrentUser currentUser)
     {
         if (id <= 0)
@@ -489,6 +544,11 @@ public class DispatchlistPickingService : IDispatchlistPickingService
 
     private async Task<bool> HasOutboundSettingAuthorityAsync(CurrentUser currentUser)
     {
+        return await HasActionAuthorityAsync(currentUser, OutboundSettingAuthority);
+    }
+
+    private async Task<bool> HasActionAuthorityAsync(CurrentUser currentUser, string requiredAuthority)
+    {
         var roleName = currentUser.user_role?.Trim() ?? string.Empty;
         if (string.Equals(roleName, "admin", StringComparison.OrdinalIgnoreCase))
         {
@@ -518,7 +578,7 @@ public class DispatchlistPickingService : IDispatchlistPickingService
             try
             {
                 return (JsonSerializer.Deserialize<List<string>>(actions) ?? [])
-                    .Any(action => string.Equals(action?.Trim(), OutboundSettingAuthority, StringComparison.Ordinal));
+                    .Any(action => string.Equals(action?.Trim(), requiredAuthority, StringComparison.Ordinal));
             }
             catch (JsonException)
             {

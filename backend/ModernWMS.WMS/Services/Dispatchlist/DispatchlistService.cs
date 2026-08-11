@@ -1481,7 +1481,7 @@ namespace ModernWMS.WMS.Services
                         {
                             var proposedValues = entry.CurrentValues;
                             var databaseValues = entry.GetDatabaseValues();
-                            if (UtilConvert.ObjToInt(databaseValues["dispatch_status"]) != 3 && UtilConvert.ObjToInt(databaseValues["dispatch_status"]) != 4 && UtilConvert.ObjToInt(databaseValues["dispatch_status"]) != 5)
+                            if (UtilConvert.ObjToInt(databaseValues["dispatch_status"]) != 5)
                             {
                                 return (false, "[202]" + _stringLocalizer["data_changed"]);
                             }
