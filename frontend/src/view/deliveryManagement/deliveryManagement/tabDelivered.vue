@@ -57,9 +57,6 @@
           </div>
         </template>
       </vxe-column>
-      <vxe-column field="weight" title="重量(kg)" width="120">
-        <template #default="{ row }">{{ formatMeasurement(row.weight, 'kg') }}</template>
-      </vxe-column>
       <vxe-column field="volume" title="体积(m³)" width="130">
         <template #default="{ row }">{{ formatCubicMeters(row.volume) }}</template>
       </vxe-column>
