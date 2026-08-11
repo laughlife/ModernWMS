@@ -4,6 +4,7 @@ using Microsoft.Extensions.Localization;
 using ModernWMS.Core.DBContext;
 using ModernWMS.Core.DBContext.Entities;
 using ModernWMS.Core.JWT;
+using ModernWMS.Core.Models;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels;
 using ModernWMS.WMS.Services;
