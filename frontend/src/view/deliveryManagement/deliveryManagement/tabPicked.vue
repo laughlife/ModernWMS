@@ -43,23 +43,23 @@
         format="yyyy-MM-dd HH:mm"
         :title="$t('wms.deliveryManagement.packingCreatedTime')"
       ></vxe-date-column>
-      <vxe-column field="operate" :title="$t('system.page.operate')" width="220" :resizable="false">
+      <vxe-column field="operate" :title="$t('system.page.operate')" width="120" fixed="right" :resizable="false">
         <template #default="{ row }">
           <div class="row-actions">
-            <v-btn
-              size="small"
-              color="warning"
-              variant="tonal"
+            <TooltipBtn
+              :flat="true"
+              icon="mdi-dolly"
+              :tooltip-text="$t('wms.deliveryManagement.repick')"
               :disabled="!data.authorityList.includes('picked-revoke')"
               @click="method.repickRow(row)"
-            >{{ $t('wms.deliveryManagement.repick') }}</v-btn>
-            <v-btn
-              size="small"
-              color="primary"
-              variant="tonal"
+            />
+            <TooltipBtn
+              :flat="true"
+              icon="mdi-basket-fill"
+              :tooltip-text="$t('wms.deliveryManagement.goToWeighing')"
               :disabled="!data.authorityList.includes('weighed-weigh')"
               @click="method.startWeighingRow(row)"
-            >{{ $t('wms.deliveryManagement.goToWeighing') }}</v-btn>
+            />
           </div>
         </template>
       </vxe-column>
@@ -83,6 +83,7 @@ import { getPicked, repick, startWeighing } from '@/api/wms/deliveryManagement'
 import { hookComponent } from '@/components/system'
 import BtnGroup from '@/components/system/btnGroup.vue'
 import ProductImage from '@/components/system/product-image.vue'
+import TooltipBtn from '@/components/tooltip-btn.vue'
 import customPager from '@/components/custom-pager.vue'
 import { computedCardHeight, computedTableHeight } from '@/constant/style'
 import { DEBOUNCE_TIME } from '@/constant/system'
