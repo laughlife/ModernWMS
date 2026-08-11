@@ -249,5 +249,13 @@ defineExpose({ getDelivery: method.getDelivery })
 .outbound-status-cell { line-height: 24px; white-space: normal; }
 .status-ready { color: rgba(var(--v-theme-on-surface), 0.85); }
 .status-missing { color: rgb(var(--v-theme-error)); }
-.row-actions { display: flex; justify-content: center; gap: 4px; }
+.row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  box-sizing: border-box;
+  padding-left: 20px;
+}
+.row-actions :deep(.v-btn) { margin-right: 0 !important; }
 </style>

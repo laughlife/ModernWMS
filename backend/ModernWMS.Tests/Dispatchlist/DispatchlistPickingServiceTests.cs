@@ -5,6 +5,7 @@ using ModernWMS.Core.DBContext;
 using ModernWMS.Core.DBContext.Entities;
 using ModernWMS.Core.JWT;
 using ModernWMS.WMS.Entities.Models;
+using ModernWMS.WMS.Entities.ViewModels;
 using ModernWMS.WMS.Services;
 
 namespace ModernWMS.Tests.Dispatchlist;
@@ -297,6 +298,69 @@ public class DispatchlistPickingServiceTests
         Assert.Equal((byte)5, row.dispatch_status);
         Assert.Equal(20m, row.weighing_weight);
         Assert.Equal(24000m, row.weighing_volume);
+    }
+
+    [Fact]
+    public async Task EnrichPickingRowsAsync_uses_box_weight_sum_as_outbound_weight()
+    {
+        await using var wmsDatabase = CreateWmsDatabase();
+        await using var ruoyiDatabase = CreateRuoyiDatabase();
+        await wmsDatabase.Set<DispatchWeighingBoxEntity>().AddRangeAsync(
+            new DispatchWeighingBoxEntity
+            {
+                id = 1,
+                tenant_id = 1,
+                dispatch_no = "DB20260811009",
+                fba_shipment_id = 99,
+                erp_box_id = 201,
+                weighing_weight = 21
+            },
+            new DispatchWeighingBoxEntity
+            {
+                id = 2,
+                tenant_id = 1,
+                dispatch_no = "DB20260811009",
+                fba_shipment_id = 99,
+                erp_box_id = 202,
+                weighing_weight = 25
+            });
+        await ruoyiDatabase.StockMoves.AddAsync(new ErpStockMoveEntity { id = 10, no = "DB20260811009" });
+        await ruoyiDatabase.StockMoveItems.AddAsync(new ErpStockMoveItemEntity
+        {
+            id = 11,
+            stock_move_id = 10,
+            commodity_id = 101,
+            product_snapshot_json = "{\"fbaShipmentId\":99}"
+        });
+        await ruoyiDatabase.CommodityMaps.AddAsync(new ErpCommodityMapEntity
+        {
+            id = 12,
+            tenant_id = 1,
+            erp_commodity_id = 101,
+            wms_sku_id = 6
+        });
+        await wmsDatabase.SaveChangesAsync();
+        await ruoyiDatabase.SaveChangesAsync();
+        var rows = new List<DispatchlistViewModel>
+        {
+            new()
+            {
+                id = 10,
+                tenant_id = 1,
+                dispatch_no = "DB20260811009",
+                dispatch_status = 5,
+                sku_id = 6,
+                weight = 20000,
+                weighing_weight = 40
+            }
+        };
+
+        var service = new DispatchlistPickingService(wmsDatabase, ruoyiDatabase, new TestStringLocalizer());
+        await service.EnrichPickingRowsAsync(rows, AdminUser());
+
+        var row = Assert.Single(rows);
+        Assert.Equal(46m, row.weight);
+        Assert.Equal(46m, row.weighing_weight);
     }
 
     private static DispatchlistEntity CreateDispatchRow(int id, string dispatchNo, byte status) => new()
