@@ -140,6 +140,7 @@
         </template>
       </vxe-column>
       <vxe-column field="prepared_time" :title="$t('wms.deliveryManagement.preparedTime')" min-width="170"></vxe-column>
+      <vxe-column field="creator" :title="$t('wms.deliveryManagement.creator')" min-width="140"></vxe-column>
       <vxe-column :title="$t('wms.deliveryManagement.inventoryStatus')" width="135">
         <template #default="{ row }">
           <v-chip :color="row.inventory_ready ? 'success' : 'warning'" size="small" variant="tonal">
@@ -188,6 +189,7 @@ import { getMenuAuthorityList, setSearchObject } from '@/utils/common'
 import { exportData } from '@/utils/exportTable'
 
 const xTable = ref()
+const emit = defineEmits<{ statusChanged: [] }>()
 const data = reactive({
   searchForm: { dept_name: '', order_user_name: '', keyword: '' },
   tableData: ref<FbaShipmentVO[]>([]),
@@ -224,6 +226,7 @@ const method = reactive({
             content: i18n.global.t('wms.deliveryManagement.preparePickingSuccess')
           })
           await method.getPage()
+          emit('statusChanged')
         } finally {
           data.preparingId = null
         }

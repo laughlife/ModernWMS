@@ -15,6 +15,7 @@ public class DispatchWeighingShipmentViewModel
     public string shop_name { get; set; } = string.Empty;
     public string dept_name { get; set; } = string.Empty;
     public string order_user_name { get; set; } = string.Empty;
+    public string creator { get; set; } = string.Empty;
     public int shipment_total_qty { get; set; }
     public int variant_qty { get; set; }
     public int box_count { get; set; }

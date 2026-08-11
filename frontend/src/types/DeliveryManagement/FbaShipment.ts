@@ -34,6 +34,7 @@ export interface FbaShipmentVO {
   dept_name: string
   order_user_id?: number | null
   order_user_name: string
+  creator: string
   from_warehouse_id: number
   from_warehouse_name: string
   freight_forwarder_id?: number | null

@@ -773,6 +773,7 @@ public class DispatchlistPickingService : IDispatchlistPickingService
                     shop_name = shipment.shop_name ?? string.Empty,
                     dept_name = move.dept_name ?? string.Empty,
                     order_user_name = move.order_user_name ?? string.Empty,
+                    creator = wmsRows.Select(t => t.creator).FirstOrDefault(t => !string.IsNullOrWhiteSpace(t)) ?? string.Empty,
                     shipment_total_qty = shipment.quantity ?? wmsRows.Sum(t => t.qty),
                     variant_qty = Math.Max(1, shipmentGroup.Select(t => snapshots[t.id].fbaShipmentItemId ?? t.id).Distinct().Count()),
                     box_count = shipmentBoxes.Count,

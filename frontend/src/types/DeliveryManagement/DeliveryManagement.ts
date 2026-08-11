@@ -155,6 +155,7 @@ export interface DispatchWeighingShipmentVO {
   shop_name: string
   dept_name: string
   order_user_name: string
+  creator: string
   shipment_total_qty: number
   variant_qty: number
   box_count: number

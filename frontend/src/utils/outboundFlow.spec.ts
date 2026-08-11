@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildDeliveryPayload, buildSingleDeliveryPayload, getOutboundStatusQuery } from './outboundFlow'
+import { buildDeliveryPayload, buildSingleDeliveryPayload, getOutboundStatusQuery, getOutboundSuccessAction } from './outboundFlow'
 import type { DeliveryManagementDetailVO } from '@/types/DeliveryManagement/DeliveryManagement'
 
 describe('outbound workflow', () => {
@@ -29,5 +29,10 @@ describe('outbound workflow', () => {
     ] as DeliveryManagementDetailVO[]
 
     expect(buildDeliveryPayload(rows).map(item => item.id)).toEqual([1, 2])
+  })
+
+  it('opens completed after a single outbound and keeps batch outbound on the pending list', () => {
+    expect(getOutboundSuccessAction('single')).toBe('open-completed')
+    expect(getOutboundSuccessAction('batch')).toBe('refresh-pending')
   })
 })

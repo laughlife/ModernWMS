@@ -56,6 +56,7 @@
         format="yyyy-MM-dd HH:mm"
         :title="$t('wms.deliveryManagement.packingCreatedTime')"
       ></vxe-date-column>
+      <vxe-column field="creator" :title="$t('wms.deliveryManagement.creator')" min-width="140"></vxe-column>
     </vxe-table>
     <custom-pager
       :current-page="data.tablePage.pageIndex"
@@ -80,6 +81,7 @@
           <th>{{ $t('wms.deliveryManagement.quantityLabel') }}</th>
           <th>{{ $t('wms.deliveryManagement.variantLabel') }}</th>
           <th>{{ $t('wms.deliveryManagement.packingCreatedTime') }}</th>
+          <th>{{ $t('wms.deliveryManagement.creator') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -97,6 +99,7 @@
           <td>{{ row.qty }}</td>
           <td>{{ row.variant_qty ?? 1 }} {{ $t('wms.deliveryManagement.variantLabel') }}</td>
           <td>{{ method.formatDateTime(row.prepared_time) }}</td>
+          <td>{{ row.creator || '-' }}</td>
         </tr>
       </tbody>
     </table>
@@ -121,6 +124,7 @@ import customPager from '@/components/custom-pager.vue'
 
 const xTable = ref()
 const printButtonRef = ref<HTMLButtonElement>()
+const emit = defineEmits<{ statusChanged: [] }>()
 
 const data = reactive({
   searchForm: { spu_name: '' },
@@ -185,6 +189,7 @@ const method = reactive({
         }
         hookComponent.$message({ type: 'success', content: res.data })
         await method.getGoodsToBePicked()
+        emit('statusChanged')
       }
     })
   },

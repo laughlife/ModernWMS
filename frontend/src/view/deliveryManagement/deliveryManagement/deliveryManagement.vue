@@ -1,27 +1,37 @@
 <template>
   <div class="container">
     <v-tabs v-model="activeTab" stacked @update:model-value="changeTab">
-      <v-tab value="tabFbaShipment">
-        <v-icon>mdi-truck-fast-outline</v-icon>
+      <v-tab value="tabFbaShipment" data-status-tab="tabFbaShipment">
+        <v-badge class="status-count-badge" color="error" :content="statusCounts.tabFbaShipment" location="top end">
+          <v-icon>mdi-truck-fast-outline</v-icon>
+        </v-badge>
         <p class="tabItemTitle">{{ $t('wms.deliveryManagement.fbaShipment') }}</p>
       </v-tab>
-      <v-tab value="tabGoodsToBePicked">
-        <v-icon>mdi-dolly</v-icon>
+      <v-tab value="tabGoodsToBePicked" data-status-tab="tabGoodsToBePicked">
+        <v-badge class="status-count-badge" color="error" :content="statusCounts.tabGoodsToBePicked" location="top end">
+          <v-icon>mdi-dolly</v-icon>
+        </v-badge>
         <p class="tabItemTitle">{{ $t('wms.deliveryManagement.goodsToBePicked') }}</p>
       </v-tab>
-      <v-tab value="tabPicked">
-        <v-icon>mdi-human-dolly</v-icon>
+      <v-tab value="tabPicked" data-status-tab="tabPicked">
+        <v-badge class="status-count-badge" color="error" :content="statusCounts.tabPicked" location="top end">
+          <v-icon>mdi-human-dolly</v-icon>
+        </v-badge>
         <p class="tabItemTitle">{{ $t('wms.deliveryManagement.picked') }}</p>
       </v-tab>
-      <v-tab value="tabWeighed">
-        <v-icon>mdi-basket-fill</v-icon>
+      <v-tab value="tabWeighed" data-status-tab="tabWeighed">
+        <v-badge class="status-count-badge" color="error" :content="statusCounts.tabWeighed" location="top end">
+          <v-icon>mdi-basket-fill</v-icon>
+        </v-badge>
         <p class="tabItemTitle">{{ $t('wms.deliveryManagement.weighed') }}</p>
       </v-tab>
-      <v-tab value="tabDelivered">
-        <v-icon>mdi-send-outline</v-icon>
+      <v-tab value="tabDelivered" data-status-tab="tabDelivered">
+        <v-badge class="status-count-badge" color="error" :content="statusCounts.tabDelivered" location="top end">
+          <v-icon>mdi-send-outline</v-icon>
+        </v-badge>
         <p class="tabItemTitle">{{ $t('wms.deliveryManagement.toBeDelivered') }}</p>
       </v-tab>
-      <v-tab value="tabCompleted">
+      <v-tab value="tabCompleted" data-status-tab="tabCompleted">
         <v-icon>mdi-check-circle</v-icon>
         <p class="tabItemTitle">{{ $t('wms.deliveryManagement.deliveryReady') }}</p>
       </v-tab>
@@ -31,22 +41,23 @@
       <v-card-text>
         <v-window v-model="activeTab">
           <v-window-item value="tabFbaShipment">
-            <FbaShipmentList ref="fbaShipmentRef" />
+            <FbaShipmentList ref="fbaShipmentRef" @status-changed="refreshStatusCounts" />
           </v-window-item>
           <v-window-item value="tabGoodsToBePicked">
-            <TabGoodsToBePicked ref="goodsToBePickedRef" />
+            <TabGoodsToBePicked ref="goodsToBePickedRef" @status-changed="refreshStatusCounts" />
           </v-window-item>
           <v-window-item value="tabPicked">
             <TabPicked ref="pickedRef" @go-to-weighing="handleGoToWeighing" @go-to-picking="handleGoToPicking" />
           </v-window-item>
           <v-window-item value="tabWeighed">
-            <TabWeighed ref="weighedRef" @go-to-delivery="handleGoToDelivery" />
+            <TabWeighed ref="weighedRef" @go-to-delivery="handleGoToDelivery" @status-changed="refreshStatusCounts" />
           </v-window-item>
           <v-window-item value="tabDelivered">
-            <TabDelivered ref="deliveredRef" @go-to-weighing="handleGoToWeighing" />
+            <TabDelivered ref="deliveredRef" @go-to-weighing="handleGoToWeighing"
+              @go-to-completed="handleGoToCompleted" @status-changed="refreshStatusCounts" />
           </v-window-item>
           <v-window-item value="tabCompleted">
-            <TabCompleted ref="completedRef" />
+            <TabCompleted ref="completedRef" @status-changed="refreshStatusCounts" />
           </v-window-item>
         </v-window>
       </v-card-text>
@@ -55,7 +66,9 @@
 </template>
 
 <script lang="ts" setup>
-import { nextTick, ref } from 'vue'
+import { nextTick, onMounted, reactive, ref } from 'vue'
+import { getGoodsToBePicked, getPicked, getToBeDelivery, getWeighed } from '@/api/wms/deliveryManagement'
+import { getFbaShipmentPage } from '@/api/wms/fbaShipment'
 import FbaShipmentList from './fba-shipment-list.vue'
 import TabDelivered from './tabDelivered.vue'
 import TabGoodsToBePicked from './tabGoodsToBePicked.vue'
@@ -63,6 +76,7 @@ import TabPicked from './tabPicked.vue'
 import TabCompleted from './tabCompleted.vue'
 import TabWeighed from './tabWeighed.vue'
 import type { DeliveryFlowTab } from './deliveryFlow'
+import { loadDeliveryStatusCounts, type DeliveryStatusCounts } from './deliveryStatusCounts'
 
 const activeTab = ref('tabFbaShipment')
 const fbaShipmentRef = ref<InstanceType<typeof FbaShipmentList>>()
@@ -71,12 +85,40 @@ const pickedRef = ref<InstanceType<typeof TabPicked>>()
 const weighedRef = ref<InstanceType<typeof TabWeighed>>()
 const deliveredRef = ref<InstanceType<typeof TabDelivered>>()
 const completedRef = ref<InstanceType<typeof TabCompleted>>()
+const statusCounts = reactive<DeliveryStatusCounts>({
+  tabFbaShipment: 0,
+  tabGoodsToBePicked: 0,
+  tabPicked: 0,
+  tabWeighed: 0,
+  tabDelivered: 0
+})
+let statusCountRequestId = 0
+
+const emptyCountPage = () => ({ pageIndex: 1, pageSize: 1, searchObjects: [] })
+const readTotal = async (request: Promise<any>): Promise<number> => {
+  const { data: res } = await request
+  if (!res.isSuccess) throw new Error(res.errorMessage || 'status count request failed')
+  return Number(res.data?.totals) || 0
+}
+
+const refreshStatusCounts = async (): Promise<void> => {
+  const requestId = ++statusCountRequestId
+  const counts = await loadDeliveryStatusCounts({
+    tabFbaShipment: () => readTotal(getFbaShipmentPage(emptyCountPage())),
+    tabGoodsToBePicked: () => readTotal(getGoodsToBePicked(emptyCountPage())),
+    tabPicked: () => readTotal(getPicked(emptyCountPage())),
+    tabWeighed: () => readTotal(getWeighed(emptyCountPage())),
+    tabDelivered: () => readTotal(getToBeDelivery(emptyCountPage()))
+  })
+  if (requestId === statusCountRequestId) Object.assign(statusCounts, counts)
+}
 
 const handleGoToPicking = (): void => {
   activeTab.value = 'tabGoodsToBePicked'
   nextTick(() => {
     goodsToBePickedRef.value?.getGoodsToBePicked()
   })
+  refreshStatusCounts()
 }
 
 const handleGoToWeighing = (): void => {
@@ -84,6 +126,7 @@ const handleGoToWeighing = (): void => {
   nextTick(() => {
     weighedRef.value?.getWeighed()
   })
+  refreshStatusCounts()
 }
 
 const handleGoToDelivery = (targetTab: DeliveryFlowTab): void => {
@@ -91,6 +134,15 @@ const handleGoToDelivery = (targetTab: DeliveryFlowTab): void => {
   nextTick(() => {
     deliveredRef.value?.getDelivery()
   })
+  refreshStatusCounts()
+}
+
+const handleGoToCompleted = (): void => {
+  activeTab.value = 'tabCompleted'
+  nextTick(() => {
+    completedRef.value?.getCompleted()
+  })
+  refreshStatusCounts()
 }
 
 const changeTab = (tab: unknown): void => {
@@ -117,4 +169,6 @@ const changeTab = (tab: unknown): void => {
     }
   })
 }
+
+onMounted(refreshStatusCounts)
 </script>

@@ -89,6 +89,7 @@
           <v-chip size="small" :color="dimensionStatus(row).color" variant="tonal">{{ dimensionStatus(row).label }}</v-chip>
         </template>
       </vxe-column>
+      <vxe-column field="creator" :title="$t('wms.deliveryManagement.creator')" width="140" />
       <vxe-column field="operate" :title="$t('system.page.operate')" width="180" fixed="right" :resizable="false">
         <template #default="{ row }">
           <div class="row-actions">
@@ -152,7 +153,7 @@ type WeighingTableRow = DispatchWeighingShipmentVO & {
 
 type CompletionStatus = { color: 'error' | 'warning' | 'success'; label: string }
 
-const emit = defineEmits<{ goToDelivery: [tab: DeliveryFlowTab] }>()
+const emit = defineEmits<{ goToDelivery: [tab: DeliveryFlowTab]; statusChanged: [] }>()
 const xTable = ref()
 const boxDialogRef = ref<InstanceType<typeof ShipmentBoxWeighDialog>>()
 const data = reactive({
@@ -242,6 +243,7 @@ const method = reactive({
         if (!res.isSuccess) { hookComponent.$message({ type: 'error', content: res.errorMessage }); return }
         hookComponent.$message({ type: 'success', content: res.data })
         method.refresh()
+        emit('statusChanged')
       }
     })
   },

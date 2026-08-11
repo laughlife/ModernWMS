@@ -20,6 +20,7 @@ public class FbaShipmentViewModel
     public string dept_name { get; set; } = string.Empty;
     public long? order_user_id { get; set; }
     public string order_user_name { get; set; } = string.Empty;
+    public string creator { get; set; } = string.Empty;
     public long from_warehouse_id { get; set; }
     public string from_warehouse_name { get; set; } = string.Empty;
     public long? freight_forwarder_id { get; set; }

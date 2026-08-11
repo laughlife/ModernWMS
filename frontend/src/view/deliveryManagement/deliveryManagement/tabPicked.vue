@@ -43,6 +43,7 @@
         format="yyyy-MM-dd HH:mm"
         :title="$t('wms.deliveryManagement.packingCreatedTime')"
       ></vxe-date-column>
+      <vxe-column field="creator" :title="$t('wms.deliveryManagement.creator')" min-width="140"></vxe-column>
       <vxe-column field="operate" :title="$t('system.page.operate')" width="120" fixed="right" :resizable="false">
         <template #default="{ row }">
           <div class="row-actions">

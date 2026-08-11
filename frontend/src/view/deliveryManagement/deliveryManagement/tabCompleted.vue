@@ -23,11 +23,6 @@
     <vxe-table ref="xTable" :column-config="{ minWidth: '100px' }" :data="data.tableData" :height="tableHeight" align="center">
       <template #empty>{{ i18n.global.t('system.page.noData') }}</template>
       <vxe-column type="seq" width="60" />
-      <vxe-column :title="$t('wms.deliveryManagement.state')" width="100">
-        <template #default>
-          <v-chip size="small" color="success" variant="tonal">{{ $t('wms.deliveryManagement.deliveryReady') }}</v-chip>
-        </template>
-      </vxe-column>
       <vxe-column field="main_image" :title="$t('wms.deliveryManagement.productImage')" width="92">
         <template #default="{ row }">
           <ProductImage :src="row.main_image" :alt="row.commodity_name || row.spu_name" :width="56" :height="56" />
@@ -49,11 +44,13 @@
           </div>
         </template>
       </vxe-column>
-      <vxe-column field="weight" title="重量(kg)" width="120">
-        <template #default="{ row }">{{ formatMeasurement(row.weight, 'kg') }}</template>
+      <vxe-column title="所属信息" min-width="190" align="left" header-align="left">
+        <template #default="{ row }">
+          <div class="ownership-info-cell">{{ formatOwnership(row) }}</div>
+        </template>
       </vxe-column>
-      <vxe-column field="volume" title="体积(cm³)" width="130">
-        <template #default="{ row }">{{ formatMeasurement(row.volume, 'cm³') }}</template>
+      <vxe-column field="volume" title="体积(m³)" width="130">
+        <template #default="{ row }">{{ formatCubicMeters(row.volume) }}</template>
       </vxe-column>
       <vxe-column field="weighing_weight" :title="$t('wms.deliveryManagement.weighing_weight')" width="130">
         <template #default="{ row }">{{ formatMeasurement(row.weighing_weight, 'kg') }}</template>
@@ -94,6 +91,7 @@ import { exportData } from '@/utils/exportTable'
 import SearchDeliveredDetail from './search-delivered-detail.vue'
 
 const xTable = ref()
+const emit = defineEmits<{ statusChanged: [] }>()
 
 const data = reactive({
   showDeliveredDetailID: 0,
@@ -107,6 +105,9 @@ const data = reactive({
 })
 
 const formatMeasurement = (value: number | undefined, unit: string) => Number(value) > 0 ? `${value} ${unit}` : '-'
+const formatCubicMeters = (value: number | undefined) => Number(value) > 0 ? `${Number(value).toFixed(2)} m³` : '-'
+const formatOwnership = (row: DeliveryManagementDetailVO) =>
+  [row.dept_name, row.order_user_name].filter(Boolean).join(' | ') || '-'
 
 const method = reactive({
   closeDeliveredDetail: () => { data.showDeliveredDetail = false },
@@ -122,6 +123,7 @@ const method = reactive({
         if (!res.isSuccess) { hookComponent.$message({ type: 'error', content: res.errorMessage }); return }
         hookComponent.$message({ type: 'success', content: res.data })
         method.refresh()
+        emit('statusChanged')
       }
     })
   },
@@ -174,5 +176,6 @@ defineExpose({ getCompleted: method.getCompleted })
 .product-info-cell, .quantity-info-cell { line-height: 22px; }
 .primary-text { font-weight: 600; color: rgba(var(--v-theme-on-surface), 0.9); }
 .secondary-text { margin-top: 2px; color: rgba(var(--v-theme-on-surface), 0.62); }
+.ownership-info-cell { color: rgba(var(--v-theme-on-surface), 0.82); }
 .row-actions { display: flex; justify-content: center; gap: 8px; }
 </style>

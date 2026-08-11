@@ -268,6 +268,7 @@ public class FbaShipmentService : IFbaShipmentService
             dept_name = move.dept_name ?? string.Empty,
             order_user_id = move.order_user_id,
             order_user_name = move.order_user_name ?? string.Empty,
+            creator = move.creator ?? string.Empty,
             from_warehouse_id = move.from_warehouse_id,
             from_warehouse_name = move.from_warehouse_name ?? string.Empty,
             freight_forwarder_id = move.to_freight_forwarder_id,

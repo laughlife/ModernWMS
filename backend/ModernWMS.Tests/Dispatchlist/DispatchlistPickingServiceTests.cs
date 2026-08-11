@@ -301,6 +301,43 @@ public class DispatchlistPickingServiceTests
     }
 
     [Fact]
+    public async Task GetWeighingShipmentsAsync_includes_the_dispatch_creator()
+    {
+        await using var wmsDatabase = CreateWmsDatabase();
+        await using var ruoyiDatabase = CreateRuoyiDatabase();
+        var row = CreateDispatchRow(1, "DB20260811010", 4);
+        row.creator = "仓库管理员";
+        await wmsDatabase.Set<DispatchlistEntity>().AddAsync(row);
+        await ruoyiDatabase.StockMoves.AddAsync(new ErpStockMoveEntity { id = 10, no = row.dispatch_no });
+        await ruoyiDatabase.StockMoveItems.AddAsync(new ErpStockMoveItemEntity
+        {
+            id = 11,
+            stock_move_id = 10,
+            commodity_id = 101,
+            product_snapshot_json = "{\"fbaShipmentId\":99,\"commodityName\":\"商品A\"}"
+        });
+        await ruoyiDatabase.CommodityMaps.AddAsync(new ErpCommodityMapEntity
+        {
+            id = 12,
+            tenant_id = 1,
+            erp_commodity_id = 101,
+            wms_sku_id = row.sku_id
+        });
+        await ruoyiDatabase.FbaShipments.AddAsync(new ErpFbaShipmentEntity
+        {
+            id = 99,
+            amazon_shipment_id = "FBA-99"
+        });
+        await wmsDatabase.SaveChangesAsync();
+        await ruoyiDatabase.SaveChangesAsync();
+
+        var service = new DispatchlistPickingService(wmsDatabase, ruoyiDatabase, new TestStringLocalizer());
+        var (rows, _) = await service.GetWeighingShipmentsAsync(new PageSearch(), AdminUser());
+
+        Assert.Equal("仓库管理员", Assert.Single(rows).creator);
+    }
+
+    [Fact]
     public async Task EnrichPickingRowsAsync_uses_box_measurement_sums_for_outbound_values()
     {
         await using var wmsDatabase = CreateWmsDatabase();

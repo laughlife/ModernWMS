@@ -105,7 +105,7 @@ import i18n from '@/languages/i18n'
 import type { DeliveryManagementDetailVO, SetCarrierVO } from '@/types/DeliveryManagement/DeliveryManagement'
 import type { btnGroupItem, TablePage } from '@/types/System/Form'
 import { getMenuAuthorityList, setSearchObject } from '@/utils/common'
-import { buildDeliveryPayload, buildSingleDeliveryPayload } from '@/utils/outboundFlow'
+import { buildDeliveryPayload, buildSingleDeliveryPayload, getOutboundSuccessAction } from '@/utils/outboundFlow'
 import { exportData } from '@/utils/exportTable'
 import ToBeFreightfee from './to-be-freightfee.vue'
 import OutboundVolumeDivisorDialog from './outbound-volume-divisor-dialog.vue'
@@ -114,7 +114,7 @@ import OutboundCarrierDialog from './outbound-carrier-dialog.vue'
 const xTable = ref()
 const volumeDivisorDialogRef = ref<InstanceType<typeof OutboundVolumeDivisorDialog>>()
 const carrierDialogRef = ref<InstanceType<typeof OutboundCarrierDialog>>()
-const emit = defineEmits<{ goToWeighing: [] }>()
+const emit = defineEmits<{ goToWeighing: []; goToCompleted: []; statusChanged: [] }>()
 const data = reactive({
   searchForm: { dispatch_no: '', spu_name: '' },
   showSetFreight: false,
@@ -137,7 +137,6 @@ const method = reactive({
         const { data: res } = await returnToWeighing(row.id)
         if (!res.isSuccess) { hookComponent.$message({ type: 'error', content: res.errorMessage }); return }
         hookComponent.$message({ type: 'success', content: res.data })
-        method.refresh()
         emit('goToWeighing')
       }
     })
@@ -155,7 +154,7 @@ const method = reactive({
         const { data: res } = await handleDelivery(buildSingleDeliveryPayload(row))
         if (!res.isSuccess) { hookComponent.$message({ type: 'error', content: res.errorMessage }); return }
         hookComponent.$message({ type: 'success', content: res.data })
-        method.refresh()
+        if (getOutboundSuccessAction('single') === 'open-completed') emit('goToCompleted')
       }
     })
   },
@@ -171,7 +170,10 @@ const method = reactive({
         const { data: res } = await handleDelivery(buildDeliveryPayload(selectedRows))
         if (!res.isSuccess) { hookComponent.$message({ type: 'error', content: res.errorMessage }); return }
         hookComponent.$message({ type: 'success', content: res.data })
-        method.refresh()
+        if (getOutboundSuccessAction('batch') === 'refresh-pending') {
+          method.refresh()
+          emit('statusChanged')
+        }
       }
     })
   },
