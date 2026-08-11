@@ -1,15 +1,18 @@
 <template>
-  <v-dialog v-model="visible" width="720" persistent>
+  <v-dialog v-model="visible" width="900" max-width="calc(100vw - 32px)" persistent>
     <v-card>
       <v-toolbar color="white" title="设置材积比" />
       <v-card-text>
-        <div class="mb-4 text-medium-emphasis">单箱材积重 = 单箱体积(cm³) ÷ 材积比，结果保留两位小数。</div>
+        <div class="mb-4 text-medium-emphasis">单箱体积(cm³) ÷ 材积比，结果保留两位小数。</div>
         <v-radio-group v-model="selectedDivisor" hide-details>
-          <div v-for="option in volumeOptions" :key="option.divisor" class="volume-option mb-3">
+          <div v-for="option in volumeOptions" :key="option.divisor" class="volume-option mb-3"
+            :class="{ 'volume-option-selected': selectedDivisor === option.divisor }" role="radio" tabindex="0"
+            :aria-checked="selectedDivisor === option.divisor" @click="selectedDivisor = option.divisor"
+            @keydown.enter="selectedDivisor = option.divisor" @keydown.space.prevent="selectedDivisor = option.divisor">
             <v-radio :value="option.divisor" :label="`材积比 ${option.divisor}`" color="primary" />
             <div class="box-values">
-              <span v-for="box in option.boxes" :key="`${option.divisor}-${box.box_no}`">
-                {{ box.box_no }}：{{ box.volumetric_weight.toFixed(2) }} kg
+              <span v-for="box in option.boxes" :key="`${option.divisor}-${box.box_no}`" class="box-value">
+                <strong>{{ box.box_no }}</strong>：{{ formatBoxVolumetricFormula(box, option.divisor) }}
               </span>
             </div>
           </div>
@@ -28,7 +31,7 @@ import { computed, ref } from 'vue'
 import { getWeighingBoxes, setOutboundVolumeDivisor } from '@/api/wms/deliveryManagement'
 import { hookComponent } from '@/components/system'
 import type { DeliveryManagementDetailVO, DispatchWeighingBoxVO } from '@/types/DeliveryManagement/DeliveryManagement'
-import { calculateBoxVolumetricWeights, OUTBOUND_VOLUME_DIVISORS } from '@/utils/outboundSettings'
+import { calculateBoxVolumetricWeights, formatBoxVolumetricFormula, OUTBOUND_VOLUME_DIVISORS } from '@/utils/outboundSettings'
 
 const emit = defineEmits<{ saved: [] }>()
 const visible = ref(false)
@@ -84,6 +87,22 @@ defineExpose({ openDialog })
 </script>
 
 <style lang="less" scoped>
-.volume-option { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 8px 14px 12px; }
-.box-values { display: flex; flex-wrap: wrap; gap: 6px 20px; padding-left: 40px; color: rgba(var(--v-theme-on-surface), 0.7); }
+.volume-option {
+  padding: 8px 14px 12px;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.volume-option:hover, .volume-option-selected {
+  border-color: rgb(var(--v-theme-primary));
+  background: rgba(var(--v-theme-primary), 0.04);
+}
+.box-values {
+  display: grid;
+  gap: 8px;
+  padding-left: 40px;
+  color: rgba(var(--v-theme-on-surface), 0.7);
+}
+.box-value { line-height: 22px; white-space: nowrap; }
 </style>
