@@ -178,6 +178,10 @@ onMounted(refreshStatusCounts)
   margin-top: 12px;
 }
 
+.delivery-status-tabs :deep(.v-btn__content) {
+  padding-top: 15px;
+}
+
 .status-count-badge :deep(.v-badge__badge) {
   transform: translateX(10px);
 }
