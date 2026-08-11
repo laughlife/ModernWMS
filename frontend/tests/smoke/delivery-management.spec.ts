@@ -102,6 +102,7 @@ test('delivery workflow shows counts, box formulas and the completed layout', as
 
   await page.locator('[data-status-tab="tabDelivered"]').click()
   await expect(page.locator('.vxe-table')).toContainText('测试商品')
+  await expect(page.locator('.v-window-item--active .row-actions .mdi-send-outline')).toBeVisible()
   await page.locator('.vxe-table .mdi-calculator-variant').click()
   const volumeDialog = page.locator('.v-dialog').filter({ hasText: '设置材积比' })
   await expect(volumeDialog).toContainText('FBA-BOX-001：32000.00 cm³ ÷ 5000 = 6.40')

@@ -36,6 +36,12 @@ namespace ModernWMS.WMS.Entities.Models
         public int dispatchlist_id { get; set; } = 0;
 
         /// <summary>
+        /// Exact inventory row selected when the pick was allocated.
+        /// Zero is retained as a compatibility fallback for historical picks.
+        /// </summary>
+        public int stock_id { get; set; } = 0;
+
+        /// <summary>
         /// goods_owner_id
         /// </summary>
         public int goods_owner_id { get; set; } = 0;

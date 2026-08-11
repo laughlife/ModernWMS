@@ -362,6 +362,7 @@ namespace ModernWMS.WMS.Controllers
         /// </summary>
         /// <param name="viewModels">viewModels</param>
         /// <returns></returns>
+        [Authorize]
         [HttpPost("delivery")]
         public async Task<ResultModel<string>> Delivery(List<DispatchlistDeliveryViewModel> viewModels)
         {
@@ -475,6 +476,7 @@ namespace ModernWMS.WMS.Controllers
         /// <summary>
         /// Return one completed outbound dispatch to pending outbound and restore stock.
         /// </summary>
+        [Authorize]
         [HttpPut("undo-delivery")]
         public async Task<ResultModel<string>> UndoDelivery(int id)
         {

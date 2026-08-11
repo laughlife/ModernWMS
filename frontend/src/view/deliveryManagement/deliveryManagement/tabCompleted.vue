@@ -60,7 +60,8 @@
         <template #default="{ row }">
           <div class="row-actions">
             <TooltipBtn :flat="true" icon="mdi-eye-outline" :tooltip-text="$t('system.page.view')" @click="method.viewRow(row)" />
-            <TooltipBtn :flat="true" icon="mdi-arrow-left" tooltip-text="撤回到待出库" @click="method.undoRow(row)" />
+            <TooltipBtn :flat="true" icon="mdi-arrow-left" tooltip-text="撤回到待出库"
+              :disabled="!data.authorityList.includes('delivered-delivery')" @click="method.undoRow(row)" />
           </div>
         </template>
       </vxe-column>

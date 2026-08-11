@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Localization;
 using ModernWMS.Core.DBContext;
+using ModernWMS.Core.DBContext.Entities;
 using ModernWMS.Core.JWT;
 using ModernWMS.Core.Models;
 using ModernWMS.WMS.Entities.Models;
@@ -17,6 +18,7 @@ public class DispatchlistPickingService : IDispatchlistPickingService
 {
     private static readonly int[] AllowedVolumeDivisors = [5000, 6000, 7000, 8000];
     private const string OutboundSettingAuthority = "delivered-setCarrier";
+    private const string OutboundDeliveryAuthority = "delivered-delivery";
     private const string WeighingAuthority = "weighed-weigh";
     private static readonly string[] ExcludedCarrierWarehouseNames =
     [
@@ -429,6 +431,10 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         {
             return (false, _stringLocalizer["data_changed"]);
         }
+        if (!await HasActionAuthorityAsync(currentUser, OutboundDeliveryAuthority))
+        {
+            return (false, "没有出库操作权限");
+        }
 
         await using var transaction = await _wmsDbContext.Database.BeginTransactionAsync();
         try
@@ -453,6 +459,7 @@ public class DispatchlistPickingService : IDispatchlistPickingService
             var stockKeys = pickRows
                 .GroupBy(t => new
                 {
+                    t.stock_id,
                     t.goods_location_id,
                     t.sku_id,
                     t.goods_owner_id,
@@ -463,6 +470,7 @@ public class DispatchlistPickingService : IDispatchlistPickingService
                 })
                 .Select(t => new
                 {
+                    t.Key.stock_id,
                     t.Key.goods_location_id,
                     t.Key.sku_id,
                     t.Key.goods_owner_id,
@@ -480,21 +488,83 @@ public class DispatchlistPickingService : IDispatchlistPickingService
                     && skuIds.Contains(stock.sku_id)
                     && locationIds.Contains(stock.goods_location_id))
                 .ToListAsync();
+            var stockRecordSet = _wmsDbContext.GetDbSet<WmsStockRecordEntity>();
+            var existingInboundRecords = await stockRecordSet.AsNoTracking()
+                .Where(t => t.tenant_id == currentUser.tenant_id
+                    && t.biz_id == dispatchRow.id
+                    && t.biz_type.StartsWith("DISPATCH_IN"))
+                .Select(t => new { t.biz_item_id, t.stock_id })
+                .ToListAsync();
             var now = DateTime.Now;
+            var operatorName = currentUser.user_name?.Trim() ?? string.Empty;
+            if (operatorName.Length > 128)
+            {
+                operatorName = operatorName[..128];
+            }
             foreach (var key in stockKeys)
             {
-                var stock = stockRows.FirstOrDefault(t => t.goods_location_id == key.goods_location_id
-                    && t.sku_id == key.sku_id
-                    && t.goods_owner_id == key.goods_owner_id
-                    && t.series_number == key.series_number
-                    && t.expiry_date == key.expiry_date
-                    && t.price == key.price
-                    && t.putaway_date == key.putaway_date);
+                var stock = key.stock_id > 0
+                    ? stockRows.FirstOrDefault(t => t.id == key.stock_id
+                        && t.goods_location_id == key.goods_location_id
+                        && t.sku_id == key.sku_id
+                        && t.goods_owner_id == key.goods_owner_id
+                        && t.series_number == key.series_number
+                        && t.expiry_date == key.expiry_date
+                        && t.price == key.price
+                        && t.putaway_date == key.putaway_date)
+                    : stockRows.Where(t => t.goods_location_id == key.goods_location_id
+                            && t.sku_id == key.sku_id
+                            && t.goods_owner_id == key.goods_owner_id
+                            && t.series_number == key.series_number
+                            && t.expiry_date == key.expiry_date
+                            && t.price == key.price
+                            && t.putaway_date == key.putaway_date)
+                        .OrderBy(t => t.id)
+                        .FirstOrDefault();
                 if (stock == null)
                 {
                     return (false, _stringLocalizer["data_changed"]);
                 }
-                stock.qty += key.picked_qty;
+                var runningQty = stock.qty;
+                var groupedPickRows = pickRows
+                    .Where(t => t.stock_id == key.stock_id
+                        && t.goods_location_id == key.goods_location_id
+                        && t.sku_id == key.sku_id
+                        && t.goods_owner_id == key.goods_owner_id
+                        && t.series_number == key.series_number
+                        && t.expiry_date == key.expiry_date
+                        && t.price == key.price
+                        && t.putaway_date == key.putaway_date)
+                    .OrderBy(t => t.id)
+                    .ToList();
+                foreach (var pickRow in groupedPickRows)
+                {
+                    var afterQty = runningQty + pickRow.picked_qty;
+                    var cycle = existingInboundRecords.Count(t => t.biz_item_id == pickRow.id && t.stock_id == stock.id) + 1;
+                    var bizType = cycle == 1 ? "DISPATCH_IN" : $"DISPATCH_IN_{cycle}";
+                    stockRecordSet.Add(new WmsStockRecordEntity
+                    {
+                        record_no = $"MWMS-DI-{pickRow.dispatchlist_id}-{pickRow.id}-{cycle}",
+                        biz_type = bizType,
+                        biz_id = pickRow.dispatchlist_id,
+                        biz_item_id = pickRow.id,
+                        stock_id = stock.id,
+                        sku_id = pickRow.sku_id,
+                        goods_location_id = pickRow.goods_location_id,
+                        goods_owner_id = pickRow.goods_owner_id,
+                        change_qty = pickRow.picked_qty,
+                        before_qty = runningQty,
+                        after_qty = afterQty,
+                        direction = "IN",
+                        operator_id = currentUser.user_id,
+                        operator_name = operatorName,
+                        remark = "已出库发货单撤回",
+                        operate_time = now,
+                        tenant_id = currentUser.tenant_id
+                    });
+                    runningQty = afterQty;
+                }
+                stock.qty = runningQty;
                 stock.last_update_time = now;
             }
 
@@ -514,6 +584,11 @@ public class DispatchlistPickingService : IDispatchlistPickingService
             return (true, _stringLocalizer["operation_success"]);
         }
         catch (DbUpdateConcurrencyException)
+        {
+            await transaction.RollbackAsync();
+            return (false, _stringLocalizer["data_changed"]);
+        }
+        catch (DbUpdateException)
         {
             await transaction.RollbackAsync();
             return (false, _stringLocalizer["data_changed"]);

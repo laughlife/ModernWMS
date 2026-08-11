@@ -338,6 +338,99 @@ public class DispatchlistPickingServiceTests
     }
 
     [Fact]
+    public async Task UndoDeliveryAsync_restores_stock_and_appends_an_operator_reversal_record()
+    {
+        await using var wmsDatabase = CreateWmsDatabase();
+        await using var ruoyiDatabase = CreateRuoyiDatabase();
+        var expiryDate = new DateTime(9999, 12, 31);
+        var putawayDate = new DateTime(2026, 8, 11);
+        var dispatch = CreateDispatchRow(1, "DB20260811021", 6);
+        dispatch.picked_qty = 3;
+        dispatch.actual_qty = 3;
+        dispatch.intrasit_qty = 3;
+        await wmsDatabase.GetDbSet<DispatchlistEntity>().AddAsync(dispatch);
+        await wmsDatabase.GetDbSet<StockEntity>().AddRangeAsync(
+            new StockEntity
+            {
+                id = 5,
+                tenant_id = 1,
+                sku_id = 6,
+                goods_location_id = 2,
+                goods_owner_id = 3,
+                qty = 100,
+                series_number = string.Empty,
+                expiry_date = expiryDate,
+                price = 12.50m,
+                putaway_date = putawayDate
+            },
+            new StockEntity
+            {
+                id = 10,
+                tenant_id = 1,
+                sku_id = 6,
+                goods_location_id = 2,
+                goods_owner_id = 3,
+                qty = 7,
+                series_number = string.Empty,
+                expiry_date = expiryDate,
+                price = 12.50m,
+                putaway_date = putawayDate
+            });
+        await wmsDatabase.GetDbSet<DispatchpicklistEntity>().AddAsync(new DispatchpicklistEntity
+        {
+            id = 20,
+            dispatchlist_id = 1,
+            stock_id = 10,
+            sku_id = 6,
+            goods_location_id = 2,
+            goods_owner_id = 3,
+            picked_qty = 3,
+            is_update_stock = true,
+            series_number = string.Empty,
+            expiry_date = expiryDate,
+            price = 12.50m,
+            putaway_date = putawayDate
+        });
+        await wmsDatabase.GetDbSet<WmsStockRecordEntity>().AddAsync(new WmsStockRecordEntity
+        {
+            id = 30,
+            record_no = "MWMS-DO-1-20-1",
+            biz_type = "DISPATCH_OUT",
+            biz_id = 1,
+            biz_item_id = 20,
+            stock_id = 10,
+            sku_id = 6,
+            goods_location_id = 2,
+            goods_owner_id = 3,
+            change_qty = -3,
+            before_qty = 10,
+            after_qty = 7,
+            direction = "OUT",
+            operator_id = 9,
+            operator_name = "原出库人",
+            tenant_id = 1
+        });
+        await wmsDatabase.SaveChangesAsync();
+
+        var service = new DispatchlistPickingService(wmsDatabase, ruoyiDatabase, new TestStringLocalizer());
+        var (flag, _) = await service.UndoDeliveryAsync(1, AdminUser());
+
+        Assert.True(flag);
+        Assert.Equal(5, (await wmsDatabase.GetDbSet<DispatchlistEntity>().SingleAsync()).dispatch_status);
+        Assert.Equal(100, (await wmsDatabase.GetDbSet<StockEntity>().SingleAsync(t => t.id == 5)).qty);
+        Assert.Equal(10, (await wmsDatabase.GetDbSet<StockEntity>().SingleAsync(t => t.id == 10)).qty);
+        Assert.False((await wmsDatabase.GetDbSet<DispatchpicklistEntity>().SingleAsync()).is_update_stock);
+        var records = await wmsDatabase.GetDbSet<WmsStockRecordEntity>().OrderBy(t => t.id).ToListAsync();
+        Assert.Equal(2, records.Count);
+        var reversal = records.Single(t => t.direction == "IN");
+        Assert.StartsWith("DISPATCH_IN", reversal.biz_type);
+        Assert.Equal(3, reversal.change_qty);
+        Assert.Equal(7, reversal.before_qty);
+        Assert.Equal(10, reversal.after_qty);
+        Assert.Equal("超管", reversal.operator_name);
+    }
+
+    [Fact]
     public async Task EnrichPickingRowsAsync_uses_box_measurement_sums_for_outbound_values()
     {
         await using var wmsDatabase = CreateWmsDatabase();

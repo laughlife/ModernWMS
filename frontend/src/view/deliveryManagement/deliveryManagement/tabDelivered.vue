@@ -64,7 +64,7 @@
         <template #default="{ row }">{{ formatMeasurement(row.weighing_weight, 'kg') }}</template>
       </vxe-column>
       <vxe-column field="creator" :title="$t('wms.deliveryManagement.creator')" width="140" />
-      <vxe-column field="operate" :title="$t('system.page.operate')" width="190" fixed="right" :resizable="false">
+      <vxe-column field="operate" :title="$t('system.page.operate')" width="250" fixed="right" :resizable="false">
         <template #default="{ row }">
           <div class="row-actions">
             <TooltipBtn :flat="true" icon="mdi-arrow-left" tooltip-text="返回称重"

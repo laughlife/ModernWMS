@@ -707,6 +707,9 @@ namespace ModernWMS.Migrations
                     b.Property<int>("sku_id")
                         .HasColumnType("int");
 
+                    b.Property<int>("stock_id")
+                        .HasColumnType("int");
+
                     b.HasKey("id");
 
                     b.HasIndex("dispatchlist_id");
