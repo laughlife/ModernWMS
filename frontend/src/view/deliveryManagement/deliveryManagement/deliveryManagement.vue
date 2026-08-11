@@ -19,11 +19,11 @@
       </v-tab>
       <v-tab value="tabDelivered">
         <v-icon>mdi-send-outline</v-icon>
-        <p class="tabItemTitle">{{ $t('wms.deliveryManagement.outOfWarehouse') }}</p>
+        <p class="tabItemTitle">{{ $t('wms.deliveryManagement.toBeDelivered') }}</p>
       </v-tab>
       <v-tab value="tabSignIn">
         <v-icon>mdi-check-circle</v-icon>
-        <p class="tabItemTitle">{{ $t('wms.deliveryManagement.signedIn') }}</p>
+        <p class="tabItemTitle">{{ $t('wms.deliveryManagement.deliveryReady') }}</p>
       </v-tab>
     </v-tabs>
 
@@ -40,7 +40,7 @@
             <TabPicked ref="pickedRef" @go-to-weighing="handleGoToWeighing" @go-to-picking="handleGoToPicking" />
           </v-window-item>
           <v-window-item value="tabWeighed">
-            <TabWeighed ref="weighedRef" />
+            <TabWeighed ref="weighedRef" @go-to-delivery="handleGoToDelivery" />
           </v-window-item>
           <v-window-item value="tabDelivered">
             <TabDelivered ref="deliveredRef" />
@@ -62,6 +62,7 @@ import TabGoodsToBePicked from './tabGoodsToBePicked.vue'
 import TabPicked from './tabPicked.vue'
 import TabSignIn from './tabSignIn.vue'
 import TabWeighed from './tabWeighed.vue'
+import type { DeliveryFlowTab } from './deliveryFlow'
 
 const activeTab = ref('tabFbaShipment')
 const fbaShipmentRef = ref<InstanceType<typeof FbaShipmentList>>()
@@ -82,6 +83,13 @@ const handleGoToWeighing = (): void => {
   activeTab.value = 'tabWeighed'
   nextTick(() => {
     weighedRef.value?.getWeighed()
+  })
+}
+
+const handleGoToDelivery = (targetTab: DeliveryFlowTab): void => {
+  activeTab.value = targetTab
+  nextTick(() => {
+    deliveredRef.value?.getDelivery()
   })
 }
 

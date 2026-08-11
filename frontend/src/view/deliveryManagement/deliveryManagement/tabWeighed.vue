@@ -96,7 +96,7 @@
           <v-chip size="small" :color="dimensionStatus(row).color" variant="tonal">{{ dimensionStatus(row).label }}</v-chip>
         </template>
       </vxe-column>
-      <vxe-column field="operate" :title="$t('system.page.operate')" width="190" :resizable="false">
+      <vxe-column field="operate" :title="$t('system.page.operate')" width="280" :resizable="false">
         <template #default="{ row }">
           <div class="row-actions">
             <v-btn size="small" color="primary" variant="tonal" :disabled="!data.authorityList.includes('weighed-weigh')" @click="method.weighRow(row)">
@@ -104,6 +104,9 @@
             </v-btn>
             <v-btn size="small" color="warning" variant="tonal" :disabled="!data.authorityList.includes('weighed-revoke')" @click="method.backToThePreviousStep(row)">
               {{ $t('wms.deliveryManagement.returnLabel') }}
+            </v-btn>
+            <v-btn size="small" color="success" variant="tonal" :disabled="row.is_todo" @click="method.goToDeliveryRow(row)">
+              去出库
             </v-btn>
           </div>
         </template>
@@ -130,6 +133,8 @@ import i18n from '@/languages/i18n'
 import type { DispatchWeighingBoxVO, DispatchWeighingShipmentVO } from '@/types/DeliveryManagement/DeliveryManagement'
 import type { btnGroupItem, TablePage } from '@/types/System/Form'
 import { getMenuAuthorityList, setSearchObject } from '@/utils/common'
+import { getNextDeliveryTab } from './deliveryFlow'
+import type { DeliveryFlowTab } from './deliveryFlow'
 import ShipmentBoxWeighDialog from './shipment-box-weigh-dialog.vue'
 
 type WeighingTableRow = DispatchWeighingShipmentVO & {
@@ -140,6 +145,7 @@ type WeighingTableRow = DispatchWeighingShipmentVO & {
 
 type CompletionStatus = { color: 'error' | 'warning' | 'success'; label: string }
 
+const emit = defineEmits<{ goToDelivery: [tab: DeliveryFlowTab] }>()
 const xTable = ref()
 const boxDialogRef = ref<InstanceType<typeof ShipmentBoxWeighDialog>>()
 const data = reactive({
@@ -206,6 +212,10 @@ const handleToggleRowExpand: VxeTableEvents.ToggleRowExpand<WeighingTableRow> = 
 const method = reactive({
   refresh: () => method.getWeighed(),
   weighRow: (row: DispatchWeighingShipmentVO) => boxDialogRef.value?.openDialog(row),
+  goToDeliveryRow: (row: DispatchWeighingShipmentVO) => {
+    const targetTab = getNextDeliveryTab(row.is_todo)
+    if (targetTab) emit('goToDelivery', targetTab)
+  },
   backToThePreviousStep: (row: DispatchWeighingShipmentVO) => {
     hookComponent.$dialog({
       content: `${i18n.global.t('wms.deliveryManagement.confirmBack')}?`,
