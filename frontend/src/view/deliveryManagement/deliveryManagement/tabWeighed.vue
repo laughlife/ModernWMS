@@ -96,18 +96,30 @@
           <v-chip size="small" :color="dimensionStatus(row).color" variant="tonal">{{ dimensionStatus(row).label }}</v-chip>
         </template>
       </vxe-column>
-      <vxe-column field="operate" :title="$t('system.page.operate')" width="280" :resizable="false">
+      <vxe-column field="operate" :title="$t('system.page.operate')" width="180" fixed="right" :resizable="false">
         <template #default="{ row }">
           <div class="row-actions">
-            <v-btn size="small" color="primary" variant="tonal" :disabled="!data.authorityList.includes('weighed-weigh')" @click="method.weighRow(row)">
-              {{ $t('wms.deliveryManagement.weigh') }}
-            </v-btn>
-            <v-btn size="small" color="warning" variant="tonal" :disabled="!data.authorityList.includes('weighed-revoke')" @click="method.backToThePreviousStep(row)">
-              {{ $t('wms.deliveryManagement.returnLabel') }}
-            </v-btn>
-            <v-btn size="small" color="success" variant="tonal" :disabled="row.is_todo" @click="method.goToDeliveryRow(row)">
-              去出库
-            </v-btn>
+            <TooltipBtn
+              :flat="true"
+              icon="mdi-basket-fill"
+              :tooltip-text="$t('wms.deliveryManagement.weigh')"
+              :disabled="!data.authorityList.includes('weighed-weigh')"
+              @click="method.weighRow(row)"
+            />
+            <TooltipBtn
+              :flat="true"
+              icon="mdi-arrow-left"
+              tooltip-text="返回已拣货"
+              :disabled="!data.authorityList.includes('weighed-revoke')"
+              @click="method.backToThePreviousStep(row)"
+            />
+            <TooltipBtn
+              :flat="true"
+              icon="mdi-send-outline"
+              tooltip-text="去出库"
+              :disabled="row.is_todo"
+              @click="method.goToDeliveryRow(row)"
+            />
           </div>
         </template>
       </vxe-column>
@@ -125,6 +137,7 @@ import { getWeighed, getWeighingBoxes, undoWeighing } from '@/api/wms/deliveryMa
 import { hookComponent } from '@/components/system'
 import BtnGroup from '@/components/system/btnGroup.vue'
 import ProductImage from '@/components/system/product-image.vue'
+import TooltipBtn from '@/components/tooltip-btn.vue'
 import customPager from '@/components/custom-pager.vue'
 import { computedCardHeight, computedTableHeight } from '@/constant/style'
 import { DEBOUNCE_TIME } from '@/constant/system'
