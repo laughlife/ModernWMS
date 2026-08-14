@@ -1,42 +1,39 @@
-# ModernWMS repository guidance
+# ModernWMS 仓库协作说明
 
-This file extends `/mnt/d/ai-dev/AGENTS.md`. The workspace-level rules and `doc/` knowledge base are authoritative for cross-repository work.
+本文件补充 `/mnt/d/ai-dev/AGENTS.md`。跨仓库工作以顶层规则和顶层 `doc/` 知识库为准。
 
-## Scope and architecture
+## 范围与架构
 
-- This repository owns the warehouse management application: ASP.NET Core backend, EF Core migrations, WMS domain services, and its Vue frontend.
-- Backend dependency direction is `ModernWMS` web host -> `ModernWMS.WMS` domain -> `ModernWMS.Core` infrastructure.
-- Core domains include ASN/receipt, dispatch/outbound, stock, adjustment/freeze/move/process/taking, warehouse/location, owner/SKU, printing, freight, user/role/menu, and audit logs.
-- Do not inspect or modify the standalone sibling project `FBAShipmentSync` unless explicitly requested.
+- 本仓库负责仓储管理应用，包括 ASP.NET Core 后端、EF Core 迁移、WMS 领域服务和 Vue 前端。
+- 后端依赖方向为：`ModernWMS` Web Host -> `ModernWMS.WMS` 业务域 -> `ModernWMS.Core` 基础设施。
+- 核心业务包括 ASN/收货、出库、库存、调整、冻结、移库、加工、盘点、仓库/库位、货主/SKU、打印、运费、用户/角色/菜单和操作日志。
+- 除非用户明确要求，不得检查或修改独立的同级项目 `FBAShipmentSync`。
 
-## Shared database and ERP boundary
+## 共享数据库与 ERP 边界
 
-- ModernWMS shares the ERP MySQL database with `ruoyi-vue-pro`. Existing ERP tables remain ERP-owned; WMS code may map the explicitly required ERP entities and columns.
-- New WMS-owned tables must use the `wms_` prefix. Do not rename ERP-owned tables to satisfy this convention.
-- Treat ERP table/column names, warehouse IDs, commodity/supplier mappings, status values, and `wms_erp_*` tables as cross-repository contracts.
-- Before changing a shared entity or migration, trace the producing ERP code, WMS mapping/migration, downstream consumers, and rollout order. Prefer additive, repeatable, reversible migrations.
-- Do not add a new ERP/WMS HTTP integration when the established shared-database contract already owns the flow unless the user explicitly approves an architecture change.
+- ModernWMS 与 `ruoyi-vue-pro` 共用 ERP MySQL 数据库。已有 ERP 表仍归 ERP 所有；WMS 只能映射仓储流程明确需要的 ERP 实体和字段。
+- WMS 新增自有表必须使用 `wms_` 前缀，不得为了满足前缀规则而重命名 ERP 表。
+- ERP 表名/字段、仓库 ID、商品/供应商映射、状态值和 `wms_erp_*` 表都是跨仓库契约。
+- 修改共享实体或迁移前，必须追踪 ERP 写入端、WMS 映射/迁移、下游消费者和发布顺序。优先使用可追加、可重复、可回滚的迁移。
+- 已有共享数据库契约可以完成的流程，不要自行新增 ERP/WMS HTTP 集成；架构改变必须由用户明确批准。
 
-## Frontend and permissions
+## 前端与权限
 
-- Keep Controller request/response models synchronized with `frontend/src/api`, TypeScript types, pages, and error handling.
-- WMS dynamic menus and permissions are handled by the WMS role/menu flow; do not assume ERP administration permissions are interchangeable.
-- Frontend visibility is not a security boundary. Authorization and state validation belong on the backend.
+- Controller 请求/响应模型必须与 `frontend/src/api`、TypeScript 类型、页面和错误处理保持同步。
+- WMS 动态菜单和权限由 WMS 自有角色/菜单链路负责，不能默认与 ERP 管理权限互换。
+- 前端显示控制不是安全边界，授权和状态校验必须由后端执行。
 
-## Verification
+## 验证
 
-- Backend: prefer targeted tests in `backend/ModernWMS.Tests`, then solution build when applicable.
-- Frontend: use the scripts declared in `frontend/package.json`; start with targeted unit/type/build checks and use E2E only when the task needs browser-level proof.
-- Database initialization or migration execution can change data. Inspect the target and obtain explicit authority before running it.
-- Never commit local secrets or environment-specific addresses from appsettings, user secrets, or `.env` files.
+- 后端优先运行 `backend/ModernWMS.Tests` 中与修改相关的测试，再按需要构建解决方案。
+- 前端以 `frontend/package.json` 中的脚本为准，先运行针对性单元测试、类型检查或构建；只有需要浏览器级证据时才运行 E2E。
+- 数据库初始化或迁移会改变数据，执行前必须确认目标环境和授权。
+- 禁止提交 appsettings、User Secrets 或 `.env` 中的本地秘密和环境专用地址。
 
-## Documentation
+## 文档与变更纪律
 
-- Repository-owned technical details may stay in `docs/`; business notes at the repository root remain valid references until deliberately consolidated.
-- Cross-repository understanding and current status go under `/mnt/d/ai-dev/doc/` and must link back to concrete code or repository documents.
-- Do not use agentic-tools Memory as a mandatory message bus. If it is used as an auxiliary aid, Markdown remains the durable product record.
-
-## Change discipline
-
-- Preserve the large existing working tree and avoid broad formatting or line-ending changes.
-- Follow the workspace automatic commit policy: after a completed change and its applicable verification, stage only task-owned files and commit them promptly with the suggested Chinese message.
+- 仓库技术细节可保留在 `docs/`；根目录业务说明在明确整理前仍是有效参考。
+- 跨仓库理解和当前状态写入 `/mnt/d/ai-dev/doc/`，并链接到具体代码或仓库文档。
+- 不把 agentic-tools Memory 作为强制消息总线；即使辅助使用，Markdown 仍是长期事实记录。
+- 保护当前已有的大量工作区改动，避免大范围格式化或换行符变化。
+- 遵循顶层自动提交规则：完成修改和适用验证后，只暂存当前任务文件，并立即使用建议的中文说明提交。
