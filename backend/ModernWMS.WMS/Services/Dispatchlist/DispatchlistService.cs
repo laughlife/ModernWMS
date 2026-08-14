@@ -21,6 +21,7 @@ using ModernWMS.WMS.IServices;
 using System.Collections.Generic;
 using System.Data;
 using System.Text.Json;
+using ModernWMS.WMS.Services.Dispatchlist;
 
 namespace ModernWMS.WMS.Services
 {
@@ -47,6 +48,7 @@ namespace ModernWMS.WMS.Services
         /// functions
         /// </summary>
         private readonly FunctionHelper _functionHelper;
+        private readonly IDispatchSignNotificationClient? _dispatchSignNotificationClient;
 
         #endregion Args
 
@@ -57,15 +59,19 @@ namespace ModernWMS.WMS.Services
         /// </summary>
         /// <param name="dBContext">The DBContext</param>
         /// <param name="stringLocalizer">Localizer</param>
+        /// <param name="functionHelper">Shared function helper.</param>
+        /// <param name="dispatchSignNotificationClient">ERP signing notification client.</param>
         public DispatchlistService(
             SqlDBContext dBContext
           , IStringLocalizer<ModernWMS.Core.MultiLanguage> stringLocalizer
            , FunctionHelper functionHelper
+           , IDispatchSignNotificationClient? dispatchSignNotificationClient = null
             )
         {
             this._dBContext = dBContext;
             this._stringLocalizer = stringLocalizer;
             this._functionHelper = functionHelper;
+            this._dispatchSignNotificationClient = dispatchSignNotificationClient;
         }
 
         #endregion constructor
@@ -1731,7 +1737,7 @@ namespace ModernWMS.WMS.Services
             var now_time = DateTime.Now;
             foreach (var entity in entities)
             {
-                var vm = viewModels.FirstOrDefault(t => t.id == t.id && t.dispatch_status == entity.dispatch_status);
+                var vm = viewModels.FirstOrDefault(t => t.id == entity.id && t.dispatch_status == entity.dispatch_status);
                 if (vm == null)
                 {
                     return (false, "[202]" + _stringLocalizer["data_changed"]);
@@ -1744,6 +1750,14 @@ namespace ModernWMS.WMS.Services
             var res = await _dBContext.SaveChangesAsync();
             if (res > 0)
             {
+                if (_dispatchSignNotificationClient != null)
+                {
+                    foreach (var dispatchNo in entities.Select(t => t.dispatch_no)
+                                 .Where(t => !string.IsNullOrWhiteSpace(t)).Distinct())
+                    {
+                        await _dispatchSignNotificationClient.NotifySignedAsync(dispatchNo);
+                    }
+                }
                 return (true, _stringLocalizer["operation_success"]);
             }
             else
