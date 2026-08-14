@@ -1,75 +1,42 @@
-# ModernWMS 项目协作准则
+# ModernWMS repository guidance
 
-> **加载前提（重要）**：本文件只有在 Codex 任务的工作目录为 `D:\ai-dev\ModernWMS`（本仓库根目录）时才会被加载。项目已从旧路径 `D:\workspace\net\ModernWMS` 迁移至此；若在旧路径或其他目录新建任务，Codex 只会加载全局 AGENTS.md，本文件规则不会生效。全局 `C:\Users\Administrator\.codex\AGENTS.md` 已同步同样的 Auto Subagents 强制规则作为兜底，请始终保持两处规则一致。
+This file extends `/mnt/d/ai-dev/AGENTS.md`. The workspace-level rules and `doc/` knowledge base are authoritative for cross-repository work.
 
-本文件适用于整个仓库。项目正在持续升级，具体技术框架、版本和工具链暂不在本文件中固化；执行任务时必须先读取届时的项目实际配置，不能沿用历史技术栈假设。
+## Scope and architecture
 
-## 默认开发执行流程（强制）
+- This repository owns the warehouse management application: ASP.NET Core backend, EF Core migrations, WMS domain services, and its Vue frontend.
+- Backend dependency direction is `ModernWMS` web host -> `ModernWMS.WMS` domain -> `ModernWMS.Core` infrastructure.
+- Core domains include ASN/receipt, dispatch/outbound, stock, adjustment/freeze/move/process/taking, warehouse/location, owner/SKU, printing, freight, user/role/menu, and audit logs.
+- Do not inspect or modify the standalone sibling project `FBAShipmentSync` unless explicitly requested.
 
-- 用户提出开发、修改或修复任务后，主执行者应在理解现有代码和影响范围后直接实施，不得默认要求用户先审核设计稿、规格文档或实施计划。
-- 除非用户明确要求，禁止仅为流程目的创建需求规格、设计说明或实施计划等 Markdown 文件；必要的分析、取舍和执行计划保留在当前任务上下文中。
-- 只有当需求歧义会实质改变功能范围、用户体验、接口契约、数据安全、外部副作用或所需授权时，才向用户提出最少量的澄清问题；可以从代码、现有约定或上下文可靠判断时，应采用合理假设继续执行并在交付时说明。
-- 不得把内部阶段拆成多轮用户审批。实现期间使用简短进度更新保持透明，完成修改、核验和提交后再统一交付结果。
-- 用户明确要求方案评审、计划模式、设计文档、分阶段确认或先讨论后实施时，按用户指定流程执行。
+## Shared database and ERP boundary
 
-## Auto Subagents 使用准则（强制）
+- ModernWMS shares the ERP MySQL database with `ruoyi-vue-pro`. Existing ERP tables remain ERP-owned; WMS code may map the explicitly required ERP entities and columns.
+- New WMS-owned tables must use the `wms_` prefix. Do not rename ERP-owned tables to satisfy this convention.
+- Treat ERP table/column names, warehouse IDs, commodity/supplier mappings, status values, and `wms_erp_*` tables as cross-repository contracts.
+- Before changing a shared entity or migration, trace the producing ERP code, WMS mapping/migration, downstream consumers, and rollout order. Prefer additive, repeatable, reversible migrations.
+- Do not add a new ERP/WMS HTTP integration when the established shared-database contract already owns the flow unless the user explicitly approves an architecture change.
 
-- 每次收到新的用户任务后，在进行代码检索、文件读取、命令执行、方案设计或修改之前，必须先加载并执行 `$auto-subagents`；该步骤属于任务启动门禁，不得省略。
-- 每次对话或任务开始执行前，必须先判断任务是否适合使用 Auto Subagents 分发执行，并在开始工作时简要说明判断结果。
-- 目标优先级是提高执行效率和结果质量，不以节省 token、减少调用次数或缩减上下文为目标。
-- 主任务必须由 GPT 主模型负责需求分析、方案决策、实现整合、结果验证和最终交付；这些职责不得整体下放给子代理。
-- 存在可独立推进的子任务时，应尽可能使用 Auto Subagents 并行处理，例如：
-  - 不同模块、数据库、测试、文档等不同范围的独立调查或实现。
-  - 多模块代码路径探索、多个故障假设排查、官方文档核验。
-  - 实现后的正确性、安全性、回归风险和测试缺口审查。
+## Frontend and permissions
 
-- 多个子代理不得同时修改同一个文件。涉及同一文件、同一脆弱运行状态、数据库写入或必须严格排序的任务时，应由单一执行者完成，避免并行冲突。
-- 对于无法有效拆分的极小改动，可以不创建子代理，但必须先完成适用性判断；不得为了形式上的并行增加协调成本。
-- 主执行者必须整合并核验子代理结果，对最终修改、验证结论和提交内容负责，不能直接用未经复核的子代理输出替代交付结果。
+- Keep Controller request/response models synchronized with `frontend/src/api`, TypeScript types, pages, and error handling.
+- WMS dynamic menus and permissions are handled by the WMS role/menu flow; do not assume ERP administration permissions are interchangeable.
+- Frontend visibility is not a security boundary. Authorization and state validation belong on the backend.
 
-## 跨项目协作与 Memory 总线（强制）
+## Verification
 
-- `D:\ai-dev\ruoyi-vue-pro` 是与本仓库同级、纳入共同管理的 ERP 项目；ModernWMS 负责仓库收货、库存和仓内作业领域。
-- 当前阶段与 `ruoyi-vue-pro` 禁止新增直接接口；跨项目协作仅读取公共数据库中已确认的表和字段，不得因联调便利擅自新增接口、修改对方项目代码或写入对方业务数据。
-- 跨项目需求、数据库读取范围、字段口径、状态机和调试结论统一通过 `agentic_tools` Memory 总线交接，`workingDirectory` 固定为 `D:\ai-dev\workspace`；读取用户提供的 Memory ID 时必须优先精确读取。
-- 收到“写给 ModernWMS”的 Memory 时，先按其中列出的最小表集、关联键、字段与筛选条件读取公共数据库；不得无差别扫描公共数据库全部表。发现字段或业务口径缺失时，先回写一条“写给 ruoyi-vue-pro”的 Memory 请求补充，不得自行臆测或扩大读取范围。
-- 向子代理分派跨项目任务时，任务说明必须写明：本仓库可修改范围、`ruoyi-vue-pro` 只读边界、公共数据库读写授权和待读取的 Memory ID；不得让多个子代理并行修改同一项目文件或同一业务数据。
+- Backend: prefer targeted tests in `backend/ModernWMS.Tests`, then solution build when applicable.
+- Frontend: use the scripts declared in `frontend/package.json`; start with targeted unit/type/build checks and use E2E only when the task needs browser-level proof.
+- Database initialization or migration execution can change data. Inspect the target and obtain explicit authority before running it.
+- Never commit local secrets or environment-specific addresses from appsettings, user secrets, or `.env` files.
 
-## 交付与提交流程（强制）
+## Documentation
 
-- 每次实现完成并准备提交前，必须先整理以下内容；最终回复中必须完整输出：
-  - 修改文件清单，并说明每个文件的关键改动点。
-  - 验证结果，包括执行了哪些检查或测试、结果如何。
-  - 建议的 Git commit message。
-- 每一次小版本或阶段性改动完成后，都必须立即提交一次，并在提交信息中清楚标记本阶段完成的工作；不要等所有任务全部完成后再集中提交。
-- 所有 Git 提交信息必须使用中文，清楚说明本阶段完成的功能和验证结果。禁止使用英文提交信息，也禁止单独使用“更新”“修改”“修复问题”等含糊描述。
-- 提交信息建议使用 `类型：中文阶段说明，验证：中文验证结果` 格式，例如：
-  - `功能：完成库存查询筛选能力，验证：相关用例通过`
-  - `修复：解决登录会话刷新异常，验证：相关用例与静态检查通过`
-  - `测试：补充入库接口权限测试，验证：目标测试用例通过`
-- 每次任务完成并生成建议的 Git commit message 后，必须在最终回复前自动执行 `git commit -m "<建议的 Git commit message>"`；实际提交信息必须与建议内容一致，不再二次询问。
-- 自动提交前只能 stage 本次任务涉及的文件。禁止把用户已有改动、无关文件、未确认删除或其他代理遗留内容一起提交。
-- 提交前必须检查 `git status` 和暂存区差异；提交后必须确认提交结果与工作区剩余改动，确保没有误提交。
-- 禁止未经用户明确确认执行 `git push`、`git merge`、`git rebase`，也不得改写或覆盖用户已有提交历史。
-- 若验证未执行、无法执行或执行失败，必须显式说明原因、影响范围与风险；不得把“未验证”描述为“验证通过”。
+- Repository-owned technical details may stay in `docs/`; business notes at the repository root remain valid references until deliberately consolidated.
+- Cross-repository understanding and current status go under `/mnt/d/ai-dev/doc/` and must link back to concrete code or repository documents.
+- Do not use agentic-tools Memory as a mandatory message bus. If it is used as an auxiliary aid, Markdown remains the durable product record.
 
-## 构建、运行与验证约束（强制）
+## Change discipline
 
-- 项目改动默认采用静态检查、代码级自检和针对性差异审查。
-- 未经用户明确要求，禁止在本仓库执行会还原依赖、编译、构建、运行、测试或发布项目的命令，也禁止执行会间接触发上述行为的组合命令。
-- 执行任何项目脚本前，必须先读取当前脚本定义，确认其不会触发受限操作、启动常驻进程、修改数据或改变用户环境。
-- 如需实际编译、构建、启动、重启、测试、发布、数据库迁移或会修改数据的集成验证，由用户明确授权后执行；否则应给出由用户手动执行的准确命令。
-- 不得为了验证而修改用户的 IDE、全局开发工具、数据库或系统服务配置，除非用户明确要求进行该类环境变更。
-
-## 开发与变更边界
-
-### 数据库表命名（强制）
-
-- ModernWMS 业务域新增的任何数据库表都必须以 `wms_` 开头，包括主业务表、关系表、中间表、历史表和辅助表；禁止脱离该前缀自由命名。
-- Ruoyi/ERP 已有业务表继续沿用其现有表名，不得为了符合本规则擅自重命名；本规则只约束 ModernWMS 新增或接管的业务表。
-
-- 修改前先检查工作区状态，识别并保护用户已有的未提交改动；不得擅自还原、覆盖或格式化无关文件。
-- 前后端接口改动应同步核对请求模型、响应结构、错误处理和调用方，避免只修改单侧造成契约漂移。
-- 数据库相关改动必须优先保证可回滚、可重复执行和数据安全；未经用户明确确认，不得执行结构变更、迁移或数据写入。
-- 仅修改完成当前任务所必需的文件，避免无关重构和大范围机械格式化。
-- 发现需求、现有代码与本准则冲突时，应先说明具体冲突与风险，再采用用户最新的明确指示。
+- Preserve the large existing working tree and avoid broad formatting or line-ending changes.
+- Follow the workspace automatic commit policy: after a completed change and its applicable verification, stage only task-owned files and commit them promptly with the suggested Chinese message.
