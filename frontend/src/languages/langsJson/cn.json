@@ -444,7 +444,7 @@
       "fbaShipmentInfo": "FBA货件信息",
       "fbaSku": "FBA SKU",
       "packingTask": "装箱任务",
-      "packingTaskFlowTip": "仅展示当前租户唯一绑定的深圳仓（320118）正式装箱任务；此列表只读，不创建FBA或WMS出库事实。",
+      "packingTaskFlowTip": "展示全部仓库的正式装箱任务；此列表只读，不创建FBA或WMS出库事实。",
       "packingTaskKeyword": "装箱任务号、商品、SKU、FNSKU或MSKU",
       "packingTaskNo": "装箱任务号",
       "packingTaskQty": "任务量",

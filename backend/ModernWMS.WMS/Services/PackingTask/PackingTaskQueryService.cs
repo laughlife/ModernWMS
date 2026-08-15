@@ -3,7 +3,6 @@ using Microsoft.Extensions.Configuration;
 using ModernWMS.Core.DBContext;
 using ModernWMS.Core.JWT;
 using ModernWMS.Core.Models;
-using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels;
 using ModernWMS.WMS.IServices;
 
@@ -14,52 +13,28 @@ namespace ModernWMS.WMS.Services;
 /// </summary>
 public class PackingTaskQueryService : IPackingTaskQueryService
 {
-    private const long TargetErpWarehouseId = 320118;
-
     private readonly RuoyiDbContext _ruoyiDbContext;
-    private readonly SqlDBContext _wmsDbContext;
     private readonly IConfiguration _configuration;
 
     public PackingTaskQueryService(
         RuoyiDbContext ruoyiDbContext,
-        SqlDBContext wmsDbContext,
         IConfiguration configuration)
     {
         _ruoyiDbContext = ruoyiDbContext;
-        _wmsDbContext = wmsDbContext;
         _configuration = configuration;
     }
 
-    public async Task<PackingTaskQueryResult> PageAsync(PageSearch pageSearch, CurrentUser currentUser)
+    public async Task<PackingTaskQueryResult> PageAsync(PageSearch pageSearch, CurrentUser _)
     {
         if (!_configuration.GetValue("Features:PackingTaskFirstStep", false))
         {
             return Failure("装箱任务功能未启用");
         }
 
-        var erpWarehouseReady = await _ruoyiDbContext.Warehouses.AsNoTracking()
-            .AnyAsync(t => t.id == TargetErpWarehouseId && !t.deleted);
-        if (!erpWarehouseReady)
-        {
-            return Failure("装箱任务仓库尚未就绪");
-        }
-
-        var bindings = await _wmsDbContext.GetDbSet<WarehouseEntity>().AsNoTracking()
-            .Where(t => t.tenant_id == currentUser.tenant_id
-                && t.erp_warehouse_id == TargetErpWarehouseId)
-            .Select(t => new { t.id, t.is_valid })
-            .Take(2)
-            .ToListAsync();
-        if (bindings.Count != 1 || !bindings[0].is_valid)
-        {
-            return Failure("当前租户的装箱任务仓库绑定尚未就绪");
-        }
-
         var keyword = FindSearchText(pageSearch, "keyword");
         var query = _ruoyiDbContext.PackingTasks.AsNoTracking()
             .Where(t => !t.source_deleted
-                && !t.source_canceled
-                && t.warehouse_id == TargetErpWarehouseId);
+                && !t.source_canceled);
 
         if (!string.IsNullOrWhiteSpace(keyword))
         {

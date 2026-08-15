@@ -5,7 +5,6 @@ using ModernWMS.Core.DBContext.Entities;
 using ModernWMS.Core.DynamicSearch;
 using ModernWMS.Core.JWT;
 using ModernWMS.Core.Models;
-using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Services;
 
 namespace ModernWMS.Tests.PackingTask;
@@ -15,9 +14,8 @@ public class PackingTaskQueryServiceTests
     [Fact]
     public async Task PageAsync_returns_feature_disabled_without_reading_tasks()
     {
-        await using var wmsDatabase = CreateWmsDatabase();
         await using var ruoyiDatabase = CreateRuoyiDatabase();
-        var service = CreateService(ruoyiDatabase, wmsDatabase, enabled: false);
+        var service = CreateService(ruoyiDatabase, enabled: false);
 
         var result = await service.PageAsync(new PageSearch(), CurrentTenant());
 
@@ -26,64 +24,26 @@ public class PackingTaskQueryServiceTests
         Assert.Empty(result.Data);
     }
 
-    [Theory]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    public async Task PageAsync_fails_closed_when_warehouse_readiness_is_incomplete(
-        bool addErpWarehouse,
-        bool addValidTenantBinding)
+    [Fact]
+    public async Task PageAsync_returns_tasks_from_all_warehouses_without_tenant_binding()
     {
-        await using var wmsDatabase = CreateWmsDatabase();
         await using var ruoyiDatabase = CreateRuoyiDatabase();
-        if (addErpWarehouse)
-        {
-            await ruoyiDatabase.Warehouses.AddAsync(new ErpWarehouseEntity { id = 320118 });
-        }
-        if (addValidTenantBinding)
-        {
-            await wmsDatabase.GetDbSet<WarehouseEntity>().AddAsync(ValidWarehouseBinding());
-        }
+        await ruoyiDatabase.PackingTasks.AddRangeAsync(
+            Task(1, 101, "SHENZHEN", 320118, DateTime.UtcNow),
+            Task(2, 102, "OTHER-WAREHOUSE", 9, DateTime.UtcNow));
         await ruoyiDatabase.SaveChangesAsync();
-        await wmsDatabase.SaveChangesAsync();
 
-        var result = await CreateService(ruoyiDatabase, wmsDatabase).PageAsync(new PageSearch(), CurrentTenant());
+        var result = await CreateService(ruoyiDatabase).PageAsync(new PageSearch(), CurrentTenant());
 
-        Assert.False(result.IsSuccess);
-        Assert.Empty(result.Data);
-    }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task PageAsync_fails_closed_when_tenant_binding_is_invalid_or_conflicting(bool conflicting)
-    {
-        await using var wmsDatabase = CreateWmsDatabase();
-        await using var ruoyiDatabase = CreateRuoyiDatabase();
-        await ruoyiDatabase.Warehouses.AddAsync(new ErpWarehouseEntity { id = 320118 });
-        var first = ValidWarehouseBinding();
-        first.is_valid = conflicting;
-        await wmsDatabase.GetDbSet<WarehouseEntity>().AddAsync(first);
-        if (conflicting)
-        {
-            var second = ValidWarehouseBinding();
-            second.id = 2;
-            await wmsDatabase.GetDbSet<WarehouseEntity>().AddAsync(second);
-        }
-        await ruoyiDatabase.SaveChangesAsync();
-        await wmsDatabase.SaveChangesAsync();
-
-        var result = await CreateService(ruoyiDatabase, wmsDatabase).PageAsync(new PageSearch(), CurrentTenant());
-
-        Assert.False(result.IsSuccess);
-        Assert.Empty(result.Data);
+        Assert.True(result.IsSuccess);
+        Assert.Equal(2, result.Totals);
+        Assert.Equal([101L, 102L], result.Data.Select(t => t.sellfox_task_id).Order().ToArray());
     }
 
     [Fact]
     public async Task PageAsync_filters_orders_and_preserves_nullable_item_quantities()
     {
-        await using var wmsDatabase = CreateWmsDatabase();
         await using var ruoyiDatabase = CreateRuoyiDatabase();
-        await AddReadinessAsync(ruoyiDatabase, wmsDatabase);
         var commonTime = new DateTime(2026, 8, 15, 8, 0, 0);
         await ruoyiDatabase.PackingTasks.AddRangeAsync(
             Task(1, 101, "PACK-101", 320118, commonTime),
@@ -116,26 +76,24 @@ public class PackingTaskQueryServiceTests
             });
         await ruoyiDatabase.SaveChangesAsync();
 
-        var result = await CreateService(ruoyiDatabase, wmsDatabase).PageAsync(new PageSearch(), CurrentTenant());
+        var result = await CreateService(ruoyiDatabase).PageAsync(new PageSearch(), CurrentTenant());
 
         Assert.True(result.IsSuccess);
-        Assert.Equal(3, result.Totals);
-        Assert.Equal([102L, 101L, 106L], result.Data.Select(t => t.sellfox_task_id).ToArray());
-        var item = Assert.Single(result.Data[0].item_list);
+        Assert.Equal(4, result.Totals);
+        Assert.Equal([103L, 102L, 101L, 106L], result.Data.Select(t => t.sellfox_task_id).ToArray());
+        var item = Assert.Single(result.Data[1].item_list);
         Assert.Null(item.commodity_name);
         Assert.Null(item.fn_sku);
         Assert.Null(item.task_num);
         Assert.Equal(0, item.quantity_shipped);
         Assert.Null(item.stock_available);
-        Assert.Empty(result.Data[1].item_list);
+        Assert.Empty(result.Data[2].item_list);
     }
 
     [Fact]
     public async Task PageAsync_searches_only_task_and_product_identifiers()
     {
-        await using var wmsDatabase = CreateWmsDatabase();
         await using var ruoyiDatabase = CreateRuoyiDatabase();
-        await AddReadinessAsync(ruoyiDatabase, wmsDatabase);
         await ruoyiDatabase.PackingTasks.AddRangeAsync(
             Task(1, 101, "PACK-101", 320118, DateTime.UtcNow),
             Task(2, 102, "PACK-102", 320118, DateTime.UtcNow));
@@ -152,7 +110,7 @@ public class PackingTaskQueryServiceTests
             searchObjects = [new SearchObject { Name = "keyword", Text = "FNSKU-HIT" }]
         };
 
-        var result = await CreateService(ruoyiDatabase, wmsDatabase).PageAsync(page, CurrentTenant());
+        var result = await CreateService(ruoyiDatabase).PageAsync(page, CurrentTenant());
 
         Assert.True(result.IsSuccess);
         Assert.Equal(1, result.Totals);
@@ -161,7 +119,6 @@ public class PackingTaskQueryServiceTests
 
     private static PackingTaskQueryService CreateService(
         RuoyiDbContext ruoyiDatabase,
-        SqlDBContext wmsDatabase,
         bool enabled = true)
     {
         var configuration = new ConfigurationBuilder()
@@ -170,15 +127,7 @@ public class PackingTaskQueryServiceTests
                 ["Features:PackingTaskFirstStep"] = enabled.ToString()
             })
             .Build();
-        return new PackingTaskQueryService(ruoyiDatabase, wmsDatabase, configuration);
-    }
-
-    private static async Task AddReadinessAsync(RuoyiDbContext ruoyiDatabase, SqlDBContext wmsDatabase)
-    {
-        await ruoyiDatabase.Warehouses.AddAsync(new ErpWarehouseEntity { id = 320118 });
-        await wmsDatabase.GetDbSet<WarehouseEntity>().AddAsync(ValidWarehouseBinding());
-        await ruoyiDatabase.SaveChangesAsync();
-        await wmsDatabase.SaveChangesAsync();
+        return new PackingTaskQueryService(ruoyiDatabase, configuration);
     }
 
     private static ErpPackingTaskEntity Task(
@@ -199,24 +148,7 @@ public class PackingTaskQueryServiceTests
             source_deleted = deleted
         };
 
-    private static WarehouseEntity ValidWarehouseBinding() => new()
-    {
-        id = 1,
-        tenant_id = 1,
-        warehouse_name = "深圳仓",
-        erp_warehouse_id = 320118,
-        is_valid = true
-    };
-
     private static CurrentUser CurrentTenant() => new() { tenant_id = 1 };
-
-    private static SqlDBContext CreateWmsDatabase()
-    {
-        var options = new DbContextOptionsBuilder<SqlDBContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            .Options;
-        return new SqlDBContext(options);
-    }
 
     private static RuoyiDbContext CreateRuoyiDatabase()
     {

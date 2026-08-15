@@ -11,10 +11,10 @@ ModernWMS 不写上述表，不生成 `trk_stock_move`、FBA 主标识或 WMS �
 
 ## 门禁
 
-- 后端：`Features:PackingTaskFirstStep=false`（默认关闭）。
-- 前端：`VITE_PACKING_TASK_FIRST_STEP_ENABLED=false`（默认关闭）。
-- 启用后，服务端要求 ERP 仓库 `320118` 存在且未删除，并要求当前租户恰有一条 `erp_warehouse_id=320118` 且 `is_valid=1` 的 WMS 仓库绑定；否则返回可诊断的未就绪错误且不返回任务数据。
-- 数据固定过滤仓库 `320118`、`source_canceled=0`、`source_deleted=0`。
+- 后端：`Features:PackingTaskFirstStep=true`。
+- 前端：`VITE_PACKING_TASK_FIRST_STEP_ENABLED=true`。
+- 第一阶段不按仓库或租户仓库绑定筛选，返回全部仓库的有效装箱任务。
+- 数据仍过滤 `source_canceled=0`、`source_deleted=0`，撤销或已从来源消失的任务不进入操作列表。
 
 ## 查询契约
 
@@ -25,4 +25,4 @@ ModernWMS 不写上述表，不生成 `trk_stock_move`、FBA 主标识或 WMS �
 
 ## 验证与剩余门禁
 
-单元测试覆盖默认关闭、仓库 readiness fail-closed、过滤、稳定排序、明细软删除、搜索和 nullable 传播。正式启用前仍需用脱敏生产只读证据确认 SellFox `warehouse_id=320118` 与 ERP 仓库 ID 处于同一语义域；未确认时两个 flag 必须保持关闭。
+单元测试覆盖功能关闭、全仓查询、撤销/删除过滤、稳定排序、明细软删除、搜索和 nullable 传播。当前页面是授权用户可见的全仓只读视图；后续引入仓库筛选或数据权限时，必须重新明确 SellFox 仓库 ID 与 WMS/ERP 仓库绑定关系。
