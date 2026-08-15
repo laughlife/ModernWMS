@@ -4,6 +4,7 @@ import {
   getDispatchStatusTab,
   getSourceErrorActions,
   getDispatchOrderRowKey,
+  getOutboundSourceAnomalySnapshot,
   loadWarehouseAccessSafely,
   resolveDefaultWarehouseId
 } from './dispatchWorkflowPolicy'
@@ -46,6 +47,17 @@ describe('dispatch workflow policy', () => {
 
   it('uses the WMS order id as the single row identity', () => {
     expect(getDispatchOrderRowKey({ id: 42, packing_task_nos: ['CW1', 'CW2'] })).toBe(42)
+  })
+
+  it('exposes an outbound source anomaly only when the backend flag is set', () => {
+    expect(getOutboundSourceAnomalySnapshot({
+      outbound_source_anomaly: true,
+      outbound_source_anomaly_snapshot: '{"changed":true}'
+    })).toBe('{"changed":true}')
+    expect(getOutboundSourceAnomalySnapshot({
+      outbound_source_anomaly: false,
+      outbound_source_anomaly_snapshot: 'stale'
+    })).toBeNull()
   })
 
   it('keeps warehouse unselected after failure and allows the same action to retry', async () => {

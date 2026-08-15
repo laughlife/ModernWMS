@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { DispatchOrderSummary } from '@/types/DeliveryManagement/DispatchWorkflow'
 import {
   cancelDispatchOutbound,
   completeDispatchOrderWeighing,
@@ -33,6 +34,35 @@ describe('dispatch workflow api contract', () => {
   beforeEach(() => {
     httpMock.mockReset()
     httpMock.mockResolvedValue({ isSuccess: true, code: 0, errorMessage: '', data: {} })
+  })
+
+  it('keeps the complete backend summary contract including outbound source anomalies', () => {
+    const summary: DispatchOrderSummary = {
+      id: 12,
+      dispatch_no: 'WMS-12',
+      warehouse_id: 320118,
+      status: 'OUTBOUND',
+      packing_task_nos: ['CW1'],
+      creator: 'admin',
+      create_time: '2026-08-16T00:00:00',
+      last_update_time: '2026-08-16T01:00:00',
+      source_change_pending: false,
+      pending_source_version: '',
+      source_change_snapshot: '',
+      accepted_source_version: 'v1',
+      signed_qty: 98,
+      damaged_qty: 2,
+      signed_at: '2026-08-16T02:00:00',
+      signed_by_name: 'admin',
+      notification_status: 'SENT',
+      notification_last_error: '',
+      outbound_source_anomaly: true,
+      outbound_source_anomaly_snapshot: '{"changed":true}',
+      row_version: 9
+    }
+
+    expect(summary.outbound_source_anomaly).toBe(true)
+    expect(summary.outbound_source_anomaly_snapshot).toContain('changed')
   })
 
   it('locks warehouse, packing-task source and order query routes', () => {

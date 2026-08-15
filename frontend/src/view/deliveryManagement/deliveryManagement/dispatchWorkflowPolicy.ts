@@ -1,5 +1,6 @@
 import type {
   DispatchOrderStatus,
+  DispatchOrderSummary,
   DispatchWorkflowErrorCode,
   WarehouseAccess
 } from '@/types/DeliveryManagement/DispatchWorkflow'
@@ -41,6 +42,10 @@ export const resolveDefaultWarehouseId = (access: WarehouseAccess): number | nul
 }
 
 export const getDispatchOrderRowKey = <T extends { id: number }>(order: T): number => order.id
+
+export const getOutboundSourceAnomalySnapshot = (
+  order: Pick<DispatchOrderSummary, 'outbound_source_anomaly' | 'outbound_source_anomaly_snapshot'>
+): string | null => order.outbound_source_anomaly ? order.outbound_source_anomaly_snapshot : null
 
 export interface WarehouseAccessLoadResult {
   access: WarehouseAccess | null

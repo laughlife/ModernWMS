@@ -16,6 +16,8 @@ export type VisibleDispatchOrderStatus = Exclude<
 
 export type DispatchSourceDecision = 'CONTINUE' | 'CANCEL'
 
+export type DispatchSignNotificationStatus = 'NONE' | 'PENDING' | 'SENDING' | 'SENT' | 'FAILED'
+
 export type DispatchWorkflowErrorCode =
   | 'SOURCE_CHANGED'
   | 'SOURCE_CHANGE_PENDING'
@@ -84,6 +86,17 @@ export interface DispatchOrderSummary {
   create_time: string
   last_update_time: string
   source_change_pending: boolean
+  pending_source_version: string
+  source_change_snapshot: string
+  accepted_source_version: string
+  signed_qty: number | null
+  damaged_qty: number | null
+  signed_at: string | null
+  signed_by_name: string
+  notification_status: DispatchSignNotificationStatus
+  notification_last_error: string
+  outbound_source_anomaly: boolean
+  outbound_source_anomaly_snapshot: string
   row_version: number
 }
 
@@ -182,5 +195,5 @@ export interface SignDispatchOrderRequest extends VersionedCommandRequest {
 export interface SignDispatchOrderResult extends WorkflowCommandResult {
   signed_qty: number
   damaged_qty: number
-  notification_status: string
+  notification_status: DispatchSignNotificationStatus
 }
