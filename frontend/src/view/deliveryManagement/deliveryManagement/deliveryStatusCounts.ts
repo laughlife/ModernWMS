@@ -3,21 +3,49 @@ export const COUNTED_DELIVERY_TABS = [
   'tabGoodsToBePicked',
   'tabPicked',
   'tabWeighed',
-  'tabDelivered'
+  'tabDelivered',
+  'tabCompleted'
 ] as const
 
 export type CountedDeliveryTab = typeof COUNTED_DELIVERY_TABS[number]
 export type DeliveryStatusCounts = Record<CountedDeliveryTab, number>
-export type DeliveryStatusCountLoaders = Record<CountedDeliveryTab, () => Promise<number>>
+export interface WorkflowCountSource {
+  PENDING_PICK?: number
+  PICKED?: number
+  WEIGHING?: number
+  PENDING_OUTBOUND?: number
+  OUTBOUND?: number
+  SOURCE_CANCELLED?: number
+  MANUAL_CANCELLED?: number
+}
 
-export const loadDeliveryStatusCounts = async (loaders: DeliveryStatusCountLoaders): Promise<Partial<DeliveryStatusCounts>> => {
-  const entries = await Promise.all(COUNTED_DELIVERY_TABS.map(async tab => {
-    try {
-      const total = Number(await loaders[tab]())
-      return [tab, Number.isFinite(total) && total > 0 ? total : 0] as const
-    } catch {
-      return null
-    }
-  }))
-  return Object.fromEntries(entries.filter(entry => entry !== null)) as Partial<DeliveryStatusCounts>
+const safeCount = (value: unknown): number => {
+  const count = Number(value)
+  return Number.isFinite(count) && count > 0 ? count : 0
+}
+
+export const mapWorkflowCountsToTabs = (
+  workflow: WorkflowCountSource,
+  packingTaskCount: number
+): DeliveryStatusCounts => ({
+  tabFbaShipment: safeCount(packingTaskCount),
+  tabGoodsToBePicked: safeCount(workflow.PENDING_PICK),
+  tabPicked: safeCount(workflow.PICKED),
+  tabWeighed: safeCount(workflow.WEIGHING),
+  tabDelivered: safeCount(workflow.PENDING_OUTBOUND),
+  tabCompleted: safeCount(workflow.OUTBOUND)
+})
+
+export const loadDeliveryStatusCounts = async ({
+  loadWorkflowCounts,
+  loadPackingTaskCount
+}: {
+  loadWorkflowCounts: () => Promise<WorkflowCountSource>
+  loadPackingTaskCount: () => Promise<number>
+}): Promise<DeliveryStatusCounts> => {
+  const [workflow, packingTaskCount] = await Promise.all([
+    loadWorkflowCounts(),
+    loadPackingTaskCount()
+  ])
+  return mapWorkflowCountsToTabs(workflow, packingTaskCount)
 }

@@ -1,0 +1,111 @@
+import http from '@/utils/http/request'
+import type { AxiosRequestConfig } from 'axios'
+import { unwrapApiResult } from '@/utils/http/apiResult'
+import type { ApiResult } from '@/types/System/ApiResult'
+import type {
+  CompletePickingRequest,
+  CompletePickingResult,
+  CopyWeighingBoxRequest,
+  CreateDispatchOrderRequest,
+  DispatchOrderDetail,
+  DispatchOrderPage,
+  DispatchOrderPageRequest,
+  DispatchStatusCounts,
+  OutboundCommandRequest,
+  OutboundCommandResult,
+  PackingTaskPage,
+  PackingTaskPageRequest,
+  SaveWeighingBoxRequest,
+  SignDispatchOrderRequest,
+  SignDispatchOrderResult,
+  SourceDecisionRequest,
+  SourceDecisionResult,
+  WarehouseAccess,
+  WeighingBox,
+  WeighingCommandResult,
+  WeighingOrderCommandRequest
+} from '@/types/DeliveryManagement/DispatchWorkflow'
+
+const request = <T>(config: AxiosRequestConfig): Promise<ApiResult<T>> =>
+  http(config).then((response) => {
+    try {
+      return unwrapApiResult<T>(response)
+    } catch (error) {
+      const axiosErrorResponse = (response as { response?: unknown } | null)?.response
+      if (axiosErrorResponse) return unwrapApiResult<T>(axiosErrorResponse)
+      throw error
+    }
+  })
+
+export const getDispatchWarehouseAccess = () => request<WarehouseAccess>({
+  url: '/warehouse/access-options', method: 'get'
+})
+
+export const getWorkflowPackingTaskPage = (data: PackingTaskPageRequest) => request<PackingTaskPage>({
+  url: '/packing-task-query/page', method: 'post', data
+})
+
+export const createDispatchOrder = (data: CreateDispatchOrderRequest) => request<DispatchOrderDetail>({
+  url: '/dispatch-workflow', method: 'post', data
+})
+
+export const getDispatchOrderPage = (data: DispatchOrderPageRequest) => request<DispatchOrderPage>({
+  url: '/dispatch-workflow/page', method: 'post', data
+})
+
+export const getDispatchStatusCounts = (warehouseId: number) => request<DispatchStatusCounts>({
+  url: '/dispatch-workflow/counts', method: 'get', params: { warehouse_id: warehouseId }
+})
+
+export const getDispatchOrder = (orderId: number) => request<DispatchOrderDetail>({
+  url: `/dispatch-workflow/${orderId}`, method: 'get'
+})
+
+export const reconcileDispatchOrder = (orderId: number) => request<DispatchOrderDetail>({
+  url: `/dispatch-workflow/${orderId}/reconcile`, method: 'post'
+})
+
+export const getDispatchOrderPrint = (orderId: number) => request<DispatchOrderDetail>({
+  url: `/dispatch-workflow/${orderId}/print`, method: 'get'
+})
+
+export const completeDispatchPicking = (orderId: number, data: CompletePickingRequest) => request<CompletePickingResult>({
+  url: `/dispatch-workflow/${orderId}/complete-picking`, method: 'post', data
+})
+
+export const startDispatchWeighing = (orderId: number, data: WeighingOrderCommandRequest) => request<WeighingCommandResult>({
+  url: `/dispatch-workflow/${orderId}/start-weighing`, method: 'post', data
+})
+
+export const getDispatchTaskBoxes = (orderId: number, packingTaskId: number) => request<WeighingBox[]>({
+  url: `/dispatch-workflow/${orderId}/packing-tasks/${packingTaskId}/boxes`, method: 'get'
+})
+
+export const saveDispatchWeighingBox = (orderId: number, boxId: number, data: SaveWeighingBoxRequest) =>
+  request<WeighingCommandResult>({ url: `/dispatch-workflow/${orderId}/boxes/${boxId}`, method: 'put', data })
+
+export const copyDispatchWeighingBox = (orderId: number, targetBoxId: number, data: CopyWeighingBoxRequest) =>
+  request<WeighingCommandResult>({ url: `/dispatch-workflow/${orderId}/boxes/${targetBoxId}/copy`, method: 'post', data })
+
+export const completeDispatchTaskWeighing = (
+  orderId: number,
+  packingTaskId: number,
+  data: WeighingOrderCommandRequest
+) => request<WeighingCommandResult>({
+  url: `/dispatch-workflow/${orderId}/packing-tasks/${packingTaskId}/complete-weighing`, method: 'post', data
+})
+
+export const completeDispatchOrderWeighing = (orderId: number, data: WeighingOrderCommandRequest) =>
+  request<WeighingCommandResult>({ url: `/dispatch-workflow/${orderId}/complete-weighing`, method: 'post', data })
+
+export const decideDispatchSourceChange = (orderId: number, data: SourceDecisionRequest) =>
+  request<SourceDecisionResult>({ url: `/dispatch-workflow/${orderId}/source-decision`, method: 'post', data })
+
+export const confirmDispatchOutbound = (orderId: number, data: OutboundCommandRequest) =>
+  request<OutboundCommandResult>({ url: `/dispatch-workflow/${orderId}/confirm-outbound`, method: 'post', data })
+
+export const cancelDispatchOutbound = (orderId: number, data: OutboundCommandRequest) =>
+  request<OutboundCommandResult>({ url: `/dispatch-workflow/${orderId}/cancel-outbound`, method: 'post', data })
+
+export const signDispatchOrder = (orderId: number, data: SignDispatchOrderRequest) =>
+  request<SignDispatchOrderResult>({ url: `/dispatch-workflow/${orderId}/sign`, method: 'post', data })

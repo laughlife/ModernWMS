@@ -1,11 +1,32 @@
 <template>
   <div class="container">
+    <v-alert v-if="warehouseLoadError" type="error" variant="tonal" class="mb-3">
+      {{ $t('wms.deliveryManagement.warehouseLoadFailed') }}
+      <template #append>
+        <v-btn variant="text" :loading="warehouseLoading" @click="initializeWarehouse">
+          {{ $t('wms.deliveryManagement.retry') }}
+        </v-btn>
+      </template>
+    </v-alert>
+    <div class="warehouse-toolbar">
+      <v-select
+        v-model="selectedWarehouseId"
+        :items="warehouseOptions"
+        item-title="name"
+        item-value="id"
+        :label="$t('wms.deliveryManagement.warehouseName')"
+        variant="outlined"
+        density="compact"
+        hide-details
+        @update:model-value="handleWarehouseChange"
+      ></v-select>
+    </div>
     <v-tabs v-model="activeTab" class="delivery-status-tabs" stacked @update:model-value="changeTab">
       <v-tab value="tabFbaShipment" data-status-tab="tabFbaShipment">
         <v-badge class="status-count-badge" color="primary" :content="statusCounts.tabFbaShipment" location="top end">
           <v-icon>mdi-truck-fast-outline</v-icon>
         </v-badge>
-        <p class="tabItemTitle">{{ $t(packingTaskEnabled ? 'wms.deliveryManagement.packingTask' : 'wms.deliveryManagement.fbaShipment') }}</p>
+        <p class="tabItemTitle">{{ $t('wms.deliveryManagement.packingTask') }}</p>
       </v-tab>
       <v-tab value="tabGoodsToBePicked" data-status-tab="tabGoodsToBePicked">
         <v-badge class="status-count-badge" color="primary" :content="statusCounts.tabGoodsToBePicked" location="top end">
@@ -32,7 +53,9 @@
         <p class="tabItemTitle">{{ $t('wms.deliveryManagement.toBeDelivered') }}</p>
       </v-tab>
       <v-tab value="tabCompleted" data-status-tab="tabCompleted">
-        <v-icon>mdi-check-circle</v-icon>
+        <v-badge class="status-count-badge" color="primary" :content="statusCounts.tabCompleted" location="top end">
+          <v-icon>mdi-check-circle</v-icon>
+        </v-badge>
         <p class="tabItemTitle">{{ $t('wms.deliveryManagement.deliveryReady') }}</p>
       </v-tab>
     </v-tabs>
@@ -40,25 +63,25 @@
     <v-card class="mt-5">
       <v-card-text>
         <v-window v-model="activeTab">
+          <!-- Shared page contract: every Task10-15 page receives the same backend-authorized warehouse id. -->
           <v-window-item value="tabFbaShipment">
-            <PackingTaskList v-if="packingTaskEnabled" ref="packingTaskRef" />
-            <FbaShipmentList v-else ref="fbaShipmentRef" @status-changed="refreshStatusCounts" />
+            <PackingTaskList ref="packingTaskRef" :warehouse-id="selectedWarehouseId" @status-changed="refreshStatusCounts" />
           </v-window-item>
           <v-window-item value="tabGoodsToBePicked">
-            <TabGoodsToBePicked ref="goodsToBePickedRef" @status-changed="refreshStatusCounts" />
+            <TabGoodsToBePicked ref="goodsToBePickedRef" :warehouse-id="selectedWarehouseId" @status-changed="refreshStatusCounts" />
           </v-window-item>
           <v-window-item value="tabPicked">
-            <TabPicked ref="pickedRef" @go-to-weighing="handleGoToWeighing" @go-to-picking="handleGoToPicking" />
+            <TabPicked ref="pickedRef" :warehouse-id="selectedWarehouseId" @go-to-weighing="handleGoToWeighing" @go-to-picking="handleGoToPicking" @status-changed="refreshStatusCounts" />
           </v-window-item>
           <v-window-item value="tabWeighed">
-            <TabWeighed ref="weighedRef" @go-to-delivery="handleGoToDelivery" @status-changed="refreshStatusCounts" />
+            <TabWeighed ref="weighedRef" :warehouse-id="selectedWarehouseId" @go-to-delivery="handleGoToDelivery" @status-changed="refreshStatusCounts" />
           </v-window-item>
           <v-window-item value="tabDelivered">
-            <TabDelivered ref="deliveredRef" @go-to-weighing="handleGoToWeighing"
+            <TabDelivered ref="deliveredRef" :warehouse-id="selectedWarehouseId" @go-to-weighing="handleGoToWeighing"
               @go-to-completed="handleGoToCompleted" @status-changed="refreshStatusCounts" />
           </v-window-item>
           <v-window-item value="tabCompleted">
-            <TabCompleted ref="completedRef" @status-changed="refreshStatusCounts" />
+            <TabCompleted ref="completedRef" :warehouse-id="selectedWarehouseId" @status-changed="refreshStatusCounts" />
           </v-window-item>
         </v-window>
       </v-card-text>
@@ -68,11 +91,13 @@
 
 <script lang="ts" setup>
 import { nextTick, onMounted, reactive, ref } from 'vue'
-import { getGoodsToBePicked, getPicked, getToBeDelivery, getWeighed } from '@/api/wms/deliveryManagement'
-import { getFbaShipmentPage } from '@/api/wms/fbaShipment'
-import { getPackingTaskPage } from '@/api/wms/packingTask'
-import { loadPackingTaskFirstStep, PACKING_TASK_FIRST_STEP_ENABLED } from '@/config/packingTaskFeature'
-import FbaShipmentList from './fba-shipment-list.vue'
+import {
+  getDispatchStatusCounts,
+  getDispatchWarehouseAccess,
+  getWorkflowPackingTaskPage
+} from '@/api/wms/dispatchWorkflow'
+import type { WarehouseOption } from '@/types/DeliveryManagement/DispatchWorkflow'
+import { loadWarehouseAccessSafely, resolveDefaultWarehouseId } from './dispatchWorkflowPolicy'
 import PackingTaskList from './packing-task-list.vue'
 import TabDelivered from './tabDelivered.vue'
 import TabGoodsToBePicked from './tabGoodsToBePicked.vue'
@@ -83,9 +108,7 @@ import type { DeliveryFlowTab } from './deliveryFlow'
 import { loadDeliveryStatusCounts, type DeliveryStatusCounts } from './deliveryStatusCounts'
 
 const activeTab = ref('tabFbaShipment')
-const packingTaskEnabled = PACKING_TASK_FIRST_STEP_ENABLED
 const packingTaskRef = ref<InstanceType<typeof PackingTaskList>>()
-const fbaShipmentRef = ref<InstanceType<typeof FbaShipmentList>>()
 const goodsToBePickedRef = ref<InstanceType<typeof TabGoodsToBePicked>>()
 const pickedRef = ref<InstanceType<typeof TabPicked>>()
 const weighedRef = ref<InstanceType<typeof TabWeighed>>()
@@ -96,31 +119,66 @@ const statusCounts = reactive<DeliveryStatusCounts>({
   tabGoodsToBePicked: 0,
   tabPicked: 0,
   tabWeighed: 0,
-  tabDelivered: 0
+  tabDelivered: 0,
+  tabCompleted: 0
 })
+const warehouseOptions = ref<WarehouseOption[]>([])
+const selectedWarehouseId = ref<number | null>(null)
+const warehouseLoadError = ref(false)
+const warehouseLoading = ref(false)
 let statusCountRequestId = 0
 
-const emptyCountPage = () => ({ pageIndex: 1, pageSize: 1, searchObjects: [] })
-const readTotal = async (request: Promise<any>): Promise<number> => {
-  const { data: res } = await request
-  if (!res.isSuccess) throw new Error(res.errorMessage || 'status count request failed')
-  return Number(res.data?.totals) || 0
+const refreshStatusCounts = async (): Promise<void> => {
+  if (selectedWarehouseId.value === null) return
+  const requestId = ++statusCountRequestId
+  try {
+    const warehouseId = selectedWarehouseId.value
+    const counts = await loadDeliveryStatusCounts({
+      loadWorkflowCounts: async () => {
+        const result = await getDispatchStatusCounts(warehouseId)
+        if (!result.isSuccess) throw new Error(result.errorMessage)
+        return result.data
+      },
+      loadPackingTaskCount: async () => {
+        const result = await getWorkflowPackingTaskPage({
+          pageIndex: 1,
+          pageSize: 1,
+          searchObjects: [{ name: 'warehouse_id', operator: 1, text: String(warehouseId), value: String(warehouseId) }]
+        })
+        if (!result.isSuccess) throw new Error(result.errorMessage)
+        return result.data.totals
+      }
+    })
+    if (requestId === statusCountRequestId) Object.assign(statusCounts, counts)
+  } catch {
+    // Keep the last successful counters when one source is temporarily unavailable.
+  }
 }
 
-const refreshStatusCounts = async (): Promise<void> => {
-  const requestId = ++statusCountRequestId
-  const counts = await loadDeliveryStatusCounts({
-    tabFbaShipment: () => readTotal(loadPackingTaskFirstStep(
-      packingTaskEnabled,
-      () => getPackingTaskPage(emptyCountPage()),
-      () => getFbaShipmentPage(emptyCountPage())
-    )),
-    tabGoodsToBePicked: () => readTotal(getGoodsToBePicked(emptyCountPage())),
-    tabPicked: () => readTotal(getPicked(emptyCountPage())),
-    tabWeighed: () => readTotal(getWeighed(emptyCountPage())),
-    tabDelivered: () => readTotal(getToBeDelivery(emptyCountPage()))
-  })
-  if (requestId === statusCountRequestId) Object.assign(statusCounts, counts)
+const initializeWarehouse = async (): Promise<void> => {
+  warehouseLoading.value = true
+  warehouseLoadError.value = false
+  selectedWarehouseId.value = null
+  warehouseOptions.value = []
+  try {
+    const result = await loadWarehouseAccessSafely(getDispatchWarehouseAccess)
+    warehouseLoadError.value = result.hasError
+    if (!result.access) {
+      return
+    }
+    warehouseOptions.value = result.access.warehouses
+    selectedWarehouseId.value = resolveDefaultWarehouseId(result.access)
+    await refreshStatusCounts()
+  } catch {
+    warehouseLoadError.value = true
+  } finally {
+    warehouseLoading.value = false
+  }
+}
+
+const handleWarehouseChange = (): void => {
+  changeTab(activeTab.value)
+  refreshStatusCounts()
 }
 
 const handleGoToPicking = (): void => {
@@ -159,8 +217,7 @@ const changeTab = (tab: unknown): void => {
   nextTick(() => {
     switch (tab) {
       case 'tabFbaShipment':
-        if (packingTaskEnabled) packingTaskRef.value?.getPackingTask()
-        else fbaShipmentRef.value?.getFbaShipment()
+        packingTaskRef.value?.getPackingTask()
         break
       case 'tabGoodsToBePicked':
         goodsToBePickedRef.value?.getGoodsToBePicked()
@@ -181,12 +238,16 @@ const changeTab = (tab: unknown): void => {
   })
 }
 
-onMounted(refreshStatusCounts)
+onMounted(initializeWarehouse)
 </script>
 
 <style lang="less" scoped>
 .delivery-status-tabs {
   margin-top: 12px;
+}
+
+.warehouse-toolbar {
+  width: min(360px, 100%);
 }
 
 .delivery-status-tabs :deep(.v-btn__content) {
