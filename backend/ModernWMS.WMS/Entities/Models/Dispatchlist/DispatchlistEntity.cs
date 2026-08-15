@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.ComponentModel.DataAnnotations;
+using Microsoft.EntityFrameworkCore;
 using ModernWMS.Core.Models;
 using ModernWMS.Core.Utility;
 
@@ -15,10 +16,34 @@ namespace ModernWMS.WMS.Entities.Models
     /// dispatchlist  entity
     /// </summary>
     [Table("dispatchlist")]
+    [Index(nameof(dispatch_order_id), nameof(packing_task_id))]
+    [Index(nameof(packing_task_item_id))]
     public class DispatchlistEntity : BaseModel
     {
 
         #region Property
+
+        /// <summary>
+        /// New packing-task workflow header. Null preserves historical FBA rows.
+        /// </summary>
+        public int? dispatch_order_id { get; set; }
+
+        [ForeignKey(nameof(dispatch_order_id))]
+        public DispatchOrderEntity? dispatch_order { get; set; }
+
+        /// <summary>
+        /// New packing-task workflow task owner. Null preserves historical FBA rows.
+        /// </summary>
+        public int? packing_task_id { get; set; }
+
+        [ForeignKey(nameof(packing_task_id))]
+        public DispatchPackingTaskEntity? packing_task { get; set; }
+
+        /// <summary>Task-scoped source item; null preserves historical FBA rows.</summary>
+        public int? packing_task_item_id { get; set; }
+
+        [ForeignKey(nameof(packing_task_item_id))]
+        public DispatchPackingTaskItemEntity? packing_task_item { get; set; }
 
         /// <summary>
         /// dispatch_no

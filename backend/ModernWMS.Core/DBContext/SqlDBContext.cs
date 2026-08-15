@@ -1,6 +1,7 @@
 ﻿using System.Data;
 using System.Data.Common;
 using System.Reflection;
+using System.ComponentModel.DataAnnotations.Schema;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using ModernWMS.Core.Models;
@@ -53,7 +54,26 @@ namespace ModernWMS.Core.DBContext
                     var entityType = modelBuilder.Model.FindEntityType(t);
                     if (entityType == null)
                     {
-                        modelBuilder.Model.AddEntityType(t);
+                        // Use the public model-builder API so EF applies data annotations
+                        // (Table, Index, ForeignKey, MaxLength, etc.) to reflected WMS models.
+                        // Adding a raw metadata entity here silently ignored those contracts.
+                        modelBuilder.Entity(t);
+                        entityType = modelBuilder.Model.FindEntityType(t);
+                    }
+
+                    // Reflection-based discovery runs after EF's normal convention discovery,
+                    // so explicitly retain the relational annotations that define the DB contract.
+                    var tableAttribute = t.GetCustomAttribute<TableAttribute>();
+                    if (tableAttribute != null)
+                    {
+                        entityType!.SetTableName(tableAttribute.Name);
+                    }
+
+                    foreach (var indexAttribute in t.GetCustomAttributes<IndexAttribute>())
+                    {
+                        modelBuilder.Entity(t)
+                            .HasIndex(indexAttribute.PropertyNames.ToArray())
+                            .IsUnique(indexAttribute.IsUnique);
                     }
                 });
             }
