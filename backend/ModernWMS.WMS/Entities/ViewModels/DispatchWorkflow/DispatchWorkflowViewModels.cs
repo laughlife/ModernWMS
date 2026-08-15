@@ -21,6 +21,54 @@ public sealed class CompletePickingResult
     public long row_version { get; set; }
 }
 
+public sealed class WeighingOrderCommandRequest
+{
+    public string request_id { get; set; } = string.Empty;
+    public long row_version { get; set; }
+}
+
+public sealed class WeighingCommandResult
+{
+    public int order_id { get; set; }
+    public string request_id { get; set; } = string.Empty;
+    public string status { get; set; } = string.Empty;
+    public long row_version { get; set; }
+}
+
+public sealed record SaveWeighingBoxRequest
+{
+    public string request_id { get; set; } = string.Empty;
+    public long row_version { get; set; }
+    public long box_row_version { get; set; }
+    public decimal weight { get; set; }
+    public decimal length { get; set; }
+    public decimal width { get; set; }
+    public decimal height { get; set; }
+}
+
+public sealed class CopyWeighingBoxRequest
+{
+    public string request_id { get; set; } = string.Empty;
+    public long row_version { get; set; }
+    public int source_box_id { get; set; }
+    public long target_box_row_version { get; set; }
+}
+
+public sealed class WeighingBoxViewModel
+{
+    public int id { get; set; }
+    public int packing_task_id { get; set; }
+    public string source_box_identity { get; set; } = string.Empty;
+    public int box_sequence { get; set; }
+    public decimal? weight { get; set; }
+    public decimal? length { get; set; }
+    public decimal? width { get; set; }
+    public decimal? height { get; set; }
+    public string measurement_status { get; set; } = string.Empty;
+    public int? copied_from_box_id { get; set; }
+    public long row_version { get; set; }
+}
+
 public sealed class SourceDecisionRequest
 {
     public string decision { get; set; } = string.Empty;

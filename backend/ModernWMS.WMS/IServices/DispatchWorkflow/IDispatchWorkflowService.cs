@@ -23,6 +23,45 @@ public interface IDispatchWorkflowService : IDependency
         CurrentUser currentUser,
         CancellationToken cancellationToken = default);
 
+    Task<WeighingCommandResult> StartWeighingAsync(
+        int orderId,
+        WeighingOrderCommandRequest request,
+        CurrentUser currentUser,
+        CancellationToken cancellationToken = default);
+
+    Task<List<WeighingBoxViewModel>> GetTaskBoxesAsync(
+        int orderId,
+        int packingTaskId,
+        CurrentUser currentUser,
+        CancellationToken cancellationToken = default);
+
+    Task<WeighingCommandResult> SaveWeighingBoxAsync(
+        int orderId,
+        int boxId,
+        SaveWeighingBoxRequest request,
+        CurrentUser currentUser,
+        CancellationToken cancellationToken = default);
+
+    Task<WeighingCommandResult> CopyWeighingBoxAsync(
+        int orderId,
+        int targetBoxId,
+        CopyWeighingBoxRequest request,
+        CurrentUser currentUser,
+        CancellationToken cancellationToken = default);
+
+    Task<WeighingCommandResult> CompleteTaskWeighingAsync(
+        int orderId,
+        int packingTaskId,
+        WeighingOrderCommandRequest request,
+        CurrentUser currentUser,
+        CancellationToken cancellationToken = default);
+
+    Task<WeighingCommandResult> CompleteOrderWeighingAsync(
+        int orderId,
+        WeighingOrderCommandRequest request,
+        CurrentUser currentUser,
+        CancellationToken cancellationToken = default);
+
     Task<DispatchOrderDetailViewModel> CreateAsync(
         CreateDispatchOrderRequest request,
         CurrentUser currentUser,

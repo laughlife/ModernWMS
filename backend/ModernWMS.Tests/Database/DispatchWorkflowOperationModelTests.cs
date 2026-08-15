@@ -38,6 +38,7 @@ public class DispatchWorkflowOperationModelTests
         Assert.Equal((byte)10, (byte)DispatchWorkflowOperation.CompletePicking);
         Assert.Equal((byte)20, (byte)DispatchWorkflowOperation.StartWeighing);
         Assert.Equal((byte)30, (byte)DispatchWorkflowOperation.SaveWeighing);
+        Assert.Equal((byte)35, (byte)DispatchWorkflowOperation.CopyWeighing);
         Assert.Equal((byte)40, (byte)DispatchWorkflowOperation.CompleteTaskWeighing);
         Assert.Equal((byte)50, (byte)DispatchWorkflowOperation.CompleteWeighing);
         Assert.Equal((byte)60, (byte)DispatchWorkflowOperation.ConfirmOutbound);

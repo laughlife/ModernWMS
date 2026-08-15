@@ -74,6 +74,61 @@ public sealed class DispatchWorkflowController : BaseController
         ExecuteAsync(() => _workflowService.CompletePickingAsync(id, request, CurrentUser, cancellationToken));
 
     [Authorize]
+    [HttpPost("{id:int}/start-weighing")]
+    public Task<ActionResult<ResultModel<WeighingCommandResult>>> StartWeighingAsync(
+        int id,
+        WeighingOrderCommandRequest request,
+        CancellationToken cancellationToken) =>
+        ExecuteAsync(() => _workflowService.StartWeighingAsync(id, request, CurrentUser, cancellationToken));
+
+    [HttpGet("{id:int}/packing-tasks/{packingTaskId:int}/boxes")]
+    public Task<ActionResult<ResultModel<List<WeighingBoxViewModel>>>> GetTaskBoxesAsync(
+        int id,
+        int packingTaskId,
+        CancellationToken cancellationToken) =>
+        ExecuteAsync(() => _workflowService.GetTaskBoxesAsync(
+            id, packingTaskId, CurrentUser, cancellationToken));
+
+    [Authorize]
+    [HttpPut("{id:int}/boxes/{boxId:int}")]
+    public Task<ActionResult<ResultModel<WeighingCommandResult>>> SaveWeighingBoxAsync(
+        int id,
+        int boxId,
+        SaveWeighingBoxRequest request,
+        CancellationToken cancellationToken) =>
+        ExecuteAsync(() => _workflowService.SaveWeighingBoxAsync(
+            id, boxId, request, CurrentUser, cancellationToken));
+
+    [Authorize]
+    [HttpPost("{id:int}/boxes/{targetBoxId:int}/copy")]
+    public Task<ActionResult<ResultModel<WeighingCommandResult>>> CopyWeighingBoxAsync(
+        int id,
+        int targetBoxId,
+        CopyWeighingBoxRequest request,
+        CancellationToken cancellationToken) =>
+        ExecuteAsync(() => _workflowService.CopyWeighingBoxAsync(
+            id, targetBoxId, request, CurrentUser, cancellationToken));
+
+    [Authorize]
+    [HttpPost("{id:int}/packing-tasks/{packingTaskId:int}/complete-weighing")]
+    public Task<ActionResult<ResultModel<WeighingCommandResult>>> CompleteTaskWeighingAsync(
+        int id,
+        int packingTaskId,
+        WeighingOrderCommandRequest request,
+        CancellationToken cancellationToken) =>
+        ExecuteAsync(() => _workflowService.CompleteTaskWeighingAsync(
+            id, packingTaskId, request, CurrentUser, cancellationToken));
+
+    [Authorize]
+    [HttpPost("{id:int}/complete-weighing")]
+    public Task<ActionResult<ResultModel<WeighingCommandResult>>> CompleteOrderWeighingAsync(
+        int id,
+        WeighingOrderCommandRequest request,
+        CancellationToken cancellationToken) =>
+        ExecuteAsync(() => _workflowService.CompleteOrderWeighingAsync(
+            id, request, CurrentUser, cancellationToken));
+
+    [Authorize]
     [HttpPost("{id:int}/source-decision")]
     public Task<ActionResult<ResultModel<SourceDecisionResult>>> DecideSourceChangeAsync(
         int id,

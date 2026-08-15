@@ -11,6 +11,7 @@ public enum DispatchWorkflowOperation : byte
     CompletePicking = 10,
     StartWeighing = 20,
     SaveWeighing = 30,
+    CopyWeighing = 35,
     CompleteTaskWeighing = 40,
     CompleteWeighing = 50,
     ConfirmOutbound = 60,
