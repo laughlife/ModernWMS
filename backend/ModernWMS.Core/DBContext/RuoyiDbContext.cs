@@ -133,6 +133,16 @@ public sealed class RuoyiDbContext : DbContext
     public DbSet<ErpFbaShipmentItemEntity> FbaShipmentItems => Set<ErpFbaShipmentItemEntity>();
 
     /// <summary>
+    /// SellFox packing-task headers maintained by the ERP job executor.
+    /// </summary>
+    public DbSet<ErpPackingTaskEntity> PackingTasks => Set<ErpPackingTaskEntity>();
+
+    /// <summary>
+    /// SellFox packing-task items maintained by the ERP job executor.
+    /// </summary>
+    public DbSet<ErpPackingTaskItemEntity> PackingTaskItems => Set<ErpPackingTaskItemEntity>();
+
+    /// <summary>
     /// 显式映射当前已接入 ModernWMS 的 Ruoyi 业务实体。
     /// </summary>
     /// <param name="modelBuilder">model builder</param>
@@ -287,6 +297,18 @@ public sealed class RuoyiDbContext : DbContext
         modelBuilder.Entity<ErpFbaShipmentItemEntity>(entity =>
         {
             entity.ToTable("erp_fba_shipment_item");
+            entity.HasKey(t => t.id);
+        });
+
+        modelBuilder.Entity<ErpPackingTaskEntity>(entity =>
+        {
+            entity.ToTable("ruiyi_sellfox_packing_task");
+            entity.HasKey(t => t.id);
+        });
+
+        modelBuilder.Entity<ErpPackingTaskItemEntity>(entity =>
+        {
+            entity.ToTable("ruiyi_sellfox_packing_task_item");
             entity.HasKey(t => t.id);
         });
 

@@ -5,7 +5,7 @@
         <v-badge class="status-count-badge" color="primary" :content="statusCounts.tabFbaShipment" location="top end">
           <v-icon>mdi-truck-fast-outline</v-icon>
         </v-badge>
-        <p class="tabItemTitle">{{ $t('wms.deliveryManagement.fbaShipment') }}</p>
+        <p class="tabItemTitle">{{ $t(packingTaskEnabled ? 'wms.deliveryManagement.packingTask' : 'wms.deliveryManagement.fbaShipment') }}</p>
       </v-tab>
       <v-tab value="tabGoodsToBePicked" data-status-tab="tabGoodsToBePicked">
         <v-badge class="status-count-badge" color="primary" :content="statusCounts.tabGoodsToBePicked" location="top end">
@@ -41,7 +41,8 @@
       <v-card-text>
         <v-window v-model="activeTab">
           <v-window-item value="tabFbaShipment">
-            <FbaShipmentList ref="fbaShipmentRef" @status-changed="refreshStatusCounts" />
+            <PackingTaskList v-if="packingTaskEnabled" ref="packingTaskRef" />
+            <FbaShipmentList v-else ref="fbaShipmentRef" @status-changed="refreshStatusCounts" />
           </v-window-item>
           <v-window-item value="tabGoodsToBePicked">
             <TabGoodsToBePicked ref="goodsToBePickedRef" @status-changed="refreshStatusCounts" />
@@ -69,7 +70,10 @@
 import { nextTick, onMounted, reactive, ref } from 'vue'
 import { getGoodsToBePicked, getPicked, getToBeDelivery, getWeighed } from '@/api/wms/deliveryManagement'
 import { getFbaShipmentPage } from '@/api/wms/fbaShipment'
+import { getPackingTaskPage } from '@/api/wms/packingTask'
+import { loadPackingTaskFirstStep, PACKING_TASK_FIRST_STEP_ENABLED } from '@/config/packingTaskFeature'
 import FbaShipmentList from './fba-shipment-list.vue'
+import PackingTaskList from './packing-task-list.vue'
 import TabDelivered from './tabDelivered.vue'
 import TabGoodsToBePicked from './tabGoodsToBePicked.vue'
 import TabPicked from './tabPicked.vue'
@@ -79,6 +83,8 @@ import type { DeliveryFlowTab } from './deliveryFlow'
 import { loadDeliveryStatusCounts, type DeliveryStatusCounts } from './deliveryStatusCounts'
 
 const activeTab = ref('tabFbaShipment')
+const packingTaskEnabled = PACKING_TASK_FIRST_STEP_ENABLED
+const packingTaskRef = ref<InstanceType<typeof PackingTaskList>>()
 const fbaShipmentRef = ref<InstanceType<typeof FbaShipmentList>>()
 const goodsToBePickedRef = ref<InstanceType<typeof TabGoodsToBePicked>>()
 const pickedRef = ref<InstanceType<typeof TabPicked>>()
@@ -104,7 +110,11 @@ const readTotal = async (request: Promise<any>): Promise<number> => {
 const refreshStatusCounts = async (): Promise<void> => {
   const requestId = ++statusCountRequestId
   const counts = await loadDeliveryStatusCounts({
-    tabFbaShipment: () => readTotal(getFbaShipmentPage(emptyCountPage())),
+    tabFbaShipment: () => readTotal(loadPackingTaskFirstStep(
+      packingTaskEnabled,
+      () => getPackingTaskPage(emptyCountPage()),
+      () => getFbaShipmentPage(emptyCountPage())
+    )),
     tabGoodsToBePicked: () => readTotal(getGoodsToBePicked(emptyCountPage())),
     tabPicked: () => readTotal(getPicked(emptyCountPage())),
     tabWeighed: () => readTotal(getWeighed(emptyCountPage())),
@@ -149,7 +159,8 @@ const changeTab = (tab: unknown): void => {
   nextTick(() => {
     switch (tab) {
       case 'tabFbaShipment':
-        fbaShipmentRef.value?.getFbaShipment()
+        if (packingTaskEnabled) packingTaskRef.value?.getPackingTask()
+        else fbaShipmentRef.value?.getFbaShipment()
         break
       case 'tabGoodsToBePicked':
         goodsToBePickedRef.value?.getGoodsToBePicked()
