@@ -113,7 +113,8 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
             creator = order.creator,
             create_time = order.create_time,
             last_update_time = order.last_update_time,
-            source_change_pending = order.source_change_pending
+            source_change_pending = order.source_change_pending,
+            row_version = order.row_version
         };
     }
 

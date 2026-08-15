@@ -6,6 +6,12 @@ namespace ModernWMS.WMS.IServices.DispatchWorkflow;
 
 public interface IDispatchWorkflowService : IDependency
 {
+    Task<CompletePickingResult> CompletePickingAsync(
+        int orderId,
+        CompletePickingRequest request,
+        CurrentUser currentUser,
+        CancellationToken cancellationToken = default);
+
     Task<DispatchOrderDetailViewModel> CreateAsync(
         CreateDispatchOrderRequest request,
         CurrentUser currentUser,

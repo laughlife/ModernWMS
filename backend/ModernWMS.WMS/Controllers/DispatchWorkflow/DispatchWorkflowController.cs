@@ -4,6 +4,7 @@ using ModernWMS.Core.Controller;
 using ModernWMS.Core.Models;
 using ModernWMS.WMS.Entities.ViewModels.DispatchWorkflow;
 using ModernWMS.WMS.IServices.DispatchWorkflow;
+using ModernWMS.WMS.Services.DispatchWorkflow;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Http;
 
@@ -64,6 +65,14 @@ public sealed class DispatchWorkflowController : BaseController
         CancellationToken cancellationToken) =>
         ExecuteAsync(() => _workflowService.ReconcileAsync(id, CurrentUser, cancellationToken));
 
+    [Authorize]
+    [HttpPost("{id:int}/complete-picking")]
+    public Task<ActionResult<ResultModel<CompletePickingResult>>> CompletePickingAsync(
+        int id,
+        CompletePickingRequest request,
+        CancellationToken cancellationToken) =>
+        ExecuteAsync(() => _workflowService.CompletePickingAsync(id, request, CurrentUser, cancellationToken));
+
     [HttpGet("{id:int}/print")]
     public Task<ActionResult<ResultModel<DispatchOrderDetailViewModel>>> PrintAsync(
         int id,
@@ -100,6 +109,11 @@ public sealed class DispatchWorkflowController : BaseController
         {
             return StatusCode(StatusCodes.Status409Conflict,
                 ResultModel<T>.Error(exception.Message, StatusCodes.Status409Conflict));
+        }
+        catch (DispatchWorkflowCommandException exception)
+        {
+            return StatusCode(StatusCodes.Status409Conflict,
+                ResultModel<T>.Error(exception.ErrorCode, StatusCodes.Status409Conflict));
         }
         catch (InvalidOperationException exception)
         {

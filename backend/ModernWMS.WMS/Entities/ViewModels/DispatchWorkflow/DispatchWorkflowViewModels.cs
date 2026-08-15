@@ -7,6 +7,20 @@ public sealed class CreateDispatchOrderRequest
     public string idempotency_key { get; set; } = string.Empty;
 }
 
+public sealed class CompletePickingRequest
+{
+    public string request_id { get; set; } = string.Empty;
+    public long row_version { get; set; }
+}
+
+public sealed class CompletePickingResult
+{
+    public int order_id { get; set; }
+    public string request_id { get; set; } = string.Empty;
+    public string status { get; set; } = string.Empty;
+    public long row_version { get; set; }
+}
+
 public sealed class DispatchOrderPageRequest
 {
     public string status { get; set; } = string.Empty;
@@ -27,6 +41,7 @@ public class DispatchOrderSummaryViewModel
     public DateTime create_time { get; set; }
     public DateTime last_update_time { get; set; }
     public bool source_change_pending { get; set; }
+    public long row_version { get; set; }
 }
 
 public sealed class DispatchOrderDetailViewModel : DispatchOrderSummaryViewModel
