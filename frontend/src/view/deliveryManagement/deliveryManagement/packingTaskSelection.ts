@@ -1,0 +1,88 @@
+import type {
+  PackingTaskPageRequest
+} from '@/types/DeliveryManagement/DispatchWorkflow'
+import type { PackingTaskVO } from '@/types/DeliveryManagement/PackingTask'
+
+export type PackingTaskSelectionResult =
+  | { ok: true; sourceTaskIds: number[] }
+  | { ok: false; reason: 'WAREHOUSE_REQUIRED' | 'EMPTY_SELECTION' | 'CROSS_WAREHOUSE' | 'INVALID_TASK' }
+
+export interface PackingTaskPageMutableState {
+  tableData: PackingTaskVO[]
+  tablePage: { total: number }
+  selectedTaskCount: number
+}
+
+export const buildPackingTaskPageRequest = (
+  warehouseId: number | null,
+  keyword: string,
+  pageIndex: number,
+  pageSize: number
+): PackingTaskPageRequest | null => {
+  if (warehouseId === null) return null
+
+  const searchObjects: PackingTaskPageRequest['searchObjects'] = [
+    {
+      name: 'warehouse_id',
+      operator: 1,
+      text: String(warehouseId),
+      value: String(warehouseId)
+    }
+  ]
+  const normalizedKeyword = keyword.trim()
+  if (normalizedKeyword) {
+    searchObjects.push({
+      name: 'keyword',
+      operator: 1,
+      text: normalizedKeyword,
+      value: normalizedKeyword
+    })
+  }
+
+  return { pageIndex, pageSize, searchObjects }
+}
+
+export const validatePackingTaskSelection = (
+  tasks: PackingTaskVO[],
+  warehouseId: number | null
+): PackingTaskSelectionResult => {
+  if (warehouseId === null) return { ok: false, reason: 'WAREHOUSE_REQUIRED' }
+  if (tasks.length === 0) return { ok: false, reason: 'EMPTY_SELECTION' }
+  if (tasks.some(({ warehouse_id }) => warehouse_id !== warehouseId)) {
+    return { ok: false, reason: 'CROSS_WAREHOUSE' }
+  }
+
+  const sourceTaskIds = [...new Set(tasks.map(({ sellfox_task_id }) => sellfox_task_id))]
+    .sort((left, right) => left - right)
+  if (sourceTaskIds.length === 0 || sourceTaskIds.some((id) => !Number.isSafeInteger(id) || id <= 0)) {
+    return { ok: false, reason: 'INVALID_TASK' }
+  }
+  return { ok: true, sourceTaskIds }
+}
+
+export const createTaskSetIdempotencyKey = async (
+  sourceTaskIds: number[],
+  subtleCrypto: Pick<SubtleCrypto, 'digest'> | null = globalThis.crypto?.subtle ?? null
+): Promise<string> => {
+  // crypto.subtle is unavailable on non-secure HTTP origins. The backend accepts an
+  // empty key and deterministically generates the same task-set key server-side.
+  if (!subtleCrypto) return ''
+  const normalizedIds = [...new Set(sourceTaskIds)].sort((left, right) => left - right)
+  const bytes = new TextEncoder().encode(normalizedIds.join(','))
+  const digest = await subtleCrypto.digest('SHA-256', bytes)
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+export const resetPackingTaskPageState = (state: PackingTaskPageMutableState): void => {
+  state.tableData = []
+  state.tablePage.total = 0
+  state.selectedTaskCount = 0
+}
+
+export const removeCreatedPackingTasks = (
+  tasks: PackingTaskVO[],
+  sourceTaskIds: number[]
+): PackingTaskVO[] => {
+  const createdTaskIds = new Set(sourceTaskIds)
+  return tasks.filter(({ sellfox_task_id }) => !createdTaskIds.has(sellfox_task_id))
+}

@@ -9,7 +9,18 @@
       <v-col cols="3" class="col">
         <BtnGroup :authority-list="data.authorityList" :btn-list="data.btnList" />
       </v-col>
-      <v-col cols="9" @keyup.enter="method.sureSearch">
+      <v-col cols="3" class="createOrderCol">
+        <v-btn
+          color="primary"
+          prepend-icon="mdi-clipboard-list-outline"
+          :disabled="data.creating || data.selectedTaskCount === 0 || props.warehouseId === null"
+          :loading="data.creating"
+          @click="method.createPickingOrder"
+        >
+          生成待拣货单（{{ data.selectedTaskCount }}）
+        </v-btn>
+      </v-col>
+      <v-col cols="6" @keyup.enter="method.sureSearch">
         <v-text-field
           v-model="data.searchForm.keyword"
           clearable hide-details density="comfortable"
@@ -21,13 +32,23 @@
   </div>
 
   <div class="mt-5" :style="{ height: cardHeight }">
-    <vxe-table ref="xTable" :column-config="{ minWidth: '120px' }" :data="data.tableData" :height="tableHeight" align="center">
+    <vxe-table
+      ref="xTable"
+      :column-config="{ minWidth: '120px' }"
+      :data="data.tableData"
+      :height="tableHeight"
+      :row-config="{ keyField: 'sellfox_task_id' }"
+      align="center"
+      @checkbox-change="method.handleSelectionChange"
+      @checkbox-all="method.handleSelectionChange"
+    >
       <template #empty>
         <div class="emptyState">
           <v-icon icon="mdi-package-variant-closed" size="38"></v-icon>
           <div>{{ data.errorMessage || $t('wms.deliveryManagement.noPackingTask') }}</div>
         </div>
       </template>
+      <vxe-column type="checkbox" width="52" fixed="left"></vxe-column>
       <vxe-column type="seq" width="60"></vxe-column>
       <vxe-column type="expand" width="60">
         <template #content="{ row }">
@@ -105,8 +126,9 @@
 <script lang="ts" setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import type { VxePagerEvents } from 'vxe-table'
-import { getPackingTaskPage } from '@/api/wms/packingTask'
+import { createDispatchOrder, getWorkflowPackingTaskPage } from '@/api/wms/dispatchWorkflow'
 import BtnGroup from '@/components/system/btnGroup.vue'
+import { hookComponent } from '@/components/system'
 import ProductImage from '@/components/system/product-image.vue'
 import customPager from '@/components/custom-pager.vue'
 import { computedCardHeight, computedTableHeight } from '@/constant/style'
@@ -114,39 +136,78 @@ import { DEFAULT_PAGE_SIZE, PAGE_LAYOUT, PAGE_SIZE } from '@/constant/vxeTable'
 import { DEBOUNCE_TIME } from '@/constant/system'
 import i18n from '@/languages/i18n'
 import type { PackingTaskVO } from '@/types/DeliveryManagement/PackingTask'
-import type { btnGroupItem, SearchObject } from '@/types/System/Form'
-import { getMenuAuthorityList, setSearchObject } from '@/utils/common'
+import type { btnGroupItem } from '@/types/System/Form'
+import { getMenuAuthorityList } from '@/utils/common'
 import { exportData } from '@/utils/exportTable'
+import {
+  buildPackingTaskPageRequest,
+  createTaskSetIdempotencyKey,
+  removeCreatedPackingTasks,
+  resetPackingTaskPageState,
+  validatePackingTaskSelection
+} from './packingTaskSelection'
+
+const props = defineProps<{ warehouseId: number | null }>()
+const emit = defineEmits<{ statusChanged: [] }>()
 
 const xTable = ref()
 const data = reactive({
   searchForm: { keyword: '' },
   tableData: ref<PackingTaskVO[]>([]),
   errorMessage: '',
+  creating: false,
+  selectedTaskCount: 0,
   tablePage: reactive({
     total: 0,
     pageIndex: 1,
-    pageSize: DEFAULT_PAGE_SIZE,
-    searchObjects: ref<SearchObject[]>([])
+    pageSize: DEFAULT_PAGE_SIZE
   }),
   timer: ref<ReturnType<typeof setTimeout> | null>(null),
   btnList: [] as btnGroupItem[],
   authorityList: getMenuAuthorityList()
 })
+let pageRequestId = 0
 
 const method = reactive({
   displayValue: (value: unknown): string | number => value === null || value === undefined ? '' : value as string | number,
+  clearSelection: () => {
+    xTable.value?.clearCheckboxRow()
+    data.selectedTaskCount = 0
+  },
+  clearPage: () => {
+    resetPackingTaskPageState(data)
+    xTable.value?.clearCheckboxRow()
+  },
   getPage: async () => {
-    const { data: res } = await getPackingTaskPage(data.tablePage)
-    if (!res.isSuccess) {
-      data.tableData = []
-      data.tablePage.total = 0
-      data.errorMessage = res.errorMessage
+    const requestId = ++pageRequestId
+    const request = buildPackingTaskPageRequest(
+      props.warehouseId,
+      data.searchForm.keyword,
+      data.tablePage.pageIndex,
+      data.tablePage.pageSize
+    )
+    if (!request) {
+      method.clearPage()
+      data.errorMessage = ''
       return
     }
-    data.errorMessage = ''
-    data.tableData = res.data.rows
-    data.tablePage.total = res.data.totals
+    try {
+      const res = await getWorkflowPackingTaskPage(request)
+      if (requestId !== pageRequestId) return
+      if (!res.isSuccess) {
+        method.clearPage()
+        data.errorMessage = res.errorMessage
+        return
+      }
+      data.errorMessage = ''
+      data.tableData = res.data.rows
+      data.tablePage.total = res.data.totals
+      method.clearSelection()
+    } catch (error) {
+      if (requestId !== pageRequestId) return
+      method.clearPage()
+      data.errorMessage = error instanceof Error ? error.message : String(error)
+    }
   },
   refresh: () => method.getPage(),
   handlePageChange: ref<VxePagerEvents.PageChange>(({ currentPage, pageSize }) => {
@@ -156,8 +217,67 @@ const method = reactive({
   }),
   sureSearch: () => {
     data.tablePage.pageIndex = 1
-    data.tablePage.searchObjects = setSearchObject(data.searchForm)
     method.getPage()
+  },
+  handleSelectionChange: ({ row }: { row?: PackingTaskVO }) => {
+    const selectedRows = (xTable.value?.getCheckboxRecords() ?? []) as PackingTaskVO[]
+    const selection = validatePackingTaskSelection(selectedRows, props.warehouseId)
+    if (!selection.ok && selection.reason === 'CROSS_WAREHOUSE') {
+      if (row) xTable.value?.setCheckboxRow(row, false)
+      else xTable.value?.clearCheckboxRow()
+      hookComponent.$message({
+        type: 'error',
+        content: i18n.global.t('wms.deliveryManagement.crossWarehouseForbidden')
+      })
+      data.selectedTaskCount = (xTable.value?.getCheckboxRecords() ?? []).length
+      return
+    }
+    data.selectedTaskCount = selectedRows.length
+  },
+  createPickingOrder: async () => {
+    const selectedRows = (xTable.value?.getCheckboxRecords() ?? []) as PackingTaskVO[]
+    const selection = validatePackingTaskSelection(selectedRows, props.warehouseId)
+    if (!selection.ok) {
+      const content = selection.reason === 'CROSS_WAREHOUSE'
+        ? i18n.global.t('wms.deliveryManagement.crossWarehouseForbidden')
+        : selection.reason === 'WAREHOUSE_REQUIRED'
+          ? i18n.global.t('wms.deliveryManagement.warehouseRequired')
+          : '请至少选择一个有效的装箱任务'
+      hookComponent.$message({ type: 'error', content })
+      return
+    }
+
+    const warehouseId = props.warehouseId
+    if (warehouseId === null) return
+    data.creating = true
+    try {
+      const idempotencyKey = await createTaskSetIdempotencyKey(selection.sourceTaskIds)
+      const res = await createDispatchOrder({
+        warehouse_id: warehouseId,
+        source_task_ids: selection.sourceTaskIds,
+        idempotency_key: idempotencyKey
+      })
+      if (!res.isSuccess) {
+        hookComponent.$message({ type: 'error', content: res.errorMessage })
+        await method.getPage()
+        return
+      }
+
+      data.tableData = removeCreatedPackingTasks(data.tableData, selection.sourceTaskIds)
+      data.tablePage.total = Math.max(0, data.tablePage.total - selection.sourceTaskIds.length)
+      method.clearSelection()
+      hookComponent.$message({ type: 'success', content: 'WMS待拣货单已生成' })
+      emit('statusChanged')
+      await method.getPage()
+    } catch (error) {
+      hookComponent.$message({
+        type: 'error',
+        content: error instanceof Error ? error.message : String(error)
+      })
+      await method.getPage()
+    } finally {
+      data.creating = false
+    }
   },
   exportTable: () => {
     exportData({
@@ -175,7 +295,6 @@ onMounted(() => {
     { name: i18n.global.t('system.page.refresh'), icon: 'mdi-refresh', code: '', click: method.refresh },
     { name: i18n.global.t('system.page.export'), icon: 'mdi-export-variant', code: 'invoice-export', click: method.exportTable }
   ]
-  method.getPage()
 })
 
 const cardHeight = computed(() => computedCardHeight({ hasTab: false, hasOperateBtn: false }))
@@ -193,6 +312,16 @@ watch(
   { deep: true }
 )
 
+watch(
+  () => props.warehouseId,
+  () => {
+    data.tablePage.pageIndex = 1
+    method.clearSelection()
+    method.getPage()
+  },
+  { immediate: true }
+)
+
 defineExpose({ getPackingTask: method.getPage })
 </script>
 
@@ -205,6 +334,11 @@ defineExpose({ getPackingTask: method.getPage })
   padding: 10px 14px;
   border-radius: 6px;
   background: rgba(var(--v-theme-primary), 0.08);
+}
+
+.createOrderCol {
+  display: flex;
+  align-items: center;
 }
 
 .leftCell,
