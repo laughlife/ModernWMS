@@ -6,6 +6,7 @@ using ModernWMS.Core.DynamicSearch;
 using ModernWMS.Core.JWT;
 using ModernWMS.Core.Models;
 using ModernWMS.WMS.Services;
+using ModernWMS.WMS.Entities.Models;
 
 namespace ModernWMS.Tests.PackingTask;
 
@@ -117,9 +118,74 @@ public class PackingTaskQueryServiceTests
         Assert.Equal(102, Assert.Single(result.Data).sellfox_task_id);
     }
 
+    [Fact]
+    public async Task PageAsync_filters_by_authorized_warehouse_and_excludes_tasks_in_active_orders()
+    {
+        await using var ruoyiDatabase = CreateRuoyiDatabase();
+        await using var wmsDatabase = new SqlDBContext(new DbContextOptionsBuilder<SqlDBContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        await ruoyiDatabase.PackingTasks.AddRangeAsync(
+            Task(1, 101, "ACTIVE", 320118, DateTime.UtcNow),
+            Task(2, 102, "AVAILABLE", 320118, DateTime.UtcNow),
+            Task(3, 103, "OTHER", 9, DateTime.UtcNow));
+        var order = new DispatchOrderEntity
+        {
+            dispatch_no = "PK-1",
+            create_idempotency_key = "key-1",
+            warehouse_id = 320118,
+            status = DispatchOrderStatus.PendingPick,
+            create_time = DateTime.Now,
+            last_update_time = DateTime.Now
+        };
+        var linked = new DispatchPackingTaskEntity
+        {
+            dispatch_order = order,
+            source_task_id = 101,
+            source_task_no = "ACTIVE",
+            task_no = "ACTIVE",
+            create_time = DateTime.Now,
+            last_update_time = DateTime.Now
+        };
+        linked.SetActiveState(true);
+        await wmsDatabase.AddAsync(linked);
+        await ruoyiDatabase.SaveChangesAsync();
+        await wmsDatabase.SaveChangesAsync();
+        var access = new ModernWMS.Tests.DispatchWorkflow.RecordingWarehouseAccess();
+        var service = CreateService(ruoyiDatabase, wmsDatabase: wmsDatabase, access: access.Contract);
+        var page = new PageSearch
+        {
+            searchObjects = [new SearchObject { Name = "warehouse_id", Text = "320118" }]
+        };
+
+        var result = await service.PageAsync(page, CurrentTenant());
+
+        Assert.Equal(102, Assert.Single(result.Data).sellfox_task_id);
+        Assert.Contains(320118, access.CheckedWarehouseIds);
+    }
+
+    [Fact]
+    public async Task PageAsync_uses_role_authorized_default_instead_of_hardcoded_admin_warehouse()
+    {
+        await using var ruoyiDatabase = CreateRuoyiDatabase();
+        await using var wmsDatabase = new SqlDBContext(new DbContextOptionsBuilder<SqlDBContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        await ruoyiDatabase.PackingTasks.AddRangeAsync(
+            Task(1, 101, "ADMIN-DEFAULT", 320118, DateTime.UtcNow),
+            Task(2, 102, "ROLE-DEFAULT", 9, DateTime.UtcNow));
+        await ruoyiDatabase.SaveChangesAsync();
+        var access = new ModernWMS.Tests.DispatchWorkflow.RecordingWarehouseAccess { DefaultWarehouseId = 9 };
+        var service = CreateService(ruoyiDatabase, wmsDatabase: wmsDatabase, access: access.Contract);
+
+        var result = await service.PageAsync(new PageSearch(), CurrentTenant());
+
+        Assert.Equal(102, Assert.Single(result.Data).sellfox_task_id);
+    }
+
     private static PackingTaskQueryService CreateService(
         RuoyiDbContext ruoyiDatabase,
-        bool enabled = true)
+        bool enabled = true,
+        SqlDBContext? wmsDatabase = null,
+        ModernWMS.WMS.IServices.IWarehouseAccessService? access = null)
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -127,7 +193,9 @@ public class PackingTaskQueryServiceTests
                 ["Features:PackingTaskFirstStep"] = enabled.ToString()
             })
             .Build();
-        return new PackingTaskQueryService(ruoyiDatabase, configuration);
+        return wmsDatabase == null
+            ? new PackingTaskQueryService(ruoyiDatabase, configuration)
+            : new PackingTaskQueryService(ruoyiDatabase, configuration, wmsDatabase, access!);
     }
 
     private static ErpPackingTaskEntity Task(

@@ -5,6 +5,7 @@ using ModernWMS.Core.JWT;
 using ModernWMS.Core.Models;
 using ModernWMS.WMS.Entities.ViewModels;
 using ModernWMS.WMS.IServices;
+using ModernWMS.WMS.Entities.Models;
 
 namespace ModernWMS.WMS.Services;
 
@@ -15,16 +16,29 @@ public class PackingTaskQueryService : IPackingTaskQueryService
 {
     private readonly RuoyiDbContext _ruoyiDbContext;
     private readonly IConfiguration _configuration;
+    private readonly SqlDBContext? _wmsDbContext;
+    private readonly IWarehouseAccessService? _warehouseAccessService;
 
     public PackingTaskQueryService(
         RuoyiDbContext ruoyiDbContext,
         IConfiguration configuration)
+        : this(ruoyiDbContext, configuration, null, null)
+    {
+    }
+
+    public PackingTaskQueryService(
+        RuoyiDbContext ruoyiDbContext,
+        IConfiguration configuration,
+        SqlDBContext? wmsDbContext,
+        IWarehouseAccessService? warehouseAccessService)
     {
         _ruoyiDbContext = ruoyiDbContext;
         _configuration = configuration;
+        _wmsDbContext = wmsDbContext;
+        _warehouseAccessService = warehouseAccessService;
     }
 
-    public async Task<PackingTaskQueryResult> PageAsync(PageSearch pageSearch, CurrentUser _)
+    public async Task<PackingTaskQueryResult> PageAsync(PageSearch pageSearch, CurrentUser currentUser)
     {
         if (!_configuration.GetValue("Features:PackingTaskFirstStep", false))
         {
@@ -32,9 +46,47 @@ public class PackingTaskQueryService : IPackingTaskQueryService
         }
 
         var keyword = FindSearchText(pageSearch, "keyword");
+        var warehouseText = FindSearchText(pageSearch, "warehouse_id");
+        long? warehouseId = long.TryParse(warehouseText, out var parsedWarehouseId) && parsedWarehouseId > 0
+            ? parsedWarehouseId
+            : null;
+        if (_warehouseAccessService != null)
+        {
+            if (warehouseId == null)
+            {
+                warehouseId = (await _warehouseAccessService.GetAllowedAsync(currentUser)).default_warehouse_id;
+                if (warehouseId == null)
+                {
+                    return new PackingTaskQueryResult(true, string.Empty, [], 0);
+                }
+            }
+            else
+            {
+                await _warehouseAccessService.EnsureAllowedAsync(warehouseId.Value, currentUser);
+            }
+        }
+
         var query = _ruoyiDbContext.PackingTasks.AsNoTracking()
             .Where(t => !t.source_deleted
                 && !t.source_canceled);
+
+        if (warehouseId != null)
+        {
+            query = query.Where(t => t.warehouse_id == warehouseId.Value);
+        }
+
+        if (_wmsDbContext != null)
+        {
+            var activeSourceTaskIds = await _wmsDbContext.GetDbSet<DispatchPackingTaskEntity>()
+                .AsNoTracking()
+                .Where(t => t.active_source_task_id != null)
+                .Select(t => t.active_source_task_id!.Value)
+                .ToListAsync();
+            if (activeSourceTaskIds.Count > 0)
+            {
+                query = query.Where(t => !activeSourceTaskIds.Contains(t.sellfox_task_id));
+            }
+        }
 
         if (!string.IsNullOrWhiteSpace(keyword))
         {
