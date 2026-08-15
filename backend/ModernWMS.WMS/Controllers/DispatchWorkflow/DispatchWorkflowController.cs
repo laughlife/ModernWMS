@@ -129,6 +129,33 @@ public sealed class DispatchWorkflowController : BaseController
             id, request, CurrentUser, cancellationToken));
 
     [Authorize]
+    [HttpPost("{id:int}/confirm-outbound")]
+    public Task<ActionResult<ResultModel<OutboundCommandResult>>> ConfirmOutboundAsync(
+        int id,
+        OutboundCommandRequest request,
+        CancellationToken cancellationToken) =>
+        ExecuteAsync(() => _workflowService.ConfirmOutboundAsync(
+            id, request, CurrentUser, cancellationToken));
+
+    [Authorize]
+    [HttpPost("{id:int}/cancel-outbound")]
+    public Task<ActionResult<ResultModel<OutboundCommandResult>>> CancelOutboundAsync(
+        int id,
+        OutboundCommandRequest request,
+        CancellationToken cancellationToken) =>
+        ExecuteAsync(() => _workflowService.CancelOutboundAsync(
+            id, request, CurrentUser, cancellationToken));
+
+    [Authorize]
+    [HttpPost("{id:int}/sign")]
+    public Task<ActionResult<ResultModel<SignDispatchOrderResult>>> SignAsync(
+        int id,
+        SignDispatchOrderRequest request,
+        CancellationToken cancellationToken) =>
+        ExecuteAsync(() => _workflowService.SignAsync(
+            id, request, CurrentUser, cancellationToken));
+
+    [Authorize]
     [HttpPost("{id:int}/source-decision")]
     public Task<ActionResult<ResultModel<SourceDecisionResult>>> DecideSourceChangeAsync(
         int id,

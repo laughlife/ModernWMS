@@ -10,6 +10,9 @@ public interface IDispatchSignNotificationClient : IDependency
 {
     /// <summary>Publishes a successful WMS signing event.</summary>
     Task NotifySignedAsync(string dispatchNo, CancellationToken cancellationToken = default);
+
+    /// <summary>Attempts delivery and reports whether the downstream endpoint accepted it.</summary>
+    Task<bool> TryNotifySignedAsync(string dispatchNo, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Token-authenticated ERP client for WMS signing notifications.</summary>
@@ -32,12 +35,19 @@ public sealed class DispatchSignNotificationClient : IDispatchSignNotificationCl
     /// <inheritdoc />
     public async Task NotifySignedAsync(string dispatchNo, CancellationToken cancellationToken = default)
     {
+        _ = await TryNotifySignedAsync(dispatchNo, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TryNotifySignedAsync(
+        string dispatchNo, CancellationToken cancellationToken = default)
+    {
         var url = _configuration["ErpIntegration:WmsSignNotificationUrl"];
         var token = _configuration["ErpIntegration:InternalToken"];
         if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(token))
         {
             _logger.LogError("ERP 签收通知地址或内部 Token 未配置，dispatchNo={DispatchNo}", dispatchNo);
-            return;
+            return false;
         }
         try
         {
@@ -48,10 +58,12 @@ public sealed class DispatchSignNotificationClient : IDispatchSignNotificationCl
             request.Headers.Add(TokenHeader, token);
             using var response = await _httpClientFactory.CreateClient().SendAsync(request, cancellationToken);
             response.EnsureSuccessStatusCode();
+            return true;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "ERP 签收钉钉通知调用失败，dispatchNo={DispatchNo}", dispatchNo);
+            return false;
         }
     }
 }

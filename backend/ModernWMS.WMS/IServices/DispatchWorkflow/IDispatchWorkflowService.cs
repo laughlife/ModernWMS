@@ -62,6 +62,24 @@ public interface IDispatchWorkflowService : IDependency
         CurrentUser currentUser,
         CancellationToken cancellationToken = default);
 
+    Task<OutboundCommandResult> ConfirmOutboundAsync(
+        int orderId,
+        OutboundCommandRequest request,
+        CurrentUser currentUser,
+        CancellationToken cancellationToken = default);
+
+    Task<OutboundCommandResult> CancelOutboundAsync(
+        int orderId,
+        OutboundCommandRequest request,
+        CurrentUser currentUser,
+        CancellationToken cancellationToken = default);
+
+    Task<SignDispatchOrderResult> SignAsync(
+        int orderId,
+        SignDispatchOrderRequest request,
+        CurrentUser currentUser,
+        CancellationToken cancellationToken = default);
+
     Task<DispatchOrderDetailViewModel> CreateAsync(
         CreateDispatchOrderRequest request,
         CurrentUser currentUser,

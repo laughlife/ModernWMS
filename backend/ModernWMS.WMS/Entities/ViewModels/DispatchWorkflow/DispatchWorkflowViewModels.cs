@@ -35,6 +35,34 @@ public sealed class WeighingCommandResult
     public long row_version { get; set; }
 }
 
+public sealed class OutboundCommandRequest
+{
+    public string request_id { get; set; } = string.Empty;
+    public long row_version { get; set; }
+}
+
+public class OutboundCommandResult
+{
+    public int order_id { get; set; }
+    public string request_id { get; set; } = string.Empty;
+    public string status { get; set; } = string.Empty;
+    public long row_version { get; set; }
+}
+
+public sealed class SignDispatchOrderRequest
+{
+    public string request_id { get; set; } = string.Empty;
+    public long row_version { get; set; }
+    public int damaged_qty { get; set; }
+}
+
+public sealed class SignDispatchOrderResult : OutboundCommandResult
+{
+    public int signed_qty { get; set; }
+    public int damaged_qty { get; set; }
+    public string notification_status { get; set; } = string.Empty;
+}
+
 public sealed record SaveWeighingBoxRequest
 {
     public string request_id { get; set; } = string.Empty;

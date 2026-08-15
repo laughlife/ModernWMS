@@ -10,6 +10,7 @@ using ModernWMS.WMS.Entities.ViewModels.PackingTask;
 using ModernWMS.WMS.IServices;
 using ModernWMS.WMS.IServices.DispatchWorkflow;
 using ModernWMS.WMS.IServices.PackingTask;
+using ModernWMS.WMS.Services.Dispatchlist;
 
 namespace ModernWMS.WMS.Services.DispatchWorkflow;
 
@@ -18,15 +19,18 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
     private readonly SqlDBContext _dbContext;
     private readonly IPackingTaskSourceReader _sourceReader;
     private readonly IWarehouseAccessService _warehouseAccessService;
+    private readonly IDispatchSignNotificationClient? _dispatchSignNotificationClient;
 
     public DispatchWorkflowService(
         SqlDBContext dbContext,
         IPackingTaskSourceReader sourceReader,
-        IWarehouseAccessService warehouseAccessService)
+        IWarehouseAccessService warehouseAccessService,
+        IDispatchSignNotificationClient? dispatchSignNotificationClient = null)
     {
         _dbContext = dbContext;
         _sourceReader = sourceReader;
         _warehouseAccessService = warehouseAccessService;
+        _dispatchSignNotificationClient = dispatchSignNotificationClient;
     }
 
     public async Task<DispatchOrderDetailViewModel> PrintAsync(
