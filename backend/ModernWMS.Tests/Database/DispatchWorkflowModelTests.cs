@@ -31,7 +31,10 @@ public class DispatchWorkflowModelTests
         AssertUniqueIndex<DispatchPackingTaskItemEntity>(model,
             nameof(DispatchPackingTaskItemEntity.packing_task_id), nameof(DispatchPackingTaskItemEntity.source_item_id));
         AssertUniqueIndex<DispatchSourceChangeEventEntity>(model,
-            nameof(DispatchSourceChangeEventEntity.dispatch_order_id), nameof(DispatchSourceChangeEventEntity.source_version));
+            nameof(DispatchSourceChangeEventEntity.dispatch_order_id), nameof(DispatchSourceChangeEventEntity.source_version),
+            nameof(DispatchSourceChangeEventEntity.decision));
+        AssertUniqueIndex<DispatchSourceChangeEventEntity>(model,
+            nameof(DispatchSourceChangeEventEntity.event_idempotency_key));
         AssertUniqueIndex<WeighingBoxEntity>(model,
             nameof(WeighingBoxEntity.packing_task_id), nameof(WeighingBoxEntity.source_box_identity));
         AssertUniqueIndex<RoleWarehouseEntity>(model,
@@ -88,6 +91,15 @@ public class DispatchWorkflowModelTests
         var operation = Assert.Single(migration.UpOperations.OfType<AddForeignKeyOperation>(), key =>
             key.Table == "wms_dispatch_source_change_event" && key.PrincipalTable == "wms_dispatch_order");
         Assert.Equal(ReferentialAction.Restrict, operation.OnDelete);
+    }
+
+    [Fact]
+    public void Source_change_decisions_keep_existing_contract_and_add_detected_event()
+    {
+        Assert.Equal((byte)1, (byte)DispatchSourceChangeDecision.ContinueShipment);
+        Assert.Equal((byte)2, (byte)DispatchSourceChangeDecision.CancelShipment);
+        Assert.Equal((byte)3, (byte)DispatchSourceChangeDecision.OutboundAnomaly);
+        Assert.Equal((byte)4, (byte)DispatchSourceChangeDecision.Detected);
     }
 
     [Fact]

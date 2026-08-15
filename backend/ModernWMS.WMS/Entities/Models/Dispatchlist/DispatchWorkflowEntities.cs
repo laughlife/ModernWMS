@@ -22,7 +22,8 @@ public enum DispatchSourceChangeDecision : byte
 {
     ContinueShipment = 1,
     CancelShipment = 2,
-    OutboundAnomaly = 3
+    OutboundAnomaly = 3,
+    Detected = 4
 }
 
 /// <summary>
@@ -142,7 +143,7 @@ public class DispatchPackingTaskItemEntity : BaseModel
 /// Append-only source-change adjudication/audit event. Services must insert a new row and never update it.
 /// </summary>
 [Table("dispatch_source_change_event")]
-[Index(nameof(dispatch_order_id), nameof(source_version), IsUnique = true)]
+[Index(nameof(dispatch_order_id), nameof(source_version), nameof(decision), IsUnique = true)]
 [Index(nameof(event_idempotency_key), IsUnique = true)]
 public class DispatchSourceChangeEventEntity : BaseModel
 {
