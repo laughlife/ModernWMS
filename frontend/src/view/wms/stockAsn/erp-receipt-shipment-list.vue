@@ -94,10 +94,20 @@
         </template>
       </vxe-column>
       <vxe-column field="supplier_name" :title="$t('wms.erpPendingReceipt.supplier_name')" min-width="150"></vxe-column>
-      <vxe-column field="product_summary" :title="$t('wms.erpPendingReceipt.product_summary')" min-width="280"></vxe-column>
+      <vxe-column :title="$t('wms.erpPendingReceipt.product_summary')" min-width="280">
+        <template #default="{ row }">
+          <div class="productSummaryList">
+            <div v-for="(product, index) in row.product_list" :key="product.task_item_id ?? index" class="productSummaryItem">
+              <div class="productSummaryTitle">{{ buildReceiptProductDisplay(product).title }}</div>
+              <div class="productSummarySku">{{ buildReceiptProductDisplay(product).sku }}</div>
+            </div>
+            <div v-if="row.product_list.length === 0">{{ row.product_summary || '-' }}</div>
+          </div>
+        </template>
+      </vxe-column>
       <vxe-column field="shipment_qty" :title="$t('wms.erpPendingReceipt.shipment_qty')" width="110"></vxe-column>
-      <vxe-column field="tracking_no" :title="$t('wms.erpPendingReceipt.tracking_no')" min-width="180"></vxe-column>
       <vxe-column field="logistics_name" :title="$t('wms.erpPendingReceipt.logistics_name')" min-width="130"></vxe-column>
+      <vxe-column field="tracking_no" :title="$t('wms.erpPendingReceipt.tracking_no')" min-width="180"></vxe-column>
       <vxe-column field="tracking_status_name" :title="$t('wms.erpPendingReceipt.tracking_status')" min-width="130"></vxe-column>
       <vxe-column field="latest_event_desc" :title="$t('wms.erpPendingReceipt.latest_event_desc')" min-width="240"></vxe-column>
       <vxe-column field="shipment_time" :title="$t('wms.erpPendingReceipt.shipment_time')" min-width="170"></vxe-column>
@@ -147,6 +157,7 @@ import type { btnGroupItem, SearchObject } from '@/types/System/Form'
 import type { ErpPendingReceiptVO } from '@/types/WMS/StockAsn'
 import { getMenuAuthorityList, setSearchObject } from '@/utils/common'
 import { exportData } from '@/utils/exportTable'
+import { buildReceiptProductDisplay } from '@/utils/receiptProductDisplay'
 
 const props = defineProps<{
   listType: 'pending' | 'arrived'
@@ -283,6 +294,29 @@ watch(
 
 .productInfoSku {
   margin-top: 4px;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  font-size: 12px;
+}
+
+.productSummaryList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+}
+
+.productSummaryItem + .productSummaryItem {
+  padding-top: 8px;
+  border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
+
+.productSummaryTitle {
+  color: rgba(var(--v-theme-on-surface), 0.87);
+  font-weight: 500;
+}
+
+.productSummarySku {
+  margin-top: 3px;
   color: rgba(var(--v-theme-on-surface), 0.6);
   font-size: 12px;
 }
