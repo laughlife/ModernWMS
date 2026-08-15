@@ -6,6 +6,17 @@ namespace ModernWMS.WMS.IServices.DispatchWorkflow;
 
 public interface IDispatchWorkflowService : IDependency
 {
+    Task<PostPickSourceGuardResult> EnsurePostPickSourceCurrentAsync(
+        int dispatchOrderId,
+        CurrentUser currentUser,
+        CancellationToken cancellationToken = default);
+
+    Task<SourceDecisionResult> DecideSourceChangeAsync(
+        int dispatchOrderId,
+        SourceDecisionRequest request,
+        CurrentUser currentUser,
+        CancellationToken cancellationToken = default);
+
     Task<CompletePickingResult> CompletePickingAsync(
         int orderId,
         CompletePickingRequest request,

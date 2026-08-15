@@ -424,7 +424,7 @@ public partial class DispatchWorkflowService
     }
 }
 
-public sealed class DispatchWorkflowCommandException : InvalidOperationException
+public sealed partial class DispatchWorkflowCommandException : InvalidOperationException
 {
     private DispatchWorkflowCommandException(string errorCode, string detail)
         : base(string.IsNullOrWhiteSpace(detail) ? errorCode : $"{errorCode}: {detail}") =>

@@ -21,6 +21,34 @@ public sealed class CompletePickingResult
     public long row_version { get; set; }
 }
 
+public sealed class SourceDecisionRequest
+{
+    public string decision { get; set; } = string.Empty;
+    public string source_version { get; set; } = string.Empty;
+    public string reason { get; set; } = string.Empty;
+    public string request_id { get; set; } = string.Empty;
+    public long row_version { get; set; }
+}
+
+public sealed class PostPickSourceGuardResult
+{
+    public bool source_change_pending { get; set; }
+    public string error_code { get; set; } = string.Empty;
+    public string source_version { get; set; } = string.Empty;
+    public long row_version { get; set; }
+}
+
+public sealed class SourceDecisionResult
+{
+    public int order_id { get; set; }
+    public string request_id { get; set; } = string.Empty;
+    public string decision { get; set; } = string.Empty;
+    public string source_version { get; set; } = string.Empty;
+    public string status { get; set; } = string.Empty;
+    public bool source_change_pending { get; set; }
+    public long row_version { get; set; }
+}
+
 public sealed class DispatchOrderPageRequest
 {
     public string status { get; set; } = string.Empty;

@@ -73,6 +73,14 @@ public sealed class DispatchWorkflowController : BaseController
         CancellationToken cancellationToken) =>
         ExecuteAsync(() => _workflowService.CompletePickingAsync(id, request, CurrentUser, cancellationToken));
 
+    [Authorize]
+    [HttpPost("{id:int}/source-decision")]
+    public Task<ActionResult<ResultModel<SourceDecisionResult>>> DecideSourceChangeAsync(
+        int id,
+        SourceDecisionRequest request,
+        CancellationToken cancellationToken) =>
+        ExecuteAsync(() => _workflowService.DecideSourceChangeAsync(id, request, CurrentUser, cancellationToken));
+
     [HttpGet("{id:int}/print")]
     public Task<ActionResult<ResultModel<DispatchOrderDetailViewModel>>> PrintAsync(
         int id,
