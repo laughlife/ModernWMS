@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ModernWMS.Core.DBContext.Entities;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels.DispatchWorkflow;
 
@@ -6,6 +7,108 @@ namespace ModernWMS.Tests.DispatchWorkflow;
 
 public class DispatchWorkflowReconciliationTests
 {
+    [Fact]
+    public async Task ReconcileAsync_refreshes_the_current_tenant_commodity_mapping_without_merging_tasks()
+    {
+        await using var db = TestContext.CreateDatabase();
+        var source = new MutableSourceReader(
+            TestContext.Task(101, "CW-101", 320118, TestContext.Item(1001, "SAME", 2)),
+            TestContext.Task(102, "CW-102", 320118, TestContext.Item(1002, "SAME", 3)));
+        var service = TestContext.CreateService(db, source);
+        var order = await service.CreateAsync(
+            new CreateDispatchOrderRequest { warehouse_id = 320118, source_task_ids = [101, 102] },
+            TestContext.User());
+        var maps = await db.GetDbSet<ErpCommodityMapEntity>().ToListAsync();
+        maps.ForEach(t => t.wms_sku_id = 55);
+        await db.SaveChangesAsync();
+
+        var reconciled = await service.ReconcileAsync(order.id, TestContext.User());
+
+        Assert.Equal(2, reconciled.packing_tasks.Count);
+        Assert.All(reconciled.packing_tasks, task => Assert.Equal(55, Assert.Single(task.items).wms_sku_id));
+        Assert.Equal(2, await db.GetDbSet<DispatchPackingTaskItemEntity>().CountAsync(t => t.is_active));
+    }
+
+    [Fact]
+    public async Task ReconcileAsync_fails_closed_when_a_current_tenant_commodity_mapping_is_missing()
+    {
+        await using var db = TestContext.CreateDatabase();
+        var source = new MutableSourceReader(
+            TestContext.Task(101, "CW-101", 320118, TestContext.Item(1001, "SKU", 2)));
+        var service = TestContext.CreateService(db, source);
+        var order = await service.CreateAsync(
+            new CreateDispatchOrderRequest { warehouse_id = 320118, source_task_ids = [101] },
+            TestContext.User());
+        var taskBefore = await db.GetDbSet<DispatchPackingTaskEntity>().SingleAsync();
+        var itemBefore = await db.GetDbSet<DispatchPackingTaskItemEntity>().SingleAsync();
+        db.GetDbSet<DispatchpicklistEntity>().Add(new DispatchpicklistEntity
+        {
+            packing_task_item_id = itemBefore.id,
+            pick_qty = 1,
+            picked_qty = 0
+        });
+        await db.SaveChangesAsync();
+        db.Remove(await db.GetDbSet<ErpCommodityMapEntity>().SingleAsync());
+        await db.SaveChangesAsync();
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.ReconcileAsync(order.id, TestContext.User()));
+
+        Assert.Contains("WMS SKU mapping", exception.Message);
+        db.ChangeTracker.Clear();
+        var orderAfter = await db.GetDbSet<DispatchOrderEntity>().SingleAsync();
+        var taskAfter = await db.GetDbSet<DispatchPackingTaskEntity>().SingleAsync();
+        var itemAfter = await db.GetDbSet<DispatchPackingTaskItemEntity>().SingleAsync();
+        Assert.Equal(order.source_version, orderAfter.source_version);
+        Assert.Equal(order.row_version, orderAfter.row_version);
+        Assert.Equal(taskBefore.source_version, taskAfter.source_version);
+        Assert.Equal(itemBefore.wms_sku_id, itemAfter.wms_sku_id);
+        Assert.Single(await db.GetDbSet<DispatchpicklistEntity>().ToListAsync());
+    }
+
+    [Fact]
+    public async Task ReconcileAsync_fails_closed_when_current_tenant_mapping_is_ambiguous()
+    {
+        await using var db = TestContext.CreateDatabase();
+        var item = TestContext.Item(1001, "SKU", 2);
+        var source = new MutableSourceReader(TestContext.Task(101, "CW-101", 320118, item));
+        var service = TestContext.CreateService(db, source);
+        var order = await service.CreateAsync(
+            new CreateDispatchOrderRequest { warehouse_id = 320118, source_task_ids = [101] },
+            TestContext.User());
+        var taskBefore = await db.GetDbSet<DispatchPackingTaskEntity>().SingleAsync();
+        var itemBefore = await db.GetDbSet<DispatchPackingTaskItemEntity>().SingleAsync();
+        db.GetDbSet<DispatchpicklistEntity>().Add(new DispatchpicklistEntity
+        {
+            packing_task_item_id = itemBefore.id,
+            pick_qty = 1,
+            picked_qty = 0
+        });
+        db.GetDbSet<ErpCommodityMapEntity>().Add(new ErpCommodityMapEntity
+        {
+            erp_commodity_id = item.CommodityId!.Value,
+            wms_spu_id = 2,
+            wms_sku_id = 99,
+            commodity_sku = item.CommoditySku,
+            tenant_id = TestContext.User().tenant_id
+        });
+        await db.SaveChangesAsync();
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.ReconcileAsync(order.id, TestContext.User()));
+
+        Assert.Contains("WMS SKU mapping", exception.Message);
+        db.ChangeTracker.Clear();
+        var orderAfter = await db.GetDbSet<DispatchOrderEntity>().SingleAsync();
+        var taskAfter = await db.GetDbSet<DispatchPackingTaskEntity>().SingleAsync();
+        var itemAfter = await db.GetDbSet<DispatchPackingTaskItemEntity>().SingleAsync();
+        Assert.Equal(order.source_version, orderAfter.source_version);
+        Assert.Equal(order.row_version, orderAfter.row_version);
+        Assert.Equal(taskBefore.source_version, taskAfter.source_version);
+        Assert.Equal(itemBefore.wms_sku_id, itemAfter.wms_sku_id);
+        Assert.Single(await db.GetDbSet<DispatchpicklistEntity>().ToListAsync());
+    }
+
     [Fact]
     public async Task ReconcileAsync_rebuilds_only_changed_task_items_and_preserves_other_task_boundary()
     {
@@ -17,7 +120,9 @@ public class DispatchWorkflowReconciliationTests
         var order = await service.CreateAsync(
             new CreateDispatchOrderRequest { warehouse_id = 320118, source_task_ids = [101, 102] },
             TestContext.User());
-        source.Set(TestContext.Task(101, "CW-101", 320118, TestContext.Item(1003, "NEW", 7)));
+        var changed = TestContext.Task(101, "CW-101", 320118, TestContext.Item(1003, "NEW", 7));
+        TestContext.SeedCommodityMaps(db, changed);
+        source.Set(changed);
 
         var reconciled = await service.ReconcileAsync(order.id, TestContext.User());
 
@@ -98,7 +203,9 @@ public class DispatchWorkflowReconciliationTests
         var order = await service.CreateAsync(
             new CreateDispatchOrderRequest { warehouse_id = 320118, source_task_ids = [101] },
             TestContext.User());
-        source.Set(TestContext.Task(101, "CW-101", 320118, TestContext.Item(1002, "MIDDLE", 2)));
+        var middle = TestContext.Task(101, "CW-101", 320118, TestContext.Item(1002, "MIDDLE", 2));
+        TestContext.SeedCommodityMaps(db, middle);
+        source.Set(middle);
         var commitRead = source.ReadCount + 2;
         source.BeforeRead = readCount =>
         {
@@ -133,7 +240,9 @@ public class DispatchWorkflowReconciliationTests
             picked_qty = 1
         });
         await db.SaveChangesAsync();
-        source.Set(TestContext.Task(101, "CW-101", 320118, TestContext.Item(1002, "NEW", 4)));
+        var changed = TestContext.Task(101, "CW-101", 320118, TestContext.Item(1002, "NEW", 4));
+        TestContext.SeedCommodityMaps(db, changed);
+        source.Set(changed);
 
         await service.ReconcileAsync(order.id, TestContext.User());
 

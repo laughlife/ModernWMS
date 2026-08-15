@@ -54,6 +54,8 @@ public partial class DispatchWorkflowService
             throw new InvalidOperationException("packing task warehouse changed; order reconciliation rejected");
         }
 
+        var skuMappings = await ResolveCurrentSkuMappingsAsync(
+            snapshots, order.tenant_id, cancellationToken);
         var now = DateTime.Now;
         foreach (var task in activeTasks)
         {
@@ -67,7 +69,11 @@ public partial class DispatchWorkflowService
             if (!string.Equals(task.source_version, snapshot.SourceVersion, StringComparison.Ordinal))
             {
                 await RemoveTaskAllocationsAsync(task, cancellationToken);
-                RebuildTaskItems(task, snapshot, now);
+                RebuildTaskItems(task, snapshot, skuMappings, now);
+            }
+            else
+            {
+                RefreshTaskSkuMappings(task, snapshot, skuMappings, now);
             }
         }
 
@@ -150,6 +156,7 @@ public partial class DispatchWorkflowService
     private static void RebuildTaskItems(
         DispatchPackingTaskEntity task,
         PackingTaskSourceSnapshot snapshot,
+        IReadOnlyDictionary<long, int> skuMappings,
         DateTime now)
     {
         var sourceItems = snapshot.Items.ToDictionary(t => t.SourceItemId);
@@ -157,7 +164,7 @@ public partial class DispatchWorkflowService
         {
             if (sourceItems.TryGetValue(existing.source_item_id, out var current))
             {
-                ApplyItem(existing, current, snapshot.SourceVersion, now);
+                ApplyItem(existing, current, snapshot.SourceVersion, skuMappings, now);
                 sourceItems.Remove(existing.source_item_id);
             }
             else
@@ -169,7 +176,7 @@ public partial class DispatchWorkflowService
 
         foreach (var item in sourceItems.Values)
         {
-            task.items.Add(CreateItem(item, snapshot.SourceVersion, now));
+            task.items.Add(CreateItem(item, snapshot.SourceVersion, skuMappings, now));
         }
 
         task.task_no = snapshot.TaskNo;
@@ -185,9 +192,11 @@ public partial class DispatchWorkflowService
         DispatchPackingTaskItemEntity entity,
         PackingTaskSourceItem source,
         string sourceVersion,
+        IReadOnlyDictionary<long, int> skuMappings,
         DateTime now)
     {
         entity.source_commodity_id = source.CommodityId;
+        entity.wms_sku_id = MappedSkuId(source, skuMappings);
         entity.commodity_sku = source.CommoditySku;
         entity.commodity_name = source.CommodityName;
         entity.fn_sku = source.FnSku;
@@ -198,5 +207,28 @@ public partial class DispatchWorkflowService
         entity.source_snapshot = source.SourceSnapshot;
         entity.is_active = true;
         entity.last_update_time = now;
+    }
+
+    private static void RefreshTaskSkuMappings(
+        DispatchPackingTaskEntity task,
+        PackingTaskSourceSnapshot snapshot,
+        IReadOnlyDictionary<long, int> skuMappings,
+        DateTime now)
+    {
+        var sourceItems = snapshot.Items.ToDictionary(t => t.SourceItemId);
+        foreach (var entity in task.items.Where(t => t.is_active))
+        {
+            if (!sourceItems.TryGetValue(entity.source_item_id, out var source))
+            {
+                throw new InvalidOperationException("packing task source version does not match its item snapshot");
+            }
+
+            var mappedSkuId = MappedSkuId(source, skuMappings);
+            if (entity.wms_sku_id != mappedSkuId)
+            {
+                entity.wms_sku_id = mappedSkuId;
+                entity.last_update_time = now;
+            }
+        }
     }
 }

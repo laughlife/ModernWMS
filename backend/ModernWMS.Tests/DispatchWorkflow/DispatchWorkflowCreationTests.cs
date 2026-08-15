@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using ModernWMS.Core.DBContext;
+using ModernWMS.Core.DBContext.Entities;
 using ModernWMS.Core.JWT;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels.DispatchWorkflow;
@@ -13,6 +14,98 @@ namespace ModernWMS.Tests.DispatchWorkflow;
 
 public class DispatchWorkflowCreationTests
 {
+    [Fact]
+    public async Task CreateAsync_fails_atomically_when_current_tenant_commodity_mapping_is_missing()
+    {
+        await using var db = TestContext.CreateDatabase();
+        var source = new MutableSourceReader(
+            TestContext.Task(101, "CW-101", 320118, TestContext.Item(1001, "SKU", 2)));
+        var service = TestContext.CreateService(db, source);
+        db.Remove(await db.GetDbSet<ErpCommodityMapEntity>().SingleAsync());
+        await db.SaveChangesAsync();
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateAsync(
+            new CreateDispatchOrderRequest { warehouse_id = 320118, source_task_ids = [101] },
+            TestContext.User()));
+
+        Assert.Contains("WMS SKU mapping", exception.Message);
+        Assert.Empty(await db.GetDbSet<DispatchOrderEntity>().ToListAsync());
+        Assert.Empty(await db.GetDbSet<DispatchPackingTaskEntity>().ToListAsync());
+        Assert.Empty(await db.GetDbSet<DispatchPackingTaskItemEntity>().ToListAsync());
+    }
+
+    [Fact]
+    public async Task CreateAsync_fails_atomically_when_current_tenant_commodity_mapping_is_ambiguous()
+    {
+        await using var db = TestContext.CreateDatabase();
+        var item = TestContext.Item(1001, "SKU", 2);
+        var source = new MutableSourceReader(TestContext.Task(101, "CW-101", 320118, item));
+        var service = TestContext.CreateService(db, source);
+        db.GetDbSet<ErpCommodityMapEntity>().Add(new ErpCommodityMapEntity
+        {
+            erp_commodity_id = item.CommodityId!.Value,
+            wms_spu_id = 2,
+            wms_sku_id = 99,
+            commodity_sku = item.CommoditySku,
+            tenant_id = TestContext.User().tenant_id
+        });
+        await db.SaveChangesAsync();
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateAsync(
+            new CreateDispatchOrderRequest { warehouse_id = 320118, source_task_ids = [101] },
+            TestContext.User()));
+
+        Assert.Contains("WMS SKU mapping", exception.Message);
+        Assert.Empty(await db.GetDbSet<DispatchOrderEntity>().ToListAsync());
+        Assert.Empty(await db.GetDbSet<DispatchPackingTaskEntity>().ToListAsync());
+        Assert.Empty(await db.GetDbSet<DispatchPackingTaskItemEntity>().ToListAsync());
+    }
+
+    [Fact]
+    public async Task CreateAsync_ignores_the_same_commodity_mapping_from_another_tenant()
+    {
+        await using var db = TestContext.CreateDatabase();
+        var item = TestContext.Item(1001, "SKU", 2);
+        var source = new MutableSourceReader(TestContext.Task(101, "CW-101", 320118, item));
+        var service = TestContext.CreateService(db, source);
+        (await db.GetDbSet<ErpCommodityMapEntity>().SingleAsync()).wms_sku_id = 321;
+        db.GetDbSet<ErpCommodityMapEntity>().Add(new ErpCommodityMapEntity
+        {
+            erp_commodity_id = item.CommodityId!.Value,
+            wms_spu_id = 9,
+            wms_sku_id = 999,
+            commodity_sku = item.CommoditySku,
+            tenant_id = 999
+        });
+        await db.SaveChangesAsync();
+
+        var created = await service.CreateAsync(
+            new CreateDispatchOrderRequest { warehouse_id = 320118, source_task_ids = [101] },
+            TestContext.User());
+
+        Assert.Equal(321, Assert.Single(Assert.Single(created.packing_tasks).items).wms_sku_id);
+    }
+
+    [Fact]
+    public async Task CreateAsync_persists_the_current_tenant_commodity_mapping_on_each_source_item()
+    {
+        await using var db = TestContext.CreateDatabase();
+        var source = new MutableSourceReader(
+            TestContext.Task(101, "CW-101", 320118, TestContext.Item(1001, "SKU-1", 2)));
+        var service = TestContext.CreateService(db, source);
+        var commodityId = TestContext.Item(1001, "SKU-1", 2).CommodityId!.Value;
+        var map = await db.GetDbSet<ErpCommodityMapEntity>()
+            .SingleAsync(t => t.tenant_id == TestContext.User().tenant_id && t.erp_commodity_id == commodityId);
+        map.wms_sku_id = 321;
+        await db.SaveChangesAsync();
+
+        var created = await service.CreateAsync(
+            new CreateDispatchOrderRequest { warehouse_id = 320118, source_task_ids = [101] },
+            TestContext.User());
+
+        Assert.Equal(321, Assert.Single(Assert.Single(created.packing_tasks).items).wms_sku_id);
+    }
+
     [Fact]
     public async Task CreateAsync_rejects_cross_warehouse_task_set_without_writing_any_order()
     {
@@ -161,8 +254,11 @@ internal static class TestContext
     public static DispatchWorkflowService CreateService(
         SqlDBContext db,
         MutableSourceReader source,
-        RecordingWarehouseAccess? access = null) =>
-        new(db, source.Contract, (access ?? new RecordingWarehouseAccess()).Contract);
+        RecordingWarehouseAccess? access = null)
+    {
+        source.AttachMappingDatabase(db);
+        return new(db, source.Contract, (access ?? new RecordingWarehouseAccess()).Contract);
+    }
 
     public static CurrentUser User() => new()
     {
@@ -171,6 +267,38 @@ internal static class TestContext
         user_role = "admin",
         tenant_id = 88
     };
+
+    public static void SeedCommodityMaps(
+        SqlDBContext database,
+        params PackingTaskSourceSnapshot[] snapshots)
+    {
+        var tenantId = User().tenant_id;
+        var existing = database.GetDbSet<ErpCommodityMapEntity>()
+            .Where(t => t.tenant_id == tenantId)
+            .Select(t => t.erp_commodity_id)
+            .ToHashSet();
+        foreach (var item in snapshots.SelectMany(t => t.Items)
+                     .Where(t => t.CommodityId.HasValue)
+                     .GroupBy(t => t.CommodityId!.Value)
+                     .Select(t => t.First()))
+        {
+            if (!existing.Add(item.CommodityId!.Value))
+            {
+                continue;
+            }
+
+            database.GetDbSet<ErpCommodityMapEntity>().Add(new ErpCommodityMapEntity
+            {
+                erp_commodity_id = item.CommodityId.Value,
+                wms_spu_id = 1,
+                wms_sku_id = 10,
+                commodity_sku = item.CommoditySku,
+                tenant_id = tenantId
+            });
+        }
+
+        database.SaveChanges();
+    }
 
     public static PackingTaskSourceItem Item(long id, string sku, int quantity) =>
         new(id, id + 10000, sku, $"商品-{id}", $"img-{id}", $"FN-{id}", sku, $"M-{id}", quantity, $"item-v-{id}-{quantity}");
@@ -199,6 +327,9 @@ internal sealed class MutableSourceReader
     }
 
     public void Set(PackingTaskSourceSnapshot snapshot) => _snapshots[snapshot.SourceTaskId] = snapshot;
+
+    public void AttachMappingDatabase(SqlDBContext database) =>
+        TestContext.SeedCommodityMaps(database, _snapshots.Values.ToArray());
 
     internal Task<PackingTaskSourceCapability> VerifyCapabilityAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult(new PackingTaskSourceCapability(true, string.Empty));

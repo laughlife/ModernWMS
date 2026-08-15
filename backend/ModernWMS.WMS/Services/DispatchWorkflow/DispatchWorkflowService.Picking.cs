@@ -74,6 +74,17 @@ public partial class DispatchWorkflowService
                 throw DispatchWorkflowCommandException.SourceChanged();
             }
 
+            IReadOnlyDictionary<long, int> skuMappings;
+            try
+            {
+                skuMappings = await ResolveCurrentSkuMappingsAsync(
+                    snapshots, order.tenant_id, cancellationToken);
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw DispatchWorkflowCommandException.StockShortage(exception.Message);
+            }
+
             var now = DateTime.Now;
             foreach (var task in activeTasks)
             {
@@ -85,7 +96,11 @@ public partial class DispatchWorkflowService
                 else if (!string.Equals(task.source_version, snapshot.SourceVersion, StringComparison.Ordinal))
                 {
                     await RemoveTaskAllocationsAsync(task, cancellationToken);
-                    RebuildTaskItems(task, snapshot, now);
+                    RebuildTaskItems(task, snapshot, skuMappings, now);
+                }
+                else
+                {
+                    RefreshTaskSkuMappings(task, snapshot, skuMappings, now);
                 }
             }
 

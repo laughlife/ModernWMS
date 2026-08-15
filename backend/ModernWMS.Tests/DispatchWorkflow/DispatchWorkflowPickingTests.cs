@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Reflection;
+using ModernWMS.Core.DBContext.Entities;
 using ModernWMS.Core.Models;
 using ModernWMS.WMS.Controllers.DispatchWorkflow;
 using ModernWMS.WMS.Entities.Models;
@@ -15,6 +16,55 @@ namespace ModernWMS.Tests.DispatchWorkflow;
 
 public sealed class DispatchWorkflowPickingTests
 {
+    [Fact]
+    public async Task CompletePickingAsync_missing_mapping_stays_pending_without_any_workflow_write()
+    {
+        await using var db = TestContext.CreateDatabase();
+        var source = new MutableSourceReader(
+            TestContext.Task(101, "CW-101", 320118, TestContext.Item(1001, "SKU", 2)));
+        var service = TestContext.CreateService(db, source);
+        var created = await service.CreateAsync(new CreateDispatchOrderRequest
+        {
+            warehouse_id = 320118,
+            source_task_ids = [101]
+        }, TestContext.User());
+        db.Remove(await db.GetDbSet<ErpCommodityMapEntity>().SingleAsync());
+        await db.SaveChangesAsync();
+
+        var exception = await Assert.ThrowsAsync<DispatchWorkflowCommandException>(() =>
+            service.CompletePickingAsync(created.id, Request("missing-map", 0), TestContext.User()));
+
+        await AssertMappingFailureLeftPendingAsync(db, exception);
+    }
+
+    [Fact]
+    public async Task CompletePickingAsync_ambiguous_mapping_stays_pending_without_any_workflow_write()
+    {
+        await using var db = TestContext.CreateDatabase();
+        var item = TestContext.Item(1001, "SKU", 2);
+        var source = new MutableSourceReader(TestContext.Task(101, "CW-101", 320118, item));
+        var service = TestContext.CreateService(db, source);
+        var created = await service.CreateAsync(new CreateDispatchOrderRequest
+        {
+            warehouse_id = 320118,
+            source_task_ids = [101]
+        }, TestContext.User());
+        db.GetDbSet<ErpCommodityMapEntity>().Add(new ErpCommodityMapEntity
+        {
+            erp_commodity_id = item.CommodityId!.Value,
+            wms_spu_id = 2,
+            wms_sku_id = 99,
+            commodity_sku = item.CommoditySku,
+            tenant_id = TestContext.User().tenant_id
+        });
+        await db.SaveChangesAsync();
+
+        var exception = await Assert.ThrowsAsync<DispatchWorkflowCommandException>(() =>
+            service.CompletePickingAsync(created.id, Request("ambiguous-map", 0), TestContext.User()));
+
+        await AssertMappingFailureLeftPendingAsync(db, exception);
+    }
+
     [Fact]
     public async Task CompletePickingAsync_keeps_equal_skus_in_different_tasks_as_separate_allocations()
     {
@@ -30,7 +80,7 @@ public sealed class DispatchWorkflowPickingTests
         }, TestContext.User());
 
         var items = await db.GetDbSet<DispatchPackingTaskItemEntity>().OrderBy(t => t.id).ToListAsync();
-        items.ForEach(t => t.wms_sku_id = 10);
+        Assert.All(items, item => Assert.Equal(10, item.wms_sku_id));
         await SeedInventoryAsync(db, 320118, 10, 5);
 
         var result = await service.CompletePickingAsync(created.id, new CompletePickingRequest
@@ -60,8 +110,6 @@ public sealed class DispatchWorkflowPickingTests
             warehouse_id = 320118,
             source_task_ids = [101]
         }, TestContext.User());
-        var item = await db.GetDbSet<DispatchPackingTaskItemEntity>().SingleAsync();
-        item.wms_sku_id = 10;
         await SeedInventoryAsync(db, 320118, 10, 4);
         source.Set(TestContext.Task(101, "CW-101", 320118, TestContext.Item(1001, "SKU-1", 4)));
 
@@ -86,9 +134,10 @@ public sealed class DispatchWorkflowPickingTests
             warehouse_id = 320118,
             source_task_ids = [101]
         }, TestContext.User());
-        var items = await db.GetDbSet<DispatchPackingTaskItemEntity>().OrderBy(t => t.source_item_id).ToListAsync();
-        items[0].wms_sku_id = 10;
-        items[1].wms_sku_id = 20;
+        var secondCommodityId = TestContext.Item(1002, "SKU-2", 3).CommodityId!.Value;
+        (await db.GetDbSet<ModernWMS.Core.DBContext.Entities.ErpCommodityMapEntity>()
+            .SingleAsync(t => t.tenant_id == TestContext.User().tenant_id
+                && t.erp_commodity_id == secondCommodityId)).wms_sku_id = 20;
         await SeedInventoryAsync(db, 320118, 10, 2);
         db.GetDbSet<StockEntity>().Add(new StockEntity
         {
@@ -123,7 +172,6 @@ public sealed class DispatchWorkflowPickingTests
             warehouse_id = 320118,
             source_task_ids = [101]
         }, TestContext.User());
-        (await db.GetDbSet<DispatchPackingTaskItemEntity>().SingleAsync()).wms_sku_id = 10;
         await SeedInventoryAsync(db, 320118, 10, 2);
 
         var first = await service.CompletePickingAsync(created.id, Request("same-request", 0), TestContext.User());
@@ -148,7 +196,6 @@ public sealed class DispatchWorkflowPickingTests
             warehouse_id = 320118,
             source_task_ids = [101]
         }, TestContext.User());
-        (await db.GetDbSet<DispatchPackingTaskItemEntity>().SingleAsync()).wms_sku_id = 10;
         await SeedInventoryAsync(db, 320118, 10, 1);
         var first = await service.CompletePickingAsync(created.id, Request("replay", 0), TestContext.User());
         var order = await db.GetDbSet<DispatchOrderEntity>().SingleAsync();
@@ -174,7 +221,6 @@ public sealed class DispatchWorkflowPickingTests
             warehouse_id = 320118,
             source_task_ids = [101]
         }, TestContext.User());
-        (await db.GetDbSet<DispatchPackingTaskItemEntity>().SingleAsync()).wms_sku_id = 10;
         await SeedInventoryAsync(db, 320118, 10, 3);
         var readCountBeforePicking = source.ReadCount;
         source.BeforeRead = readCount =>
@@ -226,7 +272,6 @@ public sealed class DispatchWorkflowPickingTests
             warehouse_id = 320118,
             source_task_ids = [101]
         }, TestContext.User());
-        (await db.GetDbSet<DispatchPackingTaskItemEntity>().SingleAsync()).wms_sku_id = 10;
         await SeedInventoryAsync(db, 320118, 10, 1);
 
         await Assert.ThrowsAsync<DispatchWorkflowCommandException>(() =>
@@ -254,7 +299,6 @@ public sealed class DispatchWorkflowPickingTests
             warehouse_id = 320118,
             source_task_ids = [101]
         }, TestContext.User());
-        (await db.GetDbSet<DispatchPackingTaskItemEntity>().SingleAsync()).wms_sku_id = 10;
         await SeedInventoryAsync(db, 320118, 10, 1);
         db.GetDbSet<StockEntity>().Add(new StockEntity
         {
@@ -300,7 +344,6 @@ public sealed class DispatchWorkflowPickingTests
                 source_task_ids = [101]
             }, TestContext.User());
             orderId = created.id;
-            (await setupDb.GetDbSet<DispatchPackingTaskItemEntity>().SingleAsync()).wms_sku_id = 10;
             await SeedInventoryAsync(setupDb, 320118, 10, 1);
         }
 
@@ -356,7 +399,6 @@ public sealed class DispatchWorkflowPickingTests
                 warehouse_id = 320118,
                 source_task_ids = [101]
             }, TestContext.User())).id;
-            (await setupDb.GetDbSet<DispatchPackingTaskItemEntity>().SingleAsync()).wms_sku_id = 10;
             await SeedInventoryAsync(setupDb, 320118, 10, 1);
         }
 
@@ -415,7 +457,6 @@ public sealed class DispatchWorkflowPickingTests
             warehouse_id = 320118,
             source_task_ids = [101]
         }, TestContext.User());
-        (await db.GetDbSet<DispatchPackingTaskItemEntity>().SingleAsync()).wms_sku_id = 10;
         await SeedInventoryAsync(db, 320118, 10, 1);
         var first = await service.CompletePickingAsync(created.id, Request("first", 0), TestContext.User());
 
@@ -510,6 +551,19 @@ public sealed class DispatchWorkflowPickingTests
         request_id = id,
         row_version = rowVersion
     };
+
+    private static async Task AssertMappingFailureLeftPendingAsync(
+        ModernWMS.Core.DBContext.SqlDBContext db,
+        DispatchWorkflowCommandException exception)
+    {
+        Assert.Equal("STOCK_SHORTAGE", exception.ErrorCode);
+        var order = await db.GetDbSet<DispatchOrderEntity>().SingleAsync();
+        Assert.Equal(DispatchOrderStatus.PendingPick, order.status);
+        Assert.Equal(0, order.row_version);
+        Assert.Empty(await db.GetDbSet<DispatchlistEntity>().ToListAsync());
+        Assert.Empty(await db.GetDbSet<DispatchpicklistEntity>().ToListAsync());
+        Assert.Empty(await db.GetDbSet<DispatchWorkflowOperationEntity>().ToListAsync());
+    }
 
     private static MySqlException CreateMySqlException(int number, string sqlState)
     {

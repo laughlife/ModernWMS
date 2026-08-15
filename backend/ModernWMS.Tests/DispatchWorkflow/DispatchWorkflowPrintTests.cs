@@ -17,7 +17,9 @@ public class DispatchWorkflowPrintTests
         var order = await service.CreateAsync(
             new CreateDispatchOrderRequest { warehouse_id = 320118, source_task_ids = [101, 102] },
             TestContext.User());
-        source.Set(TestContext.Task(101, "CW-101", 320118, TestContext.Item(1002, "LATEST", 5)));
+        var latest = TestContext.Task(101, "CW-101", 320118, TestContext.Item(1002, "LATEST", 5));
+        TestContext.SeedCommodityMaps(db, latest);
+        source.Set(latest);
 
         var print = await service.PrintAsync(order.id, TestContext.User());
 

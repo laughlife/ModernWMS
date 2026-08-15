@@ -70,6 +70,8 @@ public partial class DispatchWorkflowService
                 throw new InvalidOperationException($"packing tasks already belong to an active order: {string.Join(',', occupied.Order())}");
             }
 
+            var skuMappings = await ResolveCurrentSkuMappingsAsync(
+                snapshots, currentUser.tenant_id, cancellationToken);
             var now = DateTime.Now;
             var order = new DispatchOrderEntity
             {
@@ -85,7 +87,7 @@ public partial class DispatchWorkflowService
                 create_time = now,
                 last_update_time = now,
                 packing_tasks = snapshots.OrderBy(t => t.SourceTaskId)
-                    .Select(snapshot => CreateTask(snapshot, now))
+                    .Select(snapshot => CreateTask(snapshot, skuMappings, now))
                     .ToList()
             };
 
@@ -176,7 +178,10 @@ public partial class DispatchWorkflowService
         }
     }
 
-    private static DispatchPackingTaskEntity CreateTask(PackingTaskSourceSnapshot snapshot, DateTime now)
+    private static DispatchPackingTaskEntity CreateTask(
+        PackingTaskSourceSnapshot snapshot,
+        IReadOnlyDictionary<long, int> skuMappings,
+        DateTime now)
     {
         var task = new DispatchPackingTaskEntity
         {
@@ -191,7 +196,7 @@ public partial class DispatchWorkflowService
             stable_box_identity_verified = snapshot.Boxes.All(t => !string.IsNullOrWhiteSpace(t.SourceBoxIdentity)),
             create_time = now,
             last_update_time = now,
-            items = snapshot.Items.Select(item => CreateItem(item, snapshot.SourceVersion, now)).ToList()
+            items = snapshot.Items.Select(item => CreateItem(item, snapshot.SourceVersion, skuMappings, now)).ToList()
         };
         task.SetActiveState(true);
         return task;
@@ -200,10 +205,12 @@ public partial class DispatchWorkflowService
     private static DispatchPackingTaskItemEntity CreateItem(
         PackingTaskSourceItem item,
         string sourceVersion,
+        IReadOnlyDictionary<long, int> skuMappings,
         DateTime now) => new()
         {
             source_item_id = item.SourceItemId,
             source_commodity_id = item.CommodityId,
+            wms_sku_id = MappedSkuId(item, skuMappings),
             commodity_sku = item.CommoditySku,
             commodity_name = item.CommodityName,
             fn_sku = item.FnSku,

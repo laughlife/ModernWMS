@@ -118,12 +118,14 @@ public class DispatchWorkflowOutboundTests
     public async Task ConfirmOutboundAsync_rejects_a_detail_attached_to_another_orders_active_task()
     {
         var context = await ReadyOrderAsync(stockQuantity: 7, pickedQuantity: 2);
-        context.Source.Set(TestContext.Task(
+        var otherSource = TestContext.Task(
             202, "CW-202", 320118, TestContext.Item(2002, "SKU-1", 2)) with
         {
             Boxes = [new("BOX-B", 1, "{\"boxId\":\"BOX-B\"}")],
             CartonsJson = "[{\"boxId\":\"BOX-B\"}]"
-        });
+        };
+        TestContext.SeedCommodityMaps(context.Db, otherSource);
+        context.Source.Set(otherSource);
         var other = await context.Service.CreateAsync(new CreateDispatchOrderRequest
         {
             warehouse_id = 320118,
