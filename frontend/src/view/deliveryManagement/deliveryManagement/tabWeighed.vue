@@ -1,295 +1,212 @@
 <template>
   <div class="operateArea">
     <v-row no-gutters>
-      <v-col cols="3" class="col"><BtnGroup :authority-list="data.authorityList" :btn-list="data.btnList" /></v-col>
-      <v-col cols="9">
-        <v-row no-gutters @keyup.enter="method.sureSearch">
-          <v-col cols="4">
-            <v-text-field v-model="data.searchForm.dispatch_no" clearable hide-details density="comfortable" class="searchInput ml-5 mt-1"
-              :label="$t('wms.deliveryManagement.dispatch_no')" variant="solo" />
-          </v-col>
-          <v-col cols="4">
-            <v-text-field v-model="data.searchForm.spu_name" clearable hide-details density="comfortable" class="searchInput ml-5 mt-1"
-              :label="$t('wms.deliveryManagement.spu_name')" variant="solo" />
-          </v-col>
-        </v-row>
+      <v-col cols="4" class="col"><BtnGroup :authority-list="data.authorityList" :btn-list="data.btnList" /></v-col>
+      <v-col cols="8">
+        <v-text-field v-model="data.keyword" clearable hide-details density="comfortable" class="searchInput ml-5 mt-1"
+          label="WMS拣货单号或装箱任务号" variant="solo" @keyup.enter="method.search" />
       </v-col>
     </v-row>
   </div>
 
   <div class="mt-5" :style="{ height: cardHeight }">
-    <vxe-table ref="xTable" :column-config="{ minWidth: '100px' }" :data="data.tableData" :height="tableHeight" align="center"
-      @toggle-row-expand="handleToggleRowExpand">
+    <vxe-table ref="xTable" :loading="data.loading" :column-config="{ minWidth: '120px' }" :data="data.tableData" :height="tableHeight"
+      align="center" @toggle-row-expand="handleToggleRowExpand">
       <template #empty>{{ i18n.global.t('system.page.noData') }}</template>
       <vxe-column type="seq" width="60" />
       <vxe-column type="expand" width="54">
         <template #content="{ row }">
-          <div class="box-detail">
-            <div v-if="row.boxes_loading" class="box-detail-loading">
-              <v-progress-circular indeterminate color="primary" size="24" />
-            </div>
-            <v-table v-else density="compact">
-              <thead>
-                <tr>
-                  <th>{{ $t('wms.deliveryManagement.boxNo') }}</th>
-                  <th>{{ $t('wms.deliveryManagement.weighingWeightKg') }}</th>
-                  <th>{{ $t('wms.deliveryManagement.weighingLength') }}</th>
-                  <th>{{ $t('wms.deliveryManagement.weighingWidth') }}</th>
-                  <th>{{ $t('wms.deliveryManagement.weighingHeight') }}</th>
-                  <th>{{ $t('wms.deliveryManagement.volumeCm3') }}</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="box in row.box_list" :key="box.erp_box_id">
-                  <td class="box-no-cell">
-                    <div>{{ box.box_no || '-' }}</div>
-                  </td>
-                  <td>{{ formatMeasurement(box.weighing_weight, 'kg') }}</td>
-                  <td>{{ formatMeasurement(box.weighing_length, 'cm') }}</td>
-                  <td>{{ formatMeasurement(box.weighing_width, 'cm') }}</td>
-                  <td>{{ formatMeasurement(box.weighing_height, 'cm') }}</td>
-                  <td>{{ formatMeasurement(boxVolume(box), 'cm³') }}</td>
-                </tr>
-                <tr v-if="row.box_list.length === 0">
-                  <td colspan="6" class="box-detail-empty">{{ $t('system.page.noData') }}</td>
-                </tr>
-              </tbody>
-            </v-table>
+          <div class="order-detail">
+            <div v-if="row.detailLoading" class="detail-loading"><v-progress-circular indeterminate color="primary" size="24" /></div>
+            <v-alert v-else-if="row.detailError" type="error" variant="tonal" density="compact">{{ row.detailError }}</v-alert>
+            <template v-else-if="row.detail">
+              <section v-for="task in row.detail.packing_tasks" :key="task.id" class="task-section">
+                <div class="task-heading">
+                  <strong>装箱任务：{{ task.source_task_no }}</strong>
+                  <v-chip size="small" :color="task.measured_box_count >= task.expected_box_count && task.expected_box_count > 0 ? 'success' : 'warning'" variant="tonal">
+                    {{ task.measured_box_count }}/{{ task.expected_box_count }} 箱已测量
+                  </v-chip>
+                </div>
+                <v-table density="compact">
+                  <thead><tr><th>商品</th><th>SKU</th><th>FNSKU / MSKU</th><th>任务量</th></tr></thead>
+                  <tbody>
+                    <tr v-for="item in task.items" :key="item.id">
+                      <td>{{ item.commodity_name || '-' }}</td><td>{{ item.commodity_sku || '-' }}</td>
+                      <td>{{ item.fn_sku || '-' }} / {{ item.msku || '-' }}</td><td>{{ item.required_qty ?? '-' }}</td>
+                    </tr>
+                  </tbody>
+                </v-table>
+              </section>
+            </template>
           </div>
         </template>
       </vxe-column>
-      <vxe-column field="main_image" :title="$t('wms.deliveryManagement.productImage')" width="92">
-        <template #default="{ row }"><ProductImage :src="row.main_image" :alt="row.commodity_name" :width="56" :height="56" /></template>
+      <vxe-column field="dispatch_no" title="WMS拣货单号" min-width="190" align="left" header-align="left" />
+      <vxe-column title="装箱任务号" min-width="280" align="left" header-align="left">
+        <template #default="{ row }"><div class="task-number-list"><v-chip v-for="taskNo in row.packing_task_nos" :key="taskNo" size="small" variant="tonal">{{ taskNo }}</v-chip></div></template>
       </vxe-column>
-      <vxe-column field="commodity_name" :title="$t('wms.deliveryManagement.productInfo')" min-width="300" align="left" header-align="left">
-        <template #default="{ row }">
-          <div class="product-info-cell">
-            <div class="primary-text">{{ row.commodity_name || '-' }}/{{ row.fba_no || '-' }}</div>
-            <div class="secondary-text">{{ $t('wms.deliveryManagement.fnSku') }}：{{ row.fba_sku || '-' }}</div>
-            <div class="secondary-text">{{ row.shop_name || '-' }}</div>
-          </div>
-        </template>
-      </vxe-column>
-      <vxe-column field="dept_name" :title="$t('wms.deliveryManagement.shippingPersonnel')" min-width="180">
-        <template #default="{ row }"><div class="primary-text">{{ row.dept_name || '-' }}</div><div class="secondary-text">{{ row.order_user_name || '-' }}</div></template>
-      </vxe-column>
-      <vxe-column field="shipment_total_qty" :title="$t('wms.deliveryManagement.quantityVariant')" width="145">
-        <template #default="{ row }">
-          <div class="primary-text">{{ row.shipment_total_qty }}{{ $t('wms.deliveryManagement.pieceUnit') }}/{{ row.box_count }}{{ $t('wms.deliveryManagement.boxUnit') }}</div>
-          <div class="secondary-text">{{ row.variant_qty }} {{ $t('wms.deliveryManagement.variantLabel') }}</div>
-        </template>
-      </vxe-column>
-      <vxe-column :title="$t('wms.deliveryManagement.state')" width="130">
-        <template #default="{ row }">
-          <v-chip size="small" :color="weightStatus(row).color" variant="tonal">{{ weightStatus(row).label }}</v-chip>
-        </template>
-      </vxe-column>
-      <vxe-column :title="$t('wms.deliveryManagement.dimensionsCm')" width="130">
-        <template #default="{ row }">
-          <v-chip size="small" :color="dimensionStatus(row).color" variant="tonal">{{ dimensionStatus(row).label }}</v-chip>
-        </template>
+      <vxe-column field="warehouse_id" title="仓库ID" width="130" />
+      <vxe-column title="状态" width="180">
+        <template #default="{ row }"><v-chip :color="row.source_change_pending ? 'error' : 'warning'" size="small" variant="tonal">{{ row.source_change_pending ? '来源变更待人工处理' : '称重测量中' }}</v-chip></template>
       </vxe-column>
       <vxe-column field="creator" :title="$t('wms.deliveryManagement.creator')" width="140" />
-      <vxe-column field="operate" :title="$t('system.page.operate')" width="180" fixed="right" :resizable="false">
+      <vxe-date-column field="create_time" title="创建时间" width="180" format="yyyy-MM-dd HH:mm" />
+      <vxe-column :title="$t('system.page.operate')" width="130" fixed="right" :resizable="false">
         <template #default="{ row }">
           <div class="row-actions">
-            <TooltipBtn
-              :flat="true"
-              icon="mdi-basket-fill"
-              :tooltip-text="$t('wms.deliveryManagement.weigh')"
-              :disabled="!data.authorityList.includes('weighed-weigh')"
-              @click="method.weighRow(row)"
-            />
-            <TooltipBtn
-              :flat="true"
-              icon="mdi-arrow-left"
-              tooltip-text="返回已拣货"
-              :disabled="!data.authorityList.includes('weighed-revoke')"
-              @click="method.backToThePreviousStep(row)"
-            />
-            <TooltipBtn
-              :flat="true"
-              icon="mdi-send-outline"
-              tooltip-text="去出库"
-              :disabled="deliveryFlowAction(row) === 'stay'
-                || (deliveryFlowAction(row) === 'confirm-weighing' && !data.authorityList.includes('weighed-weigh'))"
-              @click="method.goToDeliveryRow(row)"
-            />
+            <TooltipBtn :flat="true" icon="mdi-scale-balance" :tooltip-text="row.source_change_pending ? '来源已变更，需先人工裁决' : '逐箱称重测量'"
+              :disabled="row.source_change_pending || !data.authorityList.includes('weighed-weigh')" @click="method.weighRow(row)" />
+            <TooltipBtn v-if="row.source_change_pending" :flat="true" icon="mdi-account-alert" tooltip-text="人工选择继续或取消发货"
+              :disabled="!data.authorityList.includes('weighed-weigh')" @click="method.openDecision(row)" />
           </div>
         </template>
       </vxe-column>
     </vxe-table>
-    <custom-pager :current-page="data.tablePage.pageIndex" :page-size="data.tablePage.pageSize" perfect :total="data.tablePage.total"
+    <custom-pager :current-page="data.pageIndex" :page-size="data.pageSize" perfect :total="data.total"
       :page-sizes="PAGE_SIZE" :layouts="PAGE_LAYOUT" @page-change="method.handlePageChange" />
-    <ShipmentBoxWeighDialog ref="boxDialogRef" @saved="method.refresh" />
+    <ShipmentBoxWeighDialog ref="boxDialogRef" @saved="method.refresh" @completed="method.handleCompleted" />
   </div>
+
+  <v-dialog v-model="decisionDialog.visible" max-width="720" persistent>
+    <v-card>
+      <v-card-title>来源变更人工裁决：{{ decisionDialog.row?.dispatch_no }}</v-card-title>
+      <v-card-text>
+        <v-alert type="warning" variant="tonal" density="compact" class="mb-3">裁决前称重、复制、完成任务和进入待出库均保持冻结。</v-alert>
+        <div class="snapshot-title">来源变更快照</div>
+        <pre class="source-change-snapshot">{{ decisionDialog.row?.source_change_snapshot || '暂无变更快照，请复核来源数据后处理。' }}</pre>
+        <v-textarea v-model="decisionDialog.reason" label="处理原因（必填）" rows="3" maxlength="500" counter />
+      </v-card-text>
+      <v-card-actions class="justify-end">
+        <v-btn variant="text" :disabled="decisionDialog.submitting" @click="method.closeDecision">关闭</v-btn>
+        <v-btn color="error" variant="tonal" :loading="decisionDialog.submitting" @click="method.submitDecision('CANCEL')">取消发货</v-btn>
+        <v-btn color="primary" :loading="decisionDialog.submitting" @click="method.submitDecision('CONTINUE')">复核后继续</v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
 </template>
 
 <script lang="ts" setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import type { VxePagerEvents, VxeTableEvents } from 'vxe-table'
-import { completeWeighing, getWeighed, getWeighingBoxes, undoWeighing } from '@/api/wms/deliveryManagement'
+import { decideDispatchSourceChange, getDispatchOrder, getDispatchOrderPage } from '@/api/wms/dispatchWorkflow'
 import { hookComponent } from '@/components/system'
 import BtnGroup from '@/components/system/btnGroup.vue'
-import ProductImage from '@/components/system/product-image.vue'
 import TooltipBtn from '@/components/tooltip-btn.vue'
 import customPager from '@/components/custom-pager.vue'
 import { computedCardHeight, computedTableHeight } from '@/constant/style'
 import { DEBOUNCE_TIME } from '@/constant/system'
 import { DEFAULT_PAGE_SIZE, PAGE_LAYOUT, PAGE_SIZE } from '@/constant/vxeTable'
 import i18n from '@/languages/i18n'
-import type { DispatchWeighingBoxVO, DispatchWeighingShipmentVO } from '@/types/DeliveryManagement/DeliveryManagement'
-import type { btnGroupItem, TablePage } from '@/types/System/Form'
-import { getMenuAuthorityList, setSearchObject } from '@/utils/common'
-import { getDeliveryFlowAction } from './deliveryFlow'
+import type { DispatchOrderDetail, DispatchOrderSummary, DispatchSourceDecision } from '@/types/DeliveryManagement/DispatchWorkflow'
+import type { btnGroupItem } from '@/types/System/Form'
+import { getMenuAuthorityList } from '@/utils/common'
 import type { DeliveryFlowTab } from './deliveryFlow'
+import { buildWeighingSourceDecisionCommand, isCurrentWeighingListRequest } from './dispatchBoxMeasurement'
+import type { WeighingListRequestIdentity } from './dispatchBoxMeasurement'
 import ShipmentBoxWeighDialog from './shipment-box-weigh-dialog.vue'
 
-type WeighingTableRow = DispatchWeighingShipmentVO & {
-  box_list: DispatchWeighingBoxVO[]
-  boxes_loaded: boolean
-  boxes_loading: boolean
-}
-
-type CompletionStatus = { color: 'error' | 'warning' | 'success'; label: string }
-
+type WeighingOrderRow = DispatchOrderSummary & { detail: DispatchOrderDetail | null; detailLoaded: boolean; detailLoading: boolean; detailError: string }
+const props = defineProps<{ warehouseId: number | null }>()
 const emit = defineEmits<{ goToDelivery: [tab: DeliveryFlowTab]; statusChanged: [] }>()
 const xTable = ref()
 const boxDialogRef = ref<InstanceType<typeof ShipmentBoxWeighDialog>>()
-const data = reactive({
-  searchForm: { dispatch_no: '', spu_name: '' },
-  timer: ref<ReturnType<typeof setTimeout> | null>(null),
-  tableData: [] as WeighingTableRow[],
-  tablePage: { total: 0, pageIndex: 1, pageSize: DEFAULT_PAGE_SIZE, searchObjects: [] } as TablePage,
-  btnList: [] as btnGroupItem[],
-  authorityList: getMenuAuthorityList()
+let searchTimer: ReturnType<typeof setTimeout> | null = null
+let listRequestSequence = 0
+const data = reactive({ keyword: '', loading: false, tableData: [] as WeighingOrderRow[], total: 0, pageIndex: 1, pageSize: DEFAULT_PAGE_SIZE,
+  btnList: [] as btnGroupItem[], authorityList: getMenuAuthorityList() })
+const decisionDialog = reactive({ visible: false, submitting: false, reason: '', row: null as DispatchOrderSummary | null })
+const requestId = () => globalThis.crypto?.randomUUID?.() ?? `source-decision-${Date.now()}-${Math.random().toString(16).slice(2)}`
+const showError = (message: string) => hookComponent.$message({ type: 'error', content: message })
+const currentListIdentity = (): WeighingListRequestIdentity | null => props.warehouseId === null ? null : ({
+  sequence: listRequestSequence,
+  warehouseId: props.warehouseId,
+  keyword: data.keyword.trim(),
+  pageIndex: data.pageIndex,
+  pageSize: data.pageSize
 })
-
-const resolveStatus = (completed: number, started: number, total: number, labels: [string, string, string]): CompletionStatus => {
-  if (total > 0 && completed >= total) return { color: 'success', label: labels[2] }
-  if (started > 0) return { color: 'warning', label: labels[1] }
-  return { color: 'error', label: labels[0] }
+const listRequestIsCurrent = (request: WeighingListRequestIdentity): boolean => {
+  const current = currentListIdentity()
+  return current !== null && isCurrentWeighingListRequest(request, current)
 }
 
-const weightStatus = (row: WeighingTableRow) => resolveStatus(
-  row.weighed_box_count,
-  row.weighed_box_count,
-  row.box_count,
-  [
-    i18n.global.t('wms.deliveryManagement.weighTodo'),
-    i18n.global.t('wms.deliveryManagement.weighPartial'),
-    i18n.global.t('wms.deliveryManagement.weighReady')
-  ]
-)
-
-const dimensionStatus = (row: WeighingTableRow) => resolveStatus(
-  row.dimension_measured_box_count,
-  row.dimension_started_box_count,
-  row.box_count,
-  [
-    i18n.global.t('wms.deliveryManagement.measureTodo'),
-    i18n.global.t('wms.deliveryManagement.measurePartial'),
-    i18n.global.t('wms.deliveryManagement.measureReady')
-  ]
-)
-
-const formatMeasurement = (value: number, unit: string) => Number(value) > 0 ? `${value} ${unit}` : '-'
-
-const deliveryFlowAction = (row: DispatchWeighingShipmentVO) => getDeliveryFlowAction({
-  dispatchStatus: row.dispatch_status,
-  isTodo: !row.can_complete_dispatch
-})
-
-const boxVolume = (box: DispatchWeighingBoxVO) => {
-  if (Number(box.weighing_volume) > 0) return Number(box.weighing_volume)
-  const volume = Number(box.weighing_length) * Number(box.weighing_width) * Number(box.weighing_height)
-  return Number.isFinite(volume) && volume > 0 ? Number(volume.toFixed(2)) : 0
-}
-
-const handleToggleRowExpand: VxeTableEvents.ToggleRowExpand<WeighingTableRow> = async ({ row, expanded }) => {
-  if (!expanded || row.boxes_loaded || row.boxes_loading) return
-  row.boxes_loading = true
+const handleToggleRowExpand: VxeTableEvents.ToggleRowExpand<WeighingOrderRow> = async ({ row, expanded }) => {
+  if (!expanded || row.detailLoaded || row.detailLoading) return
+  row.detailLoading = true; row.detailError = ''
   try {
-    const { data: res } = await getWeighingBoxes(row.dispatch_no, row.fba_shipment_id)
-    if (!res.isSuccess) {
-      hookComponent.$message({ type: 'error', content: res.errorMessage })
-      return
-    }
-    row.box_list = res.data
-    row.boxes_loaded = true
-  } finally {
-    row.boxes_loading = false
-  }
+    const result = await getDispatchOrder(row.id)
+    if (!result.isSuccess) { row.detailError = result.errorMessage; return }
+    row.detail = result.data; row.detailLoaded = true
+  } catch (error) { row.detailError = error instanceof Error ? error.message : '加载拣货单详情失败' }
+  finally { row.detailLoading = false }
 }
 
 const method = reactive({
-  refresh: () => method.getWeighed(),
-  weighRow: (row: DispatchWeighingShipmentVO) => boxDialogRef.value?.openDialog(row),
-  goToDeliveryRow: async (row: DispatchWeighingShipmentVO) => {
-    const action = deliveryFlowAction(row)
-    if (action === 'stay') return
-    if (action === 'confirm-weighing') {
-      const { data: res } = await completeWeighing(row.id)
-      if (!res.isSuccess) { hookComponent.$message({ type: 'error', content: res.errorMessage }); return }
-      hookComponent.$message({ type: 'success', content: res.data })
-    }
-    emit('goToDelivery', 'tabDelivered')
-  },
-  backToThePreviousStep: (row: DispatchWeighingShipmentVO) => {
-    hookComponent.$dialog({
-      content: `${i18n.global.t('wms.deliveryManagement.confirmBack')}?`,
-      handleConfirm: async () => {
-        const { data: res } = await undoWeighing(row.id)
-        if (!res.isSuccess) { hookComponent.$message({ type: 'error', content: res.errorMessage }); return }
-        hookComponent.$message({ type: 'success', content: res.data })
-        method.refresh()
-        emit('statusChanged')
-      }
-    })
-  },
+  refresh: async () => { await method.getWeighed(); emit('statusChanged') },
   getWeighed: async () => {
-    const { data: res } = await getWeighed(data.tablePage)
-    if (!res.isSuccess) { hookComponent.$message({ type: 'error', content: res.errorMessage }); return }
-    data.tableData = res.data.rows.map((row: DispatchWeighingShipmentVO) => ({
-      ...row,
-      box_list: [],
-      boxes_loaded: false,
-      boxes_loading: false
-    }))
-    data.tablePage.total = res.data.totals
+    if (props.warehouseId === null) {
+      listRequestSequence++
+      data.loading = false; data.tableData = []; data.total = 0
+      return
+    }
+    const request: WeighingListRequestIdentity = {
+      sequence: ++listRequestSequence,
+      warehouseId: props.warehouseId,
+      keyword: data.keyword.trim(),
+      pageIndex: data.pageIndex,
+      pageSize: data.pageSize
+    }
+    data.loading = true; data.tableData = []; data.total = 0
+    try {
+      const result = await getDispatchOrderPage({ status: 'WEIGHING', warehouse_id: request.warehouseId, keyword: request.keyword, pageIndex: request.pageIndex, pageSize: request.pageSize })
+      if (!listRequestIsCurrent(request)) return
+      if (!result.isSuccess) { showError(result.errorMessage); return }
+      data.tableData = result.data.rows.map((row) => ({ ...row, detail: null, detailLoaded: false, detailLoading: false, detailError: '' }))
+      data.total = result.data.totals
+    } catch (error) {
+      if (listRequestIsCurrent(request)) showError(error instanceof Error ? error.message : '加载称重列表失败')
+    } finally {
+      if (listRequestIsCurrent(request)) data.loading = false
+    }
   },
-  handlePageChange: ref<VxePagerEvents.PageChange>(({ currentPage, pageSize }) => {
-    data.tablePage.pageIndex = currentPage
-    data.tablePage.pageSize = pageSize
-    method.getWeighed()
-  }),
-  sureSearch: () => { data.tablePage.searchObjects = setSearchObject(data.searchForm); data.tablePage.pageIndex = 1; method.getWeighed() }
+  search: () => { data.pageIndex = 1; method.getWeighed() },
+  handlePageChange: ref<VxePagerEvents.PageChange>(({ currentPage, pageSize }) => { data.pageIndex = currentPage; data.pageSize = pageSize; method.getWeighed() }),
+  weighRow: (row: DispatchOrderSummary) => boxDialogRef.value?.openDialog(row),
+  openDecision: (row: DispatchOrderSummary) => { decisionDialog.row = row; decisionDialog.reason = ''; decisionDialog.visible = true },
+  closeDecision: () => { decisionDialog.visible = false; decisionDialog.row = null; decisionDialog.reason = '' },
+  submitDecision: async (decision: DispatchSourceDecision) => {
+    const row = decisionDialog.row
+    if (!row) return
+    if (!decisionDialog.reason.trim()) { showError('处理原因不能为空'); return }
+    decisionDialog.submitting = true
+    try {
+      const payload = buildWeighingSourceDecisionCommand(row, decision, decisionDialog.reason, requestId())
+      const result = await decideDispatchSourceChange(row.id, payload)
+      if (!result.isSuccess) { showError(result.errorMessage); return }
+      hookComponent.$message({ type: 'success', content: decision === 'CONTINUE' ? '已确认继续发货，可恢复称重操作' : '已人工取消发货' })
+      method.closeDecision(); await method.getWeighed(); emit('statusChanged')
+    } catch (error) { showError(error instanceof Error ? error.message : '来源变更裁决失败') }
+    finally { decisionDialog.submitting = false }
+  },
+  handleCompleted: async () => { await method.getWeighed(); emit('statusChanged'); emit('goToDelivery', 'tabDelivered') }
 })
 
-onMounted(() => {
-  data.btnList = [{ name: i18n.global.t('system.page.refresh'), icon: 'mdi-refresh', code: '', click: method.refresh }]
-})
-
+onMounted(() => { data.btnList = [{ name: i18n.global.t('system.page.refresh'), icon: 'mdi-refresh', code: '', click: method.refresh }] })
+watch(() => props.warehouseId, () => { data.pageIndex = 1; method.getWeighed() }, { immediate: true })
+watch(() => data.keyword, () => { if (searchTimer) clearTimeout(searchTimer); searchTimer = setTimeout(() => { searchTimer = null; method.search() }, DEBOUNCE_TIME) })
 const cardHeight = computed(() => computedCardHeight({}))
 const tableHeight = computed(() => computedTableHeight({}))
-watch(() => data.searchForm, () => {
-  if (data.timer) clearTimeout(data.timer)
-  data.timer = setTimeout(() => { data.timer = null; method.sureSearch() }, DEBOUNCE_TIME)
-}, { deep: true })
-
 defineExpose({ getWeighed: method.getWeighed })
 </script>
 
 <style lang="less" scoped>
 .operateArea { width: 100%; min-width: 760px; display: flex; align-items: center; border-radius: 10px; padding: 0 10px; }
 .col { display: flex; align-items: center; }
-.product-info-cell { line-height: 22px; }
-.primary-text { font-weight: 600; color: rgba(var(--v-theme-on-surface), 0.9); }
-.secondary-text { margin-top: 2px; color: rgba(var(--v-theme-on-surface), 0.62); }
+.task-number-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.order-detail { padding: 14px 72px; background: rgba(var(--v-theme-surface-variant), 0.18); }
+.detail-loading { min-height: 88px; display: flex; align-items: center; justify-content: center; }
+.task-section + .task-section { margin-top: 16px; }
+.task-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; text-align: left; }
 .row-actions { display: flex; justify-content: center; gap: 8px; }
-.box-detail { padding: 14px 72px; background: rgba(var(--v-theme-surface-variant), 0.18); }
-.box-detail-loading { min-height: 88px; display: flex; align-items: center; justify-content: center; }
-.box-detail th { white-space: nowrap; font-weight: 600; }
-.box-no-cell { text-align: left; font-weight: 600; }
-.box-detail-empty { padding: 24px !important; text-align: center !important; opacity: 0.62; }
+.snapshot-title { margin-bottom: 6px; font-weight: 600; }
+.source-change-snapshot { max-height: 220px; margin: 0 0 16px; padding: 12px; overflow: auto; white-space: pre-wrap; word-break: break-word; border-radius: 6px; background: rgba(var(--v-theme-surface-variant), 0.45); font-family: inherit; }
 </style>
