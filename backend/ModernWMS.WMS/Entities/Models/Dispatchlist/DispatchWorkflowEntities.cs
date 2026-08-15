@@ -26,6 +26,16 @@ public enum DispatchSourceChangeDecision : byte
     Detected = 4
 }
 
+/// <summary>Local delivery state for the post-signing downstream notification.</summary>
+public enum DispatchSignNotificationStatus : byte
+{
+    None = 0,
+    Pending = 10,
+    Sending = 20,
+    Sent = 30,
+    Failed = 40
+}
+
 /// <summary>
 /// WMS-owned dispatch/picking order. New packing-task flows use this header;
 /// historical FBA dispatch rows remain unchanged and may have no header.
@@ -34,6 +44,7 @@ public enum DispatchSourceChangeDecision : byte
 [Index(nameof(dispatch_no), IsUnique = true)]
 [Index(nameof(create_idempotency_key), IsUnique = true)]
 [Index(nameof(warehouse_id), nameof(status))]
+[Index(nameof(notification_status), nameof(notification_updated_at))]
 public class DispatchOrderEntity : BaseModel
 {
     [MaxLength(64)] public string dispatch_no { get; set; } = string.Empty;
@@ -50,6 +61,22 @@ public class DispatchOrderEntity : BaseModel
     [MaxLength(128)] public string adjudicated_by_name { get; set; } = string.Empty;
     public DateTime? adjudicated_at { get; set; }
     [MaxLength(500)] public string adjudication_reason { get; set; } = string.Empty;
+    /// <summary>Signing is a fact on an Outbound order and does not introduce another workflow status.</summary>
+    public int? signed_qty { get; set; }
+    public int? damaged_qty { get; set; }
+    public int? signed_by { get; set; }
+    [MaxLength(128)] public string signed_by_name { get; set; } = string.Empty;
+    public DateTime? signed_at { get; set; }
+    /// <summary>
+    /// Local delivery uses an atomic Pending/Failed to Sending claim to prevent concurrent workers.
+    /// A crash after the remote call remains an at-least-once window; the downstream receiver must
+    /// deduplicate by the signing business key for effective exactly-once processing.
+    /// </summary>
+    public DispatchSignNotificationStatus notification_status { get; set; } = DispatchSignNotificationStatus.None;
+    public int notification_attempt_count { get; set; }
+    public DateTime? notification_sent_at { get; set; }
+    [MaxLength(500)] public string notification_last_error { get; set; } = string.Empty;
+    public DateTime? notification_updated_at { get; set; }
     public long tenant_id { get; set; }
     public int created_by { get; set; }
     [MaxLength(128)] public string creator { get; set; } = string.Empty;

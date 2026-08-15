@@ -15,8 +15,10 @@ public enum DispatchWorkflowOperation : byte
     CompleteTaskWeighing = 40,
     CompleteWeighing = 50,
     ConfirmOutbound = 60,
+    CancelOutbound = 65,
     ContinueAfterSourceChange = 70,
-    CancelAfterSourceChange = 80
+    CancelAfterSourceChange = 80,
+    Sign = 90
 }
 
 /// <summary>
