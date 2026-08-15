@@ -54,6 +54,7 @@ public class DispatchOrderEntity : BaseModel
     [MaxLength(64)] public string source_version { get; set; } = string.Empty;
     public string source_snapshot { get; set; } = string.Empty;
     public bool source_change_pending { get; set; }
+    [MaxLength(64)] public string pending_source_version { get; set; } = string.Empty;
     public string source_change_snapshot { get; set; } = string.Empty;
     [MaxLength(64)] public string accepted_source_version { get; set; } = string.Empty;
     [MaxLength(64)] public string adjudicated_source_version { get; set; } = string.Empty;

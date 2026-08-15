@@ -46,9 +46,12 @@ public partial class DispatchWorkflowService
             || historicallyAccepted;
         if (sourceIsCurrent)
         {
-            if (order.source_change_pending)
+            if (order.source_change_pending
+                || !string.IsNullOrEmpty(order.pending_source_version)
+                || !string.IsNullOrEmpty(order.source_change_snapshot))
             {
                 order.source_change_pending = false;
+                order.pending_source_version = string.Empty;
                 order.source_change_snapshot = string.Empty;
                 order.last_update_time = DateTime.Now;
                 order.row_version++;
@@ -92,10 +95,12 @@ public partial class DispatchWorkflowService
                 "source change detected; awaiting a human decision", now));
         }
         var freezeChanged = !order.source_change_pending
+            || !string.Equals(order.pending_source_version, currentVersion, StringComparison.Ordinal)
             || !string.Equals(order.source_change_snapshot, diffSnapshot, StringComparison.Ordinal);
         if (freezeChanged)
         {
             order.source_change_pending = true;
+            order.pending_source_version = currentVersion;
             order.source_change_snapshot = diffSnapshot;
             order.last_update_time = now;
             order.row_version++;
@@ -127,6 +132,7 @@ public partial class DispatchWorkflowService
                     && t.source_version == currentVersion
                     && t.decision == DispatchSourceChangeDecision.Detected, CancellationToken.None);
             if (winnerOrder?.source_change_pending == true && winnerDetected
+                && string.Equals(winnerOrder.pending_source_version, currentVersion, StringComparison.Ordinal)
                 && string.Equals(winnerOrder.source_change_snapshot, diffSnapshot, StringComparison.Ordinal))
             {
                 return GuardPending(winnerOrder, currentVersion);
@@ -196,6 +202,10 @@ public partial class DispatchWorkflowService
             {
                 throw DispatchWorkflowCommandException.SourceDecisionNotPending();
             }
+            if (!string.Equals(order.pending_source_version, sourceVersion, StringComparison.Ordinal))
+            {
+                throw DispatchWorkflowCommandException.SourceVersionConflict();
+            }
             if (order.row_version != request.row_version)
             {
                 throw DispatchWorkflowCommandException.ConcurrencyConflict();
@@ -239,6 +249,7 @@ public partial class DispatchWorkflowService
             _dbContext.GetDbSet<DispatchSourceChangeEventEntity>().Add(
                 CreateSourceEvent(order, sourceVersion, order.source_change_snapshot,
                     decision, currentUser, reason, now, DecisionEventKey(order.id, operation, requestId)));
+            order.pending_source_version = string.Empty;
             operations.Add(new DispatchWorkflowOperationEntity
             {
                 dispatch_order_id = order.id,

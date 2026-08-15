@@ -28,6 +28,7 @@ public sealed class DispatchWorkflowSourceAdjudicationTests
         Assert.Equal("SOURCE_CHANGE_PENDING", second.error_code);
         var stored = await db.GetDbSet<DispatchOrderEntity>().SingleAsync();
         Assert.True(stored.source_change_pending);
+        Assert.Equal(first.source_version, stored.pending_source_version);
         Assert.Equal(1, stored.row_version);
         var detected = Assert.Single(await db.GetDbSet<DispatchSourceChangeEventEntity>().ToListAsync());
         Assert.Equal(DispatchSourceChangeDecision.Detected, detected.decision);
@@ -70,6 +71,7 @@ public sealed class DispatchWorkflowSourceAdjudicationTests
         await service.EnsurePostPickSourceCurrentAsync(order.id, TestContext.User());
 
         Assert.False(first.source_change_pending);
+        Assert.Empty((await db.GetDbSet<DispatchOrderEntity>().AsNoTracking().SingleAsync()).pending_source_version);
         Assert.Equal(first.row_version, replay.row_version);
         Assert.Equal(first.source_version, replay.source_version);
         Assert.Equal(2, await db.GetDbSet<DispatchSourceChangeEventEntity>().CountAsync());
@@ -216,6 +218,7 @@ public sealed class DispatchWorkflowSourceAdjudicationTests
             Decision("CANCEL", version, "来源取消，人工终止", "cancel-1", frozen.row_version), TestContext.User());
 
         Assert.Equal("MANUAL_CANCELLED", result.status);
+        Assert.Empty((await db.GetDbSet<DispatchOrderEntity>().AsNoTracking().SingleAsync()).pending_source_version);
         Assert.Empty(await db.GetDbSet<DispatchpicklistEntity>().ToListAsync());
         Assert.True((await db.GetDbSet<WeighingBoxEntity>().SingleAsync()).is_invalidated);
         Assert.Contains(await db.GetDbSet<DispatchSourceChangeEventEntity>().ToListAsync(), t => t.decision == DispatchSourceChangeDecision.CancelShipment);
@@ -287,6 +290,7 @@ public sealed class DispatchWorkflowSourceAdjudicationTests
         source.Set(original);
         Assert.False((await service.EnsurePostPickSourceCurrentAsync(order.id, TestContext.User())).source_change_pending);
         var afterRestore = await db.GetDbSet<DispatchOrderEntity>().AsNoTracking().SingleAsync();
+        Assert.Empty(afterRestore.pending_source_version);
 
         source.Set(changed);
         var reappeared = await service.EnsurePostPickSourceCurrentAsync(order.id, TestContext.User());
@@ -295,9 +299,37 @@ public sealed class DispatchWorkflowSourceAdjudicationTests
         Assert.Equal("SOURCE_CHANGE_PENDING", reappeared.error_code);
         var refrozen = await db.GetDbSet<DispatchOrderEntity>().SingleAsync();
         Assert.True(refrozen.source_change_pending);
+        Assert.Equal(reappeared.source_version, refrozen.pending_source_version);
         Assert.True(refrozen.row_version > afterRestore.row_version);
         Assert.Single(await db.GetDbSet<DispatchSourceChangeEventEntity>()
             .Where(t => t.decision == DispatchSourceChangeDecision.Detected).ToListAsync());
+    }
+
+    [Fact]
+    public async Task Guard_clears_pending_version_when_a_historical_continue_accepts_current_source()
+    {
+        await using var db = TestContext.CreateDatabase();
+        var source = new MutableSourceReader(TestContext.Task(101, "CW-101", 320118, TestContext.Item(1001, "SKU", 1)));
+        var service = TestContext.CreateService(db, source);
+        var order = await CreatePostPickOrderAsync(service, db, DispatchOrderStatus.Picked);
+        source.Set(TestContext.Task(101, "CW-101", 320118, TestContext.Item(1001, "SKU", 2)));
+        var pending = await service.EnsurePostPickSourceCurrentAsync(order.id, TestContext.User());
+        db.GetDbSet<DispatchSourceChangeEventEntity>().Add(new DispatchSourceChangeEventEntity
+        {
+            dispatch_order_id = order.id,
+            source_version = pending.source_version,
+            event_idempotency_key = "historical-continue",
+            decision = DispatchSourceChangeDecision.ContinueShipment,
+            decision_time = DateTime.Now
+        });
+        await db.SaveChangesAsync();
+
+        var result = await service.EnsurePostPickSourceCurrentAsync(order.id, TestContext.User());
+
+        Assert.False(result.source_change_pending);
+        var stored = await db.GetDbSet<DispatchOrderEntity>().AsNoTracking().SingleAsync();
+        Assert.Empty(stored.pending_source_version);
+        Assert.Empty(stored.source_change_snapshot);
     }
 
     [Fact]

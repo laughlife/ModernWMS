@@ -145,6 +145,17 @@ public class DispatchOrderSummaryViewModel
     public DateTime create_time { get; set; }
     public DateTime last_update_time { get; set; }
     public bool source_change_pending { get; set; }
+    public string pending_source_version { get; set; } = string.Empty;
+    public string source_change_snapshot { get; set; } = string.Empty;
+    public string accepted_source_version { get; set; } = string.Empty;
+    public int? signed_qty { get; set; }
+    public int? damaged_qty { get; set; }
+    public DateTime? signed_at { get; set; }
+    public string signed_by_name { get; set; } = string.Empty;
+    public string notification_status { get; set; } = string.Empty;
+    public string notification_last_error { get; set; } = string.Empty;
+    public bool outbound_source_anomaly { get; set; }
+    public string outbound_source_anomaly_snapshot { get; set; } = string.Empty;
     public long row_version { get; set; }
 }
 

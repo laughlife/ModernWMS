@@ -39,6 +39,8 @@ public sealed class DispatchOrderQueryService : IDispatchOrderQueryService
         var query = _dbContext.GetDbSet<DispatchOrderEntity>()
             .AsNoTracking()
             .Include(t => t.packing_tasks.Where(task => task.is_active))
+            .Include(t => t.source_change_events.Where(sourceEvent =>
+                sourceEvent.decision == DispatchSourceChangeDecision.OutboundAnomaly))
             .Where(t => t.warehouse_id == request.warehouse_id);
 
         if (!string.IsNullOrWhiteSpace(request.status))
@@ -100,6 +102,8 @@ public sealed class DispatchOrderQueryService : IDispatchOrderQueryService
             .AsNoTracking()
             .Include(t => t.packing_tasks.Where(task => task.is_active))
                 .ThenInclude(task => task.items.Where(item => item.is_active))
+            .Include(t => t.source_change_events.Where(sourceEvent =>
+                sourceEvent.decision == DispatchSourceChangeDecision.OutboundAnomaly))
             .SingleOrDefaultAsync(t => t.id == orderId, cancellationToken)
             ?? throw new KeyNotFoundException($"dispatch order not found: {orderId}");
         await _warehouseAccessService.EnsureAllowedAsync(order.warehouse_id, currentUser);
@@ -128,20 +132,35 @@ public sealed class DispatchOrderQueryService : IDispatchOrderQueryService
         }
     }
 
-    private static DispatchOrderSummaryViewModel ToSummary(DispatchOrderEntity order) => new()
+    private static DispatchOrderSummaryViewModel ToSummary(DispatchOrderEntity order)
     {
-        id = order.id,
-        dispatch_no = order.dispatch_no,
-        warehouse_id = order.warehouse_id,
-        status = DispatchWorkflowService.ToApiStatus(order.status),
-        packing_task_nos = order.packing_tasks.Where(t => t.is_active)
-            .OrderBy(t => t.source_task_no)
-            .Select(t => t.source_task_no)
-            .ToList(),
-        creator = order.creator,
-        create_time = order.create_time,
-        last_update_time = order.last_update_time,
-        source_change_pending = order.source_change_pending,
-        row_version = order.row_version
-    };
+        var anomaly = DispatchWorkflowService.LatestOutboundAnomaly(order);
+        return new DispatchOrderSummaryViewModel
+        {
+            id = order.id,
+            dispatch_no = order.dispatch_no,
+            warehouse_id = order.warehouse_id,
+            status = DispatchWorkflowService.ToApiStatus(order.status),
+            packing_task_nos = order.packing_tasks.Where(t => t.is_active)
+                .OrderBy(t => t.source_task_no)
+                .Select(t => t.source_task_no)
+                .ToList(),
+            creator = order.creator,
+            create_time = order.create_time,
+            last_update_time = order.last_update_time,
+            source_change_pending = order.source_change_pending,
+            pending_source_version = order.pending_source_version,
+            source_change_snapshot = order.source_change_snapshot,
+            accepted_source_version = order.accepted_source_version,
+            signed_qty = order.signed_qty,
+            damaged_qty = order.damaged_qty,
+            signed_at = order.signed_at,
+            signed_by_name = order.signed_by_name,
+            notification_status = order.notification_status.ToString().ToUpperInvariant(),
+            notification_last_error = order.notification_last_error,
+            outbound_source_anomaly = anomaly != null,
+            outbound_source_anomaly_snapshot = anomaly?.diff_snapshot ?? string.Empty,
+            row_version = order.row_version
+        };
+    }
 }

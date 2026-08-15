@@ -67,6 +67,8 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
             .AsNoTracking()
             .Include(t => t.packing_tasks.Where(task => task.is_active))
                 .ThenInclude(task => task.items.Where(item => item.is_active))
+            .Include(t => t.source_change_events.Where(sourceEvent =>
+                sourceEvent.decision == DispatchSourceChangeDecision.OutboundAnomaly))
             .SingleOrDefaultAsync(t => t.id == orderId, cancellationToken)
             ?? throw new KeyNotFoundException($"dispatch order not found: {orderId}");
 
@@ -75,6 +77,7 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
 
     internal static DispatchOrderDetailViewModel ToDetail(DispatchOrderEntity order)
     {
+        var anomaly = LatestOutboundAnomaly(order);
         var tasks = order.packing_tasks
             .Where(t => t.is_active)
             .OrderBy(t => t.source_task_no)
@@ -118,9 +121,27 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
             create_time = order.create_time,
             last_update_time = order.last_update_time,
             source_change_pending = order.source_change_pending,
+            pending_source_version = order.pending_source_version,
+            source_change_snapshot = order.source_change_snapshot,
+            accepted_source_version = order.accepted_source_version,
+            signed_qty = order.signed_qty,
+            damaged_qty = order.damaged_qty,
+            signed_at = order.signed_at,
+            signed_by_name = order.signed_by_name,
+            notification_status = order.notification_status.ToString().ToUpperInvariant(),
+            notification_last_error = order.notification_last_error,
+            outbound_source_anomaly = anomaly != null,
+            outbound_source_anomaly_snapshot = anomaly?.diff_snapshot ?? string.Empty,
             row_version = order.row_version
         };
     }
+
+    internal static DispatchSourceChangeEventEntity? LatestOutboundAnomaly(DispatchOrderEntity order) =>
+        order.source_change_events
+            .Where(sourceEvent => sourceEvent.decision == DispatchSourceChangeDecision.OutboundAnomaly)
+            .OrderByDescending(sourceEvent => sourceEvent.decision_time)
+            .ThenByDescending(sourceEvent => sourceEvent.id)
+            .FirstOrDefault();
 
     internal static string ToApiStatus(DispatchOrderStatus status) => status switch
     {
