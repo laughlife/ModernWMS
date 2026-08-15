@@ -48,4 +48,16 @@ namespace ModernWMS.WMS.Entities.ViewModels
         public List<RolemenuViewModel> detailList { get; set; } = new List<RolemenuViewModel>();
         #endregion
     }
+
+    /// <summary>
+    /// Full replacement payload for one role's ERP warehouse bindings.
+    /// </summary>
+    public class RoleWarehouseBindingViewModel
+    {
+        [Required(ErrorMessage = "Required")]
+        public int userrole_id { get; set; }
+
+        [Required(ErrorMessage = "Required")]
+        public List<long> warehouse_ids { get; set; } = [];
+    }
 }

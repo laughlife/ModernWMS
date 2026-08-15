@@ -3,6 +3,7 @@
  * developer：NoNo
  */
  using Microsoft.AspNetCore.Mvc;
+ using Microsoft.AspNetCore.Authorization;
  using ModernWMS.Core.Controller;
  using ModernWMS.Core.Models;
  using ModernWMS.WMS.Entities.ViewModels;
@@ -25,6 +26,8 @@ namespace ModernWMS.WMS.Controllers
          /// warehouse Service
          /// </summary>
          private readonly IWarehouseService _warehouseService;
+
+         private readonly IWarehouseAccessService _warehouseAccessService;
  
          /// <summary>
          /// Localizer Service
@@ -40,10 +43,12 @@ namespace ModernWMS.WMS.Controllers
         /// <param name="stringLocalizer">Localizer</param>
          public WarehouseController(
              IWarehouseService warehouseService
+           , IWarehouseAccessService warehouseAccessService
            , IStringLocalizer<ModernWMS.Core.MultiLanguage> stringLocalizer
              )
          {
              this._warehouseService = warehouseService;
+            this._warehouseAccessService = warehouseAccessService;
             this._stringLocalizer= stringLocalizer;
          }
         #endregion
@@ -68,6 +73,17 @@ namespace ModernWMS.WMS.Controllers
         {
             var data = await _warehouseService.GetErpWarehouseOptionsAsync();
             return ResultModel<List<ErpWarehouseOptionViewModel>>.Success(data);
+        }
+
+        /// <summary>
+        /// Get ERP warehouses authorized for the current dispatch user.
+        /// </summary>
+        [HttpGet("access-options")]
+        [Authorize]
+        public async Task<ResultModel<WarehouseAccessViewModel>> GetAccessOptionsAsync()
+        {
+            var data = await _warehouseAccessService.GetAllowedAsync(CurrentUser);
+            return ResultModel<WarehouseAccessViewModel>.Success(data);
         }
 
         /// <summary>

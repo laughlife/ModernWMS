@@ -27,6 +27,8 @@ namespace ModernWMS.WMS.Services
         /// </summary>
         private readonly SqlDBContext _dBContext;
 
+        private readonly RuoyiDbContext? _ruoyiDbContext;
+
         /// <summary>
         /// Localizer Service
         /// </summary>
@@ -48,10 +50,12 @@ namespace ModernWMS.WMS.Services
         public RolemenuService(
             SqlDBContext dBContext
           , IStringLocalizer<ModernWMS.Core.MultiLanguage> stringLocalizer
+          , RuoyiDbContext? ruoyiDbContext = null
             )
         {
             this._dBContext = dBContext;
             this._stringLocalizer = stringLocalizer;
+            this._ruoyiDbContext = ruoyiDbContext;
         }
         #endregion
 
@@ -342,6 +346,163 @@ namespace ModernWMS.WMS.Services
                 await transaction.RollbackAsync();
                 throw;
             }
+        }
+
+        /// <summary>
+        /// Get the explicit bindings for a role in the caller's role-management scope.
+        /// </summary>
+        public async Task<List<long>> GetWarehouseIdsAsync(int userrole_id, CurrentUser currentUser)
+        {
+            await EnsureWarehouseManagementAllowedAsync(currentUser);
+
+            var roleExists = await _dBContext.GetDbSet<UserroleEntity>()
+                .AsNoTracking()
+                .AnyAsync(t => t.id == userrole_id && t.tenant_id == currentUser.tenant_id);
+            if (!roleExists)
+            {
+                return [];
+            }
+
+            return await _dBContext.GetDbSet<RoleWarehouseEntity>()
+                .AsNoTracking()
+                .Where(t => t.role_id == userrole_id)
+                .Select(t => t.warehouse_id)
+                .Distinct()
+                .OrderBy(t => t)
+                .ToListAsync();
+        }
+
+        /// <summary>
+        /// Validate the complete replacement set before changing any binding, then save it in one transaction.
+        /// </summary>
+        public async Task<(bool flag, string msg)> ReplaceWarehousesAsync(
+            RoleWarehouseBindingViewModel viewModel,
+            CurrentUser currentUser)
+        {
+            await EnsureWarehouseManagementAllowedAsync(currentUser);
+
+            if (_ruoyiDbContext == null)
+            {
+                throw new InvalidOperationException("RuoyiDbContext is required for warehouse binding validation.");
+            }
+
+            var role = await _dBContext.GetDbSet<UserroleEntity>()
+                .AsNoTracking()
+                .Where(t => t.id == viewModel.userrole_id && t.tenant_id == currentUser.tenant_id)
+                .Select(t => new { t.id, t.role_name })
+                .FirstOrDefaultAsync();
+            if (role == null)
+            {
+                return (false, _stringLocalizer["not_exists_entity"]);
+            }
+            if (IsAdminRole(role.role_name))
+            {
+                return (false, _stringLocalizer[AdminRolePermissionMessageKey]);
+            }
+
+            var warehouseIds = (viewModel.warehouse_ids ?? [])
+                .Where(t => t > 0)
+                .Distinct()
+                .OrderBy(t => t)
+                .ToList();
+            if (warehouseIds.Count != (viewModel.warehouse_ids ?? []).Distinct().Count())
+            {
+                return (false, "invalid warehouse_id");
+            }
+
+            var validWarehouseIds = await _ruoyiDbContext.Warehouses
+                .AsNoTracking()
+                .Where(t => warehouseIds.Contains(t.id) && !t.deleted)
+                .Select(t => t.id)
+                .ToListAsync();
+            var invalidWarehouseIds = warehouseIds.Except(validWarehouseIds).ToList();
+            if (invalidWarehouseIds.Count > 0)
+            {
+                return (false, $"invalid warehouse_id: {string.Join(",", invalidWarehouseIds)}");
+            }
+
+            if (IsInMemoryDatabase())
+            {
+                return await ReplaceWarehousesCoreAsync(viewModel.userrole_id, warehouseIds, currentUser);
+            }
+
+            await using var transaction = await _dBContext.GetDatabase()
+                .BeginTransactionAsync(IsolationLevel.Serializable);
+            try
+            {
+                var result = await ReplaceWarehousesCoreAsync(viewModel.userrole_id, warehouseIds, currentUser);
+                await transaction.CommitAsync();
+                return result;
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
+        private async Task<(bool flag, string msg)> ReplaceWarehousesCoreAsync(
+            int userroleId,
+            List<long> warehouseIds,
+            CurrentUser currentUser)
+        {
+            var bindings = _dBContext.GetDbSet<RoleWarehouseEntity>();
+            var existing = await bindings.Where(t => t.role_id == userroleId).ToListAsync();
+            if (existing.Count > 0)
+            {
+                bindings.RemoveRange(existing);
+            }
+
+            var now = DateTime.Now;
+            foreach (var warehouseId in warehouseIds)
+            {
+                bindings.Add(new RoleWarehouseEntity
+                {
+                    role_id = userroleId,
+                    warehouse_id = warehouseId,
+                    tenant_id = currentUser.tenant_id,
+                    created_by = currentUser.user_id,
+                    create_time = now,
+                    last_update_time = now
+                });
+            }
+            await _dBContext.SaveChangesAsync();
+            return (true, _stringLocalizer["save_success"]);
+        }
+
+        /// <summary>
+        /// Validate the signed caller against current role data. A stale or forged role name alone
+        /// never grants warehouse-management authority.
+        /// </summary>
+        private async Task EnsureWarehouseManagementAllowedAsync(CurrentUser currentUser)
+        {
+            var normalizedRoleName = currentUser.user_role?.Trim().ToUpperInvariant() ?? string.Empty;
+            if (normalizedRoleName.Length == 0)
+            {
+                throw new UnauthorizedAccessException("warehouse management permission required");
+            }
+
+            var currentTenantRoles = await _dBContext.GetDbSet<UserroleEntity>()
+                .AsNoTracking()
+                .Where(t => t.tenant_id == currentUser.tenant_id && t.is_valid)
+                .Select(t => new { t.id, t.role_name })
+                .ToListAsync();
+            var callerRoles = currentTenantRoles
+                .Where(t => string.Equals(
+                    t.role_name?.Trim(),
+                    currentUser.user_role?.Trim(),
+                    StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (callerRoles.Count == 0)
+            {
+                throw new UnauthorizedAccessException("warehouse management permission required");
+            }
+            if (callerRoles.Any(t => IsAdminRole(t.role_name)))
+            {
+                return;
+            }
+
+            throw new UnauthorizedAccessException("warehouse management permission required");
         }
 
         private async Task<(bool flag, string msg)> BatchUpdateCoreAsync(RolemenuBatchViewModel viewModel, CurrentUser currentUser)

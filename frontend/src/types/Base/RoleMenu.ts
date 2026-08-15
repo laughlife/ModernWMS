@@ -35,6 +35,21 @@ export interface RoleMenuBatchDetail {
   menu_actions_authority: string[]
 }
 
+export interface RoleWarehouseBindingPayload {
+  userrole_id: number
+  warehouse_ids: number[]
+}
+
+export interface RoleWarehouseOption {
+  id: number
+  name: string
+}
+
+export interface WarehouseAccessOptions {
+  warehouses: RoleWarehouseOption[]
+  default_warehouse_id: number | null
+}
+
 export interface DataProps {
   activeRoleMenuForm: RoleMenuVO
   menuOptions: MenuOption[]

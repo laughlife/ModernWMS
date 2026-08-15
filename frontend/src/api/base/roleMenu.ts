@@ -1,5 +1,5 @@
 import http from '@/utils/http/request'
-import { RoleMenuBatchPayload, RoleMenuVO } from '@/types/Base/RoleMenu'
+import { RoleMenuBatchPayload, RoleMenuVO, RoleWarehouseBindingPayload } from '@/types/Base/RoleMenu'
 
 // Get user authority
 export const getUserAuthority = (userrole_id: number) => http({
@@ -50,7 +50,27 @@ export const updateRoleMenuBatch = (data: RoleMenuBatchPayload) => http({
     url: '/rolemenu/batch',
     method: 'put',
     data
-  })
+})
+
+// Get explicit ERP warehouse bindings for one role
+export const getRoleWarehouses = (userrole_id: number) => http({
+  url: '/rolemenu/warehouses',
+  method: 'get',
+  params: { userrole_id }
+})
+
+// Atomically replace explicit ERP warehouse bindings for one role
+export const updateRoleWarehouses = (data: RoleWarehouseBindingPayload) => http({
+  url: '/rolemenu/warehouses',
+  method: 'put',
+  data
+})
+
+// Get all warehouses the current administrator may assign
+export const getWarehouseAccessOptions = () => http({
+  url: '/warehouse/access-options',
+  method: 'get'
+})
 
 // Delete form
 export const deleteRoleMenu = (userrole_id: number) => http({

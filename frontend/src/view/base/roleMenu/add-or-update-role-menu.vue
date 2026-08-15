@@ -15,6 +15,18 @@
               item-title="label"
               item-value="value"
               variant="outlined"
+              @update:model-value="method.loadWarehouseIds"
+            ></v-select>
+            <v-select
+              v-model="data.warehouseIds"
+              :items="data.combobox.warehouse_name"
+              label="仓库权限"
+              chips
+              clearable
+              item-title="label"
+              item-value="value"
+              multiple
+              variant="outlined"
             ></v-select>
           </v-form>
           <vxe-table
@@ -48,11 +60,20 @@ import { RoleMenuDetailVo, RoleMenuVO } from '@/types/Base/RoleMenu'
 import { UserRoleVO } from '@/types/Base/UserRoleSetting'
 import i18n from '@/languages/i18n'
 import { hookComponent } from '@/components/system/index'
-import { addRoleMenu, getMenus, updateRoleMenu } from '@/api/base/roleMenu'
+import {
+  addRoleMenu,
+  getMenus,
+  getRoleWarehouses,
+  getWarehouseAccessOptions,
+  updateRoleMenu,
+  updateRoleWarehouses
+} from '@/api/base/roleMenu'
 import { getUserRoleAll } from '@/api/base/userRoleSetting'
 import { MenuItem } from '@/types/System/Store'
 import { actionDict } from './actionList'
 import { removeObjectNull } from '@/utils/common'
+import { WarehouseAccessOptions } from '@/types/Base/RoleMenu'
+import { buildRoleWarehousePayload } from './roleWarehousePolicy'
 
 const formRef = ref()
 const emit = defineEmits(['close', 'saveSuccess'])
@@ -72,6 +93,7 @@ const data = reactive({
   }),
   // Multiple drop-down box values, mainly used to temporarily save the selected values
   menusSelectedList: ref<any[]>([]),
+  warehouseIds: ref<number[]>([]),
   // If it is modified, you need to pass a negative ID to the API to delete the existing details
   removeDetailList: ref<RoleMenuDetailVo[]>([]),
   // Drop down box options
@@ -85,9 +107,14 @@ const data = reactive({
       value: number
       menu_name: string
     }[]
+    warehouse_name: {
+      label: string
+      value: number
+    }[]
   }>({
     role_name: [],
-    menu_name: []
+    menu_name: [],
+    warehouse_name: []
   }),
   rules: {
     role_name: [(val: string) => !!val || `${ i18n.global.t('system.checkText.mustInput') }${ i18n.global.t('base.roleMenu.role_name') }!`],
@@ -139,6 +166,24 @@ const method = reactive({
       value: item.id,
       menu_name: item.menu_name
     }))
+
+    const { data: warehouseRes } = await getWarehouseAccessOptions()
+    if (warehouseRes.isSuccess) {
+      data.combobox.warehouse_name = (warehouseRes.data as WarehouseAccessOptions).warehouses.map(item => ({
+        label: item.name,
+        value: item.id
+      }))
+    }
+  },
+  loadWarehouseIds: async (userroleId?: number) => {
+    data.warehouseIds = []
+    if (!userroleId) {
+      return
+    }
+    const { data: res } = await getRoleWarehouses(userroleId)
+    if (res.isSuccess) {
+      data.warehouseIds = res.data
+    }
   },
   closeDialog: () => {
     emit('close')
@@ -206,6 +251,16 @@ const method = reactive({
         })
         return
       }
+      const warehouseResult = await updateRoleWarehouses(
+        buildRoleWarehousePayload(form.userrole_id as number, data.warehouseIds)
+      )
+      if (!warehouseResult.data.isSuccess) {
+        hookComponent.$message({
+          type: 'error',
+          content: warehouseResult.data.errorMessage
+        })
+        return
+      }
       hookComponent.$message({
         type: 'success',
         content: `${ i18n.global.t('system.page.submit') }${ i18n.global.t('system.tips.success') }`
@@ -231,11 +286,12 @@ const method = reactive({
 
 watch(
   () => props.showDialog,
-  (val) => {
+  async (val) => {
     if (val) {
       method.getDialogType()
-      method.getCombobox()
       data.form = props.form
+      await method.getCombobox()
+      await method.loadWarehouseIds(data.form.userrole_id)
       data.menusSelectedList = data.form.detailList.map((item) => item.menu_id)
     }
   }

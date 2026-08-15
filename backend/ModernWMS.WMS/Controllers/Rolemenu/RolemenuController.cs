@@ -3,6 +3,7 @@
  * developer：AMo
  */
  using Microsoft.AspNetCore.Mvc;
+ using Microsoft.AspNetCore.Authorization;
  using ModernWMS.Core.Controller;
  using ModernWMS.Core.Models;
  using ModernWMS.WMS.Entities.ViewModels;
@@ -172,6 +173,40 @@
             else
             {
                 return ResultModel<bool>.Error(msg, 400, flag);
+            }
+        }
+
+        /// <summary>Get ERP warehouse bindings for a role.</summary>
+        [HttpGet("warehouses")]
+        [Authorize]
+        public async Task<ActionResult<ResultModel<List<long>>>> GetWarehousesAsync(int userrole_id)
+        {
+            try
+            {
+                var data = await _rolemenuService.GetWarehouseIdsAsync(userrole_id, CurrentUser);
+                return ResultModel<List<long>>.Success(data);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Forbid();
+            }
+        }
+
+        /// <summary>Replace ERP warehouse bindings for a role.</summary>
+        [HttpPut("warehouses")]
+        [Authorize]
+        public async Task<ActionResult<ResultModel<bool>>> ReplaceWarehousesAsync(RoleWarehouseBindingViewModel viewModel)
+        {
+            try
+            {
+                var (flag, msg) = await _rolemenuService.ReplaceWarehousesAsync(viewModel, CurrentUser);
+                return flag
+                    ? ResultModel<bool>.Success(true)
+                    : ResultModel<bool>.Error(msg, 400, false);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Forbid();
             }
         }
 

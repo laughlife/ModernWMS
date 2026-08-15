@@ -64,6 +64,12 @@ namespace ModernWMS.WMS.IServices
         /// <returns></returns>
         Task<(bool flag, string msg)> BatchUpdateAsync(RolemenuBatchViewModel viewModel, CurrentUser currentUser);
 
+        /// <summary>Get the ERP warehouse IDs explicitly bound to a role.</summary>
+        Task<List<long>> GetWarehouseIdsAsync(int userrole_id, CurrentUser currentUser);
+
+        /// <summary>Atomically replace all ERP warehouse bindings for a role.</summary>
+        Task<(bool flag, string msg)> ReplaceWarehousesAsync(RoleWarehouseBindingViewModel viewModel, CurrentUser currentUser);
+
         /// <summary>
         /// delete a record
         /// </summary>
