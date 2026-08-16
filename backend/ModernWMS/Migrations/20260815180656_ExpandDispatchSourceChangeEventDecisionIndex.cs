@@ -10,9 +10,9 @@ namespace ModernWMS.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropIndex(
-                name: "IX_wms_dispatch_source_change_event_dispatch_order_id_source_ve~",
-                table: "wms_dispatch_source_change_event");
+            migrationBuilder.Sql(
+                "DROP INDEX `IX_wms_dispatch_source_change_event_dispatch_order_id_source_ve~` " +
+                "ON `wms_dispatch_source_change_event`;");
 
             migrationBuilder.CreateIndex(
                 name: "IX_wms_dispatch_source_change_event_dispatch_order_id_source_ve~",
@@ -24,9 +24,9 @@ namespace ModernWMS.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropIndex(
-                name: "IX_wms_dispatch_source_change_event_dispatch_order_id_source_ve~",
-                table: "wms_dispatch_source_change_event");
+            migrationBuilder.Sql(
+                "DROP INDEX `IX_wms_dispatch_source_change_event_dispatch_order_id_source_ve~` " +
+                "ON `wms_dispatch_source_change_event`;");
 
             migrationBuilder.CreateIndex(
                 name: "IX_wms_dispatch_source_change_event_dispatch_order_id_source_ve~",
