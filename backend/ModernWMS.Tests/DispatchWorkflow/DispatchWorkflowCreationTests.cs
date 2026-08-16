@@ -15,7 +15,7 @@ namespace ModernWMS.Tests.DispatchWorkflow;
 public class DispatchWorkflowCreationTests
 {
     [Fact]
-    public async Task CreateAsync_fails_atomically_when_shared_commodity_mapping_is_missing()
+    public async Task CreateAsync_creates_pending_order_when_shared_commodity_mapping_is_missing()
     {
         await using var db = TestContext.CreateDatabase();
         var source = new MutableSourceReader(
@@ -24,18 +24,17 @@ public class DispatchWorkflowCreationTests
         db.Remove(await db.GetDbSet<ErpCommodityMapEntity>().SingleAsync());
         await db.SaveChangesAsync();
 
-        var exception = await Assert.ThrowsAsync<DispatchWorkflowCommandException>(() => service.CreateAsync(
+        var created = await service.CreateAsync(
             new CreateDispatchOrderRequest { warehouse_id = 320118, source_task_ids = [101] },
-            TestContext.User()));
+            TestContext.User());
 
-        Assert.Equal("SKU_MAPPING_MISSING", exception.ErrorCode);
-        Assert.Empty(await db.GetDbSet<DispatchOrderEntity>().ToListAsync());
-        Assert.Empty(await db.GetDbSet<DispatchPackingTaskEntity>().ToListAsync());
-        Assert.Empty(await db.GetDbSet<DispatchPackingTaskItemEntity>().ToListAsync());
+        Assert.Equal("PENDING_PICK", created.status);
+        Assert.Null(Assert.Single(Assert.Single(created.packing_tasks).items).wms_sku_id);
+        Assert.Single(await db.GetDbSet<DispatchOrderEntity>().ToListAsync());
     }
 
     [Fact]
-    public async Task CreateAsync_fails_atomically_when_shared_commodity_mapping_points_to_different_skus()
+    public async Task CreateAsync_does_not_prebind_when_shared_mapping_points_to_different_skus()
     {
         await using var db = TestContext.CreateDatabase();
         var item = TestContext.Item(1001, "SKU", 2);
@@ -51,18 +50,16 @@ public class DispatchWorkflowCreationTests
         });
         await db.SaveChangesAsync();
 
-        var exception = await Assert.ThrowsAsync<DispatchWorkflowCommandException>(() => service.CreateAsync(
+        var created = await service.CreateAsync(
             new CreateDispatchOrderRequest { warehouse_id = 320118, source_task_ids = [101] },
-            TestContext.User()));
+            TestContext.User());
 
-        Assert.Equal("SKU_MAPPING_CONFLICT", exception.ErrorCode);
-        Assert.Empty(await db.GetDbSet<DispatchOrderEntity>().ToListAsync());
-        Assert.Empty(await db.GetDbSet<DispatchPackingTaskEntity>().ToListAsync());
-        Assert.Empty(await db.GetDbSet<DispatchPackingTaskItemEntity>().ToListAsync());
+        Assert.Equal("PENDING_PICK", created.status);
+        Assert.Null(Assert.Single(Assert.Single(created.packing_tasks).items).wms_sku_id);
     }
 
     [Fact]
-    public async Task CreateAsync_uses_a_shared_mapping_even_when_only_tenant_one_owns_the_row()
+    public async Task CreateAsync_defers_an_existing_shared_mapping_until_picking_completion()
     {
         await using var db = TestContext.CreateDatabase();
         var item = TestContext.Item(1001, "SKU", 2);
@@ -77,11 +74,11 @@ public class DispatchWorkflowCreationTests
             new CreateDispatchOrderRequest { warehouse_id = 320118, source_task_ids = [101] },
             TestContext.User());
 
-        Assert.Equal(321, Assert.Single(Assert.Single(created.packing_tasks).items).wms_sku_id);
+        Assert.Null(Assert.Single(Assert.Single(created.packing_tasks).items).wms_sku_id);
     }
 
     [Fact]
-    public async Task CreateAsync_accepts_duplicate_tenant_rows_when_they_resolve_to_the_same_wms_sku()
+    public async Task CreateAsync_does_not_require_duplicate_mapping_rows_to_be_resolved()
     {
         await using var db = TestContext.CreateDatabase();
         var item = TestContext.Item(1001, "SKU", 2);
@@ -102,11 +99,11 @@ public class DispatchWorkflowCreationTests
             new CreateDispatchOrderRequest { warehouse_id = 320118, source_task_ids = [101] },
             TestContext.User());
 
-        Assert.Equal(321, Assert.Single(Assert.Single(created.packing_tasks).items).wms_sku_id);
+        Assert.Null(Assert.Single(Assert.Single(created.packing_tasks).items).wms_sku_id);
     }
 
     [Fact]
-    public async Task CreateAsync_persists_the_current_tenant_commodity_mapping_on_each_source_item()
+    public async Task CreateAsync_keeps_source_item_unbound_even_when_a_mapping_exists()
     {
         await using var db = TestContext.CreateDatabase();
         var source = new MutableSourceReader(
@@ -122,7 +119,7 @@ public class DispatchWorkflowCreationTests
             new CreateDispatchOrderRequest { warehouse_id = 320118, source_task_ids = [101] },
             TestContext.User());
 
-        Assert.Equal(321, Assert.Single(Assert.Single(created.packing_tasks).items).wms_sku_id);
+        Assert.Null(Assert.Single(Assert.Single(created.packing_tasks).items).wms_sku_id);
     }
 
     [Fact]

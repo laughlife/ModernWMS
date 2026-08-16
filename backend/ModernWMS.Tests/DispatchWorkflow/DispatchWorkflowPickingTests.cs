@@ -124,7 +124,7 @@ public sealed class DispatchWorkflowPickingTests
         }, TestContext.User());
 
         var items = await db.GetDbSet<DispatchPackingTaskItemEntity>().OrderBy(t => t.id).ToListAsync();
-        Assert.All(items, item => Assert.Equal(10, item.wms_sku_id));
+        Assert.All(items, item => Assert.Null(item.wms_sku_id));
         await SeedInventoryAsync(db, 320118, 10, 5);
 
         var result = await service.CompletePickingAsync(created.id, new CompletePickingRequest
@@ -134,6 +134,7 @@ public sealed class DispatchWorkflowPickingTests
         }, TestContext.User());
 
         Assert.Equal("PICKED", result.status);
+        Assert.All(items, item => Assert.Equal(10, item.wms_sku_id));
         var allocations = await db.GetDbSet<DispatchpicklistEntity>()
             .OrderBy(t => t.packing_task_item_id)
             .ToListAsync();

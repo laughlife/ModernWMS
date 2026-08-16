@@ -9,7 +9,7 @@ namespace ModernWMS.Tests.DispatchWorkflow;
 public class DispatchWorkflowReconciliationTests
 {
     [Fact]
-    public async Task ReconcileAsync_refreshes_the_current_tenant_commodity_mapping_without_merging_tasks()
+    public async Task ReconcileAsync_keeps_items_unbound_without_merging_tasks()
     {
         await using var db = TestContext.CreateDatabase();
         var source = new MutableSourceReader(
@@ -26,12 +26,12 @@ public class DispatchWorkflowReconciliationTests
         var reconciled = await service.ReconcileAsync(order.id, TestContext.User());
 
         Assert.Equal(2, reconciled.packing_tasks.Count);
-        Assert.All(reconciled.packing_tasks, task => Assert.Equal(55, Assert.Single(task.items).wms_sku_id));
+        Assert.All(reconciled.packing_tasks, task => Assert.Null(Assert.Single(task.items).wms_sku_id));
         Assert.Equal(2, await db.GetDbSet<DispatchPackingTaskItemEntity>().CountAsync(t => t.is_active));
     }
 
     [Fact]
-    public async Task ReconcileAsync_fails_closed_when_a_shared_commodity_mapping_is_missing()
+    public async Task ReconcileAsync_clears_a_legacy_prebound_sku_while_order_is_pending_pick()
     {
         await using var db = TestContext.CreateDatabase();
         var source = new MutableSourceReader(
@@ -40,7 +40,25 @@ public class DispatchWorkflowReconciliationTests
         var order = await service.CreateAsync(
             new CreateDispatchOrderRequest { warehouse_id = 320118, source_task_ids = [101] },
             TestContext.User());
-        var taskBefore = await db.GetDbSet<DispatchPackingTaskEntity>().SingleAsync();
+        var item = await db.GetDbSet<DispatchPackingTaskItemEntity>().SingleAsync();
+        item.wms_sku_id = 10;
+        await db.SaveChangesAsync();
+
+        var reconciled = await service.ReconcileAsync(order.id, TestContext.User());
+
+        Assert.Null(Assert.Single(Assert.Single(reconciled.packing_tasks).items).wms_sku_id);
+    }
+
+    [Fact]
+    public async Task ReconcileAsync_does_not_require_a_shared_commodity_mapping()
+    {
+        await using var db = TestContext.CreateDatabase();
+        var source = new MutableSourceReader(
+            TestContext.Task(101, "CW-101", 320118, TestContext.Item(1001, "SKU", 2)));
+        var service = TestContext.CreateService(db, source);
+        var order = await service.CreateAsync(
+            new CreateDispatchOrderRequest { warehouse_id = 320118, source_task_ids = [101] },
+            TestContext.User());
         var itemBefore = await db.GetDbSet<DispatchPackingTaskItemEntity>().SingleAsync();
         db.GetDbSet<DispatchpicklistEntity>().Add(new DispatchpicklistEntity
         {
@@ -52,23 +70,17 @@ public class DispatchWorkflowReconciliationTests
         db.Remove(await db.GetDbSet<ErpCommodityMapEntity>().SingleAsync());
         await db.SaveChangesAsync();
 
-        var exception = await Assert.ThrowsAsync<DispatchWorkflowCommandException>(() =>
-            service.ReconcileAsync(order.id, TestContext.User()));
+        var reconciled = await service.ReconcileAsync(order.id, TestContext.User());
 
-        Assert.Equal("SKU_MAPPING_MISSING", exception.ErrorCode);
+        Assert.Equal("PENDING_PICK", reconciled.status);
         db.ChangeTracker.Clear();
-        var orderAfter = await db.GetDbSet<DispatchOrderEntity>().SingleAsync();
-        var taskAfter = await db.GetDbSet<DispatchPackingTaskEntity>().SingleAsync();
         var itemAfter = await db.GetDbSet<DispatchPackingTaskItemEntity>().SingleAsync();
-        Assert.Equal(order.source_version, orderAfter.source_version);
-        Assert.Equal(order.row_version, orderAfter.row_version);
-        Assert.Equal(taskBefore.source_version, taskAfter.source_version);
-        Assert.Equal(itemBefore.wms_sku_id, itemAfter.wms_sku_id);
+        Assert.Null(itemAfter.wms_sku_id);
         Assert.Single(await db.GetDbSet<DispatchpicklistEntity>().ToListAsync());
     }
 
     [Fact]
-    public async Task ReconcileAsync_fails_closed_when_shared_mapping_points_to_different_skus()
+    public async Task ReconcileAsync_does_not_resolve_conflicting_shared_mappings()
     {
         await using var db = TestContext.CreateDatabase();
         var item = TestContext.Item(1001, "SKU", 2);
@@ -77,7 +89,6 @@ public class DispatchWorkflowReconciliationTests
         var order = await service.CreateAsync(
             new CreateDispatchOrderRequest { warehouse_id = 320118, source_task_ids = [101] },
             TestContext.User());
-        var taskBefore = await db.GetDbSet<DispatchPackingTaskEntity>().SingleAsync();
         var itemBefore = await db.GetDbSet<DispatchPackingTaskItemEntity>().SingleAsync();
         db.GetDbSet<DispatchpicklistEntity>().Add(new DispatchpicklistEntity
         {
@@ -95,18 +106,12 @@ public class DispatchWorkflowReconciliationTests
         });
         await db.SaveChangesAsync();
 
-        var exception = await Assert.ThrowsAsync<DispatchWorkflowCommandException>(() =>
-            service.ReconcileAsync(order.id, TestContext.User()));
+        var reconciled = await service.ReconcileAsync(order.id, TestContext.User());
 
-        Assert.Equal("SKU_MAPPING_CONFLICT", exception.ErrorCode);
+        Assert.Equal("PENDING_PICK", reconciled.status);
         db.ChangeTracker.Clear();
-        var orderAfter = await db.GetDbSet<DispatchOrderEntity>().SingleAsync();
-        var taskAfter = await db.GetDbSet<DispatchPackingTaskEntity>().SingleAsync();
         var itemAfter = await db.GetDbSet<DispatchPackingTaskItemEntity>().SingleAsync();
-        Assert.Equal(order.source_version, orderAfter.source_version);
-        Assert.Equal(order.row_version, orderAfter.row_version);
-        Assert.Equal(taskBefore.source_version, taskAfter.source_version);
-        Assert.Equal(itemBefore.wms_sku_id, itemAfter.wms_sku_id);
+        Assert.Null(itemAfter.wms_sku_id);
         Assert.Single(await db.GetDbSet<DispatchpicklistEntity>().ToListAsync());
     }
 

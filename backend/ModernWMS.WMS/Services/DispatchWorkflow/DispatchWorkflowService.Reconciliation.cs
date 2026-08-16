@@ -54,8 +54,6 @@ public partial class DispatchWorkflowService
             throw new InvalidOperationException("packing task warehouse changed; order reconciliation rejected");
         }
 
-        var skuMappings = await ResolveCurrentSkuMappingsAsync(
-            snapshots, cancellationToken);
         var now = DateTime.Now;
         foreach (var task in activeTasks)
         {
@@ -69,11 +67,11 @@ public partial class DispatchWorkflowService
             if (!string.Equals(task.source_version, snapshot.SourceVersion, StringComparison.Ordinal))
             {
                 await RemoveTaskAllocationsAsync(task, cancellationToken);
-                RebuildTaskItems(task, snapshot, skuMappings, now);
+                RebuildTaskItems(task, snapshot, null, now);
             }
             else
             {
-                RefreshTaskSkuMappings(task, snapshot, skuMappings, now);
+                ClearTaskSkuBindings(task, now);
             }
         }
 
@@ -156,7 +154,7 @@ public partial class DispatchWorkflowService
     private static void RebuildTaskItems(
         DispatchPackingTaskEntity task,
         PackingTaskSourceSnapshot snapshot,
-        IReadOnlyDictionary<long, int> skuMappings,
+        IReadOnlyDictionary<long, int>? skuMappings,
         DateTime now)
     {
         var sourceItems = snapshot.Items.ToDictionary(t => t.SourceItemId);
@@ -196,11 +194,11 @@ public partial class DispatchWorkflowService
         DispatchPackingTaskItemEntity entity,
         PackingTaskSourceItem source,
         string sourceVersion,
-        IReadOnlyDictionary<long, int> skuMappings,
+        IReadOnlyDictionary<long, int>? skuMappings,
         DateTime now)
     {
         entity.source_commodity_id = source.CommodityId;
-        entity.wms_sku_id = MappedSkuId(source, skuMappings);
+        entity.wms_sku_id = skuMappings is null ? null : MappedSkuId(source, skuMappings);
         entity.commodity_sku = source.CommoditySku;
         entity.commodity_name = source.CommodityName;
         entity.fn_sku = source.FnSku;
@@ -233,6 +231,15 @@ public partial class DispatchWorkflowService
                 entity.wms_sku_id = mappedSkuId;
                 entity.last_update_time = now;
             }
+        }
+    }
+
+    private static void ClearTaskSkuBindings(DispatchPackingTaskEntity task, DateTime now)
+    {
+        foreach (var item in task.items.Where(t => t.is_active && t.wms_sku_id != null))
+        {
+            item.wms_sku_id = null;
+            item.last_update_time = now;
         }
     }
 }
