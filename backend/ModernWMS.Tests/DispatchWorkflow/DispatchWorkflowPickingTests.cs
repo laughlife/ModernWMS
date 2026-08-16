@@ -17,6 +17,50 @@ namespace ModernWMS.Tests.DispatchWorkflow;
 public sealed class DispatchWorkflowPickingTests
 {
     [Fact]
+    public async Task CompletePickingAsync_empty_active_items_is_source_changed_without_any_workflow_write()
+    {
+        await using var db = TestContext.CreateDatabase();
+        var source = new MutableSourceReader(
+            TestContext.Task(101, "CW-101", 320118, TestContext.Item(1001, "SKU", 2)));
+        var service = TestContext.CreateService(db, source);
+        var created = await service.CreateAsync(new CreateDispatchOrderRequest
+        {
+            warehouse_id = 320118,
+            source_task_ids = [101]
+        }, TestContext.User());
+        db.Remove(await db.GetDbSet<DispatchPackingTaskItemEntity>().SingleAsync());
+        await db.SaveChangesAsync();
+
+        var exception = await Assert.ThrowsAsync<DispatchWorkflowCommandException>(() =>
+            service.CompletePickingAsync(created.id, Request("empty-items", 0), TestContext.User()));
+
+        await AssertMappingFailureLeftPendingAsync(
+            db, exception, "SOURCE_CHANGED", "no active item");
+    }
+
+    [Fact]
+    public async Task CompletePickingAsync_non_positive_required_quantity_is_source_changed_without_any_workflow_write()
+    {
+        await using var db = TestContext.CreateDatabase();
+        var source = new MutableSourceReader(
+            TestContext.Task(101, "CW-101", 320118, TestContext.Item(1001, "SKU", 2)));
+        var service = TestContext.CreateService(db, source);
+        var created = await service.CreateAsync(new CreateDispatchOrderRequest
+        {
+            warehouse_id = 320118,
+            source_task_ids = [101]
+        }, TestContext.User());
+        (await db.GetDbSet<DispatchPackingTaskItemEntity>().SingleAsync()).required_qty = 0;
+        await db.SaveChangesAsync();
+
+        var exception = await Assert.ThrowsAsync<DispatchWorkflowCommandException>(() =>
+            service.CompletePickingAsync(created.id, Request("invalid-quantity", 0), TestContext.User()));
+
+        await AssertMappingFailureLeftPendingAsync(
+            db, exception, "SOURCE_CHANGED", "invalid required quantity");
+    }
+
+    [Fact]
     public async Task CompletePickingAsync_missing_mapping_stays_pending_without_any_workflow_write()
     {
         await using var db = TestContext.CreateDatabase();
@@ -34,7 +78,7 @@ public sealed class DispatchWorkflowPickingTests
         var exception = await Assert.ThrowsAsync<DispatchWorkflowCommandException>(() =>
             service.CompletePickingAsync(created.id, Request("missing-map", 0), TestContext.User()));
 
-        await AssertMappingFailureLeftPendingAsync(db, exception);
+        await AssertMappingFailureLeftPendingAsync(db, exception, "SKU_MAPPING_MISSING");
     }
 
     [Fact]
@@ -55,14 +99,14 @@ public sealed class DispatchWorkflowPickingTests
             wms_spu_id = 2,
             wms_sku_id = 99,
             commodity_sku = item.CommoditySku,
-            tenant_id = TestContext.User().tenant_id
+            tenant_id = 999
         });
         await db.SaveChangesAsync();
 
         var exception = await Assert.ThrowsAsync<DispatchWorkflowCommandException>(() =>
             service.CompletePickingAsync(created.id, Request("ambiguous-map", 0), TestContext.User()));
 
-        await AssertMappingFailureLeftPendingAsync(db, exception);
+        await AssertMappingFailureLeftPendingAsync(db, exception, "SKU_MAPPING_CONFLICT");
     }
 
     [Fact]
@@ -542,6 +586,8 @@ public sealed class DispatchWorkflowPickingTests
     {
         { DispatchWorkflowCommandException.SourceChanged(), "SOURCE_CHANGED" },
         { DispatchWorkflowCommandException.StockShortage("short"), "STOCK_SHORTAGE" },
+        { DispatchWorkflowCommandException.SkuMappingMissing("missing"), "SKU_MAPPING_MISSING" },
+        { DispatchWorkflowCommandException.SkuMappingConflict("conflict"), "SKU_MAPPING_CONFLICT" },
         { DispatchWorkflowCommandException.ConcurrencyConflict(), "CONCURRENCY_CONFLICT" },
         { DispatchWorkflowCommandException.StatusNotAllowed(), "STATUS_NOT_ALLOWED" }
     };
@@ -554,9 +600,15 @@ public sealed class DispatchWorkflowPickingTests
 
     private static async Task AssertMappingFailureLeftPendingAsync(
         ModernWMS.Core.DBContext.SqlDBContext db,
-        DispatchWorkflowCommandException exception)
+        DispatchWorkflowCommandException exception,
+        string expectedErrorCode,
+        string? expectedDetail = null)
     {
-        Assert.Equal("STOCK_SHORTAGE", exception.ErrorCode);
+        Assert.Equal(expectedErrorCode, exception.ErrorCode);
+        if (expectedDetail != null)
+        {
+            Assert.Contains(expectedDetail, exception.Message);
+        }
         var order = await db.GetDbSet<DispatchOrderEntity>().SingleAsync();
         Assert.Equal(DispatchOrderStatus.PendingPick, order.status);
         Assert.Equal(0, order.row_version);

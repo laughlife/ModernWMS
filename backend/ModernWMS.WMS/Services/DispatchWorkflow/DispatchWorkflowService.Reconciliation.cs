@@ -55,7 +55,7 @@ public partial class DispatchWorkflowService
         }
 
         var skuMappings = await ResolveCurrentSkuMappingsAsync(
-            snapshots, order.tenant_id, cancellationToken);
+            snapshots, cancellationToken);
         var now = DateTime.Now;
         foreach (var task in activeTasks)
         {

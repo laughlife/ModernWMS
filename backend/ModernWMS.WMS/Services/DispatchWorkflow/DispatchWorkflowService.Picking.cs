@@ -74,16 +74,8 @@ public partial class DispatchWorkflowService
                 throw DispatchWorkflowCommandException.SourceChanged();
             }
 
-            IReadOnlyDictionary<long, int> skuMappings;
-            try
-            {
-                skuMappings = await ResolveCurrentSkuMappingsAsync(
-                    snapshots, order.tenant_id, cancellationToken);
-            }
-            catch (InvalidOperationException exception)
-            {
-                throw DispatchWorkflowCommandException.StockShortage(exception.Message);
-            }
+            var skuMappings = await ResolveCurrentSkuMappingsAsync(
+                snapshots, cancellationToken);
 
             var now = DateTime.Now;
             foreach (var task in activeTasks)
@@ -133,9 +125,22 @@ public partial class DispatchWorkflowService
                 .OrderBy(t => t.packing_task_id)
                 .ThenBy(t => t.source_item_id)
                 .ToList();
-            if (items.Count == 0 || items.Any(t => t.wms_sku_id is null or <= 0 || t.required_qty is null or <= 0))
+            if (items.Count == 0)
             {
-                throw DispatchWorkflowCommandException.StockShortage("packing task item has no unambiguous WMS SKU mapping");
+                throw DispatchWorkflowCommandException.SourceChanged(
+                    "packing task has no active item to pick");
+            }
+
+            if (items.Any(t => t.wms_sku_id is null or <= 0))
+            {
+                throw DispatchWorkflowCommandException.SkuMappingMissing(
+                    "packing task item has no valid WMS SKU mapping");
+            }
+
+            if (items.Any(t => t.required_qty is null or <= 0))
+            {
+                throw DispatchWorkflowCommandException.SourceChanged(
+                    "packing task item has invalid required quantity");
             }
 
             var allocations = await BuildAllocationPlanAsync(
@@ -447,11 +452,18 @@ public sealed partial class DispatchWorkflowCommandException : InvalidOperationE
 
     public string ErrorCode { get; }
 
-    public static DispatchWorkflowCommandException SourceChanged() =>
-        new("SOURCE_CHANGED", "packing task source changed during picking completion");
+    public static DispatchWorkflowCommandException SourceChanged(
+        string detail = "packing task source changed during picking completion") =>
+        new("SOURCE_CHANGED", detail);
 
     public static DispatchWorkflowCommandException StockShortage(string detail) =>
         new("STOCK_SHORTAGE", detail);
+
+    public static DispatchWorkflowCommandException SkuMappingMissing(string detail) =>
+        new("SKU_MAPPING_MISSING", detail);
+
+    public static DispatchWorkflowCommandException SkuMappingConflict(string detail) =>
+        new("SKU_MAPPING_CONFLICT", detail);
 
     public static DispatchWorkflowCommandException ConcurrencyConflict() =>
         new("CONCURRENCY_CONFLICT", "row version does not match");

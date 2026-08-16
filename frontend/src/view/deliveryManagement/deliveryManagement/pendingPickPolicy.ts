@@ -18,6 +18,7 @@ export interface PendingPickFailureOutcome {
   refreshDetail: true
   emitStatusChanged: false
   messageKey: string
+  message?: string
 }
 
 export interface PendingPickResponseIdentity {
@@ -31,6 +32,11 @@ const FAILURE_MESSAGE_KEYS: Partial<Record<DispatchWorkflowErrorCode, string>> =
   STOCK_SHORTAGE: 'wms.deliveryManagement.inventoryShortage',
   SOURCE_CHANGED: 'wms.deliveryManagement.sourceChangeRefresh',
   CONCURRENCY_CONFLICT: 'wms.deliveryManagement.inventoryConflict'
+}
+
+const FAILURE_MESSAGES: Partial<Record<DispatchWorkflowErrorCode, string>> = {
+  SKU_MAPPING_MISSING: '商品映射缺失',
+  SKU_MAPPING_CONFLICT: '商品映射冲突'
 }
 
 export const toPendingPickRows = (orders: DispatchOrderSummary[]): DispatchOrderSummary[] => [...orders]
@@ -75,10 +81,15 @@ export const buildCompletePickingPayload = (
   row_version: order.row_version
 })
 
-export const getPendingPickFailureOutcome = (errorCode: string): PendingPickFailureOutcome => ({
-  stayOnPendingPick: true,
-  refreshList: true,
-  refreshDetail: true,
-  emitStatusChanged: false,
-  messageKey: FAILURE_MESSAGE_KEYS[errorCode as DispatchWorkflowErrorCode] ?? 'wms.deliveryManagement.sourceChangeRefresh'
-})
+export const getPendingPickFailureOutcome = (errorCode: string): PendingPickFailureOutcome => {
+  const workflowErrorCode = errorCode as DispatchWorkflowErrorCode
+  const message = FAILURE_MESSAGES[workflowErrorCode]
+  return {
+    stayOnPendingPick: true,
+    refreshList: true,
+    refreshDetail: true,
+    emitStatusChanged: false,
+    messageKey: FAILURE_MESSAGE_KEYS[workflowErrorCode] ?? 'wms.deliveryManagement.sourceChangeRefresh',
+    ...(message ? { message } : {})
+  }
+}

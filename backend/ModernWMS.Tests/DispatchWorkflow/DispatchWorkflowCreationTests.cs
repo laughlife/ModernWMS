@@ -15,7 +15,7 @@ namespace ModernWMS.Tests.DispatchWorkflow;
 public class DispatchWorkflowCreationTests
 {
     [Fact]
-    public async Task CreateAsync_fails_atomically_when_current_tenant_commodity_mapping_is_missing()
+    public async Task CreateAsync_fails_atomically_when_shared_commodity_mapping_is_missing()
     {
         await using var db = TestContext.CreateDatabase();
         var source = new MutableSourceReader(
@@ -24,18 +24,18 @@ public class DispatchWorkflowCreationTests
         db.Remove(await db.GetDbSet<ErpCommodityMapEntity>().SingleAsync());
         await db.SaveChangesAsync();
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateAsync(
+        var exception = await Assert.ThrowsAsync<DispatchWorkflowCommandException>(() => service.CreateAsync(
             new CreateDispatchOrderRequest { warehouse_id = 320118, source_task_ids = [101] },
             TestContext.User()));
 
-        Assert.Contains("WMS SKU mapping", exception.Message);
+        Assert.Equal("SKU_MAPPING_MISSING", exception.ErrorCode);
         Assert.Empty(await db.GetDbSet<DispatchOrderEntity>().ToListAsync());
         Assert.Empty(await db.GetDbSet<DispatchPackingTaskEntity>().ToListAsync());
         Assert.Empty(await db.GetDbSet<DispatchPackingTaskItemEntity>().ToListAsync());
     }
 
     [Fact]
-    public async Task CreateAsync_fails_atomically_when_current_tenant_commodity_mapping_is_ambiguous()
+    public async Task CreateAsync_fails_atomically_when_shared_commodity_mapping_points_to_different_skus()
     {
         await using var db = TestContext.CreateDatabase();
         var item = TestContext.Item(1001, "SKU", 2);
@@ -47,22 +47,41 @@ public class DispatchWorkflowCreationTests
             wms_spu_id = 2,
             wms_sku_id = 99,
             commodity_sku = item.CommoditySku,
-            tenant_id = TestContext.User().tenant_id
+            tenant_id = 999
         });
         await db.SaveChangesAsync();
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateAsync(
+        var exception = await Assert.ThrowsAsync<DispatchWorkflowCommandException>(() => service.CreateAsync(
             new CreateDispatchOrderRequest { warehouse_id = 320118, source_task_ids = [101] },
             TestContext.User()));
 
-        Assert.Contains("WMS SKU mapping", exception.Message);
+        Assert.Equal("SKU_MAPPING_CONFLICT", exception.ErrorCode);
         Assert.Empty(await db.GetDbSet<DispatchOrderEntity>().ToListAsync());
         Assert.Empty(await db.GetDbSet<DispatchPackingTaskEntity>().ToListAsync());
         Assert.Empty(await db.GetDbSet<DispatchPackingTaskItemEntity>().ToListAsync());
     }
 
     [Fact]
-    public async Task CreateAsync_ignores_the_same_commodity_mapping_from_another_tenant()
+    public async Task CreateAsync_uses_a_shared_mapping_even_when_only_tenant_one_owns_the_row()
+    {
+        await using var db = TestContext.CreateDatabase();
+        var item = TestContext.Item(1001, "SKU", 2);
+        var source = new MutableSourceReader(TestContext.Task(101, "CW-101", 320118, item));
+        var service = TestContext.CreateService(db, source);
+        var mapping = await db.GetDbSet<ErpCommodityMapEntity>().SingleAsync();
+        mapping.tenant_id = 1;
+        mapping.wms_sku_id = 321;
+        await db.SaveChangesAsync();
+
+        var created = await service.CreateAsync(
+            new CreateDispatchOrderRequest { warehouse_id = 320118, source_task_ids = [101] },
+            TestContext.User());
+
+        Assert.Equal(321, Assert.Single(Assert.Single(created.packing_tasks).items).wms_sku_id);
+    }
+
+    [Fact]
+    public async Task CreateAsync_accepts_duplicate_tenant_rows_when_they_resolve_to_the_same_wms_sku()
     {
         await using var db = TestContext.CreateDatabase();
         var item = TestContext.Item(1001, "SKU", 2);
@@ -73,7 +92,7 @@ public class DispatchWorkflowCreationTests
         {
             erp_commodity_id = item.CommodityId!.Value,
             wms_spu_id = 9,
-            wms_sku_id = 999,
+            wms_sku_id = 321,
             commodity_sku = item.CommoditySku,
             tenant_id = 999
         });

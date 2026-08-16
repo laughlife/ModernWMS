@@ -180,6 +180,23 @@ describe('pending pick policy', () => {
     })
   })
 
+  it.each([
+    ['SKU_MAPPING_MISSING', '商品映射缺失'],
+    ['SKU_MAPPING_CONFLICT', '商品映射冲突']
+  ])('shows an explicit %s message without misreporting inventory or source changes', (errorCode, message) => {
+    const outcome = getPendingPickFailureOutcome(errorCode)
+
+    expect(outcome).toMatchObject({
+      stayOnPendingPick: true,
+      refreshList: true,
+      refreshDetail: true,
+      emitStatusChanged: false,
+      message
+    })
+    expect(outcome.message).not.toContain('库存不足')
+    expect(outcome.message).not.toContain('来源')
+  })
+
   it('builds the whole-order complete-picking payload from request id and current row version', () => {
     expect(buildCompletePickingPayload(summary, 'pick-request-18')).toEqual({
       request_id: 'pick-request-18',

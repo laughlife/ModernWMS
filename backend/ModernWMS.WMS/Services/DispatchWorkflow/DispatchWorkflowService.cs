@@ -183,13 +183,13 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
 
     private async Task<IReadOnlyDictionary<long, int>> ResolveCurrentSkuMappingsAsync(
         IReadOnlyCollection<PackingTaskSourceSnapshot> snapshots,
-        long tenantId,
         CancellationToken cancellationToken)
     {
         var items = snapshots.Where(t => !t.IsCancelled).SelectMany(t => t.Items).ToList();
         if (items.Any(t => t.CommodityId is null or <= 0))
         {
-            throw new InvalidOperationException("packing task item has no unambiguous WMS SKU mapping");
+            throw DispatchWorkflowCommandException.SkuMappingMissing(
+                "packing task item has no ERP commodity identity");
         }
 
         var commodityIds = items.Select(t => t.CommodityId!.Value).Distinct().ToArray();
@@ -200,18 +200,32 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
 
         var mappings = await _dbContext.GetDbSet<ErpCommodityMapEntity>()
             .AsNoTracking()
-            .Where(t => t.tenant_id == tenantId && commodityIds.Contains(t.erp_commodity_id))
+            .Where(t => commodityIds.Contains(t.erp_commodity_id))
             .Select(t => new { t.erp_commodity_id, t.wms_sku_id })
             .ToListAsync(cancellationToken);
-        var grouped = mappings.GroupBy(t => t.erp_commodity_id).ToDictionary(t => t.Key, t => t.ToList());
-        if (commodityIds.Any(id => !grouped.TryGetValue(id, out var rows)
-                || rows.Count != 1
-                || rows[0].wms_sku_id <= 0))
+        var resolved = new Dictionary<long, int>();
+        foreach (var commodityId in commodityIds)
         {
-            throw new InvalidOperationException("packing task item has no unambiguous WMS SKU mapping");
+            var skuIds = mappings.Where(t => t.erp_commodity_id == commodityId && t.wms_sku_id > 0)
+                .Select(t => t.wms_sku_id)
+                .Distinct()
+                .ToArray();
+            if (skuIds.Length == 0)
+            {
+                throw DispatchWorkflowCommandException.SkuMappingMissing(
+                    $"ERP commodity {commodityId} has no WMS SKU mapping");
+            }
+
+            if (skuIds.Length > 1)
+            {
+                throw DispatchWorkflowCommandException.SkuMappingConflict(
+                    $"ERP commodity {commodityId} maps to multiple WMS SKUs");
+            }
+
+            resolved.Add(commodityId, skuIds[0]);
         }
 
-        return grouped.ToDictionary(t => t.Key, t => t.Value[0].wms_sku_id);
+        return resolved;
     }
 
     private static int MappedSkuId(
@@ -219,5 +233,6 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
         IReadOnlyDictionary<long, int> mappings) =>
         item.CommodityId is long commodityId && mappings.TryGetValue(commodityId, out var skuId)
             ? skuId
-            : throw new InvalidOperationException("packing task item has no unambiguous WMS SKU mapping");
+            : throw DispatchWorkflowCommandException.SkuMappingMissing(
+                "packing task item has no WMS SKU mapping");
 }

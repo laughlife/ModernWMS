@@ -367,7 +367,7 @@ const method = reactive({
           const outcome = getPendingPickFailureOutcome(result.errorMessage)
           hookComponent.$message({
             type: 'error',
-            content: `${i18n.global.t(outcome.messageKey)}（${result.errorMessage}）`
+            content: `${outcome.message ?? i18n.global.t(outcome.messageKey)}（${result.errorMessage}）`
           })
           await refreshAfterFailure(row.id)
           return

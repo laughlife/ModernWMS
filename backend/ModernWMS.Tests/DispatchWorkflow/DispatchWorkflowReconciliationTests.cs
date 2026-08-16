@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using ModernWMS.Core.DBContext.Entities;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels.DispatchWorkflow;
+using ModernWMS.WMS.Services.DispatchWorkflow;
 
 namespace ModernWMS.Tests.DispatchWorkflow;
 
@@ -30,7 +31,7 @@ public class DispatchWorkflowReconciliationTests
     }
 
     [Fact]
-    public async Task ReconcileAsync_fails_closed_when_a_current_tenant_commodity_mapping_is_missing()
+    public async Task ReconcileAsync_fails_closed_when_a_shared_commodity_mapping_is_missing()
     {
         await using var db = TestContext.CreateDatabase();
         var source = new MutableSourceReader(
@@ -51,10 +52,10 @@ public class DispatchWorkflowReconciliationTests
         db.Remove(await db.GetDbSet<ErpCommodityMapEntity>().SingleAsync());
         await db.SaveChangesAsync();
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var exception = await Assert.ThrowsAsync<DispatchWorkflowCommandException>(() =>
             service.ReconcileAsync(order.id, TestContext.User()));
 
-        Assert.Contains("WMS SKU mapping", exception.Message);
+        Assert.Equal("SKU_MAPPING_MISSING", exception.ErrorCode);
         db.ChangeTracker.Clear();
         var orderAfter = await db.GetDbSet<DispatchOrderEntity>().SingleAsync();
         var taskAfter = await db.GetDbSet<DispatchPackingTaskEntity>().SingleAsync();
@@ -67,7 +68,7 @@ public class DispatchWorkflowReconciliationTests
     }
 
     [Fact]
-    public async Task ReconcileAsync_fails_closed_when_current_tenant_mapping_is_ambiguous()
+    public async Task ReconcileAsync_fails_closed_when_shared_mapping_points_to_different_skus()
     {
         await using var db = TestContext.CreateDatabase();
         var item = TestContext.Item(1001, "SKU", 2);
@@ -90,14 +91,14 @@ public class DispatchWorkflowReconciliationTests
             wms_spu_id = 2,
             wms_sku_id = 99,
             commodity_sku = item.CommoditySku,
-            tenant_id = TestContext.User().tenant_id
+            tenant_id = 999
         });
         await db.SaveChangesAsync();
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var exception = await Assert.ThrowsAsync<DispatchWorkflowCommandException>(() =>
             service.ReconcileAsync(order.id, TestContext.User()));
 
-        Assert.Contains("WMS SKU mapping", exception.Message);
+        Assert.Equal("SKU_MAPPING_CONFLICT", exception.ErrorCode);
         db.ChangeTracker.Clear();
         var orderAfter = await db.GetDbSet<DispatchOrderEntity>().SingleAsync();
         var taskAfter = await db.GetDbSet<DispatchPackingTaskEntity>().SingleAsync();
@@ -268,7 +269,9 @@ public class DispatchWorkflowReconciliationTests
             is_update_stock = true
         });
         await db.SaveChangesAsync();
-        source.Set(TestContext.Task(101, "CW-101", 320118, TestContext.Item(1002, "NEW", 4)));
+        var changed = TestContext.Task(101, "CW-101", 320118, TestContext.Item(1002, "NEW", 4));
+        TestContext.SeedCommodityMaps(db, changed);
+        source.Set(changed);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.ReconcileAsync(order.id, TestContext.User()));

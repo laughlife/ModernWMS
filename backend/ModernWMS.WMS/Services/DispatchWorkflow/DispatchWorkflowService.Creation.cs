@@ -71,7 +71,7 @@ public partial class DispatchWorkflowService
             }
 
             var skuMappings = await ResolveCurrentSkuMappingsAsync(
-                snapshots, currentUser.tenant_id, cancellationToken);
+                snapshots, cancellationToken);
             var now = DateTime.Now;
             var order = new DispatchOrderEntity
             {

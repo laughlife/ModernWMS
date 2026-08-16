@@ -32,6 +32,8 @@ describe('dispatch workflow policy', () => {
     expect(getSourceErrorActions('SOURCE_CHANGE_PENDING')).toEqual(['continue', 'cancel'])
     expect(getSourceErrorActions('SOURCE_VERSION_CONFLICT')).toEqual(['refresh'])
     expect(getSourceErrorActions('CONCURRENCY_CONFLICT')).toEqual(['refresh'])
+    expect(getSourceErrorActions('SKU_MAPPING_MISSING')).toEqual(['refresh'])
+    expect(getSourceErrorActions('SKU_MAPPING_CONFLICT')).toEqual(['refresh'])
   })
 
   it('uses only the backend-provided default warehouse', () => {
