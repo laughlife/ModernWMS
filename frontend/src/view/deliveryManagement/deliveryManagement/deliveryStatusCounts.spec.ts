@@ -53,4 +53,47 @@ describe('delivery status counts', () => {
       tabCompleted: 0
     })
   })
+
+  it('keeps workflow badge quantities when the packing-task counter is temporarily unavailable', async () => {
+    const counts = await loadDeliveryStatusCounts({
+      loadPackingTaskCount: async () => { throw new Error('packing source unavailable') },
+      loadWorkflowCounts: async () => ({ PENDING_PICK: 7, PICKED: 2 }),
+      fallbackCounts: {
+        tabFbaShipment: 4,
+        tabGoodsToBePicked: 6,
+        tabPicked: 1,
+        tabWeighed: 0,
+        tabDelivered: 0,
+        tabCompleted: 0
+      }
+    })
+
+    expect(counts.tabFbaShipment).toBe(4)
+    expect(counts.tabGoodsToBePicked).toBe(7)
+    expect(counts.tabPicked).toBe(2)
+  })
+
+  it('keeps the last workflow badge quantities when only workflow counts fail', async () => {
+    const counts = await loadDeliveryStatusCounts({
+      loadPackingTaskCount: async () => 9,
+      loadWorkflowCounts: async () => { throw new Error('workflow unavailable') },
+      fallbackCounts: {
+        tabFbaShipment: 4,
+        tabGoodsToBePicked: 7,
+        tabPicked: 2,
+        tabWeighed: 3,
+        tabDelivered: 1,
+        tabCompleted: 5
+      }
+    })
+
+    expect(counts).toEqual({
+      tabFbaShipment: 9,
+      tabGoodsToBePicked: 7,
+      tabPicked: 2,
+      tabWeighed: 3,
+      tabDelivered: 1,
+      tabCompleted: 5
+    })
+  })
 })

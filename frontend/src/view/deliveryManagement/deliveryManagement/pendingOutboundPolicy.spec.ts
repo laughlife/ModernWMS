@@ -44,8 +44,8 @@ const order = (overrides: Partial<DispatchOrderDetail> = {}): DispatchOrderDetai
       expected_box_count: 2,
       measured_box_count: 2,
       items: [
-        { id: 1, source_item_id: 11, source_commodity_id: null, wms_sku_id: 21, commodity_sku: 'SKU-A', commodity_name: 'A', fn_sku: 'FN-A', msku: 'M-A', required_qty: 3, source_stock_available: null },
-        { id: 2, source_item_id: 12, source_commodity_id: null, wms_sku_id: 22, commodity_sku: 'SKU-B', commodity_name: 'B', fn_sku: 'FN-B', msku: 'M-B', required_qty: 4, source_stock_available: null }
+        { id: 1, source_item_id: 11, source_commodity_id: null, wms_sku_id: 21, commodity_sku: 'SKU-A', commodity_name: 'A', main_image: '', fn_sku: 'FN-A', msku: 'M-A', required_qty: 3, source_stock_available: null },
+        { id: 2, source_item_id: 12, source_commodity_id: null, wms_sku_id: 22, commodity_sku: 'SKU-B', commodity_name: 'B', main_image: '', fn_sku: 'FN-B', msku: 'M-B', required_qty: 4, source_stock_available: null }
       ]
     },
     {
@@ -57,7 +57,7 @@ const order = (overrides: Partial<DispatchOrderDetail> = {}): DispatchOrderDetai
       expected_box_count: 1,
       measured_box_count: 1,
       items: [
-        { id: 3, source_item_id: 13, source_commodity_id: null, wms_sku_id: 21, commodity_sku: 'SKU-A', commodity_name: 'A', fn_sku: 'FN-A', msku: 'M-A', required_qty: 5, source_stock_available: null }
+        { id: 3, source_item_id: 13, source_commodity_id: null, wms_sku_id: 21, commodity_sku: 'SKU-A', commodity_name: 'A', main_image: '', fn_sku: 'FN-A', msku: 'M-A', required_qty: 5, source_stock_available: null }
       ]
     }
   ],

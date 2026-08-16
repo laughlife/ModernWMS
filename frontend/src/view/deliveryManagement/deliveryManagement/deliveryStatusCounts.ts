@@ -38,14 +38,27 @@ export const mapWorkflowCountsToTabs = (
 
 export const loadDeliveryStatusCounts = async ({
   loadWorkflowCounts,
-  loadPackingTaskCount
+  loadPackingTaskCount,
+  fallbackCounts = mapWorkflowCountsToTabs({}, 0)
 }: {
   loadWorkflowCounts: () => Promise<WorkflowCountSource>
   loadPackingTaskCount: () => Promise<number>
+  fallbackCounts?: DeliveryStatusCounts
 }): Promise<DeliveryStatusCounts> => {
-  const [workflow, packingTaskCount] = await Promise.all([
+  const [workflowResult, packingTaskResult] = await Promise.allSettled([
     loadWorkflowCounts(),
     loadPackingTaskCount()
   ])
-  return mapWorkflowCountsToTabs(workflow, packingTaskCount)
+  const result = mapWorkflowCountsToTabs(
+    workflowResult.status === 'fulfilled' ? workflowResult.value : {},
+    packingTaskResult.status === 'fulfilled' ? packingTaskResult.value : fallbackCounts.tabFbaShipment
+  )
+  if (workflowResult.status === 'rejected') {
+    result.tabGoodsToBePicked = fallbackCounts.tabGoodsToBePicked
+    result.tabPicked = fallbackCounts.tabPicked
+    result.tabWeighed = fallbackCounts.tabWeighed
+    result.tabDelivered = fallbackCounts.tabDelivered
+    result.tabCompleted = fallbackCounts.tabCompleted
+  }
+  return result
 }

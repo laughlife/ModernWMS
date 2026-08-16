@@ -185,6 +185,7 @@ public sealed class DispatchPackingTaskItemViewModel
     public int? wms_sku_id { get; set; }
     public string commodity_sku { get; set; } = string.Empty;
     public string commodity_name { get; set; } = string.Empty;
+    public string main_image { get; set; } = string.Empty;
     public string fn_sku { get; set; } = string.Empty;
     public string msku { get; set; } = string.Empty;
     public int? required_qty { get; set; }

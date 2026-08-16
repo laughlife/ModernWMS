@@ -4,7 +4,18 @@
       <v-col cols="3" class="col">
         <BtnGroup :authority-list="data.authorityList" :btn-list="data.btnList" />
       </v-col>
-      <v-col cols="9" @keyup.enter="method.sureSearch">
+      <v-col cols="3" class="col">
+        <v-btn
+          color="primary"
+          prepend-icon="mdi-printer"
+          :loading="data.printing"
+          :disabled="data.loading || data.printing || data.selectedOrderCount === 0"
+          @click="method.printSelected"
+        >
+          批量打印（{{ data.selectedOrderCount }}）
+        </v-btn>
+      </v-col>
+      <v-col cols="6" @keyup.enter="method.sureSearch">
         <v-text-field
           v-model="data.searchForm.keyword"
           clearable
@@ -27,9 +38,12 @@
       :height="tableHeight"
       :loading="data.loading"
       align="center"
+      @checkbox-change="method.handleSelectionChange"
+      @checkbox-all="method.handleSelectionChange"
       @toggle-row-expand="handleToggleRowExpand"
     >
       <template #empty>{{ data.errorMessage || i18n.global.t('system.page.noData') }}</template>
+      <vxe-column type="checkbox" width="52" fixed="left" />
       <vxe-column type="seq" width="60" />
       <vxe-column type="expand" width="54">
         <template #content="{ row }">
@@ -49,6 +63,7 @@
                 <v-table density="compact">
                   <thead>
                     <tr>
+                      <th>图片</th>
                       <th>SKU</th>
                       <th>{{ $t('wms.deliveryManagement.productInfo') }}</th>
                       <th>FNSKU / MSKU</th>
@@ -58,6 +73,14 @@
                   </thead>
                   <tbody>
                     <tr v-for="item in task.items" :key="item.id">
+                      <td class="detail-image-cell">
+                        <ProductImage
+                          :src="item.main_image"
+                          :alt="item.commodity_name || item.commodity_sku"
+                          :width="56"
+                          :height="56"
+                        />
+                      </td>
                       <td>{{ displayValue(item.commodity_sku) }}</td>
                       <td class="text-left">{{ displayValue(item.commodity_name) }}</td>
                       <td>
@@ -111,7 +134,7 @@
               :flat="true"
               icon="mdi-printer"
               :tooltip-text="$t('system.page.print')"
-              :disabled="data.loading"
+              :disabled="data.loading || data.printing"
               @click="method.printRow(row)"
             />
             <TooltipBtn
@@ -149,6 +172,7 @@
         <table>
           <thead>
             <tr>
+              <th>图片</th>
               <th>SKU</th>
               <th>{{ $t('wms.deliveryManagement.productInfo') }}</th>
               <th>FNSKU</th>
@@ -158,6 +182,15 @@
           </thead>
           <tbody>
             <tr v-for="item in task.items" :key="item.id">
+              <td class="print-image-cell">
+                <img
+                  v-if="item.main_image"
+                  :src="item.main_image"
+                  :alt="item.commodity_name || item.commodity_sku"
+                  referrerpolicy="no-referrer"
+                />
+                <span v-else>-</span>
+              </td>
               <td>{{ displayValue(item.commodity_sku) }}</td>
               <td>{{ displayValue(item.commodity_name) }}</td>
               <td>{{ displayValue(item.fn_sku) }}</td>
@@ -183,6 +216,7 @@ import {
 } from '@/api/wms/dispatchWorkflow'
 import { hookComponent } from '@/components/system'
 import BtnGroup from '@/components/system/btnGroup.vue'
+import ProductImage from '@/components/system/product-image.vue'
 import TooltipBtn from '@/components/tooltip-btn.vue'
 import customPager from '@/components/custom-pager.vue'
 import { computedCardHeight, computedTableHeight } from '@/constant/style'
@@ -194,10 +228,11 @@ import type { btnGroupItem } from '@/types/System/Form'
 import { getMenuAuthorityList } from '@/utils/common'
 import {
   buildCompletePickingPayload,
+  buildPendingPickBatchPrintSnapshots,
   buildPendingPickPageRequest,
-  buildPendingPickPrintSnapshot,
   getPendingPickFailureOutcome,
   shouldAcceptPendingPickResponse,
+  shouldAcceptPendingPickPrintContext,
   toPendingPickRows
 } from './pendingPickPolicy'
 
@@ -217,6 +252,8 @@ const data = reactive({
   timer: null as ReturnType<typeof setTimeout> | null,
   tableData: [] as PendingPickTableRow[],
   printOrders: [] as DispatchOrderDetail[],
+  printing: false,
+  selectedOrderCount: 0,
   errorMessage: '',
   loading: false,
   tablePage: { total: 0, pageIndex: 1, pageSize: DEFAULT_PAGE_SIZE },
@@ -225,6 +262,7 @@ const data = reactive({
 })
 
 let pageRequestSeq = 0
+let printRequestSeq = 0
 
 const toTableRow = (order: DispatchOrderSummary): PendingPickTableRow => ({
   ...order,
@@ -257,12 +295,31 @@ const isCurrentPageRequest = (requestSeq: number, requestedWarehouseId: number |
   })
 
 const clearPendingPickView = (): void => {
+  printRequestSeq += 1
   data.tableData = []
   data.tablePage.total = 0
   data.printOrders = []
   data.errorMessage = ''
   xTable.value?.clearCheckboxRow?.()
   xTable.value?.clearRowExpand?.()
+  data.selectedOrderCount = 0
+}
+
+const waitForPrintImages = async (): Promise<void> => {
+  const images = Array.from(document.querySelectorAll<HTMLImageElement>('#pickingPrintArea img'))
+  await Promise.all(images.map((image) => {
+    if (image.complete) return Promise.resolve()
+    return new Promise<void>((resolve) => {
+      const done = () => {
+        image.removeEventListener('load', done)
+        image.removeEventListener('error', done)
+        resolve()
+      }
+      image.addEventListener('load', done, { once: true })
+      image.addEventListener('error', done, { once: true })
+      setTimeout(done, 3000)
+    })
+  }))
 }
 
 const loadDetail = async (row: PendingPickTableRow, force = false): Promise<void> => {
@@ -347,17 +404,59 @@ const method = reactive({
     data.tablePage.pageIndex = 1
     method.getGoodsToBePicked()
   },
-  printRow: async (row: PendingPickTableRow) => {
-    const result = await getDispatchOrderPrint(row.id)
-    if (!result.isSuccess) {
-      hookComponent.$message({ type: 'error', content: result.errorMessage })
-      await refreshAfterFailure(row.id)
-      return
-    }
-    data.printOrders = [buildPendingPickPrintSnapshot(result.data)]
-    await nextTick()
-    printButtonRef.value?.click()
+  handleSelectionChange: () => {
+    data.selectedOrderCount = (xTable.value?.getCheckboxRecords?.() ?? []).length
   },
+  printRows: async (rows: PendingPickTableRow[]) => {
+    if (rows.length === 0 || data.printing) return
+    const requestSeq = ++printRequestSeq
+    const requestedWarehouseId = props.warehouseId
+    data.printing = true
+    try {
+      const details: DispatchOrderDetail[] = []
+      for (const row of rows) {
+        const result = await getDispatchOrderPrint(row.id)
+        if (!shouldAcceptPendingPickPrintContext({
+          requestSeq,
+          latestRequestSeq: printRequestSeq,
+          requestedWarehouseId,
+          currentWarehouseId: props.warehouseId
+        })) return
+        if (!result.isSuccess) {
+          hookComponent.$message({ type: 'error', content: result.errorMessage })
+          await refreshAfterFailure(row.id)
+          return
+        }
+        details.push(result.data)
+      }
+      data.printOrders = buildPendingPickBatchPrintSnapshots(details)
+      await nextTick()
+      await waitForPrintImages()
+      if (!shouldAcceptPendingPickPrintContext({
+        requestSeq,
+        latestRequestSeq: printRequestSeq,
+        requestedWarehouseId,
+        currentWarehouseId: props.warehouseId
+      })) return
+      printButtonRef.value?.click()
+    } catch (error) {
+      if (shouldAcceptPendingPickPrintContext({
+        requestSeq,
+        latestRequestSeq: printRequestSeq,
+        requestedWarehouseId,
+        currentWarehouseId: props.warehouseId
+      })) {
+        const message = error instanceof Error ? error.message : String(error)
+        hookComponent.$message({ type: 'error', content: message })
+      }
+    } finally {
+      data.printing = false
+    }
+  },
+  printRow: (row: PendingPickTableRow) => method.printRows([row]),
+  printSelected: () => method.printRows(
+    (xTable.value?.getCheckboxRecords?.() ?? []) as PendingPickTableRow[]
+  ),
   completeRow: (row: PendingPickTableRow) => {
     hookComponent.$dialog({
       content: i18n.global.t('wms.deliveryManagement.completePickingConfirm'),
@@ -421,6 +520,7 @@ defineExpose({ getGoodsToBePicked: method.getGoodsToBePicked })
 .task-section + .task-section { margin-top: 16px; }
 .task-heading { display: flex; justify-content: space-between; padding: 8px 12px; background: rgba(var(--v-theme-primary), 0.07); }
 .secondary-text { margin-top: 3px; color: rgba(var(--v-theme-on-surface), 0.62); font-size: 12px; }
+.detail-image-cell { width: 72px; }
 .row-actions { display: flex; justify-content: center; gap: 10px; }
 .print-trigger { position: fixed; left: -10000px; width: 1px; height: 1px; opacity: 0; }
 .print-area { position: fixed; left: -10000px; top: 0; width: 1000px; padding: 20px; background: white; color: #000; }
@@ -430,6 +530,9 @@ defineExpose({ getGoodsToBePicked: method.getGoodsToBePicked })
 .print-task h3 { margin: 0 0 8px; }
 .print-area table { width: 100%; border-collapse: collapse; }
 .print-area th, .print-area td { padding: 7px; border: 1px solid #333; text-align: center; }
+.print-image-cell { width: 76px; }
+.print-image-cell img { display: block; width: 64px; height: 64px; margin: 0 auto; object-fit: contain; }
+.print-order + .print-order { break-before: page; page-break-before: always; }
 
 @media print {
   .print-area { position: static; left: auto; top: auto; width: 100%; padding: 0; }

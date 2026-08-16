@@ -51,6 +51,8 @@ export const shouldAcceptPendingPickResponse = ({
   && requestSeq === latestRequestSeq
   && currentWarehouseId === requestedWarehouseId
 
+export const shouldAcceptPendingPickPrintContext = shouldAcceptPendingPickResponse
+
 export const buildPendingPickPageRequest = (
   warehouseId: number,
   keyword: string,
@@ -72,6 +74,10 @@ export const buildPendingPickPrintSnapshot = (detail: DispatchOrderDetail): Disp
     items: task.items.map((item) => ({ ...item }))
   }))
 })
+
+export const buildPendingPickBatchPrintSnapshots = (
+  details: DispatchOrderDetail[]
+): DispatchOrderDetail[] => details.map(buildPendingPickPrintSnapshot)
 
 export const buildCompletePickingPayload = (
   order: Pick<DispatchOrderSummary, 'row_version'>,

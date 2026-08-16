@@ -109,6 +109,7 @@ export interface DispatchPackingTaskItem {
   wms_sku_id: number | null
   commodity_sku: string
   commodity_name: string
+  main_image: string
   fn_sku: string
   msku: string
   required_qty: number | null

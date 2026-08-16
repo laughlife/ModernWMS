@@ -102,6 +102,7 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
                         wms_sku_id = i.wms_sku_id,
                         commodity_sku = i.commodity_sku,
                         commodity_name = i.commodity_name,
+                        main_image = SourceMainImage(i.source_snapshot),
                         fn_sku = i.fn_sku,
                         msku = i.msku,
                         required_qty = i.required_qty,
@@ -135,6 +136,23 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
             outbound_source_anomaly_snapshot = anomaly?.diff_snapshot ?? string.Empty,
             row_version = order.row_version
         };
+    }
+
+    private static string SourceMainImage(string sourceSnapshot)
+    {
+        if (string.IsNullOrWhiteSpace(sourceSnapshot)) return string.Empty;
+        try
+        {
+            using var document = JsonDocument.Parse(sourceSnapshot);
+            return document.RootElement.TryGetProperty("mainImage", out var value)
+                && value.ValueKind == JsonValueKind.String
+                ? value.GetString()?.Trim() ?? string.Empty
+                : string.Empty;
+        }
+        catch (JsonException)
+        {
+            return string.Empty;
+        }
     }
 
     internal static DispatchSourceChangeEventEntity? LatestOutboundAnomaly(DispatchOrderEntity order) =>

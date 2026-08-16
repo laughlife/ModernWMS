@@ -3,9 +3,11 @@ import type { DispatchOrderDetail, DispatchOrderSummary } from '@/types/Delivery
 import {
   PENDING_PICK_PRINT_POLICY,
   buildCompletePickingPayload,
+  buildPendingPickBatchPrintSnapshots,
   buildPendingPickPageRequest,
   buildPendingPickPrintSnapshot,
   getPendingPickFailureOutcome,
+  shouldAcceptPendingPickPrintContext,
   shouldAcceptPendingPickResponse,
   toPendingPickRows
 } from './pendingPickPolicy'
@@ -53,6 +55,7 @@ const detail: DispatchOrderDetail = {
         wms_sku_id: 40001,
         commodity_sku: 'SKU-SAME',
         commodity_name: '商品 A',
+        main_image: 'https://img.example.com/a.jpg',
         fn_sku: 'FN-A',
         msku: 'MSKU-A',
         required_qty: 3,
@@ -74,6 +77,7 @@ const detail: DispatchOrderDetail = {
         wms_sku_id: 40001,
         commodity_sku: 'SKU-SAME',
         commodity_name: '商品 A',
+        main_image: 'https://img.example.com/a-2.jpg',
         fn_sku: 'FN-A',
         msku: 'MSKU-A',
         required_qty: 5,
@@ -158,6 +162,31 @@ describe('pending pick policy', () => {
     })
     expect(snapshot.packing_tasks.flatMap((task) => task.items)).toHaveLength(2)
     expect(snapshot.status).toBe('PENDING_PICK')
+    expect(snapshot.packing_tasks[0].items[0].main_image).toBe('https://img.example.com/a.jpg')
+  })
+
+  it('builds one fully expanded print page for every selected WMS picking order', () => {
+    const second = { ...detail, id: 19, dispatch_no: 'WMS-PICK-0019' }
+
+    const snapshots = buildPendingPickBatchPrintSnapshots([detail, second])
+
+    expect(snapshots.map((order) => order.dispatch_no)).toEqual(['WMS-PICK-0018', 'WMS-PICK-0019'])
+    expect(snapshots.every((order) => order.packing_tasks.length === 2)).toBe(true)
+  })
+
+  it('cancels a pending print when a refresh or warehouse change invalidates its context', () => {
+    expect(shouldAcceptPendingPickPrintContext({
+      requestSeq: 3,
+      latestRequestSeq: 4,
+      requestedWarehouseId: 320118,
+      currentWarehouseId: 320118
+    })).toBe(false)
+    expect(shouldAcceptPendingPickPrintContext({
+      requestSeq: 4,
+      latestRequestSeq: 4,
+      requestedWarehouseId: 320118,
+      currentWarehouseId: 8
+    })).toBe(false)
   })
 
   it('keeps stock shortage and source/concurrency conflicts on pending pick and refreshes current data', () => {

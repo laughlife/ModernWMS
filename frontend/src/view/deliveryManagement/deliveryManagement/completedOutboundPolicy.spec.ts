@@ -64,7 +64,7 @@ describe('completed outbound policy', () => {
         source_version: 't1', expected_box_count: 1, measured_box_count: 1,
         items: [{
           id: 41, source_item_id: 401, source_commodity_id: 501, wms_sku_id: 601,
-          commodity_sku: 'SKU-A', commodity_name: '商品A', fn_sku: 'FN-A', msku: 'MSKU-A',
+          commodity_sku: 'SKU-A', commodity_name: '商品A', main_image: '', fn_sku: 'FN-A', msku: 'MSKU-A',
           required_qty: 8, source_stock_available: 20
         }]
       }]

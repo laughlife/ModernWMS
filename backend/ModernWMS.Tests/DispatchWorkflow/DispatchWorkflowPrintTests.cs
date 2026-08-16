@@ -47,6 +47,26 @@ public class DispatchWorkflowPrintTests
     }
 
     [Fact]
+    public async Task PrintAsync_exposes_the_source_product_image_for_the_picking_sheet()
+    {
+        await using var db = TestContext.CreateDatabase();
+        var item = TestContext.Item(1001, "SKU", 1) with
+        {
+            SourceSnapshot = "{\"mainImage\":\"https://img.example.com/sku.jpg\"}"
+        };
+        var source = new MutableSourceReader(TestContext.Task(101, "CW-101", 320118, item));
+        var service = TestContext.CreateService(db, source);
+        var order = await service.CreateAsync(
+            new CreateDispatchOrderRequest { warehouse_id = 320118, source_task_ids = [101] },
+            TestContext.User());
+
+        var print = await service.PrintAsync(order.id, TestContext.User());
+
+        Assert.Equal("https://img.example.com/sku.jpg",
+            Assert.Single(Assert.Single(print.packing_tasks).items).main_image);
+    }
+
+    [Fact]
     public async Task PrintAsync_rejects_orders_that_have_left_pending_pick()
     {
         await using var db = TestContext.CreateDatabase();
