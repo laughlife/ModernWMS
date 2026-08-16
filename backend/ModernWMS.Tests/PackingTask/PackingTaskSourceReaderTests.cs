@@ -112,6 +112,22 @@ public class PackingTaskSourceReaderTests
     }
 
     [Fact]
+    public async Task ReadAsync_accepts_an_active_task_without_physical_boxes_before_weighing()
+    {
+        await using var database = CreateDatabase();
+        database.PackingTasks.Add(Task(1, 101, "TASK-101", 320118, "[]"));
+        database.PackingTaskItems.Add(Item(11, 1001, 101, "SKU-1", 1));
+        await database.SaveChangesAsync();
+
+        var snapshot = Assert.Single(await new PackingTaskSourceReader(database).ReadAsync([101]));
+
+        Assert.False(snapshot.IsCancelled);
+        Assert.Single(snapshot.Items);
+        Assert.Empty(snapshot.Boxes);
+        Assert.Equal("[]", snapshot.CartonsJson);
+    }
+
+    [Fact]
     public async Task ReadAsync_rejects_active_task_without_stable_box_identity()
     {
         await using var database = CreateDatabase();

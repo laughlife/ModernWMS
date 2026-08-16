@@ -13,7 +13,7 @@ public static class SellFoxCartonParser
     private static readonly string[] IdentityKeys =
         ["boxId", "box_id", "cartonId", "carton_id", "id"];
 
-    public static SellFoxCartonParseResult Parse(string? cartonsJson)
+    public static SellFoxCartonParseResult Parse(string? cartonsJson, bool allowEmpty = false)
     {
         if (string.IsNullOrWhiteSpace(cartonsJson))
         {
@@ -30,6 +30,11 @@ public static class SellFoxCartonParser
 
             if (document.RootElement.GetArrayLength() == 0)
             {
+                if (allowEmpty)
+                {
+                    return new SellFoxCartonParseResult(true, string.Empty, []);
+                }
+
                 return Unsupported("cartons_json 未包含物理箱，无法验证稳定箱ID");
             }
 

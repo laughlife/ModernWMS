@@ -221,7 +221,10 @@ public sealed class PackingTaskSourceReader : IPackingTaskSourceReader
                 $"装箱任务 {task.packing_task_sn} 的商品 {invalidQuantityItem.sellfox_item_id} task_num 必须大于 0");
         }
 
-        var parseResult = SellFoxCartonParser.Parse(task.cartons_json);
+        // SellFox's task-list API may legitimately return [] before warehouse
+        // weighing begins. Physical box identity is a weighing-stage gate, not
+        // a prerequisite for creating or reconciling a pending pick order.
+        var parseResult = SellFoxCartonParser.Parse(task.cartons_json, allowEmpty: true);
         if (!parseResult.IsSupported)
         {
             throw new InvalidOperationException(

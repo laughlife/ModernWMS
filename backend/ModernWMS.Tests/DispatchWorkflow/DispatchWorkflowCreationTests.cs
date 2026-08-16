@@ -126,6 +126,24 @@ public class DispatchWorkflowCreationTests
     }
 
     [Fact]
+    public async Task CreateAsync_marks_an_empty_carton_snapshot_as_not_yet_identity_verified()
+    {
+        await using var db = TestContext.CreateDatabase();
+        var source = new MutableSourceReader(
+            TestContext.Task(101, "CW-101", 320118, TestContext.Item(1001, "SKU-1", 2)));
+        var service = TestContext.CreateService(db, source);
+
+        await service.CreateAsync(
+            new CreateDispatchOrderRequest { warehouse_id = 320118, source_task_ids = [101] },
+            TestContext.User());
+
+        var task = await db.GetDbSet<DispatchPackingTaskEntity>().SingleAsync();
+        Assert.Equal(0, task.expected_box_count);
+        Assert.False(task.stable_box_identity_verified);
+        Assert.Contains("称重", task.box_identity_validation_error);
+    }
+
+    [Fact]
     public async Task CreateAsync_rejects_cross_warehouse_task_set_without_writing_any_order()
     {
         await using var db = TestContext.CreateDatabase();

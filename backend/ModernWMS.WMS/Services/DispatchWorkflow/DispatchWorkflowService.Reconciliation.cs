@@ -184,7 +184,11 @@ public partial class DispatchWorkflowService
         task.source_cartons_json = snapshot.CartonsJson;
         task.source_version = snapshot.SourceVersion;
         task.expected_box_count = snapshot.Boxes.Count;
-        task.stable_box_identity_verified = snapshot.Boxes.All(t => !string.IsNullOrWhiteSpace(t.SourceBoxIdentity));
+        task.stable_box_identity_verified = snapshot.Boxes.Count > 0
+            && snapshot.Boxes.All(t => !string.IsNullOrWhiteSpace(t.SourceBoxIdentity));
+        task.box_identity_validation_error = snapshot.Boxes.Count == 0
+            ? "来源尚未提供物理箱，进入称重前必须同步并验证稳定箱ID"
+            : string.Empty;
         task.last_update_time = now;
     }
 

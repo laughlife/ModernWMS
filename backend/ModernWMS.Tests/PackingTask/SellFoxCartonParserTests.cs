@@ -5,6 +5,15 @@ namespace ModernWMS.Tests.PackingTask;
 public class SellFoxCartonParserTests
 {
     [Fact]
+    public void Parse_allows_an_empty_source_array_before_the_weighing_stage_when_explicitly_requested()
+    {
+        var result = SellFoxCartonParser.Parse("[]", allowEmpty: true);
+
+        Assert.True(result.IsSupported, result.Error);
+        Assert.Empty(result.Boxes);
+    }
+
+    [Fact]
     public void Parse_rejects_array_index_as_identity()
     {
         var result = SellFoxCartonParser.Parse("[{\"weight\":1},{\"weight\":2}]");

@@ -193,7 +193,11 @@ public partial class DispatchWorkflowService
             expected_box_count = snapshot.Boxes.Count,
             measured_box_count = 0,
             source_version = snapshot.SourceVersion,
-            stable_box_identity_verified = snapshot.Boxes.All(t => !string.IsNullOrWhiteSpace(t.SourceBoxIdentity)),
+            stable_box_identity_verified = snapshot.Boxes.Count > 0
+                && snapshot.Boxes.All(t => !string.IsNullOrWhiteSpace(t.SourceBoxIdentity)),
+            box_identity_validation_error = snapshot.Boxes.Count == 0
+                ? "来源尚未提供物理箱，进入称重前必须同步并验证稳定箱ID"
+                : string.Empty,
             create_time = now,
             last_update_time = now,
             items = snapshot.Items.Select(item => CreateItem(item, snapshot.SourceVersion, skuMappings, now)).ToList()
