@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+using Dapper;
 using ModernWMS.Core.JWT;
 using ModernWMS.Core.Models;
 using ModernWMS.WMS.Entities.ViewModels;
@@ -15,61 +15,30 @@ public partial class ErpPendingReceiptService
         var orderUserName = FindSearchText(pageSearch, "order_user_name");
         var productKeyword = FindSearchText(pageSearch, "product_keyword");
 
-        var query =
-            from item in _ruoyiDbContext.ReceiptItems.AsNoTracking()
-            join shipment in _ruoyiDbContext.LogisticsInfos.AsNoTracking()
-                on item.shipment_id equals shipment.id
-            where item.tenant_id == currentUser.tenant_id && !shipment.deleted
-            select new { item, shipment };
-
-        if (!string.IsNullOrWhiteSpace(deptName))
-        {
-            query = query.Where(t => t.item.dept_name.Contains(deptName));
-        }
-
-        if (!string.IsNullOrWhiteSpace(orderUserName))
-        {
-            query = query.Where(t => t.item.order_user_name.Contains(orderUserName));
-        }
-
+        var clauses = new List<string> { "i.`tenant_id`=@tenantId", "s.`deleted`=b'0'" };
+        if (!string.IsNullOrWhiteSpace(deptName)) clauses.Add("i.`dept_name` LIKE @deptName");
+        if (!string.IsNullOrWhiteSpace(orderUserName)) clauses.Add("i.`order_user_name` LIKE @orderUserName");
         if (!string.IsNullOrWhiteSpace(productKeyword))
-        {
-            query = query.Where(t => t.item.commodity_sku.Contains(productKeyword)
-                || t.item.commodity_name.Contains(productKeyword)
-                || t.shipment.shipment_batch_no.Contains(productKeyword)
-                || (t.shipment.purchase_no != null && t.shipment.purchase_no.Contains(productKeyword)));
-        }
-
-        var totals = await query.CountAsync();
+            clauses.Add("(i.`commodity_sku` LIKE @productKeyword OR i.`commodity_name` LIKE @productKeyword OR s.`shipment_batch_no` LIKE @productKeyword OR s.`purchase_no` LIKE @productKeyword)");
         var pageIndex = Math.Max(pageSearch.pageIndex, 1);
         var pageSize = Math.Clamp(pageSearch.pageSize, 1, 200);
-        var rows = await query
-            .OrderByDescending(t => t.item.receipt_time)
-            .ThenByDescending(t => t.item.id)
-            .Skip((pageIndex - 1) * pageSize)
-            .Take(pageSize)
-            .Select(t => new
-            {
-                t.item.id,
-                t.item.shipment_id,
-                purchase_no = t.shipment.purchase_no ?? string.Empty,
-                shipment_batch_no = t.shipment.shipment_batch_no ?? string.Empty,
-                t.item.commodity_id,
-                t.item.commodity_sku,
-                t.item.commodity_name,
-                t.item.dept_name,
-                t.item.order_user_name,
-                t.item.warehouse_area_id,
-                t.item.warehouse_area_name,
-                t.item.receipt_time,
-                t.item.actual_receipt_qty,
-                t.item.loss_qty,
-                t.item.inbound_qty,
-                t.item.total_weight,
-                t.item.total_volume,
-                t.shipment.product_snapshot_json
-            })
-            .ToListAsync();
+        var parameters = new { tenantId=currentUser.tenant_id, deptName=$"%{deptName}%",
+            orderUserName=$"%{orderUserName}%", productKeyword=$"%{productKeyword}%",
+            offset=(pageIndex - 1) * pageSize, pageSize };
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        using var grid = await connection.QueryMultipleAsync($"""
+            SELECT COUNT(*) FROM `wms_erp_receipt_item` i JOIN `trk_logistics_info` s ON s.`id`=i.`shipment_id`
+            WHERE {string.Join(" AND ", clauses)};
+            SELECT i.`id`,i.`shipment_id`,COALESCE(s.`purchase_no`,'') AS `purchase_no`,
+                COALESCE(s.`shipment_batch_no`,'') AS `shipment_batch_no`,i.`commodity_id`,i.`commodity_sku`,
+                i.`commodity_name`,i.`dept_name`,i.`order_user_name`,i.`warehouse_area_id`,i.`warehouse_area_name`,
+                i.`receipt_time`,i.`actual_receipt_qty`,i.`loss_qty`,i.`inbound_qty`,i.`total_weight`,i.`total_volume`,
+                s.`product_snapshot_json`
+            FROM `wms_erp_receipt_item` i JOIN `trk_logistics_info` s ON s.`id`=i.`shipment_id`
+            WHERE {string.Join(" AND ", clauses)} ORDER BY i.`receipt_time` DESC,i.`id` DESC LIMIT @pageSize OFFSET @offset;
+            """, parameters);
+        var totals = await grid.ReadSingleAsync<int>();
+        var rows = (await grid.ReadAsync<ReceiptDetailRow>()).AsList();
 
         var productsByShipment = new Dictionary<long, List<ErpPendingReceiptProductViewModel>>();
         var allocationsByItem = await ReadReceiptAllocationsAsync(
@@ -132,4 +101,11 @@ public partial class ErpPendingReceiptService
         }).ToList();
         return (data, totals);
     }
+
+    private sealed record ReceiptDetailRow(
+        int id, long shipment_id, string purchase_no, string shipment_batch_no, long? commodity_id,
+        string commodity_sku, string commodity_name, string dept_name, string order_user_name,
+        int warehouse_area_id, string warehouse_area_name, DateTime receipt_time,
+        long actual_receipt_qty, long loss_qty, long inbound_qty, decimal? total_weight,
+        decimal? total_volume, string product_snapshot_json);
 }

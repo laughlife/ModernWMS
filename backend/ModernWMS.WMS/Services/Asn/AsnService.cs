@@ -1,15 +1,7 @@
-/*
- * date：2022-12-22
- * developer：AMo
- */
-
-using Mapster;
-using Microsoft.AspNetCore.Http.HttpResults;
-using Microsoft.EntityFrameworkCore;
+using System.Data;
+using Dapper;
 using Microsoft.Extensions.Localization;
-using ModernWMS.Core;
-using ModernWMS.Core.DBContext;
-using ModernWMS.Core.DynamicSearch;
+using ModernWMS.Core.Database;
 using ModernWMS.Core.JWT;
 using ModernWMS.Core.Models;
 using ModernWMS.Core.Services;
@@ -17,1408 +9,383 @@ using ModernWMS.Core.Utility;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels;
 using ModernWMS.WMS.IServices;
-using System.Collections.Generic;
-using System.Linq;
 
-namespace ModernWMS.WMS.Services
+namespace ModernWMS.WMS.Services;
+
+public class AsnService : BaseService<AsnEntity>, IAsnService
 {
-    /// <summary>
-    ///  Asn Service
-    /// </summary>
-    public class AsnService : BaseService<AsnEntity>, IAsnService
+    private readonly IMySqlConnectionFactory _connectionFactory;
+    private readonly IStringLocalizer<Core.MultiLanguage> _stringLocalizer;
+    private readonly FunctionHelper _functionHelper;
+
+    public AsnService(IMySqlConnectionFactory connectionFactory,
+        IStringLocalizer<Core.MultiLanguage> stringLocalizer, FunctionHelper functionHelper)
     {
-        #region Args
-
-        /// <summary>
-        /// The DBContext
-        /// </summary>
-        private readonly SqlDBContext _dBContext;
-
-        /// <summary>
-        /// Localizer Service
-        /// </summary>
-        private readonly IStringLocalizer<Core.MultiLanguage> _stringLocalizer;
-
-        /// <summary>
-        /// functions
-        /// </summary>
-        private readonly FunctionHelper _functionHelper;
-
-        #endregion Args
-
-        #region constructor
-
-        /// <summary>
-        ///Asn  constructor
-        /// </summary>
-        /// <param name="dBContext">The DBContext</param>
-        /// <param name="stringLocalizer">Localizer</param>
-        public AsnService(
-            SqlDBContext dBContext
-            , IStringLocalizer<Core.MultiLanguage> stringLocalizer
-            , FunctionHelper functionHelper
-            )
-        {
-            this._dBContext = dBContext;
-            this._stringLocalizer = stringLocalizer;
-            this._functionHelper = functionHelper;
-        }
-
-        #endregion constructor
-
-        #region Api
-
-        /// <summary>
-        /// page search, sqlTitle input asn_status:0 ~ 4
-        /// </summary>
-        /// <param name="pageSearch">args</param>
-        /// <param name="currentUser">currentUser</param>
-        /// <returns></returns>
-        public async Task<(List<AsnViewModel> data, int totals)> PageAsync(PageSearch pageSearch, CurrentUser currentUser)
-        {
-            QueryCollection queries = new QueryCollection();
-            if (pageSearch.searchObjects.Any())
-            {
-                pageSearch.searchObjects.ForEach(s =>
-                {
-                    queries.Add(s);
-                });
-            }
-            Byte asn_status = 255;
-            var Asns = _dBContext.GetDbSet<AsnEntity>().AsNoTracking();
-            if (pageSearch.sqlTitle.ToLower().Contains("asn_status:alltodo"))
-            {
-                Asns = Asns.Where(t => t.asn_status <= 3);
-            }
-            else if (pageSearch.sqlTitle.ToLower().Contains("asn_status"))
-            {
-                asn_status = Convert.ToByte(pageSearch.sqlTitle.Trim().ToLower().Replace("asn_status", "").Replace("：", "").Replace(":", "").Replace("=", ""));
-                //asn_status = asn_status.Equals(4) ? (Byte)255 : asn_status;
-                Asns = Asns.Where(t => t.asn_status == asn_status);
-            }
-            var Spus = _dBContext.GetDbSet<SpuEntity>().AsNoTracking();
-            var Skus = _dBContext.GetDbSet<SkuEntity>().AsNoTracking();
-            var Asnmasters = _dBContext.GetDbSet<AsnmasterEntity>().AsNoTracking();
-
-            var query = from m in Asns
-                        join am in Asnmasters on m.asnmaster_id equals am.id
-                        join p in Spus on m.spu_id equals p.id
-                        join k in Skus on m.sku_id equals k.id
-                        where m.tenant_id == currentUser.tenant_id
-                        select new AsnViewModel
-                        {
-                            id = m.id,
-                            asnmaster_id = m.asnmaster_id,
-                            asn_no = m.asn_no,
-                            asn_batch = am.asn_batch,
-                            estimated_arrival_time = am.estimated_arrival_time,
-                            asn_status = m.asn_status,
-                            spu_id = m.spu_id,
-                            spu_code = p.spu_code,
-                            spu_name = p.spu_name,
-                            sku_id = m.sku_id,
-                            sku_code = k.sku_code,
-                            sku_name = k.sku_name,
-                            origin = p.origin,
-                            length_unit = p.length_unit,
-                            volume_unit = p.volume_unit,
-                            weight_unit = p.weight_unit,
-                            price = m.price,
-                            asn_qty = m.asn_qty,
-                            actual_qty = m.actual_qty,
-                            arrival_time = m.arrival_time,
-                            unload_person = m.unload_person,
-                            unload_person_id = m.unload_person_id,
-                            unload_time = m.unload_time,
-                            sorted_qty = m.sorted_qty,
-                            shortage_qty = m.shortage_qty,
-                            more_qty = m.more_qty,
-                            damage_qty = m.damage_qty,
-                            weight = k.weight * m.asn_qty,
-                            volume = k.volume * m.asn_qty,
-                            supplier_id = m.supplier_id,
-                            supplier_name = m.supplier_name,
-                            goods_owner_id = m.goods_owner_id,
-                            goods_owner_name = m.goods_owner_name,
-                            creator = m.creator,
-                            create_time = m.create_time,
-                            last_update_time = m.last_update_time,
-                            is_valid = m.is_valid, 
-                            expiry_date = m.expiry_date
-                        };
-            query = query.Where(queries.AsExpression<AsnViewModel>());
-            int totals = await query.CountAsync();
-            var list = await query.OrderByDescending(t => t.create_time)
-                       .Skip((pageSearch.pageIndex - 1) * pageSearch.pageSize)
-                       .Take(pageSearch.pageSize)
-                       .ToListAsync();
-            return (list, totals);
-        }
-
-        /// <summary>
-        /// Get a record by id
-        /// </summary>
-        /// <returns></returns>
-        public async Task<AsnViewModel> GetAsync(int id)
-        {
-            var Spus = _dBContext.GetDbSet<SpuEntity>();
-            var Skus = _dBContext.GetDbSet<SkuEntity>();
-            var Asns = _dBContext.GetDbSet<AsnEntity>();
-            var Asnmasters = _dBContext.GetDbSet<AsnmasterEntity>();
-            var query = from m in Asns.AsNoTracking()
-                        join am in Asnmasters.AsNoTracking() on m.asnmaster_id equals am.id
-                        join p in Spus.AsNoTracking() on m.spu_id equals p.id
-                        join k in Skus.AsNoTracking() on m.sku_id equals k.id
-                        select new AsnViewModel
-                        {
-                            id = m.id,
-                            asnmaster_id = m.asnmaster_id,
-                            asn_no = m.asn_no,
-                            asn_batch = am.asn_batch,
-                            estimated_arrival_time = am.estimated_arrival_time,
-                            asn_status = m.asn_status,
-                            spu_id = m.spu_id,
-                            spu_code = p.spu_code,
-                            spu_name = p.spu_name,
-                            sku_id = m.sku_id,
-                            sku_code = k.sku_code,
-                            sku_name = k.sku_name,
-                            origin = p.origin,
-                            length_unit = p.length_unit,
-                            volume_unit = p.volume_unit,
-                            weight_unit = p.weight_unit,
-                            price = m.price,
-                            asn_qty = m.asn_qty,
-                            actual_qty = m.actual_qty,
-                            arrival_time = m.arrival_time,
-                            unload_person = m.unload_person,
-                            unload_person_id = m.unload_person_id,
-                            unload_time = m.unload_time,
-                            sorted_qty = m.sorted_qty,
-                            shortage_qty = m.shortage_qty,
-                            more_qty = m.more_qty,
-                            damage_qty = m.damage_qty,
-                            weight = k.weight * m.asn_qty,
-                            volume = k.volume * m.asn_qty,
-                            supplier_id = m.supplier_id,
-                            supplier_name = m.supplier_name,
-                            goods_owner_id = m.goods_owner_id,
-                            goods_owner_name = m.goods_owner_name,
-                            creator = m.creator,
-                            create_time = m.create_time,
-                            last_update_time = m.last_update_time,
-                            is_valid = m.is_valid,
-                            expiry_date = m.expiry_date
-                        };
-            var data = await query.FirstOrDefaultAsync(t => t.id.Equals(id));
-            return data ?? new AsnViewModel();
-        }
-
-        /// <summary>
-        /// add a new record
-        /// </summary>
-        /// <param name="viewModel">viewmodel</param>
-        /// <param name="currentUser">currentUser</param>
-        /// <returns></returns>
-        public async Task<(int id, string msg)> AddAsync(AsnViewModel viewModel, CurrentUser currentUser)
-        {
-            var DbSet = _dBContext.GetDbSet<AsnEntity>();
-            var entity = viewModel.Adapt<AsnEntity>();
-            entity.id = 0;
-            entity.asn_no = await _functionHelper.GetFormNoAsync("Asn");
-            entity.creator = currentUser.user_name;
-            entity.create_time = DateTime.Now;
-            entity.last_update_time = DateTime.Now;
-            entity.tenant_id = currentUser.tenant_id;
-            entity.is_valid = viewModel.is_valid;
-            await DbSet.AddAsync(entity);
-            await _dBContext.SaveChangesAsync();
-            if (entity.id > 0)
-            {
-                return (entity.id, _stringLocalizer["save_success"]);
-            }
-            else
-            {
-                return (0, _stringLocalizer["save_failed"]);
-            }
-        }
-
-        /// <summary>
-        /// get next code number
-        /// </summary>
-        /// <param name="currentUser">currentUser</param>
-        /// <returns></returns>
-        public async Task<string> GetOrderCode(CurrentUser currentUser)
-        {
-            var DbSet = _dBContext.GetDbSet<AsnEntity>();
-            string code = "";
-            string date = DateTime.Now.ToString("yyyy" + "MM" + "dd");
-            string maxNo = await DbSet.AsNoTracking().Where(t => t.tenant_id.Equals(currentUser.tenant_id)).MaxAsync(t => t.asn_no);
-            if (string.IsNullOrEmpty(maxNo))
-            {
-                code = date + "-0001";
-            }
-            else
-            {
-                try
-                {
-                    string maxDate = maxNo[..8];
-                    string maxDateNo = maxNo[9..];
-                    if (date == maxDate)
-                    {
-                        int.TryParse(maxDateNo, out int dd);
-                        int newDateNo = dd + 1;
-                        code = date + "-" + newDateNo.ToString("0000");
-                    }
-                    else
-                    {
-                        code = date + "-0001";
-                    }
-                }
-                catch
-                {
-                    code = date + "-0001";
-                }
-            }
-
-            return code;
-        }
-
-        /// <summary>
-        /// update a record
-        /// </summary>
-        /// <param name="viewModel">args</param>
-        /// <returns></returns>
-        public async Task<(bool flag, string msg)> UpdateAsync(AsnViewModel viewModel)
-        {
-            var DbSet = _dBContext.GetDbSet<AsnEntity>();
-            var entity = await DbSet.FirstOrDefaultAsync(t => t.id.Equals(viewModel.id));
-            if (entity == null)
-            {
-                return (false, _stringLocalizer["not_exists_entity"]);
-            }
-            entity.id = viewModel.id;
-            entity.asn_no = viewModel.asn_no;
-            entity.spu_id = viewModel.spu_id;
-            entity.sku_id = viewModel.sku_id;
-            entity.price = viewModel.price;
-            entity.asn_qty = viewModel.asn_qty;
-            entity.weight = viewModel.weight;
-            entity.volume = viewModel.volume;
-            entity.supplier_id = viewModel.supplier_id;
-            entity.supplier_name = viewModel.supplier_name;
-            entity.goods_owner_id = viewModel.goods_owner_id;
-            entity.goods_owner_name = viewModel.goods_owner_name;
-            entity.is_valid = viewModel.is_valid;
-            entity.last_update_time = DateTime.Now;
-            var qty = await _dBContext.SaveChangesAsync();
-            if (qty > 0)
-            {
-                return (true, _stringLocalizer["save_success"]);
-            }
-            else
-            {
-                return (false, _stringLocalizer["save_failed"]);
-            }
-        }
-
-        /// <summary>
-        /// delete a record
-        /// </summary>
-        /// <param name="id">id</param>
-        /// <returns></returns>
-        public async Task<(bool flag, string msg)> DeleteAsync(int id)
-        {
-            var Asns = _dBContext.GetDbSet<AsnEntity>();
-            var entity = await Asns.FirstOrDefaultAsync(t => t.id.Equals(id));
-            if (entity == null)
-            {
-                return (false, _stringLocalizer["not_exists_entity"]);
-            }
-            if (entity.asn_status.Equals(0))
-            {
-                Asns.Remove(entity);
-            }
-            else if (entity.asn_status.Equals(8))
-            {
-                return (false, _stringLocalizer["asn_had_putaway"]);
-            }
-            else
-            {
-                entity.asn_status = (byte)(entity.asn_status - 1);
-            }
-            var qty = await _dBContext.SaveChangesAsync();
-            if (qty > 0)
-            {
-                return (true, _stringLocalizer["delete_success"]);
-            }
-            else
-            {
-                return (false, _stringLocalizer["delete_failed"]);
-            }
-        }
-
-        /// <summary>
-        /// Bulk modify Goodsowner
-        /// </summary>
-        /// <param name="viewModel">args</param>
-        /// <returns></returns>
-        public async Task<(bool flag, string msg)> BulkModifyGoodsownerAsync(AsnBulkModifyGoodsOwnerViewModel viewModel)
-        {
-            var Asns = _dBContext.GetDbSet<AsnEntity>();
-            var entities = await Asns.Where(t => viewModel.idList.Contains(t.id)).ToListAsync();
-            //需要什么限制？
-            entities.ForEach(t =>
-            {
-                t.goods_owner_id = viewModel.goods_owner_id;
-                t.goods_owner_name = viewModel.goods_owner_name;
-                t.last_update_time = DateTime.Now;
-            });
-            var qty = await _dBContext.SaveChangesAsync();
-            if (qty > 0)
-            {
-                return (true, _stringLocalizer["save_success"]);
-            }
-            else
-            {
-                return (false, _stringLocalizer["save_failed"]);
-            }
-        }
-
-        #endregion Api
-
-        #region Flow Api
-
-        /// <summary>
-        /// Confirm Delivery
-        /// change the asn_status from 0 to 1
-        /// </summary>
-        /// <param name="viewModels">args</param>
-        /// <returns></returns>
-        public async Task<(bool flag, string msg)> ConfirmAsync(List<AsnConfirmInputViewModel> viewModels)
-        {
-            var idList = viewModels.Where(t => t.id > 0).Select(t => t.id).ToList();
-            var Asns = _dBContext.GetDbSet<AsnEntity>();
-            var entities = await Asns.Where(t => idList.Contains(t.id)).ToListAsync();
-            var last_update_time = DateTime.Now;
-            if (!entities.Any())
-            {
-                return (false, "[202]" + _stringLocalizer["not_exists_entity"]);
-            }
-            else if (entities.Any(t => t.asn_status > 0))
-            {
-                return (false, "[202]" + $"{_stringLocalizer["ASN_Status_Is_Not_Pre_Delivery"]}");
-            }
-            // get asnmaster data
-            var asnmaster_id = entities.Select(t => t.asnmaster_id).FirstOrDefault();
-            var Asnmaster = _dBContext.GetDbSet<AsnmasterEntity>();
-            var asnmasterentity = await Asnmaster.FirstOrDefaultAsync(t => t.id.Equals(asnmaster_id));
-            if (asnmasterentity == null)
-            {
-                return (false, "[202]" + _stringLocalizer["not_exists_entity"]);
-            }
-            // update asnmaster last_update_time
-            asnmasterentity.last_update_time = last_update_time;
-
-            entities.ForEach(t =>
-            {
-                var vm = viewModels.FirstOrDefault(t => t.id == t.id);
-                if (vm != null)
-                {
-                    t.asn_status = 1;
-                    t.arrival_time = vm.arrival_time;
-                    t.last_update_time = last_update_time;
-                }
-            });
-            var qty = await _dBContext.SaveChangesAsync();
-            if (qty > 0)
-            {
-                return (true, _stringLocalizer["confirm_success"]);
-            }
-            else
-            {
-                return (false, _stringLocalizer["confirm_failed"]);
-            }
-        }
-
-        /// <summary>
-        /// Cancel confirm, change asn_status 1 to 0
-        /// </summary>
-        /// <param name="idList">id list</param>
-        /// <returns></returns>
-        public async Task<(bool flag, string msg)> ConfirmCancelAsync(List<int> idList)
-        {
-            var Asns = _dBContext.GetDbSet<AsnEntity>();
-            var entities = await Asns.Where(t => idList.Contains(t.id)).ToListAsync();
-            var last_update_time = DateTime.Now;
-            if (!entities.Any())
-            {
-                return (false, "[202]" + _stringLocalizer["not_exists_entity"]);
-            }
-            if (entities.Any(t => t.asn_status != (byte)1))
-            {
-                return (false, "[202]" + $"{_stringLocalizer["ASN_Status_Is_Not_Pre_Delivery"]}");
-            }
-            // get asnmaster data
-            var asnmaster_id = entities.Select(t => t.asnmaster_id).FirstOrDefault();
-            var Asnmaster = _dBContext.GetDbSet<AsnmasterEntity>();
-            var asnmasterentity = await Asnmaster.FirstOrDefaultAsync(t => t.id.Equals(asnmaster_id));
-            if (asnmasterentity == null)
-            {
-                return (false, "[202]" + _stringLocalizer["not_exists_entity"]);
-            }
-            // update asnmaster last_update_time
-            asnmasterentity.last_update_time = last_update_time;
-
-            entities.ForEach(e =>
-            {
-                e.asn_status = 0;
-                e.arrival_time = Core.Utility.UtilConvert.MinDate;
-                e.last_update_time = last_update_time;
-            });
-            var qty = await _dBContext.SaveChangesAsync();
-            if (qty > 0)
-            {
-                return (true, _stringLocalizer["save_success"]);
-            }
-            else
-            {
-                return (false, _stringLocalizer["save_failed"]);
-            }
-        }
-
-        /// <summary>
-        /// Unload
-        /// change the asn_status from 1 to 2
-        /// </summary>
-        /// <param name="viewModels">args</param>
-        /// <param name="user">user</param>
-        /// <returns></returns>
-        public async Task<(bool flag, string msg)> UnloadAsync(List<AsnUnloadInputViewModel> viewModels, CurrentUser user)
-        {
-            var idList = viewModels.Where(t => t.id > 0).Select(t => t.id).ToList();
-            var Asns = _dBContext.GetDbSet<AsnEntity>();
-            var entities = await Asns.Where(t => idList.Contains(t.id)).ToListAsync();
-            if (!entities.Any())
-            {
-                return (false, "[202]" + _stringLocalizer["not_exists_entity"]);
-            }
-            else if (entities.Any(t => t.asn_status > 1))
-            {
-                return (false, "[202]" + $"{_stringLocalizer["ASN_Status_Is_Not_Pre_Load"]}");
-            }
-            entities.ForEach(t =>
-            {
-                var vm = viewModels.FirstOrDefault(t => t.id == t.id);
-                if (vm != null)
-                {
-                    t.asn_status = 2;
-                    t.last_update_time = DateTime.Now;
-                    t.unload_time = vm.unload_time;
-                    t.unload_person_id = vm.unload_person_id == 0 ? user.user_id : vm.unload_person_id;
-                    t.unload_person = vm.unload_person_id == 0 ? user.user_name : vm.unload_person;
-                }
-            });
-            var qty = await _dBContext.SaveChangesAsync();
-            if (qty > 0)
-            {
-                return (true, _stringLocalizer["confirm_success"]);
-            }
-            else
-            {
-                return (false, _stringLocalizer["confirm_failed"]);
-            }
-        }
-
-        /// <summary>
-        /// Cancel unload
-        /// change the asn_status from 2 to 1
-        /// </summary>
-        /// <param name="idList">id list</param>
-        /// <returns></returns>
-        public async Task<(bool flag, string msg)> UnloadCancelAsync(List<int> idList)
-        {
-            var Asns = _dBContext.GetDbSet<AsnEntity>();
-            var entities = await Asns.Where(t => idList.Contains(t.id)).ToListAsync();
-            if (!entities.Any())
-            {
-                return (false, "[202]" + _stringLocalizer["not_exists_entity"]);
-            }
-            if (entities.Any(t => t.asn_status != (byte)2))
-            {
-                return (false, "[202]" + $"{_stringLocalizer["ASN_Status_Is_Not_Pre_Load"]}");
-            }
-
-            entities.ForEach(e =>
-            {
-                e.asn_status = 1;
-                e.unload_time = Core.Utility.UtilConvert.MinDate;
-                e.unload_person_id = 0;
-                e.unload_person = string.Empty;
-                e.last_update_time = DateTime.Now;
-            });
-            var qty = await _dBContext.SaveChangesAsync();
-            if (qty > 0)
-            {
-                return (true, _stringLocalizer["save_success"]);
-            }
-            else
-            {
-                return (false, _stringLocalizer["save_failed"]);
-            }
-        }
-
-        /// <summary>
-        /// sorting， add a new asnsort record and update asn sorted_qty
-        /// </summary>
-        /// <param name="viewModels">args</param>
-        /// <param name="currentUser">currentUser</param>
-        /// <returns></returns>
-        public async Task<(bool flag, string msg)> SortingAsync(List<AsnsortInputViewModel> viewModels, CurrentUser currentUser)
-        {
-            var Asns = _dBContext.GetDbSet<AsnEntity>();
-            var Asnsorts = _dBContext.GetDbSet<AsnsortEntity>();
-            var idList = viewModels.Select(t => t.asn_id).ToList().Distinct().ToList();
-            var entities = await Asns.Where(t => idList.Contains(t.id)).ToListAsync();
-
-            if (!entities.Any())
-            {
-                return (false, "[202]" + _stringLocalizer["not_exists_entity"]);
-            }
-            else if (entities.Any(t => t.asn_status != 2))
-            {
-                return (false, "[202]" + $"{_stringLocalizer["ASN_Status_Is_Not_Pre_Sort"]}");
-            }
-            var models = viewModels.Where(v => entities.Select(e => e.id).ToList().Contains(v.asn_id)).ToList();
-            List<AsnsortEntity> sortEntities = new List<AsnsortEntity>();
-            foreach (var v in models)
-            {
-                if (v.sorted_qty > 1 && v.is_auto_num)
-                {
-                    List<string> snlist = await _functionHelper.GetFormNoListAsync("Asnsort", v.sorted_qty, currentUser.tenant_id, "sn");
-                    for (int i = 0; i < v.sorted_qty; i++)
-                    {
-                        sortEntities.Add(new AsnsortEntity
-                        {
-                            id = 0,
-                            asn_id = v.asn_id,
-                            sorted_qty = 1,
-                            series_number = snlist[i],
-                            create_time = DateTime.Now,
-                            creator = currentUser.user_name,
-                            is_valid = true,
-                            last_update_time = DateTime.Now,
-                            tenant_id = currentUser.tenant_id
-                        });
-                    }
-                }
-                else
-                {
-                    string sn = await _functionHelper.GetFormNoAsync("Asnsort", "sn");
-                    sortEntities.Add(new AsnsortEntity
-                    {
-                        id = 0,
-                        asn_id = v.asn_id,
-                        sorted_qty = v.sorted_qty,
-                        series_number = sn,
-                        create_time = DateTime.Now,
-                        creator = currentUser.user_name,
-                        is_valid = true,
-                        last_update_time = DateTime.Now,
-                        tenant_id = currentUser.tenant_id
-                    });
-                }
-            }
-            await Asnsorts.AddRangeAsync(sortEntities);
-
-            entities.ForEach(e =>
-            {
-                int sum_sorted_qty = viewModels.Where(t => t.asn_id.Equals(e.id)).Sum(v => v.sorted_qty);
-                var expiry_date = viewModels.Where(t => t.asn_id.Equals(e.id)).Select(v => v.expiry_date).FirstOrDefault();
-                e.sorted_qty += sum_sorted_qty;
-                e.last_update_time = DateTime.Now;
-                e.expiry_date = expiry_date;
-            });
-            var qty = await _dBContext.SaveChangesAsync();
-            if (qty > 0)
-            {
-                return (true, _stringLocalizer["save_success"]);
-            }
-            else
-            {
-                return (false, _stringLocalizer["save_failed"]);
-            }
-        }
-
-        /// <summary>
-        /// get asnsorts list by asn_id
-        /// </summary>
-        /// <param name="asn_id">asn id</param>
-        /// <returns></returns>
-        public async Task<List<AsnsortViewModel>> GetAsnsortsAsync(int asn_id)
-        {
-            var Asnsorts = _dBContext.GetDbSet<AsnsortEntity>();
-            var asns = _dBContext.Set<AsnEntity>().AsNoTracking();
-
-            var data = await (from m in asns
-                              join d in Asnsorts on m.id equals d.asn_id
-                              where m.id == asn_id
-                              select new AsnsortViewModel
-                              {
-                                  id = d.id,
-                                  asn_id = asn_id,
-                                  sorted_qty = d.sorted_qty,
-                                  series_number = d.series_number,
-                                  putaway_qty = d.putaway_qty,
-                                  expiry_date = m.expiry_date,
-                                  creator = d.creator,
-                                  create_time = d.create_time,
-                                  last_update_time = d.last_update_time,
-                                  is_valid = d.is_valid,
-                                  tenant_id = d.tenant_id
-                              }).ToListAsync();
-            if (data != null && data.Count > 0)
-            {
-                return data;
-            }
-            else
-            {
-                return new List<AsnsortViewModel>();
-            }
-        }
-
-        /// <summary>
-        /// update or delete asnsorts data
-        /// </summary>
-        /// <param name="entities">data</param>
-        /// <param name="user">CurrentUser</param>
-        /// <returns></returns>
-        public async Task<(bool flag, string msg)> ModifyAsnsortsAsync(List<AsnsortEntity> entities, CurrentUser user)
-        {
-            var Asnsorts = _dBContext.GetDbSet<AsnsortEntity>();
-            if (entities.Any(t => t.id < 0 || t.sorted_qty == 0))
-            {
-                var delIDList = entities.Where(t => t.id < 0).Select(t => Math.Abs(t.id)).ToList();
-                await Asnsorts.Where(t => delIDList.Contains(t.id)).ExecuteDeleteAsync();
-            }
-            var updateEntities = entities.Where(t => t.id > 0 && t.sorted_qty > 0).ToList();
-            if (updateEntities.Any())
-            {
-                updateEntities.ForEach(t =>
-                {
-                    t.last_update_time = DateTime.Now;
-                    t.is_valid = true;
-                });
-                Asnsorts.UpdateRange(updateEntities);
-            }
-
-            var qty = await _dBContext.SaveChangesAsync();
-            if (qty >= 0)
-            {
-                var Asns = _dBContext.GetDbSet<AsnEntity>();
-                var asnids = entities.Select(t => t.asn_id).Distinct().ToList();
-
-                var sumQty = await Asnsorts.AsNoTracking()
-                    .Where(t => asnids.Contains(t.asn_id))
-                    .GroupBy(t => t.asn_id)
-                    .Select(g => new
-                    {
-                        asn_id = g.Key,
-                        sorted_qty = g.Sum(o => o.sorted_qty)
-                    }).ToListAsync();
-                var asnEntities = await Asns.Where(t => asnids.Contains(t.id)).ToListAsync();
-                if (asnEntities.Any())
-                {
-                    asnEntities.ForEach(e =>
-                    {
-                        var s = sumQty.FirstOrDefault(t => t.asn_id == e.id);
-                        if (s != null)
-                        {
-                            e.sorted_qty = s.sorted_qty;
-                        }
-                        else
-                        {
-                            e.sorted_qty = 0;
-                        }
-                    });
-                    await _dBContext.SaveChangesAsync();
-                }
-                return (true, _stringLocalizer["sorted_success"]);
-            }
-            else
-            {
-                return (false, _stringLocalizer["sorted_failed"]);
-            }
-        }
-
-        /// <summary>
-        /// Sorted
-        /// change the asn_status from 2 to 3
-        /// </summary>
-        /// <param name="idList">id list</param>
-        /// <returns></returns>
-        public async Task<(bool flag, string msg)> SortedAsync(List<int> idList)
-        {
-            var Asns = _dBContext.GetDbSet<AsnEntity>();
-            var entities = await Asns.Where(t => idList.Contains(t.id)).ToListAsync();
-            if (!entities.Any())
-            {
-                return (false, "[202]" + _stringLocalizer["not_exists_entity"]);
-            }
-            else if (entities.Any(t => t.sorted_qty < 1))
-            {
-                return (false, "[202]" + $"{_stringLocalizer["ASN_Status_Is_Not_Sorting"]}");
-            }
-            entities.ForEach(e =>
-            {
-                e.asn_status = 3;
-                if (e.sorted_qty > e.asn_qty)
-                {
-                    e.more_qty = e.sorted_qty - e.asn_qty;
-                }
-                else if (e.sorted_qty < e.asn_qty)
-                {
-                    e.shortage_qty = e.asn_qty - e.sorted_qty;
-                }
-                e.last_update_time = DateTime.Now;
-            });
-            var qty = await _dBContext.SaveChangesAsync();
-            if (qty > 0)
-            {
-                return (true, _stringLocalizer["sorted_success"]);
-            }
-            else
-            {
-                return (false, _stringLocalizer["sorted_failed"]);
-            }
-        }
-
-        /// <summary>
-        /// Cancel sorted
-        /// change the asn_status from 3 to 2
-        /// </summary>
-        /// <param name="idList">id list</param>
-        /// <returns></returns>
-        public async Task<(bool flag, string msg)> SortedCancelAsync(List<int> idList)
-        {
-            var Asns = _dBContext.GetDbSet<AsnEntity>();
-            var entities = await Asns.Where(t => idList.Contains(t.id)).ToListAsync();
-            if (!entities.Any())
-            {
-                return (false, "[202]" + _stringLocalizer["not_exists_entity"]);
-            }
-            else if (entities.Any(t => t.actual_qty > 0))
-            {
-                return (false, "[202]" + $"{_stringLocalizer["ASN_Status_Is_Putaway"]}");
-            }
-            else if (entities.Any(t => t.sorted_qty < 1))
-            {
-                return (false, "[202]" + $"{_stringLocalizer["ASN_Status_Is_Not_Sorting"]}");
-            }
-            entities.ForEach(e =>
-            {
-                e.asn_status = 2;
-                e.sorted_qty = 0;
-                e.more_qty = 0;
-                e.shortage_qty = 0;
-                e.last_update_time = DateTime.Now;
-            });
-            var qty = await _dBContext.SaveChangesAsync();
-            if (qty > 0)
-            {
-                var Asnsorts = _dBContext.GetDbSet<AsnsortEntity>();
-                await Asnsorts.Where(t => idList.Contains(t.asn_id)).ExecuteDeleteAsync();
-                return (true, _stringLocalizer["save_success"]);
-            }
-            else
-            {
-                return (false, _stringLocalizer["save_failed"]);
-            }
-        }
-
-        /// <summary>
-        /// get pending putaway data by asn_id
-        /// </summary>
-        /// <param name="id"></param>
-        /// <returns></returns>
-        public async Task<List<AsnPendingPutawayViewModel>> GetPendingPutawayDataAsync(int id)
-        {
-            var Asns = _dBContext.GetDbSet<AsnEntity>();
-            var Asnsorts = _dBContext.GetDbSet<AsnsortEntity>();
-
-            var data = await (from m in Asns.AsNoTracking()
-                              join s in Asnsorts.AsNoTracking() on m.id equals s.asn_id
-                              where m.id == id && s.putaway_qty < s.sorted_qty
-                              group new { m, s } by new { m.id, m.goods_owner_id, m.goods_owner_name, s.series_number }
-                       into g
-                              select new AsnPendingPutawayViewModel
-                              {
-                                  asn_id = g.Key.id,
-                                  goods_owner_id = g.Key.goods_owner_id,
-                                  goods_owner_name = g.Key.goods_owner_name,
-                                  series_number = g.Key.series_number,
-                                  sorted_qty = g.Sum(o => o.s.sorted_qty - o.s.putaway_qty)
-                              }).ToListAsync();
-            return data;
-        }
-
-        /// <summary>
-        /// PutAway
-        /// </summary>
-        /// <param name="viewModels">args</param>
-        /// <param name="currentUser">currentUser</param>
-        /// <returns></returns>
-        public async Task<(bool flag, string msg)> PutAwayAsync(List<AsnPutAwayInputViewModel> viewModels, CurrentUser currentUser)
-        {
-            viewModels.RemoveAll(v => v.putaway_qty < 1);
-            if (viewModels.Any(t => t.goods_location_id == 0))
-            {
-                return (false, "[202]" + string.Format(_stringLocalizer["Required"], _stringLocalizer["location_name"]));
-            }
-            var Asns = _dBContext.GetDbSet<AsnEntity>();
-            var Goodslocations = _dBContext.GetDbSet<GoodslocationEntity>();
-            var Stocks = _dBContext.GetDbSet<StockEntity>();
-            var Asnsorts = _dBContext.GetDbSet<AsnsortEntity>();
-
-            var LocationIdList = viewModels.Where(v => v.goods_location_id > 0)
-                                           .Select(v => v.goods_location_id)
-                                           .Distinct().ToList();
-
-            var Locations = await Goodslocations.Where(t => LocationIdList.Contains(t.id))
-                                                .ToListAsync();
-            if (!Locations.Any() || LocationIdList.Count != Locations.Count)
-            {
-                return (false, "[202]" + string.Format(_stringLocalizer["Required"], _stringLocalizer["location_name"]));
-            }
-            int sumPutawayQty = viewModels.Sum(v => v.putaway_qty);
-            var entity = await Asns.FirstOrDefaultAsync(t => t.id == viewModels[0].asn_id);
-            if (entity == null)
-            {
-                return (false, "[202]" + _stringLocalizer["not_exists_entity"]);
-            }
-            else if (entity.asn_status != 3)
-            {
-                return (false, "[202]" + $"{entity.asn_no}{_stringLocalizer["ASN_Status_Is_Not_Sorted"]}");
-            }
-            else if (entity.actual_qty + sumPutawayQty > entity.sorted_qty)
-            {
-                return (false, "[202]" + $"{entity.asn_no}{_stringLocalizer["ASN_Total_PutAway_Qty_Greater_Than_Sorted_Qty"]}");
-            }
-            entity.actual_qty += sumPutawayQty;
-            if (entity.actual_qty.Equals(entity.sorted_qty))
-            {
-                entity.asn_status = 4;
-            }
-            entity.last_update_time = DateTime.Now;
-            // expiry_date
-            var expiry_date = entity.expiry_date;
-
-            // 获取已上架数小于分拣数的分拣记录
-            var sortEntities = await Asnsorts.Where(t => t.asn_id == viewModels[0].asn_id && t.sorted_qty > t.putaway_qty).ToListAsync();
-
-            foreach (var viewModel in viewModels)
-            {
-                // 根据sn码，将本次上架数量反写到分拣记录中。如果sn码是空的，则分摊进去
-                var sortList = sortEntities.Where(s => s.series_number == viewModel.series_number).ToList();
-                if (sortList.Any())
-                {
-                    int left_putaway_qty = viewModel.putaway_qty;
-                    sortList.ForEach(s =>
-                    {
-                        if (left_putaway_qty > 0)
-                        {
-                            int can_putaway_qty = s.sorted_qty - s.putaway_qty;
-                            if (left_putaway_qty > can_putaway_qty)
-                            {
-                                s.putaway_qty += can_putaway_qty;
-                                left_putaway_qty -= can_putaway_qty;
-                            }
-                            else
-                            {
-                                s.putaway_qty += left_putaway_qty;
-                                left_putaway_qty = 0;
-                            }
-                        }
-                    });
-                }
-
-                var Location = Locations.FirstOrDefault(t => t.id == viewModel.goods_location_id);
-                if (Location != null && Location.warehouse_area_property.Equals(5))
-                {
-                    entity.damage_qty += viewModel.putaway_qty;
-                }
-                DateTime putaway_date = DateTime.Now.ToString("yyyy-MM-dd").ObjToDate();
-                // 2024年3月14日 09:40:25 增加单价
-                var stockEntity = await Stocks.FirstOrDefaultAsync(t => t.sku_id.Equals(entity.sku_id)
-                                                                              && t.goods_location_id.Equals(viewModel.goods_location_id)
-                                                                              && t.goods_owner_id.Equals(viewModel.goods_owner_id)
-                                                                              && t.series_number.Equals(viewModel.series_number)
-                                                                              && t.expiry_date.Equals(expiry_date)
-                                                                              && t.price.Equals(entity.price)
-                                                                              && t.putaway_date.Equals(putaway_date)
-                                                                              );
-                if (stockEntity == null)
-                {
-                    stockEntity = new StockEntity
-                    {
-                        sku_id = entity.sku_id,
-                        goods_location_id = viewModel.goods_location_id,
-                        goods_owner_id = entity.goods_owner_id,
-                        series_number = viewModel.series_number,
-                        qty = viewModel.putaway_qty,
-                        is_freeze = false,
-                        last_update_time = DateTime.Now,
-                        tenant_id = currentUser.tenant_id,
-                        expiry_date = expiry_date,
-                        price = entity.price,
-                        putaway_date = putaway_date,
-                        id = 0
-                    };
-                    await Stocks.AddAsync(stockEntity);
-                }
-                else
-                {
-                    stockEntity.qty += viewModel.putaway_qty;
-                    stockEntity.last_update_time = DateTime.Now;
-                }
-            }
-            var qty = await _dBContext.SaveChangesAsync();
-            if (qty > 0)
-            {
-                return (true, _stringLocalizer["putaway_success"]);
-            }
-            else
-            {
-                return (false, _stringLocalizer["putaway_failed"]);
-            }
-            /*
-
-            var Location = await Goodslocations.FirstOrDefaultAsync(t => t.id.Equals(viewModel.goods_location_id));
-            if (Location == null)
-            {
-                return (false, string.Format(_stringLocalizer["Required"], _stringLocalizer["location_name"]));
-            }
-
-            var entity = await Asns.FirstOrDefaultAsync(t => t.id == viewModel.asn_id);
-            if (entity == null)
-            {
-                return (false, _stringLocalizer["not_exists_entity"]);
-            }
-            else if (entity.asn_status != 3)
-            {
-                return (false, $"{entity.asn_no}{_stringLocalizer["ASN_Status_Is_Not_Sorted"]}");
-            }
-            else if (entity.actual_qty + viewModel.putaway_qty > entity.sorted_qty)
-            {
-                return (false, $"{entity.asn_no}{_stringLocalizer["ASN_Total_PutAway_Qty_Greater_Than_Sorted_Qty"]}");
-            }
-            entity.actual_qty += viewModel.putaway_qty;
-            if (Location.warehouse_area_property.Equals(5))
-            {
-                entity.damage_qty += viewModel.putaway_qty;
-            }
-            if (entity.actual_qty.Equals(entity.sorted_qty))
-            {
-                entity.asn_status = 4;
-            }
-
-            entity.last_update_time = DateTime.Now;
-            var Stocks = _dBContext.GetDbSet<StockEntity>();
-            var stockEntity = await Stocks.FirstOrDefaultAsync(t => t.sku_id.Equals(entity.sku_id) && t.goods_location_id.Equals(viewModel.goods_location_id));
-            if (stockEntity == null)
-            {
-                stockEntity = new StockEntity
-                {
-                    sku_id = entity.sku_id,
-                    goods_location_id = viewModel.goods_location_id,
-                    goods_owner_id = entity.goods_owner_id,
-                    qty = viewModel.putaway_qty,
-                    is_freeze = false,
-                    last_update_time = DateTime.Now,
-                    tenant_id = currentUser.tenant_id,
-                    id = 0
-                };
-                await Stocks.AddAsync(stockEntity);
-            }
-            else
-            {
-                stockEntity.qty += viewModel.putaway_qty;
-                stockEntity.last_update_time = DateTime.Now;
-            }
-            var qty = await _dBContext.SaveChangesAsync();
-            if (qty > 0)
-            {
-                return (true, _stringLocalizer["putaway_success"]);
-            }
-            else
-            {
-                return (false, _stringLocalizer["putaway_failed"]);
-            }
-            */
-        }
-
-        #endregion Flow Api
-
-        #region Arrival list
-
-        /// <summary>
-        /// Arrival list
-        /// </summary>
-        /// <param name="pageSearch">args</param>
-        /// <param name="currentUser">currentUser</param>
-        /// <returns></returns>
-        public async Task<(List<AsnmasterBothViewModel> data, int totals)> PageAsnmasterAsync(PageSearch pageSearch, CurrentUser currentUser)
-        {
-            QueryCollection queries = new QueryCollection();
-            if (pageSearch.searchObjects.Any())
-            {
-                pageSearch.searchObjects.ForEach(s =>
-                {
-                    queries.Add(s);
-                });
-            }
-            Byte asn_status = 255;
-            if (pageSearch.sqlTitle.ToLower().Contains("asn_status"))
-            {
-                asn_status = Convert.ToByte(pageSearch.sqlTitle.Trim().ToLower().Replace("asn_status", "").Replace("：", "").Replace(":", "").Replace("=", ""));
-                asn_status = asn_status.Equals(4) ? (Byte)255 : asn_status;
-            }
-            var Spus = _dBContext.GetDbSet<SpuEntity>();
-            var Skus = _dBContext.GetDbSet<SkuEntity>();
-            var Asns = _dBContext.GetDbSet<AsnEntity>();
-            var Asnmasters = _dBContext.GetDbSet<AsnmasterEntity>();
-            var query = from m in Asnmasters.AsNoTracking()
-                        where m.tenant_id == currentUser.tenant_id
-                        && (asn_status == 255 || m.asn_status == asn_status)
-                        select new AsnmasterBothViewModel
-                        {
-                            id = m.id,
-                            asn_no = m.asn_no,
-                            asn_batch = m.asn_batch,
-                            estimated_arrival_time = m.estimated_arrival_time,
-                            asn_status = m.asn_status,
-                            weight = m.weight,
-                            volume = m.volume,
-                            goods_owner_id = m.goods_owner_id,
-                            goods_owner_name = m.goods_owner_name,
-                            creator = m.creator,
-                            create_time = m.create_time,
-                            last_update_time = m.last_update_time,
-                            detailList = (from a in Asns.AsNoTracking()
-                                          join p in Spus.AsNoTracking() on a.spu_id equals p.id
-                                          join k in Skus.AsNoTracking() on a.sku_id equals k.id
-                                          where a.asnmaster_id == m.id
-                                          select new AsnmasterDetailViewModel
-                                          {
-                                              id = a.id,
-                                              asnmaster_id = a.asnmaster_id,
-                                              asn_status = a.asn_status,
-                                              spu_id = a.spu_id,
-                                              spu_code = p.spu_code,
-                                              spu_name = p.spu_name,
-                                              sku_id = a.sku_id,
-                                              sku_code = k.sku_code,
-                                              sku_name = k.sku_name,
-                                              origin = p.origin,
-                                              length_unit = p.length_unit,
-                                              volume_unit = p.volume_unit,
-                                              weight_unit = p.weight_unit,
-                                              asn_qty = a.asn_qty,
-                                              actual_qty = a.actual_qty,
-                                              weight = a.weight,
-                                              volume = a.volume,
-                                              supplier_id = a.supplier_id,
-                                              supplier_name = a.supplier_name,
-                                              is_valid = a.is_valid,
-                                              expiry_date = a.expiry_date,
-                                              price = a.price,
-                                              sorted_qty = a.sorted_qty,
-                                          }).ToList()
-                        };
-            query = query.Where(queries.AsExpression<AsnmasterBothViewModel>());
-            int totals = await query.CountAsync();
-            var list = await query.OrderByDescending(t => t.last_update_time)
-                       .Skip((pageSearch.pageIndex - 1) * pageSearch.pageSize)
-                       .Take(pageSearch.pageSize)
-                       .ToListAsync();
-            return (list, totals);
-        }
-
-        /// <summary>
-        /// get Arrival list
-        /// </summary>
-        /// <param name="id"></param>
-        /// <param name="currentUser"></param>
-        /// <returns></returns>
-        public async Task<AsnmasterBothViewModel> GetAsnmasterAsync(int id, CurrentUser currentUser)
-        {
-            var Spus = _dBContext.GetDbSet<SpuEntity>();
-            var Skus = _dBContext.GetDbSet<SkuEntity>();
-            var Asns = _dBContext.GetDbSet<AsnEntity>();
-            var Asnmasters = _dBContext.GetDbSet<AsnmasterEntity>();
-            var query = from m in Asnmasters.AsNoTracking()
-                        where m.tenant_id == currentUser.tenant_id
-                        && m.id == id
-                        select new AsnmasterBothViewModel
-                        {
-                            id = m.id,
-                            asn_no = m.asn_no,
-                            asn_batch = m.asn_batch,
-                            estimated_arrival_time = m.estimated_arrival_time,
-                            asn_status = m.asn_status,
-                            weight = m.weight,
-                            volume = m.volume,
-                            goods_owner_id = m.goods_owner_id,
-                            goods_owner_name = m.goods_owner_name,
-                            creator = m.creator,
-                            create_time = m.create_time,
-                            last_update_time = m.last_update_time,
-                            detailList = (from a in Asns.AsNoTracking()
-                                          join p in Spus.AsNoTracking() on a.spu_id equals p.id
-                                          join k in Skus.AsNoTracking() on a.sku_id equals k.id
-                                          where a.asnmaster_id == m.id
-                                          select new AsnmasterDetailViewModel
-                                          {
-                                              id = a.id,
-                                              asnmaster_id = a.asnmaster_id,
-                                              asn_status = a.asn_status,
-                                              spu_id = a.spu_id,
-                                              spu_code = p.spu_code,
-                                              spu_name = p.spu_name,
-                                              sku_id = a.sku_id,
-                                              sku_code = k.sku_code,
-                                              sku_name = k.sku_name,
-                                              origin = p.origin,
-                                              length_unit = p.length_unit,
-                                              volume_unit = p.volume_unit,
-                                              weight_unit = p.weight_unit,
-                                              asn_qty = a.asn_qty,
-                                              actual_qty = a.actual_qty,
-                                              weight = a.weight,
-                                              volume = a.volume,
-                                              supplier_id = a.supplier_id,
-                                              supplier_name = a.supplier_name,
-                                              is_valid = a.is_valid,
-                                              sorted_qty = a.sorted_qty,
-                                              expiry_date = a.expiry_date,
-                                              price = a.price
-                                          }).ToList()
-                        };
-            var data = await query.FirstOrDefaultAsync();
-            return data ?? new AsnmasterBothViewModel();
-        }
-
-        /// <summary>
-        /// add a new record
-        /// </summary>
-        /// <param name="viewModel">viewmodel</param>
-        /// <param name="currentUser">currentUser</param>
-        /// <returns></returns>
-        public async Task<(int id, string msg)> AddAsnmasterAsync(AsnmasterBothViewModel viewModel, CurrentUser currentUser)
-        {
-            var Asns = _dBContext.GetDbSet<AsnEntity>();
-            var Asnmasters = _dBContext.GetDbSet<AsnmasterEntity>();
-            string asn_no = await _functionHelper.GetFormNoAsync("Asnmaster");
-            var entity = new AsnmasterEntity
-            {
-                id = 0,
-                asn_no = asn_no,
-                asn_batch = viewModel.asn_batch,
-                estimated_arrival_time = viewModel.estimated_arrival_time,
-                asn_status = 0,
-                weight = viewModel.weight,
-                volume = viewModel.volume,
-                goods_owner_id = viewModel.goods_owner_id,
-                goods_owner_name = viewModel.goods_owner_name,
-                creator = currentUser.user_name,
-                create_time = DateTime.Now,
-                last_update_time = DateTime.Now,
-                tenant_id = currentUser.tenant_id,
-                detailList = viewModel.detailList.Select(d => new AsnEntity
-                {
-                    id = 0,
-                    asnmaster_id = 0,
-                    asn_no = asn_no,
-                    asn_status = 0,
-                    spu_id = d.spu_id,
-                    sku_id = d.sku_id,
-                    asn_qty = d.asn_qty,
-                    actual_qty = d.actual_qty,
-                    weight = d.weight,
-                    volume = d.volume,
-                    supplier_id = d.supplier_id,
-                    supplier_name = d.supplier_name,
-                    goods_owner_id = viewModel.goods_owner_id,
-                    goods_owner_name = viewModel.goods_owner_name,
-                    creator = currentUser.user_name,
-                    create_time = DateTime.Now,
-                    last_update_time = DateTime.Now,
-                    is_valid = true,
-                    tenant_id = currentUser.tenant_id,
-                    price = d.price
-                }).ToList()
-            };
-            await Asnmasters.AddAsync(entity);
-            await _dBContext.SaveChangesAsync();
-            if (entity.id > 0)
-            {
-                return (entity.id, _stringLocalizer["save_success"]);
-            }
-            else
-            {
-                return (0, _stringLocalizer["save_failed"]);
-            }
-        }
-
-        /// <summary>
-        /// add a new record
-        /// </summary>
-        /// <param name="viewModel">viewmodel</param>
-        /// <param name="currentUser">currentUser</param>
-        /// <returns></returns>
-        public async Task<(bool flag, string msg)> UpdateAsnmasterAsync(AsnmasterBothViewModel viewModel, CurrentUser currentUser)
-        {
-            var Asns = _dBContext.GetDbSet<AsnEntity>();
-            var Asnmasters = _dBContext.GetDbSet<AsnmasterEntity>();
-
-            var entity = await Asnmasters.Include(t => t.detailList)
-                .FirstOrDefaultAsync(t => t.id.Equals(viewModel.id));
-            if (entity == null)
-            {
-                return (false, _stringLocalizer["not_exists_entity"]);
-            }
-            entity.asn_batch = viewModel.asn_batch;
-            entity.estimated_arrival_time = viewModel.estimated_arrival_time;
-            entity.weight = viewModel.weight;
-            entity.volume = viewModel.volume;
-            entity.goods_owner_id = viewModel.goods_owner_id;
-            entity.goods_owner_name = viewModel.goods_owner_name;
-            entity.last_update_time = DateTime.Now;
-            if (viewModel.detailList.Any(t => t.id > 0))
-            {
-                entity.detailList.ForEach(d =>
-                {
-                    var vm = viewModel.detailList.Where(t => t.id > 0)
-                    .FirstOrDefault(t => t.id == d.id);
-                    if (vm != null)
-                    {
-                        d.spu_id = vm.spu_id;
-                        d.sku_id = vm.sku_id;
-                        d.asn_qty = vm.asn_qty;
-                        d.actual_qty = vm.actual_qty;
-                        d.weight = vm.weight;
-                        d.volume = vm.volume;
-                        d.supplier_id = vm.supplier_id;
-                        d.supplier_name = vm.supplier_name;
-                        d.goods_owner_id = viewModel.goods_owner_id;
-                        d.goods_owner_name = viewModel.goods_owner_name;
-                        d.last_update_time = DateTime.Now;
-                        d.price = vm.price;
-                    }
-                });
-            }
-            if (viewModel.detailList.Any(d => d.id == 0))
-            {
-                var adds = viewModel.detailList.Where(d => d.id == 0)
-                    .Select(d => new AsnEntity
-                    {
-                        id = 0,
-                        asnmaster_id = 0,
-                        asn_no = viewModel.asn_no,
-                        asn_status = 0,
-                        spu_id = d.spu_id,
-                        sku_id = d.sku_id,
-                        asn_qty = d.asn_qty,
-                        actual_qty = d.actual_qty,
-                        weight = d.weight,
-                        volume = d.volume,
-                        supplier_id = d.supplier_id,
-                        supplier_name = d.supplier_name,
-                        goods_owner_id = viewModel.goods_owner_id,
-                        goods_owner_name = viewModel.goods_owner_name,
-                        creator = currentUser.user_name,
-                        create_time = DateTime.Now,
-                        last_update_time = DateTime.Now,
-                        is_valid = true,
-                        tenant_id = currentUser.tenant_id,
-                        price = d.price
-                    }).ToList();
-                entity.detailList.AddRange(adds);
-            }
-            if (viewModel.detailList.Any(t => t.id < 0))
-            {
-                var delIds = viewModel.detailList.Where(t => t.id < 0).Select(t => t.id * -1).ToList();
-                entity.detailList.RemoveAll(entity => delIds.Contains(entity.id));
-            }
-            var qty = await _dBContext.SaveChangesAsync();
-            if (qty > 0)
-            {
-                return (true, _stringLocalizer["save_success"]);
-            }
-            else
-            {
-                return (false, _stringLocalizer["save_failed"]);
-            }
-        }
-
-        /// <summary>
-        /// delete a record
-        /// </summary>
-        /// <param name="id">id</param>
-        /// <returns></returns>
-        public async Task<(bool flag, string msg)> DeleteAsnmasterAsync(int id)
-        {
-            var qty = await _dBContext.GetDbSet<AsnEntity>().Where(t => t.asnmaster_id.Equals(id)).ExecuteDeleteAsync();
-            qty += await _dBContext.GetDbSet<AsnmasterEntity>().Where(t => t.id.Equals(id)).ExecuteDeleteAsync();
-            if (qty > 0)
-            {
-                return (true, _stringLocalizer["delete_success"]);
-            }
-            else
-            {
-                return (false, _stringLocalizer["delete_failed"]);
-            }
-        }
-
-        #endregion Arrival list
-
-        #region print series number
-        /// <summary>
-        /// print series number
-        /// </summary>
-        /// <param name="input">selected asn id</param>
-        /// <returns></returns>
-        public async Task<List<AsnPrintSeriesNumberViewModel>> GetAsnPrintSeriesNumberAsync(List<int> input)
-        {
-            var Spus = _dBContext.GetDbSet<SpuEntity>().AsNoTracking();
-            var Skus = _dBContext.GetDbSet<SkuEntity>().AsNoTracking();
-            var Asns = _dBContext.GetDbSet<AsnEntity>().AsNoTracking();
-            var Asnmasters = _dBContext.GetDbSet<AsnmasterEntity>().AsNoTracking();
-            var sorts = _dBContext.GetDbSet<AsnsortEntity>().AsNoTracking();
-
-            var query = from m in Asnmasters
-                        join a in Asns on m.id equals a.asnmaster_id
-                        join p in Spus.AsNoTracking() on a.spu_id equals p.id
-                        join k in Skus.AsNoTracking() on a.sku_id equals k.id
-                        join s in sorts on a.id equals s.asn_id
-                        where input.Contains(a.id)
-                        select new AsnPrintSeriesNumberViewModel
-                        {
-                            asn_id = a.id,
-                            asnmaster_id = m.id,
-                            asn_no = m.asn_no,
-                            sku_id = a.sku_id,
-                            sku_code = k.sku_code,
-                            sku_name = k.sku_name,
-                            spu_code = p.spu_code,
-                            spu_name = p.spu_name,
-                            series_number = s.series_number
-                        };
-            var data = await query.OrderBy(t => t.asn_id).ToListAsync();
-            data ??= new List<AsnPrintSeriesNumberViewModel>();
-            return data;
-        }
-
-        #endregion
+        _connectionFactory = connectionFactory;
+        _stringLocalizer = stringLocalizer;
+        _functionHelper = functionHelper;
     }
+
+    private const string DetailSelect = """
+        SELECT a.`id`,a.`asnmaster_id`,a.`asn_no`,m.`asn_batch`,m.`estimated_arrival_time`,a.`asn_status`,
+          a.`spu_id`,p.`spu_code`,p.`spu_name`,a.`sku_id`,k.`sku_code`,k.`sku_name`,p.`origin`,
+          p.`length_unit`,p.`volume_unit`,p.`weight_unit`,a.`price`,a.`asn_qty`,a.`actual_qty`,
+          a.`arrival_time`,a.`unload_person`,a.`unload_person_id`,a.`unload_time`,a.`sorted_qty`,
+          a.`shortage_qty`,a.`more_qty`,a.`damage_qty`,k.`weight`*a.`asn_qty` AS `weight`,
+          k.`volume`*a.`asn_qty` AS `volume`,a.`supplier_id`,a.`supplier_name`,a.`goods_owner_id`,
+          a.`goods_owner_name`,a.`creator`,a.`create_time`,a.`last_update_time`,a.`is_valid`,a.`expiry_date`
+        FROM `wms_asn` a JOIN `wms_asnmaster` m ON m.`id`=a.`asnmaster_id`
+          JOIN `wms_spu` p ON p.`id`=a.`spu_id` JOIN `wms_sku` k ON k.`id`=a.`sku_id`
+        """;
+
+    private static readonly IReadOnlyDictionary<string,string> DetailSearch = new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["id"]="a.`id`",["asnmaster_id"]="a.`asnmaster_id`",["asn_no"]="a.`asn_no`",["asn_batch"]="m.`asn_batch`",
+        ["asn_status"]="a.`asn_status`",["spu_code"]="p.`spu_code`",["spu_name"]="p.`spu_name`",
+        ["sku_code"]="k.`sku_code`",["sku_name"]="k.`sku_name`",["supplier_name"]="a.`supplier_name`",
+        ["goods_owner_name"]="a.`goods_owner_name`",["creator"]="a.`creator`",["is_valid"]="a.`is_valid`",
+        ["estimated_arrival_time"]="m.`estimated_arrival_time`",["spu_id"]="a.`spu_id`",["sku_id"]="a.`sku_id`",
+        ["origin"]="p.`origin`",["price"]="a.`price`",["asn_qty"]="a.`asn_qty`",["actual_qty"]="a.`actual_qty`",
+        ["arrival_time"]="a.`arrival_time`",["unload_person"]="a.`unload_person`",["unload_person_id"]="a.`unload_person_id`",
+        ["unload_time"]="a.`unload_time`",["sorted_qty"]="a.`sorted_qty`",["shortage_qty"]="a.`shortage_qty`",
+        ["more_qty"]="a.`more_qty`",["damage_qty"]="a.`damage_qty`",["supplier_id"]="a.`supplier_id`",
+        ["goods_owner_id"]="a.`goods_owner_id`",["create_time"]="a.`create_time`",["last_update_time"]="a.`last_update_time`",
+        ["expiry_date"]="a.`expiry_date`"
+    };
+
+    public async Task<(List<AsnViewModel> data, int totals)> PageAsync(PageSearch pageSearch, CurrentUser currentUser)
+    {
+        var filter = DapperSearchBuilder.Build(pageSearch.searchObjects, DetailSearch);
+        var clauses = new List<string>{"a.`tenant_id`=@tenantId"};
+        var title = pageSearch.sqlTitle.ToLowerInvariant();
+        if (title.Contains("asn_status:alltodo")) clauses.Add("a.`asn_status`<=3");
+        else if (title.Contains("asn_status"))
+        {
+            var status=Convert.ToByte(title.Trim().Replace("asn_status","").Replace("：","").Replace(":","").Replace("=",""));
+            clauses.Add("a.`asn_status`=@status"); filter.Parameters.Add("status",status);
+        }
+        if (!string.IsNullOrWhiteSpace(filter.Sql)) clauses.Add(filter.Sql);
+        filter.Parameters.Add("tenantId",currentUser.tenant_id);
+        filter.Parameters.Add("offset",(pageSearch.pageIndex-1)*pageSearch.pageSize);
+        filter.Parameters.Add("pageSize",pageSearch.pageSize);
+        var where=string.Join(" AND ",clauses);
+        await using var connection=await _connectionFactory.OpenConnectionAsync();
+        using var grid=await connection.QueryMultipleAsync($"""
+            SELECT COUNT(*) FROM `wms_asn` a JOIN `wms_asnmaster` m ON m.`id`=a.`asnmaster_id`
+              JOIN `wms_spu` p ON p.`id`=a.`spu_id` JOIN `wms_sku` k ON k.`id`=a.`sku_id` WHERE {where};
+            {DetailSelect} WHERE {where} ORDER BY a.`create_time` DESC LIMIT @pageSize OFFSET @offset;
+            """,filter.Parameters);
+        var total=await grid.ReadSingleAsync<int>();
+        return ((await grid.ReadAsync<AsnViewModel>()).AsList(),total);
+    }
+
+    public async Task<AsnViewModel> GetAsync(int id)
+    {
+        await using var connection=await _connectionFactory.OpenConnectionAsync();
+        return await connection.QuerySingleOrDefaultAsync<AsnViewModel>($"{DetailSelect} WHERE a.`id`=@id LIMIT 1;",new{id}) ?? new();
+    }
+
+    public async Task<(int id,string msg)> AddAsync(AsnViewModel vm,CurrentUser user)
+    {
+        var no=await _functionHelper.GetFormNoAsync("Asn"); var now=DateTime.Now;
+        await using var c=await _connectionFactory.OpenConnectionAsync();
+        var id=await c.ExecuteScalarAsync<int>("""
+          INSERT INTO `wms_asn` (`asnmaster_id`,`asn_no`,`asn_status`,`spu_id`,`sku_id`,`asn_qty`,`actual_qty`,
+          `arrival_time`,`unload_time`,`unload_person_id`,`unload_person`,`sorted_qty`,`shortage_qty`,`more_qty`,`damage_qty`,
+          `weight`,`volume`,`supplier_id`,`supplier_name`,`goods_owner_id`,`goods_owner_name`,`creator`,`create_time`,
+          `last_update_time`,`is_valid`,`tenant_id`,`expiry_date`,`price`)
+          VALUES (@asnmaster_id,@no,@asn_status,@spu_id,@sku_id,@asn_qty,@actual_qty,@arrival_time,@unload_time,
+          @unload_person_id,@unload_person,@sorted_qty,@shortage_qty,@more_qty,@damage_qty,@weight,@volume,@supplier_id,
+          @supplier_name,@goods_owner_id,@goods_owner_name,@creator,@now,@now,@is_valid,@tenant_id,@expiry_date,@price);
+          SELECT LAST_INSERT_ID();
+          """,new{vm.asnmaster_id,no,vm.asn_status,vm.spu_id,vm.sku_id,vm.asn_qty,vm.actual_qty,vm.arrival_time,vm.unload_time,
+              vm.unload_person_id,vm.unload_person,vm.sorted_qty,vm.shortage_qty,vm.more_qty,vm.damage_qty,vm.weight,vm.volume,
+              vm.supplier_id,vm.supplier_name,vm.goods_owner_id,vm.goods_owner_name,creator=user.user_name,now,vm.is_valid,
+              tenant_id=user.tenant_id,vm.expiry_date,vm.price});
+        return id>0?(id,_stringLocalizer["save_success"]):(0,_stringLocalizer["save_failed"]);
+    }
+
+    public async Task<string> GetOrderCode(CurrentUser user)
+    {
+        await using var c=await _connectionFactory.OpenConnectionAsync();
+        var maxNo=await c.ExecuteScalarAsync<string?>("SELECT MAX(`asn_no`) FROM `wms_asn` WHERE `tenant_id`=@tenantId;",new{tenantId=user.tenant_id});
+        var date=DateTime.Now.ToString("yyyyMMdd");
+        if(string.IsNullOrEmpty(maxNo)) return date+"-0001";
+        try { return date==maxNo[..8]?date+"-"+(int.Parse(maxNo[9..])+1).ToString("0000"):date+"-0001"; }
+        catch{return date+"-0001";}
+    }
+
+    public async Task<(bool flag,string msg)> UpdateAsync(AsnViewModel vm)
+    {
+        await using var c=await _connectionFactory.OpenConnectionAsync();
+        if(!await ExistsAsync(c,vm.id)) return(false,_stringLocalizer["not_exists_entity"]);
+        var qty=await c.ExecuteAsync("""
+          UPDATE `wms_asn` SET `asn_no`=@asn_no,`spu_id`=@spu_id,`sku_id`=@sku_id,`price`=@price,
+          `asn_qty`=@asn_qty,`weight`=@weight,`volume`=@volume,`supplier_id`=@supplier_id,`supplier_name`=@supplier_name,
+          `goods_owner_id`=@goods_owner_id,`goods_owner_name`=@goods_owner_name,`is_valid`=@is_valid,`last_update_time`=@now
+          WHERE `id`=@id;
+          """,new{vm.id,vm.asn_no,vm.spu_id,vm.sku_id,vm.price,vm.asn_qty,vm.weight,vm.volume,vm.supplier_id,vm.supplier_name,
+              vm.goods_owner_id,vm.goods_owner_name,vm.is_valid,now=DateTime.Now});
+        return WriteResult(qty,"save");
+    }
+
+    public async Task<(bool flag,string msg)> DeleteAsync(int id)
+    {
+        await using var c=await _connectionFactory.OpenConnectionAsync();
+        var entity=await c.QuerySingleOrDefaultAsync<AsnEntity>("SELECT * FROM `wms_asn` WHERE `id`=@id LIMIT 1;",new{id});
+        if(entity==null)return(false,_stringLocalizer["not_exists_entity"]);
+        if(entity.asn_status==8)return(false,_stringLocalizer["asn_had_putaway"]);
+        var qty=entity.asn_status==0
+            ?await c.ExecuteAsync("DELETE FROM `wms_asn` WHERE `id`=@id;",new{id})
+            :await c.ExecuteAsync("UPDATE `wms_asn` SET `asn_status`=`asn_status`-1 WHERE `id`=@id;",new{id});
+        return qty>0?(true,_stringLocalizer["delete_success"]):(false,_stringLocalizer["delete_failed"]);
+    }
+
+    public async Task<(bool flag,string msg)> BulkModifyGoodsownerAsync(AsnBulkModifyGoodsOwnerViewModel vm)
+    {
+        await using var c=await _connectionFactory.OpenConnectionAsync();
+        var qty=await c.ExecuteAsync("""
+          UPDATE `wms_asn` SET `goods_owner_id`=@goods_owner_id,`goods_owner_name`=@goods_owner_name,`last_update_time`=@now WHERE `id` IN @ids;
+          """,new{vm.goods_owner_id,vm.goods_owner_name,now=DateTime.Now,ids=vm.idList});
+        return WriteResult(qty,"save");
+    }
+
+    public Task<(bool flag,string msg)> ConfirmAsync(List<AsnConfirmInputViewModel> rows) =>
+        ChangeRowsAsync(rows.Select(x=>x.id).Where(x=>x>0).ToList(),0,1,"ASN_Status_Is_Not_Pre_Delivery","confirm",
+            rows.GroupBy(x=>x.id).ToDictionary(x=>x.Key,x=>(object?)x.First().arrival_time));
+    public Task<(bool flag,string msg)> ConfirmCancelAsync(List<int> ids) =>
+        ChangeRowsAsync(ids,1,0,"ASN_Status_Is_Not_Pre_Delivery","save",null,true);
+
+    public async Task<(bool flag,string msg)> UnloadAsync(List<AsnUnloadInputViewModel> rows,CurrentUser user)
+    {
+        var ids=rows.Select(x=>x.id).Where(x=>x>0).ToList();
+        await using var c=await _connectionFactory.OpenConnectionAsync(); await using var tx=await c.BeginTransactionAsync();
+        var entities=(await c.QueryAsync<AsnEntity>("SELECT * FROM `wms_asn` WHERE `id` IN @ids FOR UPDATE;",new{ids},tx)).AsList();
+        if(entities.Count==0)return(false,"[202]"+_stringLocalizer["not_exists_entity"]);
+        if(entities.Any(x=>x.asn_status>1))return(false,"[202]"+_stringLocalizer["ASN_Status_Is_Not_Pre_Load"]);
+        var now=DateTime.Now;
+        foreach(var e in entities){var vm=rows.FirstOrDefault(x=>x.id==e.id);if(vm!=null)await c.ExecuteAsync("""
+          UPDATE `wms_asn` SET `asn_status`=2,`last_update_time`=@now,`unload_time`=@unload_time,
+          `unload_person_id`=@personId,`unload_person`=@person WHERE `id`=@id;
+          """,new{e.id,now,vm.unload_time,personId=vm.unload_person_id==0?user.user_id:vm.unload_person_id,
+              person=vm.unload_person_id==0?user.user_name:vm.unload_person},tx);}
+        await tx.CommitAsync();return(true,_stringLocalizer["confirm_success"]);
+    }
+
+    public Task<(bool flag,string msg)> UnloadCancelAsync(List<int> ids)=>ResetUnloadAsync(ids);
+
+    public async Task<(bool flag,string msg)> SortingAsync(List<AsnsortInputViewModel> rows,CurrentUser user)
+    {
+        var ids=rows.Select(x=>x.asn_id).Distinct().ToList();
+        await using var c=await _connectionFactory.OpenConnectionAsync();await using var tx=await c.BeginTransactionAsync();
+        var asns=(await c.QueryAsync<AsnEntity>("SELECT * FROM `wms_asn` WHERE `id` IN @ids FOR UPDATE;",new{ids},tx)).AsList();
+        if(asns.Count==0)return(false,"[202]"+_stringLocalizer["not_exists_entity"]);
+        if(asns.Any(x=>x.asn_status!=2))return(false,"[202]"+_stringLocalizer["ASN_Status_Is_Not_Pre_Sort"]);
+        foreach(var v in rows.Where(v=>asns.Any(e=>e.id==v.asn_id)))
+        {
+            var quantities=v.sorted_qty>1&&v.is_auto_num?Enumerable.Repeat(1,v.sorted_qty).ToList():[v.sorted_qty];
+            var sns=v.sorted_qty>1&&v.is_auto_num?await _functionHelper.GetFormNoListAsync("Asnsort",v.sorted_qty,user.tenant_id,"sn")
+                :[await _functionHelper.GetFormNoAsync("Asnsort","sn")];
+            for(var i=0;i<quantities.Count;i++)await c.ExecuteAsync("""
+              INSERT INTO `wms_asnsort` (`asn_id`,`sorted_qty`,`series_number`,`putaway_qty`,`creator`,`create_time`,`last_update_time`,`is_valid`,`tenant_id`)
+              VALUES (@asnId,@qty,@sn,0,@creator,@now,@now,1,@tenantId);
+              """,new{asnId=v.asn_id,qty=quantities[i],sn=sns[i],creator=user.user_name,now=DateTime.Now,tenantId=user.tenant_id},tx);
+        }
+        foreach(var e in asns){var qty=rows.Where(x=>x.asn_id==e.id).Sum(x=>x.sorted_qty);var expiry=rows.First(x=>x.asn_id==e.id).expiry_date;
+            await c.ExecuteAsync("UPDATE `wms_asn` SET `sorted_qty`=`sorted_qty`+@qty,`expiry_date`=@expiry,`last_update_time`=@now WHERE `id`=@id;",
+                new{e.id,qty,expiry,now=DateTime.Now},tx);}
+        await tx.CommitAsync();return(true,_stringLocalizer["save_success"]);
+    }
+
+    public async Task<List<AsnsortViewModel>> GetAsnsortsAsync(int asn_id)
+    {
+        await using var c=await _connectionFactory.OpenConnectionAsync();
+        return (await c.QueryAsync<AsnsortViewModel>("""
+          SELECT s.`id`,s.`asn_id`,s.`sorted_qty`,s.`series_number`,s.`putaway_qty`,a.`expiry_date`,s.`creator`,
+          s.`create_time`,s.`last_update_time`,s.`is_valid`,s.`tenant_id` FROM `wms_asn` a JOIN `wms_asnsort` s ON s.`asn_id`=a.`id`
+          WHERE a.`id`=@asn_id;
+          """,new{asn_id})).AsList();
+    }
+
+    public async Task<(bool flag,string msg)> ModifyAsnsortsAsync(List<AsnsortEntity> rows,CurrentUser user)
+    {
+        await using var c=await _connectionFactory.OpenConnectionAsync();await using var tx=await c.BeginTransactionAsync();
+        var del=rows.Where(x=>x.id<0).Select(x=>-x.id).ToList();if(del.Count>0)await c.ExecuteAsync("DELETE FROM `wms_asnsort` WHERE `id` IN @del;",new{del},tx);
+        foreach(var r in rows.Where(x=>x.id>0&&x.sorted_qty>0))await c.ExecuteAsync("""
+          UPDATE `wms_asnsort` SET `asn_id`=@asn_id,`sorted_qty`=@sorted_qty,`series_number`=@series_number,
+          `putaway_qty`=@putaway_qty,`creator`=@creator,`create_time`=@create_time,`last_update_time`=@now,`is_valid`=1,`tenant_id`=@tenant_id WHERE `id`=@id;
+          """,new{r.id,r.asn_id,r.sorted_qty,r.series_number,r.putaway_qty,r.creator,r.create_time,now=DateTime.Now,r.tenant_id},tx);
+        var ids=rows.Select(x=>x.asn_id).Distinct().ToList();
+        await c.ExecuteAsync("""
+          UPDATE `wms_asn` a SET a.`sorted_qty`=(SELECT COALESCE(SUM(s.`sorted_qty`),0) FROM `wms_asnsort` s WHERE s.`asn_id`=a.`id`)
+          WHERE a.`id` IN @ids;
+          """,new{ids},tx);await tx.CommitAsync();return(true,_stringLocalizer["sorted_success"]);
+    }
+
+    public async Task<(bool flag,string msg)> SortedAsync(List<int> ids)
+    {
+        await using var c=await _connectionFactory.OpenConnectionAsync();var rows=(await c.QueryAsync<AsnEntity>("SELECT * FROM `wms_asn` WHERE `id` IN @ids;",new{ids})).AsList();
+        if(rows.Count==0)return(false,"[202]"+_stringLocalizer["not_exists_entity"]);if(rows.Any(x=>x.sorted_qty<1))return(false,"[202]"+_stringLocalizer["ASN_Status_Is_Not_Sorting"]);
+        var qty=await c.ExecuteAsync("""
+          UPDATE `wms_asn` SET `asn_status`=3,`more_qty`=GREATEST(`sorted_qty`-`asn_qty`,0),
+          `shortage_qty`=GREATEST(`asn_qty`-`sorted_qty`,0),`last_update_time`=@now WHERE `id` IN @ids;
+          """,new{ids,now=DateTime.Now});return qty>0?(true,_stringLocalizer["sorted_success"]):(false,_stringLocalizer["sorted_failed"]);
+    }
+
+    public async Task<(bool flag,string msg)> SortedCancelAsync(List<int> ids)
+    {
+        await using var c=await _connectionFactory.OpenConnectionAsync();await using var tx=await c.BeginTransactionAsync();
+        var rows=(await c.QueryAsync<AsnEntity>("SELECT * FROM `wms_asn` WHERE `id` IN @ids FOR UPDATE;",new{ids},tx)).AsList();
+        if(rows.Count==0)return(false,"[202]"+_stringLocalizer["not_exists_entity"]);if(rows.Any(x=>x.actual_qty>0))return(false,"[202]"+_stringLocalizer["ASN_Status_Is_Putaway"]);if(rows.Any(x=>x.sorted_qty<1))return(false,"[202]"+_stringLocalizer["ASN_Status_Is_Not_Sorting"]);
+        var qty=await c.ExecuteAsync("UPDATE `wms_asn` SET `asn_status`=2,`sorted_qty`=0,`more_qty`=0,`shortage_qty`=0,`last_update_time`=@now WHERE `id` IN @ids;",new{ids,now=DateTime.Now},tx);
+        if(qty>0)await c.ExecuteAsync("DELETE FROM `wms_asnsort` WHERE `asn_id` IN @ids;",new{ids},tx);await tx.CommitAsync();return WriteResult(qty,"save");
+    }
+
+    public async Task<List<AsnPendingPutawayViewModel>> GetPendingPutawayDataAsync(int id)
+    {
+        await using var c=await _connectionFactory.OpenConnectionAsync();return(await c.QueryAsync<AsnPendingPutawayViewModel>("""
+          SELECT a.`id` AS `asn_id`,a.`goods_owner_id`,a.`goods_owner_name`,s.`series_number`,SUM(s.`sorted_qty`-s.`putaway_qty`) AS `sorted_qty`
+          FROM `wms_asn` a JOIN `wms_asnsort` s ON s.`asn_id`=a.`id` WHERE a.`id`=@id AND s.`putaway_qty`<s.`sorted_qty`
+          GROUP BY a.`id`,a.`goods_owner_id`,a.`goods_owner_name`,s.`series_number`;
+          """,new{id})).AsList();
+    }
+
+    public async Task<(bool flag,string msg)> PutAwayAsync(List<AsnPutAwayInputViewModel> rows,CurrentUser user)
+    {
+        rows.RemoveAll(x=>x.putaway_qty<1);
+        if(rows.Any(x=>x.goods_location_id==0))return(false,"[202]"+string.Format(_stringLocalizer["Required"],_stringLocalizer["location_name"]));
+        var locationIds=rows.Select(x=>x.goods_location_id).Distinct().ToList();
+        await using var c=await _connectionFactory.OpenConnectionAsync();await using var tx=await c.BeginTransactionAsync(IsolationLevel.Serializable);
+        var locations=(await c.QueryAsync<GoodslocationEntity>("SELECT * FROM `wms_goodslocation` WHERE `id` IN @locationIds;",new{locationIds},tx)).AsList();
+        if(locations.Count!=locationIds.Count)return(false,"[202]"+string.Format(_stringLocalizer["Required"],_stringLocalizer["location_name"]));
+        var asn=await c.QuerySingleOrDefaultAsync<AsnEntity>("SELECT * FROM `wms_asn` WHERE `id`=@id FOR UPDATE;",new{id=rows[0].asn_id},tx);
+        if(asn==null)return(false,"[202]"+_stringLocalizer["not_exists_entity"]);
+        var sum=rows.Sum(x=>x.putaway_qty);
+        if(asn.asn_status!=3)return(false,"[202]"+$"{asn.asn_no}{_stringLocalizer["ASN_Status_Is_Not_Sorted"]}");
+        if(asn.actual_qty+sum>asn.sorted_qty)return(false,"[202]"+$"{asn.asn_no}{_stringLocalizer["ASN_Total_PutAway_Qty_Greater_Than_Sorted_Qty"]}");
+        var damage=rows.Where(x=>locations.First(l=>l.id==x.goods_location_id).warehouse_area_property==5).Sum(x=>x.putaway_qty);
+        await c.ExecuteAsync("""
+          UPDATE `wms_asn` SET `actual_qty`=`actual_qty`+@sum,`damage_qty`=`damage_qty`+@damage,
+          `asn_status`=IF(`actual_qty`+@sum=`sorted_qty`,4,`asn_status`),`last_update_time`=@now WHERE `id`=@id;
+          """,new{id=asn.id,sum,damage,now=DateTime.Now},tx);
+        var sorts=(await c.QueryAsync<AsnsortEntity>("SELECT * FROM `wms_asnsort` WHERE `asn_id`=@id AND `sorted_qty`>`putaway_qty` ORDER BY `id` FOR UPDATE;",new{id=asn.id},tx)).AsList();
+        foreach(var vm in rows)
+        {
+            var left=vm.putaway_qty;
+            foreach(var s in sorts.Where(x=>x.series_number==vm.series_number))
+            { if(left<=0)break;var used=Math.Min(left,s.sorted_qty-s.putaway_qty);s.putaway_qty+=used;left-=used;
+              await c.ExecuteAsync("UPDATE `wms_asnsort` SET `putaway_qty`=@putaway_qty WHERE `id`=@id;",new{s.id,s.putaway_qty},tx); }
+            var putawayDate=DateTime.Now.ToString("yyyy-MM-dd").ObjToDate();
+            var stockId=await c.ExecuteScalarAsync<int?>("""
+              SELECT `id` FROM `wms_stock` WHERE `sku_id`=@skuId AND `goods_location_id`=@locationId AND `goods_owner_id`=@ownerId
+              AND `series_number`=@sn AND `expiry_date`=@expiry AND `price`=@price AND `putaway_date`=@putawayDate LIMIT 1 FOR UPDATE;
+              """,new{skuId=asn.sku_id,locationId=vm.goods_location_id,ownerId=vm.goods_owner_id,sn=vm.series_number,expiry=asn.expiry_date,asn.price,putawayDate},tx);
+            if(stockId.HasValue)await c.ExecuteAsync("UPDATE `wms_stock` SET `qty`=`qty`+@qty,`last_update_time`=@now WHERE `id`=@stockId;",new{qty=vm.putaway_qty,now=DateTime.Now,stockId},tx);
+            else await c.ExecuteAsync("""
+              INSERT INTO `wms_stock` (`sku_id`,`goods_location_id`,`qty`,`goods_owner_id`,`is_freeze`,`last_update_time`,`tenant_id`,`series_number`,`expiry_date`,`price`,`putaway_date`)
+              VALUES (@skuId,@locationId,@qty,@ownerId,0,@now,@tenantId,@sn,@expiry,@price,@putawayDate);
+              """,new{skuId=asn.sku_id,locationId=vm.goods_location_id,qty=vm.putaway_qty,ownerId=asn.goods_owner_id,now=DateTime.Now,tenantId=user.tenant_id,sn=vm.series_number,expiry=asn.expiry_date,asn.price,putawayDate},tx);
+        }
+        await tx.CommitAsync();return(true,_stringLocalizer["putaway_success"]);
+    }
+
+    private const string MasterSelect="""
+      SELECT `id`,`asn_no`,`asn_batch`,`estimated_arrival_time`,`asn_status`,`weight`,`volume`,`goods_owner_id`,
+      `goods_owner_name`,`creator`,`create_time`,`last_update_time`,`tenant_id` FROM `wms_asnmaster`
+      """;
+    private const string MasterDetailSelect="""
+      SELECT a.`id`,a.`asnmaster_id`,a.`asn_status`,a.`spu_id`,p.`spu_code`,p.`spu_name`,a.`sku_id`,k.`sku_code`,k.`sku_name`,
+      p.`origin`,p.`length_unit`,p.`volume_unit`,p.`weight_unit`,a.`asn_qty`,a.`actual_qty`,a.`weight`,a.`volume`,
+      a.`supplier_id`,a.`supplier_name`,a.`is_valid`,a.`expiry_date`,a.`price`,a.`sorted_qty`
+      FROM `wms_asn` a JOIN `wms_spu` p ON p.`id`=a.`spu_id` JOIN `wms_sku` k ON k.`id`=a.`sku_id`
+      """;
+    private static readonly IReadOnlyDictionary<string,string> MasterSearch=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase)
+    { ["id"]="m.`id`",["asn_no"]="m.`asn_no`",["asn_batch"]="m.`asn_batch`",["asn_status"]="m.`asn_status`",
+      ["estimated_arrival_time"]="m.`estimated_arrival_time`",["weight"]="m.`weight`",["volume"]="m.`volume`",
+      ["goods_owner_id"]="m.`goods_owner_id`",["goods_owner_name"]="m.`goods_owner_name`",["creator"]="m.`creator`",
+      ["create_time"]="m.`create_time`",["last_update_time"]="m.`last_update_time`",["tenant_id"]="m.`tenant_id`" };
+
+    public async Task<(List<AsnmasterBothViewModel> data,int totals)> PageAsnmasterAsync(PageSearch pageSearch,CurrentUser user)
+    {
+        var filter=DapperSearchBuilder.Build(pageSearch.searchObjects,MasterSearch);var clauses=new List<string>{"m.`tenant_id`=@tenantId"};
+        var title=pageSearch.sqlTitle.ToLowerInvariant();if(title.Contains("asn_status")){var status=Convert.ToByte(title.Trim().Replace("asn_status","").Replace("：","").Replace(":","").Replace("=",""));if(status!=4){clauses.Add("m.`asn_status`=@status");filter.Parameters.Add("status",status);}}
+        if(!string.IsNullOrWhiteSpace(filter.Sql))clauses.Add(filter.Sql);filter.Parameters.Add("tenantId",user.tenant_id);filter.Parameters.Add("offset",(pageSearch.pageIndex-1)*pageSearch.pageSize);filter.Parameters.Add("pageSize",pageSearch.pageSize);
+        var where=string.Join(" AND ",clauses);await using var c=await _connectionFactory.OpenConnectionAsync();using var grid=await c.QueryMultipleAsync($"""
+          SELECT COUNT(*) FROM `wms_asnmaster` m WHERE {where};
+          SELECT m.* FROM `wms_asnmaster` m WHERE {where} ORDER BY m.`last_update_time` DESC LIMIT @pageSize OFFSET @offset;
+          """,filter.Parameters);var total=await grid.ReadSingleAsync<int>();var masters=(await grid.ReadAsync<AsnmasterBothViewModel>()).AsList();await FillMasterDetailsAsync(c,masters);return(masters,total);
+    }
+
+    public async Task<AsnmasterBothViewModel> GetAsnmasterAsync(int id,CurrentUser user)
+    {
+        await using var c=await _connectionFactory.OpenConnectionAsync();var master=await c.QuerySingleOrDefaultAsync<AsnmasterBothViewModel>($"{MasterSelect} WHERE `id`=@id AND `tenant_id`=@tenantId LIMIT 1;",new{id,tenantId=user.tenant_id})??new();
+        if(master.id>0)await FillMasterDetailsAsync(c,[master]);return master;
+    }
+
+    public async Task<(int id,string msg)> AddAsnmasterAsync(AsnmasterBothViewModel vm,CurrentUser user)
+    {
+        var no=await _functionHelper.GetFormNoAsync("Asnmaster");var now=DateTime.Now;await using var c=await _connectionFactory.OpenConnectionAsync();await using var tx=await c.BeginTransactionAsync();
+        var id=await c.ExecuteScalarAsync<int>("""
+          INSERT INTO `wms_asnmaster` (`asn_no`,`asn_batch`,`estimated_arrival_time`,`asn_status`,`weight`,`volume`,`goods_owner_id`,`goods_owner_name`,`creator`,`create_time`,`last_update_time`,`tenant_id`)
+          VALUES (@no,@asn_batch,@estimated_arrival_time,0,@weight,@volume,@goods_owner_id,@goods_owner_name,@creator,@now,@now,@tenantId);SELECT LAST_INSERT_ID();
+          """,new{no,vm.asn_batch,vm.estimated_arrival_time,vm.weight,vm.volume,vm.goods_owner_id,vm.goods_owner_name,creator=user.user_name,now,tenantId=user.tenant_id},tx);
+        foreach(var d in vm.detailList)await InsertDetailAsync(c,tx,id,no,d,vm.goods_owner_id,vm.goods_owner_name,user,now);
+        await tx.CommitAsync();return id>0?(id,_stringLocalizer["save_success"]):(0,_stringLocalizer["save_failed"]);
+    }
+
+    public async Task<(bool flag,string msg)> UpdateAsnmasterAsync(AsnmasterBothViewModel vm,CurrentUser user)
+    {
+        await using var c=await _connectionFactory.OpenConnectionAsync();await using var tx=await c.BeginTransactionAsync();
+        var exists=await c.ExecuteScalarAsync<bool>("SELECT EXISTS(SELECT 1 FROM `wms_asnmaster` WHERE `id`=@id);",new{vm.id},tx);if(!exists)return(false,_stringLocalizer["not_exists_entity"]);
+        var now=DateTime.Now;await c.ExecuteAsync("""
+          UPDATE `wms_asnmaster` SET `asn_batch`=@asn_batch,`estimated_arrival_time`=@estimated_arrival_time,`weight`=@weight,`volume`=@volume,
+          `goods_owner_id`=@goods_owner_id,`goods_owner_name`=@goods_owner_name,`last_update_time`=@now WHERE `id`=@id;
+          """,new{vm.id,vm.asn_batch,vm.estimated_arrival_time,vm.weight,vm.volume,vm.goods_owner_id,vm.goods_owner_name,now},tx);
+        foreach(var d in vm.detailList.Where(x=>x.id>0))await c.ExecuteAsync("""
+          UPDATE `wms_asn` SET `spu_id`=@spu_id,`sku_id`=@sku_id,`asn_qty`=@asn_qty,`actual_qty`=@actual_qty,`weight`=@weight,
+          `volume`=@volume,`supplier_id`=@supplier_id,`supplier_name`=@supplier_name,`goods_owner_id`=@ownerId,`goods_owner_name`=@ownerName,
+          `last_update_time`=@now,`price`=@price WHERE `id`=@id;
+          """,new{d.id,d.spu_id,d.sku_id,d.asn_qty,d.actual_qty,d.weight,d.volume,d.supplier_id,d.supplier_name,ownerId=vm.goods_owner_id,ownerName=vm.goods_owner_name,now,d.price},tx);
+        foreach(var d in vm.detailList.Where(x=>x.id==0))await InsertDetailAsync(c,tx,vm.id,vm.asn_no,d,vm.goods_owner_id,vm.goods_owner_name,user,now);
+        var del=vm.detailList.Where(x=>x.id<0).Select(x=>-x.id).ToList();if(del.Count>0)await c.ExecuteAsync("DELETE FROM `wms_asn` WHERE `id` IN @del;",new{del},tx);
+        await tx.CommitAsync();return(true,_stringLocalizer["save_success"]);
+    }
+
+    public async Task<(bool flag,string msg)> DeleteAsnmasterAsync(int id)
+    {
+        await using var c=await _connectionFactory.OpenConnectionAsync();await using var tx=await c.BeginTransactionAsync();var qty=await c.ExecuteAsync("DELETE FROM `wms_asn` WHERE `asnmaster_id`=@id;",new{id},tx);qty+=await c.ExecuteAsync("DELETE FROM `wms_asnmaster` WHERE `id`=@id;",new{id},tx);await tx.CommitAsync();return qty>0?(true,_stringLocalizer["delete_success"]):(false,_stringLocalizer["delete_failed"]);
+    }
+
+    public async Task<List<AsnPrintSeriesNumberViewModel>> GetAsnPrintSeriesNumberAsync(List<int> input)
+    {
+        await using var c=await _connectionFactory.OpenConnectionAsync();return(await c.QueryAsync<AsnPrintSeriesNumberViewModel>("""
+          SELECT a.`id` AS `asn_id`,m.`id` AS `asnmaster_id`,m.`asn_no`,a.`sku_id`,k.`sku_code`,k.`sku_name`,p.`spu_code`,p.`spu_name`,s.`series_number`
+          FROM `wms_asnmaster` m JOIN `wms_asn` a ON a.`asnmaster_id`=m.`id` JOIN `wms_spu` p ON p.`id`=a.`spu_id`
+          JOIN `wms_sku` k ON k.`id`=a.`sku_id` JOIN `wms_asnsort` s ON s.`asn_id`=a.`id` WHERE a.`id` IN @input ORDER BY a.`id`;
+          """,new{input})).AsList();
+    }
+
+    private async Task FillMasterDetailsAsync(MySqlConnector.MySqlConnection c,List<AsnmasterBothViewModel> masters)
+    { if(masters.Count==0)return;var ids=masters.Select(x=>x.id).ToList();var rows=(await c.QueryAsync<AsnmasterDetailViewModel>($"{MasterDetailSelect} WHERE a.`asnmaster_id` IN @ids;",new{ids})).AsList();foreach(var m in masters)m.detailList=rows.Where(x=>x.asnmaster_id==m.id).ToList(); }
+
+    private static Task<int> InsertDetailAsync(MySqlConnector.MySqlConnection c,MySqlConnector.MySqlTransaction tx,int masterId,string no,AsnmasterDetailViewModel d,int ownerId,string ownerName,CurrentUser user,DateTime now)=>c.ExecuteAsync("""
+      INSERT INTO `wms_asn` (`asnmaster_id`,`asn_no`,`asn_status`,`spu_id`,`sku_id`,`asn_qty`,`actual_qty`,`arrival_time`,
+      `unload_time`,`unload_person_id`,`unload_person`,`sorted_qty`,`shortage_qty`,`more_qty`,`damage_qty`,`weight`,`volume`,
+      `supplier_id`,`supplier_name`,`goods_owner_id`,`goods_owner_name`,`creator`,`create_time`,`last_update_time`,`is_valid`,`tenant_id`,`expiry_date`,`price`)
+      VALUES (@masterId,@no,0,@spu_id,@sku_id,@asn_qty,@actual_qty,@min,@min,0,'',0,0,0,0,@weight,@volume,@supplier_id,
+      @supplier_name,@ownerId,@ownerName,@creator,@now,@now,1,@tenantId,@min,@price);
+      """,new{masterId,no,d.spu_id,d.sku_id,d.asn_qty,d.actual_qty,d.weight,d.volume,d.supplier_id,d.supplier_name,ownerId,ownerName,creator=user.user_name,now,tenantId=user.tenant_id,d.price,min=UtilConvert.MinDate},tx);
+
+    private async Task<(bool flag,string msg)> ChangeRowsAsync(List<int> ids,byte expected,byte next,string errorKey,string successKind,Dictionary<int,object?>? arrival,bool resetArrival=false)
+    {
+        await using var c=await _connectionFactory.OpenConnectionAsync();await using var tx=await c.BeginTransactionAsync();var rows=(await c.QueryAsync<AsnEntity>("SELECT * FROM `wms_asn` WHERE `id` IN @ids FOR UPDATE;",new{ids},tx)).AsList();
+        if(rows.Count==0)return(false,"[202]"+_stringLocalizer["not_exists_entity"]);if(rows.Any(x=>x.asn_status!=expected))return(false,"[202]"+_stringLocalizer[errorKey]);var now=DateTime.Now;
+        foreach(var r in rows)await c.ExecuteAsync("UPDATE `wms_asn` SET `asn_status`=@next,`arrival_time`=@arrivalTime,`last_update_time`=@now WHERE `id`=@id;",new{r.id,next,arrivalTime=resetArrival?UtilConvert.MinDate:arrival?.GetValueOrDefault(r.id)??r.arrival_time,now},tx);
+        var master=rows[0].asnmaster_id;if(!await c.ExecuteScalarAsync<bool>("SELECT EXISTS(SELECT 1 FROM `wms_asnmaster` WHERE `id`=@master);",new{master},tx))return(false,"[202]"+_stringLocalizer["not_exists_entity"]);await c.ExecuteAsync("UPDATE `wms_asnmaster` SET `last_update_time`=@now WHERE `id`=@master;",new{master,now},tx);await tx.CommitAsync();return(true,_stringLocalizer[successKind=="confirm"?"confirm_success":"save_success"]);
+    }
+
+    private async Task<(bool flag,string msg)> ResetUnloadAsync(List<int> ids)
+    { await using var c=await _connectionFactory.OpenConnectionAsync();var rows=(await c.QueryAsync<AsnEntity>("SELECT * FROM `wms_asn` WHERE `id` IN @ids;",new{ids})).AsList();if(rows.Count==0)return(false,"[202]"+_stringLocalizer["not_exists_entity"]);if(rows.Any(x=>x.asn_status!=2))return(false,"[202]"+_stringLocalizer["ASN_Status_Is_Not_Pre_Load"]);var qty=await c.ExecuteAsync("UPDATE `wms_asn` SET `asn_status`=1,`unload_time`=@min,`unload_person_id`=0,`unload_person`='',`last_update_time`=@now WHERE `id` IN @ids;",new{ids,min=UtilConvert.MinDate,now=DateTime.Now});return WriteResult(qty,"save"); }
+    private static Task<bool> ExistsAsync(MySqlConnector.MySqlConnection c,int id)=>c.ExecuteScalarAsync<bool>("SELECT EXISTS(SELECT 1 FROM `wms_asn` WHERE `id`=@id);",new{id});
+    private (bool flag,string msg) WriteResult(int qty,string kind)=>qty>0?(true,_stringLocalizer[kind+"_success"]):(false,_stringLocalizer[kind+"_failed"]);
 }

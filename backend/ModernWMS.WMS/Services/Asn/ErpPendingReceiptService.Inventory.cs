@@ -1,7 +1,6 @@
 using System.Data;
 using System.Data.Common;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Storage;
+using Dapper;
 using ModernWMS.Core.DBContext.Entities;
 using ModernWMS.Core.JWT;
 using ModernWMS.WMS.Entities.ViewModels;
@@ -820,11 +819,25 @@ public partial class ErpPendingReceiptService
 
     private sealed record AreaReference(int Id, string Name);
 
+    private static DynamicParameters CreateParameters(params (string Name, object? Value)[] parameters)
+    {
+        var result = new DynamicParameters();
+        foreach (var (name, value) in parameters)
+        {
+            result.Add(name.TrimStart('@'), value);
+        }
+        return result;
+    }
+
+    private MySqlConnector.MySqlConnection? _helperConnection;
+
     private DbCommand CreateCommand(string sql, params (string Name, object? Value)[] parameters)
     {
-        var command = _ruoyiDbContext.Database.GetDbConnection().CreateCommand();
+        var connection = _helperConnection ?? _activeConnection
+            ?? throw new InvalidOperationException("数据库连接尚未打开");
+        var command = connection.CreateCommand();
         command.CommandText = sql;
-        command.Transaction = _ruoyiDbContext.Database.CurrentTransaction?.GetDbTransaction();
+        command.Transaction = _activeTransaction;
         foreach (var (name, value) in parameters)
         {
             var parameter = command.CreateParameter();
@@ -835,58 +848,43 @@ public partial class ErpPendingReceiptService
         return command;
     }
 
+    private async Task<ConnectionLease> OpenConnectionLeaseAsync()
+    {
+        if (_activeConnection != null)
+        {
+            _helperConnection = _activeConnection;
+            return new ConnectionLease(this, null);
+        }
+        var connection = await _connectionFactory.OpenConnectionAsync();
+        _helperConnection = connection;
+        return new ConnectionLease(this, connection);
+    }
+
+    private sealed class ConnectionLease(
+        ErpPendingReceiptService owner,
+        MySqlConnector.MySqlConnection? ownedConnection) : IAsyncDisposable
+    {
+        public async ValueTask DisposeAsync()
+        {
+            owner._helperConnection = null;
+            if (ownedConnection != null) await ownedConnection.DisposeAsync();
+        }
+    }
+
     private async Task<int> ExecuteAsync(string sql, params (string Name, object? Value)[] parameters)
     {
-        await using var connectionLease = await OpenConnectionLeaseAsync();
-        await using var command = CreateCommand(sql, parameters);
-        return await command.ExecuteNonQueryAsync();
+        if (_activeConnection != null)
+            return await _activeConnection.ExecuteAsync(sql, CreateParameters(parameters), _activeTransaction);
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        return await connection.ExecuteAsync(sql, CreateParameters(parameters));
     }
 
     private async Task<T> ScalarAsync<T>(string sql, params (string Name, object? Value)[] parameters)
     {
-        await using var connectionLease = await OpenConnectionLeaseAsync();
-        await using var command = CreateCommand(sql, parameters);
-        var value = await command.ExecuteScalarAsync();
-        if (value == null || value == DBNull.Value)
-        {
-            return default!;
-        }
-        var targetType = Nullable.GetUnderlyingType(typeof(T)) ?? typeof(T);
-        return (T)Convert.ChangeType(value, targetType);
-    }
-
-    private async Task<ConnectionLease> OpenConnectionLeaseAsync()
-    {
-        var connection = _ruoyiDbContext.Database.GetDbConnection();
-        if (connection.State == ConnectionState.Open)
-        {
-            return new ConnectionLease(_ruoyiDbContext, false);
-        }
-
-        await _ruoyiDbContext.Database.OpenConnectionAsync();
-        return new ConnectionLease(_ruoyiDbContext, true);
-    }
-
-    private sealed class ConnectionLease : IAsyncDisposable
-    {
-        private readonly ModernWMS.Core.DBContext.RuoyiDbContext _dbContext;
-        private readonly bool _closeOnDispose;
-
-        public ConnectionLease(
-            ModernWMS.Core.DBContext.RuoyiDbContext dbContext,
-            bool closeOnDispose)
-        {
-            _dbContext = dbContext;
-            _closeOnDispose = closeOnDispose;
-        }
-
-        public async ValueTask DisposeAsync()
-        {
-            if (_closeOnDispose)
-            {
-                await _dbContext.Database.CloseConnectionAsync();
-            }
-        }
+        if (_activeConnection != null)
+            return await _activeConnection.ExecuteScalarAsync<T>(sql, CreateParameters(parameters), _activeTransaction);
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        return await connection.ExecuteScalarAsync<T>(sql, CreateParameters(parameters));
     }
 
     private sealed record CommoditySnapshot(

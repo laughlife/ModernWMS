@@ -1,8 +1,7 @@
 using System.Data;
-using System.Linq.Expressions;
 using System.Text.Json;
-using Microsoft.EntityFrameworkCore;
-using ModernWMS.Core.DBContext;
+using Dapper;
+using ModernWMS.Core.Database;
 using ModernWMS.Core.DBContext.Entities;
 using ModernWMS.Core.JWT;
 using ModernWMS.Core.Models;
@@ -18,12 +17,14 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
 {
     private const string WaitReceiptStatus = "WAIT_RECEIPT";
     private const string DeliveredTrackingStatus = "DELIVERED";
-    private readonly RuoyiDbContext _ruoyiDbContext;
+    private readonly IMySqlConnectionFactory _connectionFactory;
     private readonly IWarehouseAccessService _warehouseAccessService;
+    private MySqlConnector.MySqlConnection? _activeConnection;
+    private MySqlConnector.MySqlTransaction? _activeTransaction;
 
-    public ErpPendingReceiptService(RuoyiDbContext ruoyiDbContext, IWarehouseAccessService warehouseAccessService)
+    public ErpPendingReceiptService(IMySqlConnectionFactory connectionFactory, IWarehouseAccessService warehouseAccessService)
     {
-        _ruoyiDbContext = ruoyiDbContext;
+        _connectionFactory = connectionFactory;
         _warehouseAccessService = warehouseAccessService;
     }
 
@@ -44,69 +45,42 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
             return ([], 0);
         }
 
-        var query = _ruoyiDbContext.LogisticsInfos
-            .AsNoTracking()
-            .Where(t => !t.deleted
-                && t.lifecycle_status == WaitReceiptStatus
-                && t.to_warehouse_id == warehouseId.Value
-                && !_ruoyiDbContext.ReceiptRecords.Any(receipt => receipt.shipment_id == t.id));
-
-        if (kind == ErpPendingReceiptListKind.ToShip)
+        var clauses = new List<string>
         {
-            // 待发货：尚未产生发货时间。
-            query = query.Where(t => t.shipment_time == null);
-        }
-        else
-        {
-            // 待到货 与 到货通知 都要求已发货，仅按最新物流签收事实拆分。
-            query = query.Where(t => t.shipment_time != null);
-            query = kind == ErpPendingReceiptListKind.Arrived
-                ? query.Where(LatestTrackDelivered())
-                : query.Where(Not(LatestTrackDelivered()));
-        }
-
-        if (!string.IsNullOrWhiteSpace(supplierName))
-        {
-            query = query.Where(t => t.supplier_name != null && t.supplier_name.Contains(supplierName));
-        }
-
+            "l.`deleted`=b'0'", "l.`lifecycle_status`=@status", "l.`to_warehouse_id`=@warehouseId",
+            "NOT EXISTS(SELECT 1 FROM `wms_erp_receipt` r WHERE r.`shipment_id`=l.`id`)"
+        };
+        if (kind == ErpPendingReceiptListKind.ToShip) clauses.Add("l.`shipment_time` IS NULL");
+        else clauses.Add("l.`shipment_time` IS NOT NULL");
+        if (!string.IsNullOrWhiteSpace(supplierName)) clauses.Add("l.`supplier_name` LIKE @supplierName");
         if (!string.IsNullOrWhiteSpace(productKeyword))
-        {
-            query = query.Where(t => t.product_snapshot_json.Contains(productKeyword)
-                || (t.purchase_no != null && t.purchase_no.Contains(productKeyword))
-                || (t.tracking_no != null && t.tracking_no.Contains(productKeyword)));
-        }
+            clauses.Add("(l.`product_snapshot_json` LIKE @productKeyword OR l.`purchase_no` LIKE @productKeyword OR l.`tracking_no` LIKE @productKeyword)");
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        var shipments = (await connection.QueryAsync<ErpLogisticsInfoEntity>($"""
+            SELECT l.* FROM `trk_logistics_info` l WHERE {string.Join(" AND ", clauses)}
+            ORDER BY l.`shipment_time` DESC, l.`id` DESC;
+            """, new { status=WaitReceiptStatus, warehouseId=warehouseId.Value,
+                supplierName=$"%{supplierName}%", productKeyword=$"%{productKeyword}%" })).AsList();
 
-        var totals = await query.CountAsync();
+        var trackingNumbers = shipments.Select(t => t.tracking_no).Where(t => !string.IsNullOrWhiteSpace(t)).Select(t => t!).Distinct().ToList();
+        var trackMap = trackingNumbers.Count == 0
+            ? new Dictionary<string, ErpTrackEntity>()
+            : (await connection.QueryAsync<ErpTrackEntity>("""
+                SELECT t.* FROM `trk_track` t WHERE t.`deleted`=b'0' AND t.`track_number` IN @trackingNumbers
+                ORDER BY t.`update_time` DESC, t.`id` DESC;
+                """, new { trackingNumbers })).GroupBy(t => t.track_number).ToDictionary(t => t.Key, t => t.First());
+        if (kind != ErpPendingReceiptListKind.ToShip)
+        {
+            shipments = shipments.Where(s =>
+            {
+                trackMap.TryGetValue(s.tracking_no ?? string.Empty, out var track);
+                return IsDeliveredTrack(track) == (kind == ErpPendingReceiptListKind.Arrived);
+            }).ToList();
+        }
+        var totals = shipments.Count;
         var pageIndex = Math.Max(pageSearch.pageIndex, 1);
         var pageSize = Math.Clamp(pageSearch.pageSize, 1, 200);
-        var shipments = await query
-            .OrderByDescending(t => t.shipment_time)
-            .ThenByDescending(t => t.id)
-            .Skip((pageIndex - 1) * pageSize)
-            .Take(pageSize)
-            .ToListAsync();
-
-        var trackingNumbers = shipments
-            .Select(t => t.tracking_no)
-            .Where(t => !string.IsNullOrWhiteSpace(t))
-            .Select(t => t!)
-            .Distinct()
-            .ToList();
-
-        var trackMap = new Dictionary<string, ErpTrackEntity>();
-        if (trackingNumbers.Count > 0)
-        {
-            var tracks = await _ruoyiDbContext.Tracks
-                .AsNoTracking()
-                .Where(t => !t.deleted && trackingNumbers.Contains(t.track_number))
-                .OrderByDescending(t => t.update_time)
-                .ThenByDescending(t => t.id)
-                .ToListAsync();
-            trackMap = tracks
-                .GroupBy(t => t.track_number)
-                .ToDictionary(t => t.Key, t => t.First());
-        }
+        shipments = shipments.Skip((pageIndex - 1) * pageSize).Take(pageSize).ToList();
 
         var wmsWarehouseId = await ScalarAsync<int?>(
             """
@@ -144,108 +118,33 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
         return warehouseId;
     }
 
-    /// <summary>
-    /// Whether the shipment's latest track evidence shows a signed/delivered state.
-    /// </summary>
-    private Expression<Func<ErpLogisticsInfoEntity, bool>> LatestTrackDelivered() =>
-        shipment => _ruoyiDbContext.Tracks
-            .AsNoTracking()
-            .Where(track => !track.deleted && track.track_number == shipment.tracking_no)
-            .OrderByDescending(track => track.update_time)
-            .ThenByDescending(track => track.id)
-            .Select(track => track.tracking_status.Trim().ToUpper() == DeliveredTrackingStatus
-                || track.actual_delivery_time != null
-                || (track.provider_status_code != null
-                    && (track.provider_status_code.Trim().ToUpper() == DeliveredTrackingStatus
-                        || track.provider_status_code.Trim() == "3"))
-                || (track.business_stage != null
-                    && track.business_stage.Trim().ToUpper() == DeliveredTrackingStatus)
-                || (track.last_event_stage != null
-                    && (track.last_event_stage.Trim().ToUpper() == DeliveredTrackingStatus
-                        || track.last_event_stage.Trim() == "3"))
-                || (!((track.provider_status_name != null
-                            && (track.provider_status_name.Contains("未签收")
-                                || track.provider_status_name.Contains("未妥投")
-                                || track.provider_status_name.Contains("拒签")
-                                || track.provider_status_name.Contains("签收失败")
-                                || track.provider_status_name.Contains("无法签收")
-                                || track.provider_status_name.Contains("待签收")
-                                || track.provider_status_name.Contains("等待签收")
-                                || track.provider_status_name.Contains("签收异常")))
-                        || (track.last_event_description != null
-                            && (track.last_event_description.Contains("未签收")
-                                || track.last_event_description.Contains("未妥投")
-                                || track.last_event_description.Contains("拒签")
-                                || track.last_event_description.Contains("签收失败")
-                                || track.last_event_description.Contains("无法签收")
-                                || track.last_event_description.Contains("待签收")
-                                || track.last_event_description.Contains("等待签收")
-                                || track.last_event_description.Contains("签收异常"))))
-                    && ((track.provider_status_name != null
-                            && (track.provider_status_name == "签收"
-                                || track.provider_status_name == "本人签收"
-                                || track.provider_status_name == "已签收"
-                                || track.provider_status_name == "妥投"
-                                || track.provider_status_name == "已妥投"
-                                || track.provider_status_name.Contains("签收成功")
-                                || track.provider_status_name.ToLower().Contains("delivered")
-                                || track.provider_status_name.ToLower().Contains("signed for")))
-                        || (track.last_event_description != null
-                            && (track.last_event_description.Contains("本人签收")
-                                || track.last_event_description.Contains("已签收")
-                                || track.last_event_description.Contains("签收成功")
-                                || track.last_event_description.Contains("妥投")
-                                || track.last_event_description.ToLower().Contains("delivered")
-                                || track.last_event_description.ToLower().Contains("signed for"))))))
-            .FirstOrDefault();
-
-    private static Expression<Func<T, bool>> Not<T>(Expression<Func<T, bool>> predicate)
-    {
-        var body = Expression.Not(predicate.Body);
-        return Expression.Lambda<Func<T, bool>>(body, predicate.Parameters);
-    }
-
     public async Task<ErpPendingReceiptLogisticsViewModel?> GetLogisticsAsync(long shipmentId)
     {
-        var shipment = await _ruoyiDbContext.LogisticsInfos
-            .AsNoTracking()
-            .FirstOrDefaultAsync(t => t.id == shipmentId
-                && !t.deleted
-                && t.lifecycle_status == WaitReceiptStatus
-                && t.to_warehouse_id != null);
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        var shipment = await connection.QuerySingleOrDefaultAsync<ErpLogisticsInfoEntity>("""
+            SELECT * FROM `trk_logistics_info` WHERE `id`=@shipmentId AND `deleted`=b'0'
+              AND `lifecycle_status`=@status AND `to_warehouse_id` IS NOT NULL LIMIT 1;
+            """, new { shipmentId, status=WaitReceiptStatus });
         if (shipment == null)
         {
             return null;
         }
 
         var trackingNumber = shipment.tracking_no ?? string.Empty;
-        var track = await _ruoyiDbContext.Tracks
-            .AsNoTracking()
-            .Where(t => !t.deleted && t.track_number == trackingNumber)
-            .OrderByDescending(t => t.update_time)
-            .ThenByDescending(t => t.id)
-            .FirstOrDefaultAsync();
+        var track = await connection.QuerySingleOrDefaultAsync<ErpTrackEntity>("""
+            SELECT * FROM `trk_track` WHERE `deleted`=b'0' AND `track_number`=@trackingNumber
+            ORDER BY `update_time` DESC, `id` DESC LIMIT 1;
+            """, new { trackingNumber });
 
         List<ErpPendingReceiptTrackEventViewModel> events = [];
         if (track != null)
         {
-            events = await _ruoyiDbContext.TrackEvents
-                .AsNoTracking()
-                .Where(t => !t.deleted && t.track_id == track.id)
-                .OrderByDescending(t => t.event_time)
-                .ThenByDescending(t => t.sort)
-                .ThenByDescending(t => t.id)
-                .Take(200)
-                .Select(t => new ErpPendingReceiptTrackEventViewModel
-                {
-                    id = t.id,
-                    event_time = t.event_time,
-                    status_name = t.provider_status_name ?? string.Empty,
-                    description = t.description ?? string.Empty,
-                    location = t.location ?? string.Empty,
-                    stage = t.stage ?? string.Empty
-                })
-                .ToListAsync();
+            events = (await connection.QueryAsync<ErpPendingReceiptTrackEventViewModel>("""
+                SELECT `id`,`event_time`,COALESCE(`provider_status_name`,'') AS `status_name`,
+                       COALESCE(`description`,'') AS `description`,COALESCE(`location`,'') AS `location`,COALESCE(`stage`,'') AS `stage`
+                FROM `trk_track_event` WHERE `deleted`=b'0' AND `track_id`=@trackId
+                ORDER BY `event_time` DESC, `sort` DESC, `id` DESC LIMIT 200;
+                """, new { trackId=track.id })).AsList();
         }
 
         var delivered = IsDeliveredTrack(track);
@@ -274,13 +173,15 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
         ErpReceiptConfirmInputViewModel input,
         CurrentUser currentUser)
     {
-        await using var transaction = await _ruoyiDbContext.Database
-            .BeginTransactionAsync(IsolationLevel.Serializable);
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
+        _activeConnection = connection;
+        _activeTransaction = transaction;
         try
         {
-            var existingReceipt = await _ruoyiDbContext.ReceiptRecords
-                .AsNoTracking()
-                .FirstOrDefaultAsync(t => t.shipment_id == input.shipment_id);
+            var existingReceipt = await connection.QuerySingleOrDefaultAsync<ErpReceiptRecordEntity>("""
+                SELECT * FROM `wms_erp_receipt` WHERE `shipment_id`=@shipmentId LIMIT 1;
+                """, new { shipmentId=input.shipment_id }, transaction);
             if (existingReceipt != null)
             {
                 await transaction.CommitAsync();
@@ -298,11 +199,10 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
             }
 
             await LockShipmentAsync(input.shipment_id);
-            var shipment = await _ruoyiDbContext.LogisticsInfos
-                .FirstOrDefaultAsync(t => t.id == input.shipment_id
-                    && !t.deleted
-                    && t.lifecycle_status == WaitReceiptStatus
-                    && t.to_warehouse_id != null);
+            var shipment = await connection.QuerySingleOrDefaultAsync<ErpLogisticsInfoEntity>("""
+                SELECT * FROM `trk_logistics_info` WHERE `id`=@shipmentId AND `deleted`=b'0'
+                  AND `lifecycle_status`=@status AND `to_warehouse_id` IS NOT NULL LIMIT 1 FOR UPDATE;
+                """, new { shipmentId=input.shipment_id, status=WaitReceiptStatus }, transaction);
             if (shipment == null)
             {
                 return (false, "未找到可收货的货件", 0);
@@ -405,8 +305,17 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
                 last_update_time = now,
                 tenant_id = currentUser.tenant_id
             };
-            _ruoyiDbContext.ReceiptRecords.Add(entity);
-            await _ruoyiDbContext.SaveChangesAsync();
+            entity.id = await connection.ExecuteScalarAsync<int>("""
+                INSERT INTO `wms_erp_receipt`
+                    (`shipment_id`,`source_version`,`actual_receipt_qty`,`loss_qty`,`inbound_qty`,
+                     `receipt_freight_payment_status`,`receipt_freight_amount`,`receipt_freight_files_json`,
+                     `receipt_files_json`,`loss_reason`,`loss_files_json`,`receipt_remark`,`creator`,
+                     `create_time`,`last_update_time`,`tenant_id`)
+                VALUES (@shipment_id,@source_version,@actual_receipt_qty,@loss_qty,@inbound_qty,
+                     @receipt_freight_payment_status,@receipt_freight_amount,@receipt_freight_files_json,
+                     @receipt_files_json,@loss_reason,@loss_files_json,@receipt_remark,@creator,
+                     @create_time,@last_update_time,@tenant_id); SELECT LAST_INSERT_ID();
+                """, entity, transaction);
 
             await ApplyInventoryReceiptAsync(
                 shipment,
@@ -424,7 +333,13 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
         }
         catch (InvalidOperationException ex)
         {
+            await transaction.RollbackAsync();
             return (false, ex.Message, 0);
+        }
+        finally
+        {
+            _activeTransaction = null;
+            _activeConnection = null;
         }
     }
 
