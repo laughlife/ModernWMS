@@ -8,6 +8,20 @@
       </v-breadcrumbs>
     </div>
     <div class="toolsBar">
+      <v-select
+        v-if="showWarehouseSelector"
+        class="warehouse-selector"
+        :model-value="dispatchWarehouseStore.selectedWarehouseId"
+        :items="dispatchWarehouseStore.warehouseOptions"
+        item-title="name"
+        item-value="id"
+        :label="$t('wms.deliveryManagement.warehouseName')"
+        variant="outlined"
+        density="compact"
+        hide-details
+        :loading="dispatchWarehouseStore.loading"
+        @update:model-value="dispatchWarehouseStore.selectWarehouse"
+      ></v-select>
       <v-menu>
         <template #activator="{ props }">
           <div class="toolItems headPortrait ml-4" v-bind="props">
@@ -36,6 +50,7 @@ import i18n from '@/languages/i18n'
 import { router } from '@/router'
 import { useSystemStore } from '@/store/module/system'
 import { useUserStore } from '@/store/module/user'
+import { useDispatchWarehouseStore } from '@/store/module/dispatchWarehouse'
 import { DataProps } from '@/types/Home/HomeHeader'
 import ChangePwd from '@/components/system/change-pwd.vue'
 import ViewLogDialog from '@/components/system/view-log-dialog.vue'
@@ -45,6 +60,18 @@ const ChangePwdRef = ref()
 const ViewLogDialogRef = ref()
 const systemStore = useSystemStore()
 const userStore = useUserStore()
+const dispatchWarehouseStore = useDispatchWarehouseStore()
+
+// 仓库选择器只在发货管理页显示，展示在顶部用户菜单左侧，避免占用页面空间。
+const showWarehouseSelector = computed(
+  () => routerInfo.currentRoute.value.meta.menuPath === 'deliveryManagement'
+)
+
+watch(showWarehouseSelector, (visible) => {
+  if (visible) {
+    void dispatchWarehouseStore.loadWarehouseAccess()
+  }
+})
 
 const data: DataProps = reactive({
   breadcrumbItems: [],
@@ -152,6 +179,11 @@ const firstName = computed(() => {
     display: flex;
     align-items: center;
     justify-content: flex-end;
+
+    .warehouse-selector {
+      width: 200px;
+      margin-right: 12px;
+    }
 
     .toolItems {
       height: 40px;

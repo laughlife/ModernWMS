@@ -1,26 +1,13 @@
 <template>
   <div class="container">
-    <v-alert v-if="warehouseLoadError" type="error" variant="tonal" class="mb-3">
+    <v-alert v-if="dispatchWarehouseStore.loadError" type="error" variant="tonal" class="mb-3">
       {{ $t('wms.deliveryManagement.warehouseLoadFailed') }}
       <template #append>
-        <v-btn variant="text" :loading="warehouseLoading" @click="initializeWarehouse">
+        <v-btn variant="text" :loading="dispatchWarehouseStore.loading" @click="dispatchWarehouseStore.loadWarehouseAccess">
           {{ $t('wms.deliveryManagement.retry') }}
         </v-btn>
       </template>
     </v-alert>
-    <div class="warehouse-toolbar">
-      <v-select
-        v-model="selectedWarehouseId"
-        :items="warehouseOptions"
-        item-title="name"
-        item-value="id"
-        :label="$t('wms.deliveryManagement.warehouseName')"
-        variant="outlined"
-        density="compact"
-        hide-details
-        @update:model-value="handleWarehouseChange"
-      ></v-select>
-    </div>
     <v-tabs v-model="activeTab" class="delivery-status-tabs" stacked @update:model-value="changeTab">
       <v-tab value="tabFbaShipment" data-status-tab="tabFbaShipment">
         <v-badge class="status-count-badge" color="primary" text-color="on-primary" :content="String(statusCounts.tabFbaShipment)" location="top end">
@@ -90,14 +77,12 @@
 </template>
 
 <script lang="ts" setup>
-import { nextTick, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import {
   getDispatchStatusCounts,
-  getDispatchWarehouseAccess,
   getWorkflowPackingTaskPage
 } from '@/api/wms/dispatchWorkflow'
-import type { WarehouseOption } from '@/types/DeliveryManagement/DispatchWorkflow'
-import { loadWarehouseAccessSafely, resolveDefaultWarehouseId } from './dispatchWorkflowPolicy'
+import { useDispatchWarehouseStore } from '@/store/module/dispatchWarehouse'
 import PackingTaskList from './packing-task-list.vue'
 import TabDelivered from './tabDelivered.vue'
 import TabGoodsToBePicked from './tabGoodsToBePicked.vue'
@@ -122,10 +107,9 @@ const statusCounts = reactive<DeliveryStatusCounts>({
   tabDelivered: 0,
   tabCompleted: 0
 })
-const warehouseOptions = ref<WarehouseOption[]>([])
-const selectedWarehouseId = ref<number | null>(null)
-const warehouseLoadError = ref(false)
-const warehouseLoading = ref(false)
+// 仓库选择已上移到顶部导航栏（homeHeader），页面只读取共享的选中仓库。
+const dispatchWarehouseStore = useDispatchWarehouseStore()
+const selectedWarehouseId = computed(() => dispatchWarehouseStore.selectedWarehouseId)
 let statusCountRequestId = 0
 
 const refreshStatusCounts = async (): Promise<void> => {
@@ -156,31 +140,10 @@ const refreshStatusCounts = async (): Promise<void> => {
   }
 }
 
-const initializeWarehouse = async (): Promise<void> => {
-  warehouseLoading.value = true
-  warehouseLoadError.value = false
-  selectedWarehouseId.value = null
-  warehouseOptions.value = []
-  try {
-    const result = await loadWarehouseAccessSafely(getDispatchWarehouseAccess)
-    warehouseLoadError.value = result.hasError
-    if (!result.access) {
-      return
-    }
-    warehouseOptions.value = result.access.warehouses
-    selectedWarehouseId.value = resolveDefaultWarehouseId(result.access)
-    await refreshStatusCounts()
-  } catch {
-    warehouseLoadError.value = true
-  } finally {
-    warehouseLoading.value = false
-  }
-}
-
-const handleWarehouseChange = (): void => {
-  changeTab(activeTab.value)
-  refreshStatusCounts()
-}
+onMounted(() => {
+  // 兜底触发仓库权限加载（导航栏已在进入页面时加载，此处由 store 去重）。
+  void dispatchWarehouseStore.loadWarehouseAccess()
+})
 
 const handleGoToPicking = (): void => {
   activeTab.value = 'tabGoodsToBePicked'
@@ -239,16 +202,20 @@ const changeTab = (tab: unknown): void => {
   })
 }
 
-onMounted(initializeWarehouse)
+// 顶部导航栏切换仓库后，重新加载当前页签数据与状态数量。
+watch(
+  () => dispatchWarehouseStore.selectedWarehouseId,
+  (warehouseId) => {
+    if (warehouseId === null) return
+    changeTab(activeTab.value)
+  },
+  { immediate: true }
+)
 </script>
 
 <style lang="less" scoped>
 .delivery-status-tabs {
   margin-top: 12px;
-}
-
-.warehouse-toolbar {
-  width: min(360px, 100%);
 }
 
 .delivery-status-tabs :deep(.v-btn__content) {

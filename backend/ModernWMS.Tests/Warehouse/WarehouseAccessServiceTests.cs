@@ -10,7 +10,7 @@ namespace ModernWMS.Tests.Warehouse;
 public class WarehouseAccessServiceTests
 {
     [Fact]
-    public async Task GetAllowedAsync_admin_returns_all_valid_warehouses_and_prefers_320118()
+    public async Task GetAllowedAsync_admin_returns_only_domestic_warehouses_and_prefers_320118()
     {
         await using var wms = CreateWmsDatabase();
         await using var erp = CreateErpDatabase();
@@ -19,7 +19,7 @@ public class WarehouseAccessServiceTests
 
         var result = await service.GetAllowedAsync(new CurrentUser { user_role = " Admin ", tenant_id = 99 });
 
-        Assert.Equal([9L, 10L, 320118L], result.warehouses.Select(t => t.id).ToArray());
+        Assert.Equal([9L, 320118L], result.warehouses.Select(t => t.id).ToArray());
         Assert.Equal(320118L, result.default_warehouse_id);
     }
 

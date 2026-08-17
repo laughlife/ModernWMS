@@ -27,9 +27,10 @@ public class WarehouseAccessService : IWarehouseAccessService
 
     public async Task<WarehouseAccessViewModel> GetAllowedAsync(CurrentUser currentUser)
     {
+        // 发货/收货等 ERP 协同流程只作用于国内仓，海外仓不出现在仓库选择中。
         var validWarehouses = await _ruoyiDbContext.Warehouses
             .AsNoTracking()
-            .Where(t => !t.deleted)
+            .Where(t => !t.deleted && t.attr == "国内仓库")
             .OrderBy(t => t.id)
             .Select(t => new ErpWarehouseOptionViewModel
             {
