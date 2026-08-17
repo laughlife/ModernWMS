@@ -1,7 +1,6 @@
-using Microsoft.EntityFrameworkCore;
-using ModernWMS.Core.DBContext;
+using Dapper;
+using ModernWMS.Core.Database;
 using ModernWMS.Core.JWT;
-using ModernWMS.Core.Models;
 using ModernWMS.WMS.Entities.ViewModels;
 using ModernWMS.WMS.IServices;
 
@@ -16,28 +15,22 @@ public class WarehouseAccessService : IWarehouseAccessService
     private const long PreferredWarehouseId = 320118;
     private const string AdminRoleName = "admin";
 
-    private readonly SqlDBContext _dbContext;
-    private readonly RuoyiDbContext _ruoyiDbContext;
+    private readonly IWarehouseAccessDataSource _dataSource;
 
-    public WarehouseAccessService(SqlDBContext dbContext, RuoyiDbContext ruoyiDbContext)
+    public WarehouseAccessService(IMySqlConnectionFactory connectionFactory)
+        : this(new DapperWarehouseAccessDataSource(connectionFactory))
     {
-        _dbContext = dbContext;
-        _ruoyiDbContext = ruoyiDbContext;
+    }
+
+    internal WarehouseAccessService(IWarehouseAccessDataSource dataSource)
+    {
+        _dataSource = dataSource;
     }
 
     public async Task<WarehouseAccessViewModel> GetAllowedAsync(CurrentUser currentUser)
     {
         // 发货/收货等 ERP 协同流程只作用于国内仓，海外仓不出现在仓库选择中。
-        var validWarehouses = await _ruoyiDbContext.Warehouses
-            .AsNoTracking()
-            .Where(t => !t.deleted && t.attr == "国内仓库")
-            .OrderBy(t => t.id)
-            .Select(t => new ErpWarehouseOptionViewModel
-            {
-                id = t.id,
-                name = t.name ?? string.Empty
-            })
-            .ToListAsync();
+        var validWarehouses = await _dataSource.GetDomesticWarehousesAsync();
 
         if (IsAdmin(currentUser.user_role))
         {
@@ -56,30 +49,13 @@ public class WarehouseAccessService : IWarehouseAccessService
             return new WarehouseAccessViewModel();
         }
 
-        // Role names are the identity carried by CurrentUser. Resolve all exact normalized matches;
-        // tenant_id deliberately does not participate in warehouse visibility.
-        var roles = await _dbContext.GetDbSet<UserroleEntity>()
-            .AsNoTracking()
-            .Where(t => t.is_valid)
-            .Select(t => new { t.id, t.role_name })
-            .ToListAsync();
-        var roleIds = roles
-            .Where(t => NormalizeRoleName(t.role_name) == normalizedRoleName)
-            .Select(t => t.id)
-            .Distinct()
-            .ToList();
-        if (roleIds.Count == 0)
-        {
-            return new WarehouseAccessViewModel();
-        }
-
-        var allowedIds = await _dbContext.GetDbSet<RoleWarehouseEntity>()
-            .AsNoTracking()
-            .Where(t => roleIds.Contains(t.role_id))
-            .Select(t => t.warehouse_id)
-            .Distinct()
-            .ToListAsync();
-        var allowedSet = allowedIds.ToHashSet();
+        // Role names are the identity carried by CurrentUser. Normalize in .NET to preserve the
+        // previous exact matching rules; tenant_id deliberately does not participate in visibility.
+        var roleBindings = await _dataSource.GetValidRoleBindingsAsync();
+        var allowedSet = roleBindings
+            .Where(t => NormalizeRoleName(t.role_name) == normalizedRoleName && t.warehouse_id.HasValue)
+            .Select(t => t.warehouse_id!.Value)
+            .ToHashSet();
         var allowedWarehouses = validWarehouses
             .Where(t => allowedSet.Contains(t.id))
             .OrderBy(t => t.id)
@@ -106,4 +82,47 @@ public class WarehouseAccessService : IWarehouseAccessService
 
     private static string NormalizeRoleName(string? roleName) =>
         roleName?.Trim().ToUpperInvariant() ?? string.Empty;
+
+    internal interface IWarehouseAccessDataSource
+    {
+        Task<List<ErpWarehouseOptionViewModel>> GetDomesticWarehousesAsync();
+        Task<List<RoleWarehouseBinding>> GetValidRoleBindingsAsync();
+    }
+
+    internal sealed class RoleWarehouseBinding
+    {
+        public string? role_name { get; init; }
+        public long? warehouse_id { get; init; }
+    }
+
+    private sealed class DapperWarehouseAccessDataSource(IMySqlConnectionFactory connectionFactory)
+        : IWarehouseAccessDataSource
+    {
+        public async Task<List<ErpWarehouseOptionViewModel>> GetDomesticWarehousesAsync()
+        {
+            await using var connection = await connectionFactory.OpenConnectionAsync();
+            return (await connection.QueryAsync<ErpWarehouseOptionViewModel>("""
+                SELECT
+                    `id`,
+                    COALESCE(`name`, '') AS `name`
+                FROM `erp_warehouse`
+                WHERE `deleted` = 0
+                    AND `attr` = @domesticWarehouseAttribute
+                ORDER BY `id`;
+                """, new { domesticWarehouseAttribute = "国内仓库" })).AsList();
+        }
+
+        public async Task<List<RoleWarehouseBinding>> GetValidRoleBindingsAsync()
+        {
+            await using var connection = await connectionFactory.OpenConnectionAsync();
+            return (await connection.QueryAsync<RoleWarehouseBinding>("""
+                SELECT
+                    role.`role_name`,
+                    binding.`warehouse_id`
+                FROM `wms_userrole` AS role
+                LEFT JOIN `wms_role_warehouse` AS binding ON binding.`role_id` = role.`id`
+                WHERE role.`is_valid` = 1;
+                """)).AsList();
+        }
+    }
 }
