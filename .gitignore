@@ -390,3 +390,6 @@ FodyWeavers.xsd
 
 # Local browser automation artifacts
 .playwright-mcp/
+
+# 本地运行时工具脚本（如数据库修复脚本，含本机路径与 User Secrets 访问）
+.runtime/
