@@ -3,9 +3,8 @@
  * developer：NoNo
  */
 
-using Mapster;
-using Microsoft.EntityFrameworkCore;
-using ModernWMS.Core.DBContext;
+using Dapper;
+using ModernWMS.Core.Database;
 using ModernWMS.Core.Services;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels;
@@ -27,7 +26,17 @@ namespace ModernWMS.WMS.Services
         /// <summary>
         /// The DBContext
         /// </summary>
-        private readonly SqlDBContext _dBContext;
+        private static readonly IReadOnlyDictionary<string, string> SearchColumns =
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["id"] = "log.`id`",
+                ["vue_path"] = "log.`vue_path`",
+                ["user_name"] = "log.`user_name`",
+                ["action_content"] = "log.`action_content`",
+                ["action_time"] = "log.`action_time`"
+            };
+
+        private readonly IMySqlConnectionFactory _connectionFactory;
 
         /// <summary>
         /// Localizer Service
@@ -44,11 +53,11 @@ namespace ModernWMS.WMS.Services
         /// <param name="dBContext">The DBContext</param>
         /// <param name="stringLocalizer">Localizer</param>
         public ActionLogService(
-            SqlDBContext dBContext
+            IMySqlConnectionFactory connectionFactory
           , IStringLocalizer<ModernWMS.Core.MultiLanguage> stringLocalizer
             )
         {
-            this._dBContext = dBContext;
+            _connectionFactory = connectionFactory;
             this._stringLocalizer = stringLocalizer;
         }
 
@@ -62,24 +71,22 @@ namespace ModernWMS.WMS.Services
         /// <returns></returns>
         public async Task<bool> AddLogAsync(string vue_path, string content, CurrentUser currentUser)
         {
-            var DbSet = _dBContext.GetDbSet<ActionLogEntity>();
-            var entity = new ActionLogEntity();
-            entity.vue_path = vue_path;
-            entity.action_content = content;
-            entity.id = 0;
-            entity.action_time = DateTime.Now;
-            entity.tenant_id = currentUser.tenant_id;
-            entity.user_name = currentUser.user_name;
-            await DbSet.AddAsync(entity);
-            await _dBContext.SaveChangesAsync();
-            if (entity.id > 0)
-            {
-                return (true);
-            }
-            else
-            {
-                return (false);
-            }
+            await using var connection = await _connectionFactory.OpenConnectionAsync();
+            var id = await connection.ExecuteScalarAsync<int>("""
+                INSERT INTO `wms_action_log`
+                    (`vue_path`, `user_name`, `action_content`, `action_time`, `tenant_id`)
+                VALUES
+                    (@vue_path, @user_name, @action_content, @action_time, @tenant_id);
+                SELECT LAST_INSERT_ID();
+                """, new
+                {
+                    vue_path,
+                    user_name = currentUser.user_name,
+                    action_content = content,
+                    action_time = DateTime.Now,
+                    tenant_id = currentUser.tenant_id
+                });
+            return id > 0;
         }
 
         /// <summary>
@@ -90,30 +97,33 @@ namespace ModernWMS.WMS.Services
         /// <returns></returns>
         public async Task<(List<ActionLogViewModel> data, int totals)> PageAsync(PageSearch pageSearch, CurrentUser currentUser)
         {
-            QueryCollection queries = new QueryCollection();
-            if (pageSearch.searchObjects.Any())
-            {
-                pageSearch.searchObjects.ForEach(s =>
-                {
-                    queries.Add(s);
-                });
-            }
-            var query = from log in _dBContext.GetDbSet<ActionLogEntity>().AsNoTracking()
-                        where log.tenant_id == currentUser.tenant_id
-                        select new ActionLogViewModel
-                        {
-                            id = log.id,
-                            vue_path = log.vue_path,
-                            user_name = log.user_name,
-                            action_content = log.action_content,
-                            action_time = log.action_time,
-                        };
-            query = query.Where(queries.AsExpression<ActionLogViewModel>());
-            int totals = await query.CountAsync();
-            var list = await query.OrderByDescending(t => t.action_time)
-                       .Skip((pageSearch.pageIndex - 1) * pageSearch.pageSize)
-                       .Take(pageSearch.pageSize)
-                       .ToListAsync();
+            var filter = DapperSearchBuilder.Build(pageSearch.searchObjects, SearchColumns);
+            var where = string.IsNullOrWhiteSpace(filter.Sql)
+                ? "log.`tenant_id` = @tenant_id"
+                : $"log.`tenant_id` = @tenant_id AND {filter.Sql}";
+            filter.Parameters.Add("tenant_id", currentUser.tenant_id);
+            filter.Parameters.Add("offset", (pageSearch.pageIndex - 1) * pageSearch.pageSize);
+            filter.Parameters.Add("page_size", pageSearch.pageSize);
+
+            await using var connection = await _connectionFactory.OpenConnectionAsync();
+            using var result = await connection.QueryMultipleAsync($"""
+                SELECT COUNT(*)
+                FROM `wms_action_log` AS log
+                WHERE {where};
+
+                SELECT
+                    log.`id`,
+                    log.`vue_path`,
+                    log.`user_name`,
+                    log.`action_content`,
+                    log.`action_time`
+                FROM `wms_action_log` AS log
+                WHERE {where}
+                ORDER BY log.`action_time` DESC
+                LIMIT @page_size OFFSET @offset;
+                """, filter.Parameters);
+            var totals = await result.ReadSingleAsync<int>();
+            var list = (await result.ReadAsync<ActionLogViewModel>()).AsList();
             return (list, totals);
         }
 
