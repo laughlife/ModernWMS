@@ -1,6 +1,5 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
-using Microsoft.EntityFrameworkCore;
 using ModernWMS.Core.Models;
 
 namespace ModernWMS.WMS.Entities.Models;
@@ -9,9 +8,6 @@ namespace ModernWMS.WMS.Entities.Models;
 /// WMS-owned physical measurement for one ERP FBA box.
 /// </summary>
 [Table("dispatch_weighing_box")]
-[Index(nameof(tenant_id), nameof(erp_box_id), IsUnique = true)]
-[Index(nameof(tenant_id), nameof(dispatch_no))]
-[Index(nameof(tenant_id), nameof(fba_shipment_id))]
 public class DispatchWeighingBoxEntity : BaseModel
 {
     public long tenant_id { get; set; }

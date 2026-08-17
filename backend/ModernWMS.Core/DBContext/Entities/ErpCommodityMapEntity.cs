@@ -1,6 +1,5 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
-using Microsoft.EntityFrameworkCore;
 using ModernWMS.Core.Models;
 
 namespace ModernWMS.Core.DBContext.Entities;
@@ -9,7 +8,6 @@ namespace ModernWMS.Core.DBContext.Entities;
 /// Maps an ERP commodity to the local WMS SPU and SKU master records.
 /// </summary>
 [Table("wms_erp_commodity_map")]
-[Index(nameof(tenant_id), nameof(erp_commodity_id), IsUnique = true)]
 public class ErpCommodityMapEntity : BaseModel
 {
     public long erp_commodity_id { get; set; }

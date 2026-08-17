@@ -1,6 +1,5 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
-using Microsoft.EntityFrameworkCore;
 using ModernWMS.Core.Models;
 
 namespace ModernWMS.Core.DBContext.Entities;
@@ -9,7 +8,6 @@ namespace ModernWMS.Core.DBContext.Entities;
 /// ModernWMS receipt record created from an ERP logistics shipment.
 /// </summary>
 [Table("wms_erp_receipt")]
-[Index(nameof(shipment_id), IsUnique = true)]
 public class ErpReceiptRecordEntity : BaseModel
 {
     public long shipment_id { get; set; }

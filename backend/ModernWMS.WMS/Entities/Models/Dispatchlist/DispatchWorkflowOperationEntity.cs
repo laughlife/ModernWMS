@@ -1,6 +1,5 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
-using Microsoft.EntityFrameworkCore;
 using ModernWMS.Core.Models;
 
 namespace ModernWMS.WMS.Entities.Models;
@@ -41,12 +40,9 @@ public enum DispatchWorkflowOperationResultStatus : byte
 /// order status and row version without executing the command again.
 /// </summary>
 [Table("dispatch_workflow_operation")]
-[Index(nameof(dispatch_order_id), nameof(operation), nameof(request_id), IsUnique = true)]
-[Index(nameof(dispatch_order_id), nameof(create_time))]
 public class DispatchWorkflowOperationEntity : BaseModel
 {
     [ForeignKey(nameof(dispatch_order_id))]
-    [DeleteBehavior(DeleteBehavior.Restrict)]
     public DispatchOrderEntity dispatch_order { get; set; } = null!;
 
     public int dispatch_order_id { get; set; }

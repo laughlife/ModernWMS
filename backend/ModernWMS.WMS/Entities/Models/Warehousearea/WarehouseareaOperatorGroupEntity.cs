@@ -1,5 +1,4 @@
 using System.ComponentModel.DataAnnotations.Schema;
-using Microsoft.EntityFrameworkCore;
 using ModernWMS.Core.Models;
 
 namespace ModernWMS.WMS.Entities.Models;
@@ -8,8 +7,6 @@ namespace ModernWMS.WMS.Entities.Models;
 /// Warehouse-area and ERP operator-group binding.
 /// </summary>
 [Table("wms_warehousearea_operator_group")]
-[Index(nameof(tenant_id), nameof(warehouse_area_id), nameof(dept_id), IsUnique = true)]
-[Index(nameof(tenant_id), nameof(dept_id), IsUnique = true)]
 public class WarehouseareaOperatorGroupEntity : BaseModel
 {
     public long tenant_id { get; set; }

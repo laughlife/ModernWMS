@@ -9,7 +9,6 @@ using System.ComponentModel.DataAnnotations.Schema;
 using System.ComponentModel.DataAnnotations;
 using ModernWMS.Core.Models;
 using ModernWMS.Core.Utility;
-using Microsoft.EntityFrameworkCore;
 
 namespace ModernWMS.WMS.Entities.Models
 {
@@ -17,7 +16,6 @@ namespace ModernWMS.WMS.Entities.Models
     /// dispatchpicklist  entity
     /// </summary>
     [Table("dispatchpicklist")]
-    [Index(nameof(packing_task_item_id))]
     public class DispatchpicklistEntity : BaseModel
     {
         #region foreign table

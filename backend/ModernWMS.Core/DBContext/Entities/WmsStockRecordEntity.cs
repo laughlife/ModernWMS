@@ -1,6 +1,5 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
-using Microsoft.EntityFrameworkCore;
 using ModernWMS.Core.Models;
 
 namespace ModernWMS.Core.DBContext.Entities;
@@ -9,7 +8,6 @@ namespace ModernWMS.Core.DBContext.Entities;
 /// Immutable WMS physical-stock movement ledger.
 /// </summary>
 [Table("wms_stock_record")]
-[Index(nameof(biz_type), nameof(biz_id), nameof(biz_item_id), nameof(stock_id), IsUnique = true)]
 public class WmsStockRecordEntity : BaseModel
 {
     [MaxLength(64)]

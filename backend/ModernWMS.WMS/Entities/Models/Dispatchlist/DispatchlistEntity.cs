@@ -6,7 +6,6 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.ComponentModel.DataAnnotations;
-using Microsoft.EntityFrameworkCore;
 using ModernWMS.Core.Models;
 using ModernWMS.Core.Utility;
 
@@ -16,8 +15,6 @@ namespace ModernWMS.WMS.Entities.Models
     /// dispatchlist  entity
     /// </summary>
     [Table("dispatchlist")]
-    [Index(nameof(dispatch_order_id), nameof(packing_task_id))]
-    [Index(nameof(packing_task_item_id))]
     public class DispatchlistEntity : BaseModel
     {
 

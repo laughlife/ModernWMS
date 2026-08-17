@@ -1,6 +1,5 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
-using Microsoft.EntityFrameworkCore;
 using ModernWMS.Core.Models;
 
 namespace ModernWMS.WMS.Entities.Models;
@@ -41,10 +40,6 @@ public enum DispatchSignNotificationStatus : byte
 /// historical FBA dispatch rows remain unchanged and may have no header.
 /// </summary>
 [Table("dispatch_order")]
-[Index(nameof(dispatch_no), IsUnique = true)]
-[Index(nameof(create_idempotency_key), IsUnique = true)]
-[Index(nameof(warehouse_id), nameof(status))]
-[Index(nameof(notification_status), nameof(notification_updated_at))]
 public class DispatchOrderEntity : BaseModel
 {
     [MaxLength(64)] public string dispatch_no { get; set; } = string.Empty;
@@ -91,9 +86,6 @@ public class DispatchOrderEntity : BaseModel
 
 /// <summary>One immutable SellFox task identity attached to a WMS order.</summary>
 [Table("dispatch_packing_task")]
-[Index(nameof(active_source_task_id), IsUnique = true)]
-[Index(nameof(dispatch_order_id), nameof(source_task_id), IsUnique = true)]
-[Index(nameof(dispatch_order_id), nameof(is_active))]
 public class DispatchPackingTaskEntity : BaseModel
 {
     [ForeignKey(nameof(dispatch_order_id))]
@@ -140,8 +132,6 @@ public class DispatchPackingTaskEntity : BaseModel
 
 /// <summary>Task-scoped source item snapshot. Equal SKUs in different tasks remain separate rows.</summary>
 [Table("dispatch_packing_task_item")]
-[Index(nameof(packing_task_id), nameof(source_item_id), IsUnique = true)]
-[Index(nameof(packing_task_id), nameof(is_active))]
 public class DispatchPackingTaskItemEntity : BaseModel
 {
     [ForeignKey(nameof(packing_task_id))]
@@ -171,12 +161,9 @@ public class DispatchPackingTaskItemEntity : BaseModel
 /// Append-only source-change adjudication/audit event. Services must insert a new row and never update it.
 /// </summary>
 [Table("dispatch_source_change_event")]
-[Index(nameof(dispatch_order_id), nameof(source_version), nameof(decision), IsUnique = true)]
-[Index(nameof(event_idempotency_key), IsUnique = true)]
 public class DispatchSourceChangeEventEntity : BaseModel
 {
     [ForeignKey(nameof(dispatch_order_id))]
-    [DeleteBehavior(DeleteBehavior.Restrict)]
     public DispatchOrderEntity dispatch_order { get; set; } = null!;
     public int dispatch_order_id { get; set; }
     [MaxLength(64)] public string source_version { get; set; } = string.Empty;
@@ -196,8 +183,6 @@ public class DispatchSourceChangeEventEntity : BaseModel
 /// whose ERP FBA identities and measurements remain unchanged and are never migrated here.
 /// </summary>
 [Table("weighing_box")]
-[Index(nameof(packing_task_id), nameof(source_box_identity), IsUnique = true)]
-[Index(nameof(packing_task_id), nameof(measurement_status))]
 public class WeighingBoxEntity : BaseModel
 {
     [ForeignKey(nameof(packing_task_id))]

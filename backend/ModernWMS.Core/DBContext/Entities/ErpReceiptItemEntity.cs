@@ -1,6 +1,5 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
-using Microsoft.EntityFrameworkCore;
 using ModernWMS.Core.Models;
 
 namespace ModernWMS.Core.DBContext.Entities;
@@ -9,7 +8,6 @@ namespace ModernWMS.Core.DBContext.Entities;
 /// Product-level receipt result shared by ERP and the WMS physical ledger.
 /// </summary>
 [Table("wms_erp_receipt_item")]
-[Index(nameof(receipt_id), nameof(source_item_key), IsUnique = true)]
 public class ErpReceiptItemEntity : BaseModel
 {
     public int receipt_id { get; set; }
