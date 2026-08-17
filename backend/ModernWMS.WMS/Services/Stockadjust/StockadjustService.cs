@@ -1,301 +1,201 @@
-/*
- * date：2022-12-26
- * developer：NoNo
- */
-
-using Mapster;
-using Microsoft.EntityFrameworkCore;
-using ModernWMS.Core.DBContext;
+using System.Data;
+using Dapper;
+using Microsoft.Extensions.Localization;
+using ModernWMS.Core.Database;
+using ModernWMS.Core.JWT;
+using ModernWMS.Core.Models;
 using ModernWMS.Core.Services;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels;
 using ModernWMS.WMS.IServices;
-using ModernWMS.Core.Models;
-using ModernWMS.Core.JWT;
-using Microsoft.Extensions.Localization;
-using ModernWMS.Core.DynamicSearch;
-using System.Net.Quic;
 
-namespace ModernWMS.WMS.Services
+namespace ModernWMS.WMS.Services;
+
+/// <summary>Stock adjustment service.</summary>
+public class StockadjustService : BaseService<StockadjustEntity>, IStockadjustService
 {
-    /// <summary>
-    ///  Stockadjust Service
-    /// </summary>
-    public class StockadjustService : BaseService<StockadjustEntity>, IStockadjustService
+    private const string EntityColumns = """
+        a.`id`,a.`job_code`,a.`sku_id`,a.`goods_owner_id`,a.`goods_location_id`,a.`qty`,a.`creator`,
+        a.`create_time`,a.`last_update_time`,a.`tenant_id`,a.`is_update_stock`,a.`job_type`,a.`source_table_id`,
+        a.`series_number`,a.`expiry_date`,a.`price`,a.`putaway_date`
+        """;
+
+    private const string PageSelect = """
+        SELECT a.`id`,a.`job_code`,a.`is_update_stock`,a.`job_type`,a.`qty`,a.`source_table_id`,a.`tenant_id`,
+               sku.`id` sku_id,sku.`sku_code`,sku.`sku_name`,spu.`spu_code`,spu.`spu_name`,
+               a.`goods_location_id`,gl.`warehouse_name`,gl.`location_name`,a.`goods_owner_id`,
+               COALESCE(go.`goods_owner_name`,'') goods_owner_name,a.`creator`,a.`create_time`,a.`last_update_time`,
+               a.`series_number`,a.`expiry_date`,a.`price`,a.`putaway_date`
+        FROM `wms_stockadjust` a
+        JOIN `wms_sku` sku ON sku.`id`=a.`sku_id`
+        JOIN `wms_spu` spu ON spu.`id`=sku.`spu_id`
+        JOIN `wms_goodslocation` gl ON gl.`id`=a.`goods_location_id`
+        LEFT JOIN `wms_goodsowner` go ON go.`id`=a.`goods_owner_id`
+        WHERE a.`tenant_id`=@tenantId
+        """;
+
+    private static readonly IReadOnlyDictionary<string, string> SearchColumns = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
-        #region Args
+        ["id"]="q.`id`", ["job_code"]="q.`job_code`", ["is_update_stock"]="q.`is_update_stock`",
+        ["job_type"]="q.`job_type`", ["qty"]="q.`qty`", ["source_table_id"]="q.`source_table_id`",
+        ["tenant_id"]="q.`tenant_id`", ["sku_id"]="q.`sku_id`", ["sku_code"]="q.`sku_code`",
+        ["sku_name"]="q.`sku_name`", ["spu_code"]="q.`spu_code`", ["spu_name"]="q.`spu_name`",
+        ["goods_location_id"]="q.`goods_location_id`", ["warehouse_name"]="q.`warehouse_name`",
+        ["location_name"]="q.`location_name`", ["goods_owner_id"]="q.`goods_owner_id`",
+        ["goods_owner_name"]="q.`goods_owner_name`", ["creator"]="q.`creator`", ["create_time"]="q.`create_time`",
+        ["last_update_time"]="q.`last_update_time`", ["series_number"]="q.`series_number`",
+        ["expiry_date"]="q.`expiry_date`", ["price"]="q.`price`", ["putaway_date"]="q.`putaway_date`"
+    };
 
-        /// <summary>
-        /// The DBContext
-        /// </summary>
-        private readonly SqlDBContext _dBContext;
+    private readonly IMySqlConnectionFactory _connectionFactory;
+    private readonly IStringLocalizer<ModernWMS.Core.MultiLanguage> _stringLocalizer;
 
-        /// <summary>
-        /// Localizer Service
-        /// </summary>
-        private readonly IStringLocalizer<ModernWMS.Core.MultiLanguage> _stringLocalizer;
+    public StockadjustService(IMySqlConnectionFactory connectionFactory,
+        IStringLocalizer<ModernWMS.Core.MultiLanguage> stringLocalizer)
+    {
+        _connectionFactory = connectionFactory;
+        _stringLocalizer = stringLocalizer;
+    }
 
-        #endregion Args
+    public async Task<(List<StockadjustViewModel> data, int totals)> PageAsync(PageSearch pageSearch, CurrentUser currentUser)
+    {
+        var filter = DapperSearchBuilder.Build(pageSearch.searchObjects, SearchColumns);
+        filter.Parameters.Add("tenantId", currentUser.tenant_id);
+        filter.Parameters.Add("offset", (pageSearch.pageIndex - 1) * pageSearch.pageSize);
+        filter.Parameters.Add("pageSize", pageSearch.pageSize);
+        var where = filter.Sql.Length == 0 ? "1=1" : filter.Sql;
 
-        #region constructor
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        using var result = await connection.QueryMultipleAsync($"""
+            SELECT COUNT(*) FROM ({PageSelect}) q WHERE {where};
+            SELECT q.* FROM ({PageSelect}) q WHERE {where}
+            ORDER BY q.`create_time` DESC LIMIT @pageSize OFFSET @offset;
+            """, filter.Parameters);
+        var totals = await result.ReadSingleAsync<int>();
+        return ((await result.ReadAsync<StockadjustViewModel>()).AsList(), totals);
+    }
 
-        /// <summary>
-        ///Stockadjust  constructor
-        /// </summary>
-        /// <param name="dBContext">The DBContext</param>
-        /// <param name="stringLocalizer">Localizer</param>
-        public StockadjustService(
-            SqlDBContext dBContext
-          , IStringLocalizer<ModernWMS.Core.MultiLanguage> stringLocalizer
-            )
+    public async Task<List<StockadjustViewModel>> GetAllAsync(CurrentUser currentUser)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        return (await connection.QueryAsync<StockadjustViewModel>($"""
+            SELECT {EntityColumns} FROM `wms_stockadjust` a WHERE a.`tenant_id`=@tenantId;
+            """, new { tenantId = currentUser.tenant_id })).AsList();
+    }
+
+    public async Task<StockadjustViewModel> GetAsync(int id)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        return await connection.QuerySingleOrDefaultAsync<StockadjustViewModel>($"""
+            SELECT {EntityColumns} FROM `wms_stockadjust` a WHERE a.`id`=@id LIMIT 1;
+            """, new { id });
+    }
+
+    public async Task<(int id, string msg)> AddAsync(StockadjustViewModel viewModel, CurrentUser currentUser)
+    {
+        var now = DateTime.Now;
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        var id = await connection.ExecuteScalarAsync<int>("""
+            INSERT INTO `wms_stockadjust`
+              (`job_code`,`sku_id`,`goods_owner_id`,`goods_location_id`,`qty`,`creator`,`create_time`,`last_update_time`,
+               `tenant_id`,`is_update_stock`,`job_type`,`source_table_id`,`series_number`,`expiry_date`,`price`,`putaway_date`)
+            VALUES
+              (@job_code,@sku_id,@goods_owner_id,@goods_location_id,@qty,@creator,@now,@now,
+               @tenantId,@is_update_stock,@job_type,@source_table_id,@series_number,@expiry_date,@price,@putaway_date);
+            SELECT LAST_INSERT_ID();
+            """, new
         {
-            this._dBContext = dBContext;
-            this._stringLocalizer = stringLocalizer;
-        }
+            viewModel.job_code, viewModel.sku_id, viewModel.goods_owner_id, viewModel.goods_location_id,
+            viewModel.qty, creator = currentUser.user_name, now, tenantId = currentUser.tenant_id,
+            viewModel.is_update_stock, viewModel.job_type, viewModel.source_table_id, viewModel.series_number,
+            viewModel.expiry_date, viewModel.price, viewModel.putaway_date
+        });
+        return id > 0 ? (id, _stringLocalizer["save_success"]) : (0, _stringLocalizer["save_failed"]);
+    }
 
-        #endregion constructor
-
-        #region Api
-
-        /// <summary>
-        /// page search
-        /// </summary>
-        /// <param name="pageSearch">args</param>
-        /// <param name="currentUser">currentUser</param>
-        /// <returns></returns>
-        public async Task<(List<StockadjustViewModel> data, int totals)> PageAsync(PageSearch pageSearch, CurrentUser currentUser)
+    public async Task<(bool flag, string msg)> UpdateAsync(StockadjustViewModel viewModel)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        var affected = await connection.ExecuteAsync("""
+            UPDATE `wms_stockadjust` SET
+              `job_code`=@job_code,`sku_id`=@sku_id,`goods_owner_id`=@goods_owner_id,
+              `goods_location_id`=@goods_location_id,`qty`=@qty,`is_update_stock`=@is_update_stock,
+              `job_type`=@job_type,`source_table_id`=@source_table_id,`last_update_time`=@now,
+              `series_number`=@series_number,`expiry_date`=@expiry_date,`price`=@price,`putaway_date`=@putaway_date
+            WHERE `id`=@id;
+            """, new
         {
-            QueryCollection queries = new QueryCollection();
-            if (pageSearch.searchObjects.Any())
+            viewModel.id, viewModel.job_code, viewModel.sku_id, viewModel.goods_owner_id,
+            viewModel.goods_location_id, viewModel.qty, viewModel.is_update_stock, viewModel.job_type,
+            viewModel.source_table_id, now = DateTime.Now, viewModel.series_number, viewModel.expiry_date,
+            viewModel.price, viewModel.putaway_date
+        });
+        return affected > 0
+            ? (true, _stringLocalizer["save_success"])
+            : (false, _stringLocalizer["not_exists_entity"]);
+    }
+
+    public async Task<(bool flag, string msg)> DeleteAsync(int id)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        var affected = await connection.ExecuteAsync("DELETE FROM `wms_stockadjust` WHERE `id`=@id;", new { id });
+        return affected > 0
+            ? (true, _stringLocalizer["delete_success"])
+            : (false, _stringLocalizer["not_exists_entity"]);
+    }
+
+    public async Task<(bool flag, string msg)> ConfirmAdjustment(int id)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted);
+        try
+        {
+            var adjustment = await connection.QuerySingleOrDefaultAsync<StockadjustEntity>("""
+                SELECT * FROM `wms_stockadjust` WHERE `id`=@id FOR UPDATE;
+                """, new { id }, transaction);
+            if (adjustment == null)
             {
-                pageSearch.searchObjects.ForEach(s =>
-                {
-                    queries.Add(s);
-                });
-            }
-            var Stockadjusts = _dBContext.GetDbSet<StockadjustEntity>();
-            var Spus = _dBContext.GetDbSet<SpuEntity>();
-            var Skus = _dBContext.GetDbSet<SkuEntity>();
-            var Goodsowners = _dBContext.GetDbSet<GoodsownerEntity>();
-            var Goodslocations = _dBContext.GetDbSet<GoodslocationEntity>();
-            var query = from sj in Stockadjusts.AsNoTracking()
-                        join sku in Skus.AsNoTracking() on sj.sku_id equals sku.id
-                        join spu in Spus.AsNoTracking() on sku.spu_id equals spu.id
-                        join gsl in Goodslocations.AsNoTracking() on sj.goods_location_id equals gsl.id
-                        join gso in Goodsowners.AsNoTracking() on sj.goods_owner_id equals gso.id into gsoJoin
-                        from gso in gsoJoin.DefaultIfEmpty()
-                        where sj.tenant_id == currentUser.tenant_id
-                        select new StockadjustViewModel
-                        {
-                            id = sj.id,
-                            job_code = sj.job_code,
-                            is_update_stock = sj.is_update_stock,
-                            job_type = sj.job_type,
-                            qty = sj.qty,
-                            source_table_id = sj.source_table_id,
-                            tenant_id = sj.tenant_id,
-                            sku_id = sku.id,
-                            sku_code = sku.sku_code,
-                            sku_name = sku.sku_name,
-                            spu_code = spu.spu_code,
-                            spu_name = spu.spu_name,
-                            goods_location_id = sj.goods_location_id,
-                            warehouse_name = gsl.warehouse_name,
-                            location_name = gsl.location_name,
-                            goods_owner_id = sj.goods_owner_id,
-                            goods_owner_name = gso.goods_owner_name == null ? string.Empty : gso.goods_owner_name,
-                            creator = sj.creator,
-                            create_time = sj.create_time,
-                            last_update_time = sj.last_update_time,
-                            series_number = sj.series_number,
-                            expiry_date = sj.expiry_date,
-                            price = sj.price,
-                            putaway_date = sj.putaway_date,
-                        };
-            query = query.Where(queries.AsExpression<StockadjustViewModel>());
-            int totals = await query.CountAsync();
-            var list = await query.OrderByDescending(t => t.create_time)
-                       .Skip((pageSearch.pageIndex - 1) * pageSearch.pageSize)
-                       .Take(pageSearch.pageSize)
-                       .ToListAsync();
-            return (list, totals);
-        }
-
-        /// <summary>
-        /// Get all records
-        /// </summary>
-        /// <returns></returns>
-        public async Task<List<StockadjustViewModel>> GetAllAsync(CurrentUser currentUser)
-        {
-            var DbSet = _dBContext.GetDbSet<StockadjustEntity>();
-            var data = await DbSet.AsNoTracking().Where(t => t.tenant_id.Equals(currentUser.tenant_id)).ToListAsync();
-            return data.Adapt<List<StockadjustViewModel>>();
-        }
-
-        /// <summary>
-        /// Get a record by id
-        /// </summary>
-        /// <returns></returns>
-        public async Task<StockadjustViewModel> GetAsync(int id)
-        {
-            var DbSet = _dBContext.GetDbSet<StockadjustEntity>();
-            var entity = await DbSet.AsNoTracking().FirstOrDefaultAsync(t => t.id.Equals(id));
-            if (entity == null)
-            {
-                return null;
-            }
-            return entity.Adapt<StockadjustViewModel>();
-        }
-
-        /// <summary>
-        /// add a new record
-        /// </summary>
-        /// <param name="viewModel">viewmodel</param>
-        /// <param name="currentUser">current user</param>
-        /// <returns></returns>
-        public async Task<(int id, string msg)> AddAsync(StockadjustViewModel viewModel, CurrentUser currentUser)
-        {
-            var DbSet = _dBContext.GetDbSet<StockadjustEntity>();
-            var entity = viewModel.Adapt<StockadjustEntity>();
-            entity.id = 0;
-            entity.create_time = DateTime.Now;
-            entity.creator = currentUser.user_name;
-            entity.last_update_time = DateTime.Now;
-            entity.tenant_id = currentUser.tenant_id;
-            await DbSet.AddAsync(entity);
-            await _dBContext.SaveChangesAsync();
-            if (entity.id > 0)
-            {
-                return (entity.id, _stringLocalizer["save_success"]);
-            }
-            else
-            {
-                return (0, _stringLocalizer["save_failed"]);
-            }
-        }
-
-        /// <summary>
-        /// update a record
-        /// </summary>
-        /// <param name="viewModel">args</param>
-        /// <returns></returns>
-        public async Task<(bool flag, string msg)> UpdateAsync(StockadjustViewModel viewModel)
-        {
-            var DbSet = _dBContext.GetDbSet<StockadjustEntity>();
-            var entity = await DbSet.FirstOrDefaultAsync(t => t.id.Equals(viewModel.id));
-            if (entity == null)
-            {
+                await transaction.RollbackAsync();
                 return (false, _stringLocalizer["not_exists_entity"]);
             }
-            entity.id = viewModel.id;
-            entity.job_code = viewModel.job_code;
-            entity.sku_id = viewModel.sku_id;
-            entity.goods_owner_id = viewModel.goods_owner_id;
-            entity.goods_location_id = viewModel.goods_location_id;
-            entity.qty = viewModel.qty;
-            entity.is_update_stock = viewModel.is_update_stock;
-            entity.job_type = viewModel.job_type;
-            entity.source_table_id = viewModel.source_table_id;
-            entity.last_update_time = DateTime.Now;
-            entity.series_number = viewModel.series_number;
-            entity.expiry_date = viewModel.expiry_date;
-            entity.price = viewModel.price;
-            entity.putaway_date = viewModel.putaway_date;
-            var qty = await _dBContext.SaveChangesAsync();
-            if (qty > 0)
-            {
-                return (true, _stringLocalizer["save_success"]);
-            }
-            else
-            {
-                return (false, _stringLocalizer["save_failed"]);
-            }
-        }
 
-        /// <summary>
-        /// delete a record
-        /// </summary>
-        /// <param name="id">id</param>
-        /// <returns></returns>
-        public async Task<(bool flag, string msg)> DeleteAsync(int id)
+            var now = DateTime.Now;
+            var affected = 0;
+            if (adjustment.job_type == 2)
+            {
+                affected += await connection.ExecuteAsync("""
+                    UPDATE `wms_stockprocessdetail` SET `last_update_time`=@now,`is_update_stock`=1
+                    WHERE `id`=@sourceId;
+                    """, new { now, sourceId = adjustment.source_table_id }, transaction);
+            }
+
+            // The previous tracked implementation only updated an existing stock row; it did not attach a newly
+            // constructed row. Keep that persisted behavior during this data-access-only migration.
+            affected += await connection.ExecuteAsync("""
+                UPDATE `wms_stock` SET `qty`=`qty`+@qty,`goods_owner_id`=@goods_owner_id,`last_update_time`=@now
+                WHERE `goods_owner_id`=@goods_owner_id AND `series_number`=@series_number
+                  AND `goods_location_id`=@goods_location_id AND `sku_id`=@sku_id
+                  AND `expiry_date`=@expiry_date AND `price`=@price AND `putaway_date`=@putaway_date
+                LIMIT 1;
+                """, new
+            {
+                adjustment.qty, adjustment.goods_owner_id, adjustment.series_number,
+                adjustment.goods_location_id, adjustment.sku_id, adjustment.expiry_date,
+                adjustment.price, adjustment.putaway_date, now
+            }, transaction);
+
+            affected += await connection.ExecuteAsync("""
+                UPDATE `wms_stockadjust` SET `is_update_stock`=1,`last_update_time`=@now WHERE `id`=@id;
+                """, new { id, now }, transaction);
+            await transaction.CommitAsync();
+            return affected > 0
+                ? (true, _stringLocalizer["operation_success"])
+                : (false, _stringLocalizer["operation_failed"]);
+        }
+        catch
         {
-            var DBSet = _dBContext.GetDbSet<StockadjustEntity>();
-            var entity = await DBSet.Where(t => t.id == id).FirstOrDefaultAsync();
-            if (entity == null)
-            {
-                return (false, _stringLocalizer["not_exists_entity"]);
-            }
-            DBSet.Remove(entity);
-            var qty = await _dBContext.SaveChangesAsync();
-            if (qty > 0)
-            {
-                return (true, _stringLocalizer["delete_success"]);
-            }
-            else
-            {
-                return (false, _stringLocalizer["delete_failed"]);
-            }
+            await transaction.RollbackAsync();
+            throw;
         }
-
-        /// <summary>
-        /// confirm adjustment
-        /// </summary>
-        /// <param name="id">id</param>
-        /// <returns></returns>
-        public async Task<(bool flag, string msg)> ConfirmAdjustment(int id)
-        {
-            var adjust_DBset = _dBContext.GetDbSet<StockadjustEntity>();
-            var entity = await adjust_DBset.FirstOrDefaultAsync(t => t.id == id);
-            if (entity == null)
-            {
-                return (false, _stringLocalizer["not_exists_entity"]);
-            }
-            if (entity.job_type == 2)
-            {
-                var processdetail_DBSet = _dBContext.GetDbSet<StockprocessdetailEntity>();
-                var processdetail = await processdetail_DBSet.Where(t => t.id == entity.source_table_id).FirstOrDefaultAsync();
-                if (processdetail != null)
-                {
-                    processdetail.last_update_time = DateTime.Now;
-                    processdetail.is_update_stock = true;
-                }
-            }
-            var stock_DBSet = _dBContext.GetDbSet<StockEntity>();
-            var stock = await stock_DBSet.Where(t => t.goods_owner_id == entity.goods_owner_id && t.series_number == entity.series_number && t.goods_location_id == entity.goods_location_id && t.sku_id == entity.sku_id && t.expiry_date == entity.expiry_date && t.price == entity.price && t.putaway_date == entity.putaway_date).FirstOrDefaultAsync();
-            if (stock == null)
-            {
-                stock = new StockEntity
-                {
-                    id = entity.id,
-                    sku_id = entity.sku_id,
-                    goods_location_id = entity.goods_location_id,
-                    qty = entity.qty,
-                    goods_owner_id = entity.goods_owner_id,
-                    series_number = entity.series_number,
-                    expiry_date = entity.expiry_date,
-                    price = entity.price,
-                    putaway_date = entity.putaway_date,
-                    is_freeze = false,
-                    last_update_time = DateTime.Now,
-                    tenant_id = entity.tenant_id,
-                };
-            }
-            else
-            {
-                stock.qty += entity.qty;
-                stock.goods_owner_id = entity.goods_owner_id;
-                stock.last_update_time = DateTime.Now;
-            }
-            entity.is_update_stock = true;
-            entity.last_update_time = DateTime.Now;
-            var res = await _dBContext.SaveChangesAsync();
-            if (res > 0)
-            {
-                return (true, _stringLocalizer["operation_success"]);
-            }
-            return (false, _stringLocalizer["operation_failed"]);
-        }
-
-        #endregion Api
     }
 }
