@@ -1,552 +1,379 @@
-/*
- * date：2022-12-23
- * developer：NoNo
- */
-
-using Mapster;
-using Microsoft.EntityFrameworkCore;
-using ModernWMS.Core.DBContext;
+using System.Data;
+using Dapper;
+using Microsoft.Extensions.Localization;
+using ModernWMS.Core;
+using ModernWMS.Core.Database;
+using ModernWMS.Core.JWT;
+using ModernWMS.Core.Models;
 using ModernWMS.Core.Services;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels;
 using ModernWMS.WMS.IServices;
-using ModernWMS.Core.Models;
-using ModernWMS.Core.JWT;
-using Microsoft.Extensions.Localization;
-using ModernWMS.Core.DynamicSearch;
-using System.Linq.Expressions;
-using System.Reflection;
-using System.Collections.Generic;
-using Microsoft.AspNetCore.Mvc.Formatters.Xml;
-using Microsoft.AspNetCore.SignalR.Protocol;
-using System.Linq;
-using ModernWMS.Core;
+using MySqlConnector;
 
-namespace ModernWMS.WMS.Services
+namespace ModernWMS.WMS.Services;
+
+public class StockprocessService : BaseService<StockprocessEntity>, IStockprocessService
 {
-    /// <summary>
-    ///  Stockprocess Service
-    /// </summary>
-    public class StockprocessService : BaseService<StockprocessEntity>, IStockprocessService
+    private static readonly IReadOnlyDictionary<string, string> SearchColumns =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["id"] = "m.`id`", ["job_code"] = "m.`job_code`", ["job_type"] = "m.`job_type`",
+            ["process_status"] = "m.`process_status`", ["processor"] = "m.`processor`",
+            ["process_time"] = "m.`process_time`", ["creator"] = "m.`creator`",
+            ["create_time"] = "m.`create_time`", ["last_update_time"] = "m.`last_update_time`",
+            ["tenant_id"] = "m.`tenant_id`",
+            ["adjust_status"] = "(m.`process_status` AND EXISTS(SELECT 1 FROM `wms_stockadjust` sa INNER JOIN `wms_stockprocessdetail` sd ON sd.`id`=sa.`source_table_id` WHERE sa.`job_type`=2 AND sd.`stock_process_id`=m.`id`))"
+        };
+
+    private const string MasterProjection = """
+        m.`id`,m.`job_code`,m.`job_type`,m.`process_status`,m.`processor`,m.`process_time`,
+        m.`creator`,m.`create_time`,m.`last_update_time`,m.`tenant_id`,
+        (m.`process_status` AND EXISTS(
+            SELECT 1 FROM `wms_stockadjust` a
+            INNER JOIN `wms_stockprocessdetail` d ON d.`id`=a.`source_table_id`
+            WHERE a.`job_type`=2 AND d.`stock_process_id`=m.`id`)) AS `adjust_status`
+        """;
+
+    private readonly IMySqlConnectionFactory _connectionFactory;
+    private readonly IStringLocalizer<Core.MultiLanguage> _stringLocalizer;
+    private readonly FunctionHelper _functionHelper;
+
+    public StockprocessService(IMySqlConnectionFactory connectionFactory,
+        IStringLocalizer<Core.MultiLanguage> stringLocalizer, FunctionHelper functionHelper)
     {
-        #region Args
-
-        /// <summary>
-        /// The DBContext
-        /// </summary>
-        private readonly SqlDBContext _dBContext;
-
-        /// <summary>
-        /// Localizer Service
-        /// </summary>
-        private readonly IStringLocalizer<ModernWMS.Core.MultiLanguage> _stringLocalizer;
-
-        /// <summary>
-        /// Function Helper
-        /// </summary>
-        private readonly FunctionHelper _functionHelper;
-
-        #endregion Args
-
-        #region constructor
-
-        /// <summary>
-        ///Stockprocess  constructor
-        /// </summary>
-        /// <param name="dBContext">The DBContext</param>
-        /// <param name="stringLocalizer">Localizer</param>
-        public StockprocessService(
-            SqlDBContext dBContext
-          , IStringLocalizer<ModernWMS.Core.MultiLanguage> stringLocalizer
-            , FunctionHelper functionHelper
-            )
-        {
-            this._dBContext = dBContext;
-            this._stringLocalizer = stringLocalizer;
-            this._functionHelper = functionHelper;
-        }
-
-        #endregion constructor
-
-        #region Api
-
-        /// <summary>
-        /// page search
-        /// </summary>
-        /// <param name="pageSearch">args</param>
-        /// <param name="currentUser">currentUser</param>
-        /// <returns></returns>
-        public async Task<(List<StockprocessGetViewModel> data, int totals)> PageAsync(PageSearch pageSearch, CurrentUser currentUser)
-        {
-            QueryCollection queries = new QueryCollection();
-            if (pageSearch.searchObjects.Any())
-            {
-                pageSearch.searchObjects.ForEach(s =>
-                {
-                    queries.Add(s);
-                });
-            }
-            var DbSet = _dBContext.GetDbSet<StockprocessEntity>();
-            var adjust_DBSet = _dBContext.GetDbSet<StockadjustEntity>().AsNoTracking();
-            var adjusted = from a in adjust_DBSet
-                           join d in _dBContext.GetDbSet<StockprocessdetailEntity>().AsNoTracking() on a.source_table_id equals d.id
-                           where a.job_type == 2
-                           group d by d.stock_process_id into ag
-                           select new
-                           {
-                               stockprocess_id = ag.Key
-                           };
-            var query = from m in DbSet.AsNoTracking()
-                        join a in adjusted on m.id equals a.stockprocess_id into a_left
-                        from a in a_left.DefaultIfEmpty()
-                        select new StockprocessGetViewModel
-                        {
-                            id = m.id,
-                            job_code = m.job_code,
-                            job_type = m.job_type,
-                            process_status = m.process_status,
-                            processor = m.processor,
-                            process_time = m.process_time,
-                            creator = m.creator,
-                            create_time = m.create_time,
-                            last_update_time = m.last_update_time,
-                            tenant_id = m.tenant_id,
-                            adjust_status = (m.process_status && (a.stockprocess_id == null ? false : true)) ? true : false,
-                        };
-            query = query
-                .Where(t => t.tenant_id.Equals(currentUser.tenant_id))
-                .Where(queries.AsExpression<StockprocessGetViewModel>());
-            int totals = await query.CountAsync();
-            var list = await query.OrderByDescending(t => t.last_update_time)
-                       .Skip((pageSearch.pageIndex - 1) * pageSearch.pageSize)
-                       .Take(pageSearch.pageSize)
-                       .ToListAsync();
-            return (list, totals);
-        }
-
-        /// <summary>
-        /// Get all records
-        /// </summary>
-        /// <returns></returns>
-        public async Task<List<StockprocessGetViewModel>> GetAllAsync(CurrentUser currentUser)
-        {
-            var DbSet = _dBContext.GetDbSet<StockprocessEntity>();
-            var data = await DbSet.AsNoTracking().Where(t => t.tenant_id.Equals(currentUser.tenant_id)).ToListAsync();
-            return data.Adapt<List<StockprocessGetViewModel>>();
-        }
-
-        /// <summary>
-        /// Get a record by id
-        /// </summary>
-        /// <returns></returns>
-        public async Task<StockprocessWithDetailViewModel> GetAsync(int id)
-        {
-            var DbSet = _dBContext.GetDbSet<StockprocessEntity>();
-            var entity = await DbSet.AsNoTracking().FirstOrDefaultAsync(t => t.id.Equals(id));
-            var details = await (from spd in _dBContext.GetDbSet<StockprocessdetailEntity>().AsNoTracking().Where(t => t.stock_process_id == id)
-                                 join sku in _dBContext.GetDbSet<SkuEntity>().AsNoTracking() on spd.sku_id equals sku.id
-                                 join spu in _dBContext.GetDbSet<SpuEntity>().AsNoTracking() on sku.spu_id equals spu.id
-                                 join gl in _dBContext.GetDbSet<GoodslocationEntity>().AsNoTracking() on spd.goods_location_id equals gl.id into gl_left
-                                 from gl in gl_left.DefaultIfEmpty()
-                                 select new StockprocessdetailViewModel
-                                 {
-                                     id = spd.id,
-                                     stock_process_id = spd.stock_process_id,
-                                     sku_id = spd.sku_id,
-                                     goods_owner_id = spd.goods_owner_id,
-                                     goods_location_id = spd.goods_location_id,
-                                     qty = spd.qty,
-                                     last_update_time = spd.last_update_time,
-                                     tenant_id = spd.tenant_id,
-                                     is_source = spd.is_source,
-                                     sku_code = sku.sku_code,
-                                     spu_code = spu.spu_code,
-                                     spu_name = spu.spu_name,
-                                     unit = sku.unit,
-                                     location_name = gl.location_name == null ? "" : gl.location_name,
-                                     series_number = spd.series_number,
-                                     expiry_date = spd.expiry_date,
-                                     price = spd.price,
-                                     putaway_date = spd.putaway_date,
-                                 }).ToListAsync();
-            if (entity == null)
-            {
-                return null;
-            }
-            var res = entity.Adapt<StockprocessWithDetailViewModel>();
-            var adjust_DBSet = _dBContext.GetDbSet<StockadjustEntity>().AsNoTracking();
-            var adjusted = await (from a in adjust_DBSet
-                                  join d in _dBContext.GetDbSet<StockprocessdetailEntity>().AsNoTracking() on a.source_table_id equals d.id
-                                  where a.job_type == 2 && d.stock_process_id == id
-                                  select a
-                           ).AnyAsync();
-            res.adjust_status = entity.process_status && adjusted;
-            res.source_detail_list = details.Where(t => t.is_source == true).ToList();
-            res.target_detail_list = details.Where(t => t.is_source == false).ToList();
-            return res;
-        }
-
-        /// <summary>
-        /// add a new record
-        /// </summary>
-        /// <param name="viewModel">viewmodel</param>
-        /// <param name="currentUser">current user</param>
-        /// <returns></returns>
-        public async Task<(int id, string msg)> AddAsync(StockprocessViewModel viewModel, CurrentUser currentUser)
-        {
-            var DbSet = _dBContext.GetDbSet<StockprocessEntity>();
-            var entity = viewModel.Adapt<StockprocessEntity>();
-            var stock_DBSet = _dBContext.GetDbSet<StockEntity>().AsNoTracking();
-
-            ParameterExpression parameterExpression = Expression.Parameter(typeof(StockEntity), "m");
-            Expression exp = null;
-            for (int i = 0; i < entity.detailList.Count; i++)
-            {
-                ConstantExpression t_constan_location = Expression.Constant(entity.detailList[i].goods_location_id);
-                PropertyInfo t_prop_location = typeof(StockEntity).GetProperty("goods_location_id");
-                MemberExpression t_location_exp = Expression.Property(parameterExpression, t_prop_location);
-                BinaryExpression t_location_full_exp = Expression.Equal(t_location_exp, t_constan_location);
-                ConstantExpression t_constan_sku = Expression.Constant(entity.detailList[i].sku_id);
-                PropertyInfo t_prop_sku = typeof(StockEntity).GetProperty("sku_id");
-                MemberExpression t_sku_exp = Expression.Property(parameterExpression, t_prop_sku);
-                BinaryExpression t_sku_full_exp = Expression.Equal(t_sku_exp, t_constan_sku);
-                ConstantExpression t_constan_owner = Expression.Constant(entity.detailList[i].goods_owner_id);
-                PropertyInfo t_prop_owner = typeof(StockEntity).GetProperty("goods_owner_id");
-                MemberExpression t_owner_exp = Expression.Property(parameterExpression, t_prop_owner);
-                BinaryExpression t_owner_full_exp = Expression.Equal(t_owner_exp, t_constan_owner);
-                ConstantExpression t_constan_sn = Expression.Constant(entity.detailList[i].series_number);
-                PropertyInfo t_prop_sn = typeof(StockEntity).GetProperty("series_number");
-                MemberExpression t_sn_exp = Expression.Property(parameterExpression, t_prop_sn);
-                BinaryExpression t_sn_full_exp = Expression.Equal(t_sn_exp, t_constan_sn);
-                ConstantExpression t_constan_expiry = Expression.Constant(entity.detailList[i].expiry_date);
-                PropertyInfo t_prop_expiry = typeof(StockEntity).GetProperty("expiry_date");
-                MemberExpression t_expiry_exp = Expression.Property(parameterExpression, t_prop_sn);
-                BinaryExpression t_expiry_full_exp = Expression.Equal(t_sn_exp, t_constan_sn);
-                ConstantExpression t_constan_price = Expression.Constant(entity.detailList[i].price);
-                PropertyInfo t_prop_price = typeof(StockEntity).GetProperty("price");
-                MemberExpression t_price_exp = Expression.Property(parameterExpression, t_prop_sn);
-                BinaryExpression t_price_full_exp = Expression.Equal(t_sn_exp, t_constan_sn);
-                ConstantExpression t_constan_putaway = Expression.Constant(entity.detailList[i].putaway_date);
-                PropertyInfo t_prop_putaway = typeof(StockEntity).GetProperty("putaway_date");
-                MemberExpression t_putaway_exp = Expression.Property(parameterExpression, t_prop_sn);
-                BinaryExpression t_putaway_full_exp = Expression.Equal(t_sn_exp, t_constan_sn);
-                var t_exp = Expression.And(t_location_full_exp, t_sku_full_exp);
-                t_exp = Expression.And(t_exp, t_owner_full_exp);
-                if (exp != null)
-                    exp = Expression.Or(exp, t_exp);
-                else
-                    exp = t_exp;
-            }
-            var predicate_res = Expression.Lambda<Func<StockEntity, bool>>(exp, new ParameterExpression[1] { parameterExpression });
-            var stocks = await stock_DBSet.Where(predicate_res).ToListAsync();
-            var goods_location_id_list = viewModel.detailList.Where(t => t.is_source == true).Select(t => t.goods_location_id).ToList();
-            var sku_id_list = viewModel.detailList.Where(t => t.is_source == true).Select(t => t.sku_id).ToList();
-            var lockeds = await (from d in _dBContext.GetDbSet<StockprocessdetailEntity>().AsNoTracking()
-                                 where d.is_update_stock == false && goods_location_id_list.Contains(d.goods_location_id)
-                                 && sku_id_list.Contains(d.sku_id)
-                                 group d by new { d.goods_location_id, d.sku_id, d.goods_owner_id, d.series_number, d.expiry_date, d.price,d.putaway_date } into lg
-                                 select new
-                                 {
-                                     sku_id = lg.Key.sku_id,
-                                     goods_location_id = lg.Key.goods_location_id,
-                                     goods_owner_id = lg.Key.goods_owner_id,
-                                     series_number = lg.Key.series_number,
-                                     lg.Key.expiry_date,
-                                     lg.Key.price,
-                                     lg.Key.putaway_date,
-                                     qty_locked = lg.Sum(e => e.qty)
-                                 }).ToListAsync();
-            entity.id = 0;
-            entity.create_time = DateTime.Now;
-            entity.creator = currentUser.user_name;
-            entity.last_update_time = DateTime.Now;
-            entity.tenant_id = currentUser.tenant_id;
-            entity.job_code = await _functionHelper.GetFormNoAsync("Stockprocess");
-            await DbSet.AddAsync(entity);
-            foreach (var d in entity.detailList)
-            {
-                d.tenant_id = currentUser.tenant_id;
-                d.last_update_time = DateTime.Now;
-                d.id = 0;
-                var s = stocks.FirstOrDefault(t => t.sku_id == d.sku_id && t.goods_location_id == d.goods_location_id && t.goods_owner_id == d.goods_owner_id && t.series_number == d.series_number && t.expiry_date == d.expiry_date && t.price == d.price && t.putaway_date == d.putaway_date);
-                if (d.is_source == true)
-                {
-                    if (s == null)
-                    {
-                        return (0, _stringLocalizer["data_changed"]);
-                    }
-                    var locked = lockeds.FirstOrDefault(t => t.sku_id == d.sku_id && t.goods_location_id == d.goods_location_id && t.goods_owner_id == d.goods_owner_id && t.series_number == d.series_number && t.expiry_date == d.expiry_date && t.price == d.price && t.putaway_date == d.putaway_date);
-                    if ((s.qty - (locked == null ? 0 : locked.qty_locked)) < d.qty)
-                    {
-                        return (0, _stringLocalizer["data_changed"]);
-                    }
-                    if (s.is_freeze == true)
-                    {
-                        return (0, _stringLocalizer["stock_frozen"]);
-                    }
-                }
-            }
-            await _dBContext.SaveChangesAsync();
-            if (entity.id > 0)
-            {
-                return (entity.id, _stringLocalizer["save_success"]);
-            }
-            else
-            {
-                return (0, _stringLocalizer["save_failed"]);
-            }
-        }
-
-        /// <summary>
-        /// update a record
-        /// </summary>
-        /// <param name="viewModel">args</param>
-        /// <returns></returns>
-        public async Task<(bool flag, string msg)> UpdateAsync(StockprocessViewModel viewModel)
-        {
-            var DbSet = _dBContext.GetDbSet<StockprocessEntity>();
-            var entity = await DbSet.FirstOrDefaultAsync(t => t.id.Equals(viewModel.id));
-            if (entity == null)
-            {
-                return (false, _stringLocalizer["not_exists_entity"]);
-            }
-            entity.id = viewModel.id;
-            entity.job_code = viewModel.job_code;
-            entity.job_type = viewModel.job_type;
-            entity.process_status = viewModel.process_status;
-            entity.processor = viewModel.processor;
-            entity.process_time = viewModel.process_time;
-            entity.last_update_time = DateTime.Now;
-            var qty = await _dBContext.SaveChangesAsync();
-            if (qty > 0)
-            {
-                return (true, _stringLocalizer["save_success"]);
-            }
-            else
-            {
-                return (false, _stringLocalizer["save_failed"]);
-            }
-        }
-
-        /// <summary>
-        /// delete a record
-        /// </summary>
-        /// <param name="id">id</param>
-        /// <returns></returns>
-        public async Task<(bool flag, string msg)> DeleteAsync(int id)
-        {
-            var entity = await _dBContext.GetDbSet<StockprocessEntity>().Where(t => t.id.Equals(id) && t.process_status == false).Include(e => e.detailList).FirstOrDefaultAsync();
-            _dBContext.GetDbSet<StockprocessEntity>().Remove(entity);
-            var qty = await _dBContext.SaveChangesAsync();
-            if (qty > 0)
-            {
-                return (true, _stringLocalizer["delete_success"]);
-            }
-            else
-            {
-                return (false, _stringLocalizer["delete_failed"]);
-            }
-        }
-
-        /// <summary>
-        /// confirm adjustment
-        /// </summary>
-        /// <param name="id">id</param>
-        /// <param name="currentUser">current user</param>
-        /// <returns></returns>
-        public async Task<(bool flag, string msg)> ConfirmAdjustment(int id, CurrentUser currentUser)
-        {
-            var DBSet = _dBContext.GetDbSet<StockprocessEntity>();
-            var detail_DBSet = _dBContext.GetDbSet<StockprocessdetailEntity>();
-            var adjust_DBset = _dBContext.GetDbSet<StockadjustEntity>();
-            var entity = await DBSet.FirstOrDefaultAsync(t => t.id == id);
-            var now_time = DateTime.Now;
-            if (entity == null)
-            {
-                return (false, _stringLocalizer["not_exists_entity"]);
-            }
-            var adjusted = await (from a in adjust_DBset
-                                  join d in _dBContext.GetDbSet<StockprocessdetailEntity>().AsNoTracking() on a.source_table_id equals d.id
-                                  where a.job_type == 2 && d.stock_process_id == id
-                                  select a
-              ).AnyAsync();
-            if (entity.process_status && adjusted)
-            {
-                return (false, _stringLocalizer["status_changed"]);
-            }
-            var details = await detail_DBSet.Where(t => t.stock_process_id == id).ToListAsync();
-            var adjusts = (from d in details
-                           select new StockadjustEntity
-                           {
-                               sku_id = d.sku_id,
-                               source_table_id = d.id,
-                               is_update_stock = true,
-                               goods_location_id = d.goods_location_id,
-                               job_type = 2,
-                               goods_owner_id = d.goods_owner_id,
-                               qty = d.is_source ? -d.qty : d.qty,
-                               create_time = now_time,
-                               creator = currentUser.user_name,
-                               last_update_time = now_time,
-                               tenant_id = currentUser.tenant_id,
-                               series_number = d.series_number,
-                               expiry_date = d.expiry_date,
-                               price = d.price,
-                               putaway_date = d.putaway_date,
-                           }).ToList();
-            entity.last_update_time = now_time;
-            var stock_DBSet = _dBContext.GetDbSet<StockEntity>();
-            if (entity == null)
-            {
-                return (false, _stringLocalizer["not_exists_entity"]);
-            }
-
-            var stocks = await stock_DBSet.Where(s => detail_DBSet.Where(t => t.stock_process_id == id).Any(t => t.goods_location_id == s.goods_location_id && t.sku_id == s.sku_id && t.goods_owner_id == s.goods_owner_id && t.series_number == s.series_number && t.expiry_date == s.expiry_date && t.price == s.price && t.putaway_date == s.putaway_date)).ToListAsync();
-            foreach (var d in details)
-            {
-                var stock = stocks.FirstOrDefault(t => t.goods_location_id == d.goods_location_id && t.sku_id == d.sku_id && t.goods_owner_id == d.goods_owner_id && t.series_number == d.series_number && t.expiry_date == d.expiry_date && t.price == d.price && t.putaway_date == d.putaway_date);
-                d.is_update_stock = true;
-                d.last_update_time = now_time;
-                if (d.is_source)
-                {
-                    if (stock == null)
-                    {
-                        return (false, _stringLocalizer["data_changed"]);
-                    }
-                    stock.qty -= d.qty;
-                    stock.last_update_time = now_time;
-                }
-                else
-                {
-                    d.putaway_date = DateTime.Today;
-                    if (stock == null)
-                    {
-                        await stock_DBSet.AddAsync(new StockEntity
-                        {
-                            sku_id = d.sku_id,
-                            goods_location_id = d.goods_location_id,
-                            goods_owner_id = d.goods_owner_id,
-                            series_number = d.series_number,
-                            expiry_date = d.expiry_date,
-                            price = d.price,
-                            putaway_date = d.putaway_date,
-                            is_freeze = false,
-                            last_update_time = now_time,
-                            qty = d.qty,
-                            tenant_id = currentUser.tenant_id
-                        });
-                    }
-                    else
-                    {
-                        stock.qty += d.qty;
-                        stock.last_update_time = now_time;
-                    }
-                }
-            }
-            var code = await GetAdjustOrderCode(currentUser);
-            adjusts.ForEach(t => t.job_code = code);
-            await adjust_DBset.AddRangeAsync(adjusts);
-            var res = await _dBContext.SaveChangesAsync();
-            if (res > 0)
-            {
-                return (true, _stringLocalizer["operation_success"]);
-            }
-            return (false, _stringLocalizer["operation_failed"]);
-        }
-
-        /// <summary>
-        /// confirm processing
-        /// </summary>
-        /// <param name="id">id</param>
-        /// <returns></returns>
-        public async Task<(bool flag, string msg)> ConfirmProcess(int id, CurrentUser currentUser)
-        {
-            var DBSet = _dBContext.GetDbSet<StockprocessEntity>();
-            var entity = await DBSet.FirstOrDefaultAsync(t => t.id == id);
-            if (entity == null)
-            {
-                return (false, _stringLocalizer["not_exists_entity"]);
-            }
-            if (entity.process_status == true)
-            {
-                return (false, _stringLocalizer["status_changed"]);
-            }
-            entity.process_status = true;
-            entity.processor = currentUser.user_name;
-            entity.process_time = DateTime.Now;
-            entity.last_update_time = DateTime.Now;
-            var res = await _dBContext.SaveChangesAsync();
-            if (res > 0)
-            {
-                return (true, _stringLocalizer["operation_success"]);
-            }
-            return (false, _stringLocalizer["operation_failed"]);
-        }
-
-        /// <summary>
-        /// get next order code number
-        /// </summary>
-        /// <returns></returns>
-        public async Task<string> GetOrderCode(CurrentUser currentUser)
-        {
-            string code;
-            string date = DateTime.Now.ToString("yyyy" + "MM" + "dd");
-            string maxNo = await _dBContext.GetDbSet<StockprocessEntity>().AsNoTracking().Where(t => t.tenant_id == currentUser.tenant_id).MaxAsync(t => t.job_code);
-            if (maxNo == null)
-            {
-                code = date + "-0001";
-            }
-            else
-            {
-                string maxDate = maxNo.Substring(0, 8);
-                string maxDateNo = maxNo.Substring(9, 4);
-                if (date == maxDate)
-                {
-                    int.TryParse(maxDateNo, out int dd);
-                    int newDateNo = dd + 1;
-                    code = date + "-" + newDateNo.ToString("0000");
-                }
-                else
-                {
-                    code = date + "-0001";
-                }
-            }
-
-            return code;
-        }
-
-        /// <summary>
-        /// get next order code number
-        /// </summary>
-        /// <returns></returns>
-        public async Task<string> GetAdjustOrderCode(CurrentUser currentUser)
-        {
-            string code;
-            string date = DateTime.Now.ToString("yyyy" + "MM" + "dd");
-            string maxNo = await _dBContext.GetDbSet<StockadjustEntity>().AsNoTracking().Where(t => t.tenant_id == currentUser.tenant_id).MaxAsync(t => t.job_code);
-            if (maxNo == null)
-            {
-                code = date + "-0001";
-            }
-            else
-            {
-                string maxDate = maxNo.Substring(0, 8);
-                string maxDateNo = maxNo.Substring(9, 4);
-                if (date == maxDate)
-                {
-                    int.TryParse(maxDateNo, out int dd);
-                    int newDateNo = dd + 1;
-                    code = date + "-" + newDateNo.ToString("0000");
-                }
-                else
-                {
-                    code = date + "-0001";
-                }
-            }
-
-            return code;
-        }
-
-        #endregion Api
+        _connectionFactory = connectionFactory ?? throw new ArgumentNullException(nameof(connectionFactory));
+        _stringLocalizer = stringLocalizer ?? throw new ArgumentNullException(nameof(stringLocalizer));
+        _functionHelper = functionHelper ?? throw new ArgumentNullException(nameof(functionHelper));
     }
+
+    public async Task<(List<StockprocessGetViewModel> data, int totals)> PageAsync(
+        PageSearch pageSearch, CurrentUser currentUser)
+    {
+        var where = DapperSearchBuilder.Build(pageSearch.searchObjects, SearchColumns);
+        where.Parameters.Add("tenantId", currentUser.tenant_id);
+        where.Parameters.Add("offset", Math.Max(0, (pageSearch.pageIndex - 1) * pageSearch.pageSize));
+        where.Parameters.Add("pageSize", pageSearch.pageSize);
+        var filter = string.IsNullOrWhiteSpace(where.Sql) ? string.Empty : $" AND {where.Sql}";
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        using var grid = await connection.QueryMultipleAsync($"""
+            SELECT COUNT(*) FROM `wms_stockprocess` m WHERE m.`tenant_id`=@tenantId{filter};
+            SELECT {MasterProjection} FROM `wms_stockprocess` m
+            WHERE m.`tenant_id`=@tenantId{filter}
+            ORDER BY m.`last_update_time` DESC LIMIT @pageSize OFFSET @offset;
+            """, where.Parameters);
+        var totals = await grid.ReadSingleAsync<int>();
+        return ((await grid.ReadAsync<StockprocessGetViewModel>()).AsList(), totals);
+    }
+
+    public async Task<List<StockprocessGetViewModel>> GetAllAsync(CurrentUser currentUser)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        return (await connection.QueryAsync<StockprocessGetViewModel>($"""
+            SELECT {MasterProjection} FROM `wms_stockprocess` m WHERE m.`tenant_id`=@tenantId;
+            """, new { tenantId = currentUser.tenant_id })).AsList();
+    }
+
+    public async Task<StockprocessWithDetailViewModel> GetAsync(int id)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        var master = await connection.QuerySingleOrDefaultAsync<StockprocessWithDetailViewModel>($"""
+            SELECT {MasterProjection} FROM `wms_stockprocess` m WHERE m.`id`=@id LIMIT 1;
+            """, new { id });
+        if (master == null) return null;
+        var details = (await connection.QueryAsync<StockprocessdetailViewModel>("""
+            SELECT d.`id`,d.`stock_process_id`,d.`sku_id`,d.`goods_owner_id`,d.`goods_location_id`,
+                d.`qty`,d.`last_update_time`,d.`tenant_id`,d.`is_source`,d.`is_update_stock`,
+                d.`series_number`,d.`expiry_date`,d.`price`,d.`putaway_date`,
+                sku.`sku_code`,spu.`spu_code`,spu.`spu_name`,sku.`unit`,COALESCE(gl.`location_name`,'') `location_name`
+            FROM `wms_stockprocessdetail` d
+            INNER JOIN `wms_sku` sku ON sku.`id`=d.`sku_id`
+            INNER JOIN `wms_spu` spu ON spu.`id`=sku.`spu_id`
+            LEFT JOIN `wms_goodslocation` gl ON gl.`id`=d.`goods_location_id`
+            WHERE d.`stock_process_id`=@id;
+            """, new { id })).AsList();
+        master.source_detail_list = details.Where(x => x.is_source).ToList();
+        master.target_detail_list = details.Where(x => !x.is_source).ToList();
+        return master;
+    }
+
+    public async Task<(int id, string msg)> AddAsync(StockprocessViewModel viewModel, CurrentUser currentUser)
+    {
+        var jobCode = await _functionHelper.GetFormNoAsync("Stockprocess");
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
+        try
+        {
+            var details = viewModel.detailList ?? [];
+            var sources = details.Where(x => x.is_source).ToList();
+            var stocks = await LoadStocksAsync(connection, transaction, sources, currentUser.tenant_id, true);
+            var locked = await LoadLockedAsync(connection, transaction, sources, currentUser.tenant_id);
+            foreach (var detail in sources)
+            {
+                var stock = stocks.FirstOrDefault(x => SameStock(x, detail));
+                var lockedQty = locked.Where(x => SameDetail(x, detail)).Sum(x => x.qty);
+                if (stock == null || stock.qty - lockedQty < detail.qty)
+                    return await Rollback(0, _stringLocalizer["data_changed"], transaction);
+                if (stock.is_freeze)
+                    return await Rollback(0, _stringLocalizer["stock_frozen"], transaction);
+            }
+
+            var now = DateTime.Now;
+            var id = await connection.ExecuteScalarAsync<int>("""
+                INSERT INTO `wms_stockprocess`
+                    (`job_code`,`job_type`,`process_status`,`processor`,`process_time`,`creator`,`create_time`,`last_update_time`,`tenant_id`)
+                VALUES (@jobCode,@jobType,@processStatus,@processor,@processTime,@creator,@now,@now,@tenantId);
+                SELECT LAST_INSERT_ID();
+                """, new { jobCode, jobType = viewModel.job_type, processStatus = viewModel.process_status,
+                    viewModel.processor, viewModel.process_time, creator = currentUser.user_name, now,
+                    tenantId = currentUser.tenant_id }, transaction);
+            foreach (var detail in details)
+                await InsertDetailAsync(connection, transaction, id, detail, currentUser.tenant_id, now);
+            await transaction.CommitAsync();
+            return id > 0 ? (id, _stringLocalizer["save_success"]) : (0, _stringLocalizer["save_failed"]);
+        }
+        catch { await transaction.RollbackAsync(); throw; }
+    }
+
+    public async Task<(bool flag, string msg)> UpdateAsync(StockprocessViewModel viewModel)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted);
+        try
+        {
+            var exists = await connection.ExecuteScalarAsync<bool>(
+                "SELECT EXISTS(SELECT 1 FROM `wms_stockprocess` WHERE `id`=@id FOR UPDATE);",
+                new { viewModel.id }, transaction);
+            if (!exists) return await Rollback(false, _stringLocalizer["not_exists_entity"], transaction);
+            var affected = await connection.ExecuteAsync("""
+                UPDATE `wms_stockprocess` SET `job_code`=@job_code,`job_type`=@job_type,
+                    `process_status`=@process_status,`processor`=@processor,`process_time`=@process_time,
+                    `last_update_time`=@now WHERE `id`=@id;
+                """, new { viewModel.id, viewModel.job_code, viewModel.job_type, viewModel.process_status,
+                    viewModel.processor, viewModel.process_time, now = DateTime.Now }, transaction);
+            await transaction.CommitAsync();
+            return affected > 0 ? (true, _stringLocalizer["save_success"]) : (false, _stringLocalizer["save_failed"]);
+        }
+        catch { await transaction.RollbackAsync(); throw; }
+    }
+
+    public async Task<(bool flag, string msg)> DeleteAsync(int id)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted);
+        try
+        {
+            var exists = await connection.ExecuteScalarAsync<bool>("""
+                SELECT EXISTS(SELECT 1 FROM `wms_stockprocess`
+                WHERE `id`=@id AND `process_status`=0 FOR UPDATE);
+                """, new { id }, transaction);
+            if (!exists) return await Rollback(false, _stringLocalizer["delete_failed"], transaction);
+            await connection.ExecuteAsync("DELETE FROM `wms_stockprocessdetail` WHERE `stock_process_id`=@id;", new { id }, transaction);
+            var affected = await connection.ExecuteAsync("DELETE FROM `wms_stockprocess` WHERE `id`=@id AND `process_status`=0;", new { id }, transaction);
+            await transaction.CommitAsync();
+            return affected > 0 ? (true, _stringLocalizer["delete_success"]) : (false, _stringLocalizer["delete_failed"]);
+        }
+        catch { await transaction.RollbackAsync(); throw; }
+    }
+
+    public async Task<(bool flag, string msg)> ConfirmAdjustment(int id, CurrentUser currentUser)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
+        try
+        {
+            var entity = await connection.QuerySingleOrDefaultAsync<StockprocessEntity>("""
+                SELECT `id`,`job_code`,`job_type`,`process_status`,`processor`,`process_time`,`creator`,`create_time`,`last_update_time`,`tenant_id`
+                FROM `wms_stockprocess` WHERE `id`=@id AND `tenant_id`=@tenantId FOR UPDATE;
+                """, new { id, tenantId = currentUser.tenant_id }, transaction);
+            if (entity == null) return await Rollback(false, _stringLocalizer["not_exists_entity"], transaction);
+            var adjusted = await connection.ExecuteScalarAsync<bool>("""
+                SELECT EXISTS(SELECT 1 FROM `wms_stockadjust` a
+                INNER JOIN `wms_stockprocessdetail` d ON d.`id`=a.`source_table_id`
+                WHERE a.`job_type`=2 AND d.`stock_process_id`=@id);
+                """, new { id }, transaction);
+            if (entity.process_status && adjusted)
+                return await Rollback(false, _stringLocalizer["status_changed"], transaction);
+
+            var details = (await connection.QueryAsync<StockprocessdetailEntity>("""
+                SELECT `id`,`stock_process_id`,`sku_id`,`goods_owner_id`,`goods_location_id`,`qty`,
+                    `last_update_time`,`tenant_id`,`is_source`,`is_update_stock`,`series_number`,`expiry_date`,`price`,`putaway_date`
+                FROM `wms_stockprocessdetail` WHERE `stock_process_id`=@id AND `tenant_id`=@tenantId FOR UPDATE;
+                """, new { id, tenantId = currentUser.tenant_id }, transaction)).AsList();
+            var adjustmentPutawayDates = details.ToDictionary(x => x.id, x => x.putaway_date);
+            var stocks = await LoadStocksAsync(connection, transaction, details, currentUser.tenant_id, true);
+            var now = DateTime.Now;
+            foreach (var detail in details)
+            {
+                var stock = stocks.FirstOrDefault(x => SameStock(x, detail));
+                if (detail.is_source)
+                {
+                    if (stock == null || stock.qty < detail.qty)
+                        return await Rollback(false, _stringLocalizer["data_changed"], transaction);
+                    await connection.ExecuteAsync("UPDATE `wms_stock` SET `qty`=`qty`-@qty,`last_update_time`=@now WHERE `id`=@id;",
+                        new { detail.qty, now, stock.id }, transaction);
+                    stock.qty -= detail.qty;
+                }
+                else if (stock == null)
+                {
+                    detail.putaway_date = DateTime.Today;
+                    await connection.ExecuteAsync("""
+                        INSERT INTO `wms_stock` (`sku_id`,`goods_location_id`,`qty`,`goods_owner_id`,`is_freeze`,
+                            `last_update_time`,`tenant_id`,`series_number`,`expiry_date`,`price`,`putaway_date`)
+                        VALUES (@sku_id,@goods_location_id,@qty,@goods_owner_id,0,@now,@tenantId,
+                            @series_number,@expiry_date,@price,@putaway_date);
+                        """, new { detail.sku_id, detail.goods_location_id, detail.qty, detail.goods_owner_id, now,
+                            tenantId = currentUser.tenant_id, detail.series_number, detail.expiry_date, detail.price, detail.putaway_date }, transaction);
+                }
+                else
+                {
+                    detail.putaway_date = DateTime.Today;
+                    await connection.ExecuteAsync("UPDATE `wms_stock` SET `qty`=`qty`+@qty,`last_update_time`=@now WHERE `id`=@id;",
+                        new { detail.qty, now, stock.id }, transaction);
+                    stock.qty += detail.qty;
+                }
+                await connection.ExecuteAsync("""
+                    UPDATE `wms_stockprocessdetail` SET `is_update_stock`=1,`last_update_time`=@now,`putaway_date`=@putawayDate
+                    WHERE `id`=@id;
+                    """, new { detail.id, now, putawayDate = detail.putaway_date }, transaction);
+            }
+
+            var adjustCode = await GetNextCodeAsync(connection, transaction, "wms_stockadjust", currentUser.tenant_id);
+            foreach (var detail in details)
+                await connection.ExecuteAsync("""
+                    INSERT INTO `wms_stockadjust` (`job_code`,`sku_id`,`goods_owner_id`,`goods_location_id`,`qty`,`creator`,
+                        `create_time`,`last_update_time`,`tenant_id`,`is_update_stock`,`job_type`,`source_table_id`,
+                        `series_number`,`expiry_date`,`price`,`putaway_date`)
+                    VALUES (@jobCode,@sku_id,@goods_owner_id,@goods_location_id,@qty,@creator,@now,@now,@tenantId,1,2,@id,
+                        @series_number,@expiry_date,@price,@putaway_date);
+                    """, new { jobCode = adjustCode, detail.sku_id, detail.goods_owner_id, detail.goods_location_id,
+                        qty = detail.is_source ? -detail.qty : detail.qty, creator = currentUser.user_name, now,
+                        tenantId = currentUser.tenant_id, detail.id, detail.series_number, detail.expiry_date,
+                        detail.price, putaway_date = adjustmentPutawayDates[detail.id] }, transaction);
+            await connection.ExecuteAsync("UPDATE `wms_stockprocess` SET `last_update_time`=@now WHERE `id`=@id;", new { now, id }, transaction);
+            await transaction.CommitAsync();
+            return (true, _stringLocalizer["operation_success"]);
+        }
+        catch { await transaction.RollbackAsync(); throw; }
+    }
+
+    public async Task<(bool flag, string msg)> ConfirmProcess(int id, CurrentUser currentUser)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted);
+        try
+        {
+            var status = await connection.QuerySingleOrDefaultAsync<bool?>("""
+                SELECT `process_status` FROM `wms_stockprocess`
+                WHERE `id`=@id AND `tenant_id`=@tenantId FOR UPDATE;
+                """, new { id, tenantId = currentUser.tenant_id }, transaction);
+            if (status == null) return await Rollback(false, _stringLocalizer["not_exists_entity"], transaction);
+            if (status.Value) return await Rollback(false, _stringLocalizer["status_changed"], transaction);
+            var now = DateTime.Now;
+            var affected = await connection.ExecuteAsync("""
+                UPDATE `wms_stockprocess` SET `process_status`=1,`processor`=@processor,
+                    `process_time`=@now,`last_update_time`=@now WHERE `id`=@id AND `tenant_id`=@tenantId;
+                """, new { id, tenantId = currentUser.tenant_id, processor = currentUser.user_name, now }, transaction);
+            await transaction.CommitAsync();
+            return affected > 0 ? (true, _stringLocalizer["operation_success"]) : (false, _stringLocalizer["operation_failed"]);
+        }
+        catch { await transaction.RollbackAsync(); throw; }
+    }
+
+    public async Task<string> GetOrderCode(CurrentUser currentUser)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        return await GetNextCodeAsync(connection, null, "wms_stockprocess", currentUser.tenant_id);
+    }
+
+    public async Task<string> GetAdjustOrderCode(CurrentUser currentUser)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        return await GetNextCodeAsync(connection, null, "wms_stockadjust", currentUser.tenant_id);
+    }
+
+    private static Task<List<StockEntity>> LoadStocksAsync(MySqlConnection connection, IDbTransaction transaction,
+        IEnumerable<StockprocessdetailViewModel> details, long tenantId, bool forUpdate) =>
+        LoadStocksByKeysAsync(connection, transaction,
+            details.Select(x => new StockLookupKey(x.goods_location_id, x.sku_id)), tenantId, forUpdate);
+
+    private static Task<List<StockEntity>> LoadStocksAsync(MySqlConnection connection, IDbTransaction transaction,
+        IEnumerable<StockprocessdetailEntity> details, long tenantId, bool forUpdate) =>
+        LoadStocksByKeysAsync(connection, transaction,
+            details.Select(x => new StockLookupKey(x.goods_location_id, x.sku_id)), tenantId, forUpdate);
+
+    private static async Task<List<StockEntity>> LoadStocksByKeysAsync(MySqlConnection connection,
+        IDbTransaction transaction, IEnumerable<StockLookupKey> details, long tenantId, bool forUpdate)
+    {
+        var values = details.ToList();
+        if (values.Count == 0) return [];
+        int[] locationIds = values.Select(x => x.GoodsLocationId).Distinct().ToArray();
+        int[] skuIds = values.Select(x => x.SkuId).Distinct().ToArray();
+        return (await connection.QueryAsync<StockEntity>($"""
+            SELECT `id`,`sku_id`,`goods_location_id`,`qty`,`goods_owner_id`,`is_freeze`,`last_update_time`,
+                `tenant_id`,`series_number`,`expiry_date`,`price`,`putaway_date`
+            FROM `wms_stock` WHERE `tenant_id`=@tenantId AND `goods_location_id` IN @locationIds AND `sku_id` IN @skuIds
+            {(forUpdate ? "FOR UPDATE" : string.Empty)};
+            """, new { tenantId, locationIds, skuIds }, transaction)).AsList();
+    }
+
+    private static async Task<List<StockprocessdetailEntity>> LoadLockedAsync(MySqlConnection connection,
+        IDbTransaction transaction, List<StockprocessdetailViewModel> details, long tenantId)
+    {
+        if (details.Count == 0) return [];
+        var locationIds = details.Select(x => x.goods_location_id).Distinct().ToArray();
+        var skuIds = details.Select(x => x.sku_id).Distinct().ToArray();
+        return (await connection.QueryAsync<StockprocessdetailEntity>("""
+            SELECT `sku_id`,`goods_location_id`,`goods_owner_id`,`series_number`,`expiry_date`,`price`,`putaway_date`,SUM(`qty`) `qty`
+            FROM `wms_stockprocessdetail` WHERE `tenant_id`=@tenantId AND `is_update_stock`=0
+                AND `goods_location_id` IN @locationIds AND `sku_id` IN @skuIds
+            GROUP BY `sku_id`,`goods_location_id`,`goods_owner_id`,`series_number`,`expiry_date`,`price`,`putaway_date`
+            FOR UPDATE;
+            """, new { tenantId, locationIds, skuIds }, transaction)).AsList();
+    }
+
+    private static bool SameStock(StockEntity stock, StockprocessdetailViewModel detail) =>
+        stock.sku_id == detail.sku_id && stock.goods_location_id == detail.goods_location_id
+        && stock.goods_owner_id == detail.goods_owner_id && stock.series_number == detail.series_number
+        && stock.expiry_date == detail.expiry_date && stock.price == detail.price && stock.putaway_date == detail.putaway_date;
+
+    private static bool SameStock(StockEntity stock, StockprocessdetailEntity detail) =>
+        stock.sku_id == detail.sku_id && stock.goods_location_id == detail.goods_location_id
+        && stock.goods_owner_id == detail.goods_owner_id && stock.series_number == detail.series_number
+        && stock.expiry_date == detail.expiry_date && stock.price == detail.price
+        && stock.putaway_date == detail.putaway_date;
+
+    private static bool SameDetail(StockprocessdetailEntity locked, StockprocessdetailViewModel detail) =>
+        locked.sku_id == detail.sku_id && locked.goods_location_id == detail.goods_location_id
+        && locked.goods_owner_id == detail.goods_owner_id && locked.series_number == detail.series_number
+        && locked.expiry_date == detail.expiry_date && locked.price == detail.price
+        && locked.putaway_date == detail.putaway_date;
+
+    private static Task InsertDetailAsync(MySqlConnection connection, IDbTransaction transaction, int processId,
+        StockprocessdetailViewModel detail, long tenantId, DateTime now) => connection.ExecuteAsync("""
+            INSERT INTO `wms_stockprocessdetail` (`stock_process_id`,`sku_id`,`goods_owner_id`,`goods_location_id`,`qty`,
+                `last_update_time`,`tenant_id`,`is_source`,`is_update_stock`,`series_number`,`expiry_date`,`price`,`putaway_date`)
+            VALUES (@processId,@sku_id,@goods_owner_id,@goods_location_id,@qty,@now,@tenantId,@is_source,@is_update_stock,
+                @series_number,@expiry_date,@price,@putaway_date);
+            """, new { processId, detail.sku_id, detail.goods_owner_id, detail.goods_location_id, detail.qty, now, tenantId,
+                detail.is_source, detail.is_update_stock, detail.series_number, detail.expiry_date, detail.price, detail.putaway_date }, transaction);
+
+    private static async Task<string> GetNextCodeAsync(MySqlConnection connection, IDbTransaction transaction,
+        string tableName, long tenantId)
+    {
+        var maxNo = await connection.QuerySingleOrDefaultAsync<string>(
+            $"SELECT MAX(`job_code`) FROM `{tableName}` WHERE `tenant_id`=@tenantId;", new { tenantId }, transaction);
+        var date = DateTime.Now.ToString("yyyyMMdd");
+        if (string.IsNullOrEmpty(maxNo) || maxNo.Length < 13 || maxNo[..8] != date) return date + "-0001";
+        int.TryParse(maxNo.Substring(9, 4), out var number);
+        return date + "-" + (number + 1).ToString("0000");
+    }
+
+    private static async Task<(T value, string msg)> Rollback<T>(T value, string msg, MySqlTransaction transaction)
+    {
+        await transaction.RollbackAsync();
+        return (value, msg);
+    }
+
+    private sealed record StockLookupKey(int GoodsLocationId, int SkuId);
 }
