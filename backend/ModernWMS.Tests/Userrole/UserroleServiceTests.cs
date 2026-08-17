@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Localization;
+using ModernWMS.Core.Database;
 using ModernWMS.Core.DBContext;
 using ModernWMS.Core.JWT;
 using ModernWMS.Core.Models;
@@ -188,7 +189,15 @@ public class UserroleServiceTests
 
     private static UserroleService CreateService(SqlDBContext database)
     {
-        return new UserroleService(database, new TestStringLocalizer());
+        return new UserroleService(new UnavailableConnectionFactory(), new TestStringLocalizer());
+    }
+
+    private sealed class UnavailableConnectionFactory : IMySqlConnectionFactory
+    {
+        public MySqlConnector.MySqlConnection CreateConnection() => throw new NotSupportedException();
+
+        public ValueTask<MySqlConnector.MySqlConnection> OpenConnectionAsync(
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private static CurrentUser TenantOneUser()
