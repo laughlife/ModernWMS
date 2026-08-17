@@ -1,0 +1,11 @@
+# This file contains policy only. Do not add URLs, usernames or passwords.
+# Connection settings are supplied through FLYWAY_URL, FLYWAY_USER and
+# FLYWAY_PASSWORD when scripts/Update-Database.ps1 is executed.
+
+flyway.locations=filesystem:flyway/sql
+flyway.table=wms_flyway_schema_history
+flyway.cleanDisabled=true
+flyway.baselineOnMigrate=false
+flyway.outOfOrder=false
+flyway.validateMigrationNaming=true
+

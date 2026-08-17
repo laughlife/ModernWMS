@@ -37,11 +37,11 @@ powershell -ExecutionPolicy Bypass -File scripts\Start-Development.ps1
 启动器会依次完成以下操作：
 
 1. 检查 `dotnet`、`npm`、前端依赖和 21011/80 端口；端口被占用时会报告 PID，但不会终止未知进程。
-2. 单独执行数据库初始化；只有初始化成功才继续。
-3. 使用 `DatabaseInitialization__Enabled=false` 启动后端 watch，避免 watch 重启时重复迁移。
+2. 普通启动不会检查或修改数据库；数据库迁移使用下文独立的 Flyway 命令。
+3. 启动后端 watch，保留代码自动重新生成和重启。
 4. 后端健康检查通过后启动前端，并把日志保存到输出中显示的临时目录。统一启动器会给前端进程覆盖本机 API 地址为 `http://127.0.0.1:21011`；手工执行 `npm run dev` 时仍使用前端环境文件中的地址。
 
-统一启动器只把数据库初始化从常驻进程中分离出来，不会关闭代码自动更新：后端仍由 `dotnet watch` 监视并自动重新生成、重启，前端仍由 Vite 开发服务器提供文件监听和 HMR。
+数据库迁移与常驻进程完全分离，不会影响代码自动更新：后端仍由 `dotnet watch` 监视并自动重新生成、重启，前端仍由 Vite 开发服务器提供文件监听和 HMR。
 
 只做环境和端口检查，不初始化数据库或启动进程：
 
@@ -57,10 +57,25 @@ powershell -ExecutionPolicy Bypass -File scripts\Stop-Development.ps1
 
 停止脚本只会按状态文件中的 PID 和进程启动时间双重验证后，分别终止控制进程和实际监听进程，不会按进程名批量杀进程。不要同时使用 Rider 组合启动和统一启动器；如果端口已被 Rider 或其他程序占用，先在对应工具中正常停止。
 
-## 4. 手工初始化数据库并启动后端
+## 4. 显式检查或更新数据库
 
 ```powershell
-dotnet run --project backend/ModernWMS -- --initialize-database-only
+$env:FLYWAY_URL = 'jdbc:mysql://127.0.0.1:3306/ruoyi-vue-pro'
+$env:FLYWAY_USER = 'YOUR_MIGRATION_USER'
+$env:FLYWAY_PASSWORD = 'YOUR_MIGRATION_PASSWORD'
+
+# 默认只执行 info 和 validate，不修改结构
+powershell -ExecutionPolicy Bypass -File scripts\Update-Database.ps1 -ConfirmDevelopmentDatabase
+
+# 备份并确认目标环境后，才显式应用迁移
+powershell -ExecutionPolicy Bypass -File scripts\Update-Database.ps1 -ConfirmDevelopmentDatabase -Apply
+```
+
+脚本只接受固定的 Flyway `11.15.0`，并强制使用 `wms_flyway_schema_history`、`cleanDisabled=true` 和 `baselineOnMigrate=false`。它仅允许回环地址上的本机开发库，且每次都要求 `-ConfirmDevelopmentDatabase`；生产库和远程库必须使用另行评审、授权的发布流程，不能通过此脚本访问。工具安装及既有数据库基线限制见 `flyway/README.md`。连接信息只通过当前进程环境变量或脚本参数传入，不写入仓库；密码只读取 `FLYWAY_PASSWORD`，避免出现在命令行参数中。普通后端启动和文件变更后的自动重启都不会调用 Flyway。
+
+## 5. 手工启动后端
+
+```powershell
 dotnet run --project backend/ModernWMS
 ```
 
@@ -71,7 +86,7 @@ dotnet run --project backend/ModernWMS
 
 开发环境仅允许来自 `http://localhost`、`http://127.0.0.1`、`http://localhost:80` 和 `http://127.0.0.1:80` 的跨域请求。
 
-## 5. 手工安装并启动前端
+## 6. 手工安装并启动前端
 
 ```powershell
 cd frontend
@@ -90,7 +105,7 @@ npm run build
 subst W: /d
 ```
 
-## 6. Rider 一键启动
+## 7. Rider 一键启动
 
 使用 Rider 打开 `backend/ModernWMS.sln` 后，顶部启动栏会显示仓库共享的两个启动配置：
 
@@ -99,7 +114,7 @@ subst W: /d
 
 前端依赖仍需事先安装；启动配置不会自动执行 `npm ci`。需要稳定地同时启动前后端时，使用本页第 3 节的统一启动器。
 
-## 7. 测试
+## 8. 测试
 
 ```powershell
 dotnet restore backend/ModernWMS.sln
@@ -114,7 +129,7 @@ npm run test:e2e
 
 本机 Playwright 默认使用已安装的 Chrome；CI 环境使用 Playwright 默认浏览器。
 
-## 8. 外部商品图片访问规范
+## 9. 外部商品图片访问规范
 
 ERP 商品快照中的 `mainImage` 可能指向启用了 Referer 防盗链的腾讯 COS。此类对象在不带 Referer 时可以直接访问，但浏览器从 ModernWMS 页面加载时会因携带站点 Referer 收到 `403 Forbidden`；这不是普通的图片 CORS 问题，也不表示对象一定是私有读。
 
