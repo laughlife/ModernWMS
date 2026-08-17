@@ -1,10 +1,13 @@
+using System.Runtime.CompilerServices;
 using System.Text.Json;
+using Dapper;
 using Microsoft.AspNetCore.Http;
-using Microsoft.EntityFrameworkCore;
-using ModernWMS.Core.DBContext;
+using ModernWMS.Core.Database;
 using ModernWMS.WMS.Entities.ViewModels;
 using ModernWMS.WMS.IServices;
 using OSS = AlibabaCloud.OSS.V2;
+
+[assembly: InternalsVisibleTo("ModernWMS.Tests")]
 
 namespace ModernWMS.WMS.Services;
 
@@ -19,11 +22,18 @@ public class ErpOssStorageService : IErpOssStorageService
     private const long ShenzhenWarehouseId = 320118;
     private const string ObjectPrefix = "modernwms/erp-receipt";
     private static readonly HashSet<string> AllowedCategories = ["freight", "loss", "receipt"];
-    private readonly RuoyiDbContext _ruoyiDbContext;
+    private readonly IErpOssDataSource _dataSource;
+    private readonly IErpOssClientFactory _clientFactory;
 
-    public ErpOssStorageService(RuoyiDbContext ruoyiDbContext)
+    public ErpOssStorageService(IMySqlConnectionFactory connectionFactory)
+        : this(new DapperErpOssDataSource(connectionFactory), AlibabaErpOssClientFactory.Instance)
     {
-        _ruoyiDbContext = ruoyiDbContext;
+    }
+
+    internal ErpOssStorageService(IErpOssDataSource dataSource, IErpOssClientFactory clientFactory)
+    {
+        _dataSource = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
+        _clientFactory = clientFactory ?? throw new ArgumentNullException(nameof(clientFactory));
     }
 
     public async Task<OssFileUploadViewModel> UploadImageAsync(IFormFile file, long shipmentId, string category)
@@ -44,9 +54,10 @@ public class ErpOssStorageService : IErpOssStorageService
         {
             throw new ArgumentException("图片分类无效");
         }
-        var shipmentExists = await _ruoyiDbContext.LogisticsInfos
-            .AsNoTracking()
-            .AnyAsync(t => t.id == shipmentId && !t.deleted && t.to_warehouse_id == ShenzhenWarehouseId);
+        var shipmentExists = await _dataSource.ShipmentExistsAsync(
+            shipmentId,
+            ShenzhenWarehouseId,
+            CancellationToken.None);
         if (!shipmentExists)
         {
             throw new ArgumentException("未找到深圳自建仓对应货件");
@@ -60,21 +71,11 @@ public class ErpOssStorageService : IErpOssStorageService
 
         var objectPath = $"{ObjectPrefix}/{category}/{shipmentId}/{DateTime.UtcNow:yyyyMMdd}/{Guid.NewGuid():N}{image.extension}";
         var storage = await LoadStorageAsync();
-        using var client = CreateClient(storage);
-        await client.PutObjectAsync(new OSS.Models.PutObjectRequest
-        {
-            Bucket = storage.bucket,
-            Key = objectPath,
-            Body = content,
-            ContentType = image.contentType
-        });
+        using var client = _clientFactory.Create(storage);
+        await client.UploadAsync(objectPath, content, image.contentType, CancellationToken.None);
 
         var url = BuildCanonicalUrl(storage, objectPath);
-        var accessUrl = client.Presign(new OSS.Models.GetObjectRequest
-        {
-            Bucket = storage.bucket,
-            Key = objectPath
-        }).Url;
+        var accessUrl = client.CreateAccessUrl(objectPath);
 
         return new OssFileUploadViewModel
         {
@@ -96,27 +97,23 @@ public class ErpOssStorageService : IErpOssStorageService
         }
 
         var storage = await LoadStorageAsync();
-        using var client = CreateClient(storage);
-        return client.Presign(new OSS.Models.GetObjectRequest
-        {
-            Bucket = storage.bucket,
-            Key = normalizedPath
-        }).Url;
+        using var client = _clientFactory.Create(storage);
+        return client.CreateAccessUrl(normalizedPath);
     }
 
-    private async Task<ErpOssConfig> LoadStorageAsync()
+    private async Task<ErpOssStorageSettings> LoadStorageAsync()
     {
-        var entity = await _ruoyiDbContext.FileConfigs
-            .AsNoTracking()
-            .Where(t => t.master && !t.deleted && (t.storage == ErpS3Storage || t.storage == ErpAliyunOssStorage))
-            .OrderByDescending(t => t.id)
-            .FirstOrDefaultAsync();
+        var rows = await _dataSource.LoadStorageRowsAsync(CancellationToken.None);
+        var entity = rows
+            .Where(t => t.Master && !t.Deleted && (t.Storage == ErpS3Storage || t.Storage == ErpAliyunOssStorage))
+            .OrderByDescending(t => t.Id)
+            .FirstOrDefault();
         if (entity == null)
         {
             throw new InvalidOperationException("ERP 未配置可用的主 OSS 存储");
         }
 
-        var config = JsonSerializer.Deserialize<ErpOssConfig>(entity.config, new JsonSerializerOptions
+        var config = JsonSerializer.Deserialize<ErpOssConfig>(entity.Config, new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true
         });
@@ -133,29 +130,24 @@ public class ErpOssStorageService : IErpOssStorageService
             throw new InvalidOperationException("ERP 当前主文件配置不是阿里云 OSS");
         }
 
-        config.endpoint = EnsureHttps(config.endpoint);
-        config.region = string.IsNullOrWhiteSpace(config.region) ? ResolveRegion(config.endpoint) : config.region;
-        return config;
+        var endpoint = EnsureHttps(config.endpoint);
+        var region = string.IsNullOrWhiteSpace(config.region) ? ResolveRegion(endpoint) : config.region;
+        return new ErpOssStorageSettings(
+            endpoint,
+            config.domain,
+            config.bucket,
+            region,
+            config.accessKey,
+            config.accessSecret);
     }
 
-    private static OSS.Client CreateClient(ErpOssConfig storage)
+    private static string BuildCanonicalUrl(ErpOssStorageSettings storage, string path)
     {
-        var configuration = OSS.Configuration.LoadDefault();
-        configuration.CredentialsProvider = new OSS.Credentials.StaticCredentialsProvider(
-            storage.accessKey,
-            storage.accessSecret);
-        configuration.Region = storage.region;
-        configuration.Endpoint = storage.endpoint;
-        return new OSS.Client(configuration);
-    }
-
-    private static string BuildCanonicalUrl(ErpOssConfig storage, string path)
-    {
-        var domain = storage.domain?.Trim().TrimEnd('/');
+        var domain = storage.Domain?.Trim().TrimEnd('/');
         if (string.IsNullOrWhiteSpace(domain))
         {
-            var endpoint = new Uri(storage.endpoint);
-            domain = $"{endpoint.Scheme}://{storage.bucket}.{endpoint.Host}";
+            var endpoint = new Uri(storage.Endpoint);
+            domain = $"{endpoint.Scheme}://{storage.Bucket}.{endpoint.Host}";
         }
         else
         {
@@ -215,4 +207,131 @@ public class ErpOssStorageService : IErpOssStorageService
         public string accessKey { get; set; } = string.Empty;
         public string accessSecret { get; set; } = string.Empty;
     }
+}
+
+internal sealed record ErpOssStorageRow(long Id, int Storage, bool Master, bool Deleted, string Config);
+
+internal sealed record ErpOssStorageSettings(
+    string Endpoint,
+    string? Domain,
+    string Bucket,
+    string Region,
+    string AccessKey,
+    string AccessSecret);
+
+internal interface IErpOssDataSource
+{
+    Task<bool> ShipmentExistsAsync(long shipmentId, long warehouseId, CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<ErpOssStorageRow>> LoadStorageRowsAsync(CancellationToken cancellationToken);
+}
+
+internal sealed class DapperErpOssDataSource(IMySqlConnectionFactory connectionFactory) : IErpOssDataSource
+{
+    private readonly IMySqlConnectionFactory _connectionFactory =
+        connectionFactory ?? throw new ArgumentNullException(nameof(connectionFactory));
+
+    public async Task<bool> ShipmentExistsAsync(
+        long shipmentId,
+        long warehouseId,
+        CancellationToken cancellationToken)
+    {
+        const string sql = """
+            SELECT EXISTS(
+                SELECT 1
+                FROM `trk_logistics_info`
+                WHERE `id` = @shipment_id
+                  AND `deleted` = 0
+                  AND `to_warehouse_id` = @warehouse_id
+            );
+            """;
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        return await connection.QuerySingleAsync<bool>(new CommandDefinition(
+            sql,
+            new { shipment_id = shipmentId, warehouse_id = warehouseId },
+            cancellationToken: cancellationToken));
+    }
+
+    public async Task<IReadOnlyList<ErpOssStorageRow>> LoadStorageRowsAsync(CancellationToken cancellationToken)
+    {
+        const string sql = """
+            SELECT
+                `id` AS `Id`,
+                `storage` AS `Storage`,
+                `master` AS `Master`,
+                `deleted` AS `Deleted`,
+                `config` AS `Config`
+            FROM `infra_file_config`
+            WHERE `master` = 1
+              AND `deleted` = 0
+              AND `storage` IN (20, 21)
+            ORDER BY `id` DESC;
+            """;
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        var rows = await connection.QueryAsync<ErpOssStorageRow>(new CommandDefinition(
+            sql,
+            cancellationToken: cancellationToken));
+        return rows.AsList();
+    }
+}
+
+internal interface IErpOssClientFactory
+{
+    IErpOssClient Create(ErpOssStorageSettings storage);
+}
+
+internal interface IErpOssClient : IDisposable
+{
+    Task UploadAsync(string path, Stream content, string contentType, CancellationToken cancellationToken);
+
+    string CreateAccessUrl(string path);
+}
+
+internal sealed class AlibabaErpOssClientFactory : IErpOssClientFactory
+{
+    public static AlibabaErpOssClientFactory Instance { get; } = new();
+
+    private AlibabaErpOssClientFactory()
+    {
+    }
+
+    public IErpOssClient Create(ErpOssStorageSettings storage)
+    {
+        var configuration = OSS.Configuration.LoadDefault();
+        configuration.CredentialsProvider = new OSS.Credentials.StaticCredentialsProvider(
+            storage.AccessKey,
+            storage.AccessSecret);
+        configuration.Region = storage.Region;
+        configuration.Endpoint = storage.Endpoint;
+        return new AlibabaErpOssClient(new OSS.Client(configuration), storage.Bucket);
+    }
+}
+
+internal sealed class AlibabaErpOssClient(OSS.Client client, string bucket) : IErpOssClient
+{
+    private readonly OSS.Client _client = client;
+
+    public async Task UploadAsync(
+        string path,
+        Stream content,
+        string contentType,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        await _client.PutObjectAsync(new OSS.Models.PutObjectRequest
+        {
+            Bucket = bucket,
+            Key = path,
+            Body = content,
+            ContentType = contentType
+        });
+    }
+
+    public string CreateAccessUrl(string path) => _client.Presign(new OSS.Models.GetObjectRequest
+    {
+        Bucket = bucket,
+        Key = path
+    }).Url ?? throw new InvalidOperationException("OSS 未返回可用的访问地址");
+
+    public void Dispose() => _client.Dispose();
 }
