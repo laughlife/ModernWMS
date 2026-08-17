@@ -1,233 +1,213 @@
-/*
- * date：2022-12-21
- * developer：NoNo
- */
- using Mapster;
- using Microsoft.EntityFrameworkCore;
- using ModernWMS.Core.DBContext;
- using ModernWMS.Core.Services;
- using ModernWMS.WMS.Entities.Models;
- using ModernWMS.WMS.Entities.ViewModels;
- using ModernWMS.WMS.IServices;
- using ModernWMS.Core.Models;
- using ModernWMS.Core.JWT;
- using Microsoft.Extensions.Localization;
- using ModernWMS.Core.DynamicSearch;
- 
- namespace ModernWMS.WMS.Services
- {
-     /// <summary>
-     ///  Goodslocation Service
-     /// </summary>
-     public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodslocationService
-     {
-         #region Args
-         /// <summary>
-         /// The DBContext
-         /// </summary>
-         private readonly SqlDBContext _dBContext;
- 
-         /// <summary>
-         /// Localizer Service
-         /// </summary>
-         private readonly IStringLocalizer<ModernWMS.Core.MultiLanguage> _stringLocalizer;
-         #endregion
- 
-         #region constructor
-         /// <summary>
-         ///Goodslocation  constructor
-         /// </summary>
-         /// <param name="dBContext">The DBContext</param>
-        /// <param name="stringLocalizer">Localizer</param>
-         public GoodslocationService(
-             SqlDBContext dBContext
-           , IStringLocalizer<ModernWMS.Core.MultiLanguage> stringLocalizer
-             )
-         {
-             this._dBContext = dBContext;
-            this._stringLocalizer= stringLocalizer;
-         }
-        #endregion
+using Dapper;
+using Microsoft.Extensions.Localization;
+using ModernWMS.Core.Database;
+using ModernWMS.Core.JWT;
+using ModernWMS.Core.Models;
+using ModernWMS.Core.Services;
+using ModernWMS.WMS.Entities.Models;
+using ModernWMS.WMS.Entities.ViewModels;
+using ModernWMS.WMS.IServices;
 
-        #region Api
-        /// <summary>
-        /// get goodslocation of the warehousearea by warehouse_id and warehousearea_id
-        /// </summary>
-        /// <param name="warehouse_area_id">warehousearea's id</param>
-        /// <param name="currentUser">current user</param>
-        /// <returns></returns>
-        public async Task<List<FormSelectItem>> GetGoodslocationByWarehouse_area_id( int warehouse_area_id, CurrentUser currentUser)
+namespace ModernWMS.WMS.Services;
+
+public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodslocationService
+{
+    private const string Projection = """
+        gl.`id`, gl.`warehouse_id`, gl.`warehouse_name`, gl.`warehouse_area_name`,
+        gl.`warehouse_area_property`, gl.`location_name`, gl.`location_length`, gl.`location_width`,
+        gl.`location_heigth`, gl.`location_volume`, gl.`location_load`, gl.`roadway_number`,
+        gl.`shelf_number`, gl.`layer_number`, gl.`tag_number`, gl.`create_time`,
+        gl.`last_update_time`, gl.`is_valid`, gl.`tenant_id`, gl.`warehouse_area_id`
+        """;
+
+    private static readonly IReadOnlyDictionary<string, string> SearchColumns =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            var res = new List<FormSelectItem>();
-            var DbSet = _dBContext.GetDbSet<GoodslocationEntity>();
-            res = await (from g in DbSet.AsNoTracking()
-                         where g.is_valid == true && g.tenant_id == currentUser.tenant_id  && g.warehouse_area_id== warehouse_area_id
-                         select new FormSelectItem
-                         {
-                             code = "goodslocation",
-                             comments = "goodslocations of the warehousearea",
-                             name = g.location_name,
-                             value = g.id.ToString(),
-                         }).ToListAsync();
-            return res;
+            ["id"] = "gl.`id`", ["warehouse_id"] = "gl.`warehouse_id`",
+            ["warehouse_name"] = "gl.`warehouse_name`", ["warehouse_area_name"] = "gl.`warehouse_area_name`",
+            ["warehouse_area_property"] = "gl.`warehouse_area_property`", ["location_name"] = "gl.`location_name`",
+            ["location_length"] = "gl.`location_length`", ["location_width"] = "gl.`location_width`",
+            ["location_heigth"] = "gl.`location_heigth`", ["location_volume"] = "gl.`location_volume`",
+            ["location_load"] = "gl.`location_load`", ["roadway_number"] = "gl.`roadway_number`",
+            ["shelf_number"] = "gl.`shelf_number`", ["layer_number"] = "gl.`layer_number`",
+            ["tag_number"] = "gl.`tag_number`", ["create_time"] = "gl.`create_time`",
+            ["last_update_time"] = "gl.`last_update_time`", ["is_valid"] = "gl.`is_valid`",
+            ["tenant_id"] = "gl.`tenant_id`", ["warehouse_area_id"] = "gl.`warehouse_area_id`"
+        };
+
+    private readonly IMySqlConnectionFactory _connectionFactory;
+    private readonly IStringLocalizer<ModernWMS.Core.MultiLanguage> _stringLocalizer;
+
+    public GoodslocationService(
+        IMySqlConnectionFactory connectionFactory,
+        IStringLocalizer<ModernWMS.Core.MultiLanguage> stringLocalizer)
+    {
+        _connectionFactory = connectionFactory;
+        _stringLocalizer = stringLocalizer;
+    }
+
+    public async Task<List<FormSelectItem>> GetGoodslocationByWarehouse_area_id(
+        int warehouse_area_id, CurrentUser currentUser)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        var rows = await connection.QueryAsync<FormSelectItem>("""
+            SELECT 'goodslocation' AS `code`,
+                   'goodslocations of the warehousearea' AS `comments`,
+                   gl.`location_name` AS `name`, CAST(gl.`id` AS CHAR) AS `value`
+            FROM `wms_goodslocation` AS gl
+            WHERE gl.`is_valid` = 1 AND gl.`tenant_id` = @tenant_id
+              AND gl.`warehouse_area_id` = @warehouse_area_id;
+            """, new { currentUser.tenant_id, warehouse_area_id });
+        return rows.AsList();
+    }
+
+    public async Task<(List<GoodslocationViewModel> data, int totals)> PageAsync(
+        PageSearch pageSearch, CurrentUser currentUser)
+    {
+        var filter = DapperSearchBuilder.Build(pageSearch.searchObjects, SearchColumns);
+        var clauses = new List<string> { "gl.`tenant_id` = @tenant_id" };
+        if (!string.IsNullOrWhiteSpace(filter.Sql)) clauses.Add(filter.Sql);
+        if (pageSearch.sqlTitle == "select") clauses.Add("gl.`is_valid` = 1");
+        filter.Parameters.Add("tenant_id", currentUser.tenant_id);
+        filter.Parameters.Add("offset", (pageSearch.pageIndex - 1) * pageSearch.pageSize);
+        filter.Parameters.Add("page_size", pageSearch.pageSize);
+        var where = string.Join(" AND ", clauses);
+
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        using var result = await connection.QueryMultipleAsync($"""
+            SELECT COUNT(*) FROM `wms_goodslocation` AS gl WHERE {where};
+            SELECT {Projection}
+            FROM `wms_goodslocation` AS gl
+            WHERE {where}
+            ORDER BY gl.`create_time` DESC
+            LIMIT @page_size OFFSET @offset;
+            """, filter.Parameters);
+        var totals = await result.ReadSingleAsync<int>();
+        var list = (await result.ReadAsync<GoodslocationViewModel>()).AsList();
+        return (list, totals);
+    }
+
+    public async Task<List<GoodslocationViewModel>> GetAllAsync(CurrentUser currentUser)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        var rows = await connection.QueryAsync<GoodslocationViewModel>($"""
+            SELECT {Projection} FROM `wms_goodslocation` AS gl WHERE gl.`tenant_id` = @tenant_id;
+            """, new { currentUser.tenant_id });
+        return rows.AsList();
+    }
+
+    public async Task<GoodslocationViewModel> GetAsync(int id)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        return await connection.QuerySingleOrDefaultAsync<GoodslocationViewModel>($"""
+            SELECT {Projection} FROM `wms_goodslocation` AS gl WHERE gl.`id` = @id LIMIT 1;
+            """, new { id });
+    }
+
+    public async Task<(int id, string msg)> AddAsync(GoodslocationViewModel viewModel, CurrentUser currentUser)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+        var exists = await connection.ExecuteScalarAsync<bool>("""
+            SELECT EXISTS(SELECT 1 FROM `wms_goodslocation`
+                WHERE `location_name` = @location_name AND `tenant_id` = @tenant_id);
+            """, new { viewModel.location_name, currentUser.tenant_id }, transaction);
+        if (exists)
+        {
+            await transaction.RollbackAsync();
+            return (0, string.Format(_stringLocalizer["exists_entity"], _stringLocalizer["location_name"], viewModel.location_name));
         }
 
-        /// <summary>
-        /// page search
-        /// </summary>
-        /// <param name="pageSearch">args</param>
-        /// <param name="currentUser">currentUser</param>
-        /// <returns></returns>
-        public async Task<(List<GoodslocationViewModel> data, int totals)> PageAsync(PageSearch pageSearch, CurrentUser currentUser)
-         {
-             QueryCollection queries = new QueryCollection();
-             if (pageSearch.searchObjects.Any())
-             {
-                 pageSearch.searchObjects.ForEach(s =>
-                 {
-                     queries.Add(s);
-                 });
-             }
-             var DbSet = _dBContext.GetDbSet<GoodslocationEntity>().AsNoTracking();
+        var now = DateTime.Now;
+        var id = await connection.ExecuteScalarAsync<int>("""
+            INSERT INTO `wms_goodslocation`
+                (`warehouse_id`, `warehouse_name`, `warehouse_area_name`, `warehouse_area_property`,
+                 `location_name`, `location_length`, `location_width`, `location_heigth`, `location_volume`,
+                 `location_load`, `roadway_number`, `shelf_number`, `layer_number`, `tag_number`,
+                 `create_time`, `last_update_time`, `is_valid`, `tenant_id`, `warehouse_area_id`)
+            VALUES
+                (@warehouse_id, @warehouse_name, @warehouse_area_name, @warehouse_area_property,
+                 @location_name, @location_length, @location_width, @location_heigth, @location_volume,
+                 @location_load, @roadway_number, @shelf_number, @layer_number, @tag_number,
+                 @create_time, @last_update_time, @is_valid, @tenant_id, @warehouse_area_id);
+            SELECT LAST_INSERT_ID();
+            """, new
+        {
+            viewModel.warehouse_id, viewModel.warehouse_name, viewModel.warehouse_area_name,
+            viewModel.warehouse_area_property, viewModel.location_name, viewModel.location_length,
+            viewModel.location_width, viewModel.location_heigth, viewModel.location_volume,
+            viewModel.location_load, viewModel.roadway_number, viewModel.shelf_number,
+            viewModel.layer_number, viewModel.tag_number, create_time = now, last_update_time = now,
+            viewModel.is_valid, tenant_id = currentUser.tenant_id, viewModel.warehouse_area_id
+        }, transaction);
+        await transaction.CommitAsync();
+        return id > 0 ? (id, _stringLocalizer["save_success"]) : (0, _stringLocalizer["save_failed"]);
+    }
 
-             var query = DbSet
-                 .Where(t => t.tenant_id.Equals(currentUser.tenant_id))
-                 .Where(queries.AsExpression<GoodslocationEntity>());
-            if (pageSearch.sqlTitle == "select")
-            {
-                query = query.Where(t => t.is_valid == true);
-            }
-            int totals = await query.CountAsync();
-             var list = await query.OrderByDescending(t => t.create_time)
-                        .Skip((pageSearch.pageIndex - 1) * pageSearch.pageSize)
-                        .Take(pageSearch.pageSize)
-                        .ToListAsync();
-             return (list.Adapt<List<GoodslocationViewModel>>(), totals);
-         }
-         
-         /// <summary>
-         /// Get all records
-         /// </summary>
-         /// <returns></returns>
-         public async Task<List<GoodslocationViewModel>> GetAllAsync(CurrentUser currentUser)
-         {
-             var DbSet = _dBContext.GetDbSet<GoodslocationEntity>();
-             var data = await DbSet.AsNoTracking().Where(t=>t.tenant_id.Equals(currentUser.tenant_id)).ToListAsync();
-             return data.Adapt<List<GoodslocationViewModel>>();
-         }
- 
-         /// <summary>
-         /// Get a record by id
-         /// </summary>
-         /// <returns></returns>
-         public async Task<GoodslocationViewModel> GetAsync(int id)
-         {
-             var DbSet = _dBContext.GetDbSet<GoodslocationEntity>();
-             var entity = await DbSet.AsNoTracking().FirstOrDefaultAsync(t=>t.id.Equals(id));
-             if (entity == null)
-             {
-                 return null;
-             }
-             return entity.Adapt<GoodslocationViewModel>();
-         }
-         /// <summary>
-         /// add a new record
-         /// </summary>
-         /// <param name="viewModel">viewmodel</param>
-         /// <param name="currentUser">current user</param>
-         /// <returns></returns>
-         public async Task<(int id, string msg)> AddAsync(GoodslocationViewModel viewModel, CurrentUser currentUser)
-         {
-             var DbSet = _dBContext.GetDbSet<GoodslocationEntity>();
-            if (await DbSet.AnyAsync(t => t.location_name == viewModel.location_name && t.tenant_id == currentUser.tenant_id))
-            {
-                return (0, string.Format(_stringLocalizer["exists_entity"], _stringLocalizer["location_name"], viewModel.location_name));
-            }
-            var entity = viewModel.Adapt<GoodslocationEntity>();
-             entity.id = 0;
-             entity.create_time = DateTime.Now;
-             entity.last_update_time = DateTime.Now;
-             entity.tenant_id = currentUser.tenant_id;
-             await DbSet.AddAsync(entity);
-             await _dBContext.SaveChangesAsync();
-             if (entity.id > 0)
-             {
-                 return (entity.id, _stringLocalizer["save_success"]);
-             }
-             else
-             {
-                 return (0, _stringLocalizer["save_failed"]);
-             }
-         }
-        /// <summary>
-        /// update a record
-        /// </summary>
-        /// <param name="viewModel">args</param>
-        /// <param name="currentUser">currentUser</param>
-        /// <returns></returns>
-        public async Task<(bool flag, string msg)> UpdateAsync(GoodslocationViewModel viewModel,CurrentUser currentUser)
-         {
-             var DbSet = _dBContext.GetDbSet<GoodslocationEntity>();
-            if (await DbSet.AnyAsync(t => t.id != viewModel.id && t.warehouse_id == viewModel.warehouse_id && t.location_name == viewModel.location_name && t.tenant_id == currentUser.tenant_id))
-            {
-                return (false, string.Format(_stringLocalizer["exists_entity"], _stringLocalizer["location_name"], viewModel.location_name));
-            }
-            var entity = await DbSet.FirstOrDefaultAsync(t => t.id.Equals(viewModel.id));
-             if (entity == null)
-             {
-                 return (false,_stringLocalizer[ "not_exists_entity"]);
-             }
-             entity.id = viewModel.id;
-             entity.warehouse_id = viewModel.warehouse_id;
-             entity.warehouse_name = viewModel.warehouse_name;
-             entity.warehouse_area_name = viewModel.warehouse_area_name;
-             entity.warehouse_area_property = viewModel.warehouse_area_property;
-             entity.location_name = viewModel.location_name;
-             entity.location_length = viewModel.location_length;
-             entity.location_width = viewModel.location_width;
-             entity.location_heigth = viewModel.location_heigth;
-             entity.location_volume = viewModel.location_volume;
-             entity.location_load = viewModel.location_load;
-             entity.roadway_number = viewModel.roadway_number;
-             entity.shelf_number = viewModel.shelf_number;
-             entity.layer_number = viewModel.layer_number;
-             entity.tag_number = viewModel.tag_number;
-             entity.is_valid = viewModel.is_valid;
-             entity.warehouse_area_id = viewModel.warehouse_area_id;
-             entity.last_update_time = DateTime.Now;
-             var qty = await _dBContext.SaveChangesAsync();
-             if (qty > 0)
-             {
-                 return (true, _stringLocalizer["save_success"]);
-             }
-             else
-             {
-                 return (false, _stringLocalizer["save_failed"]);
-             }
-         }
-         /// <summary>
-         /// delete a record
-         /// </summary>
-         /// <param name="id">id</param>
-         /// <returns></returns>
-         public async Task<(bool flag, string msg)> DeleteAsync(int id)
-         {
-             var exist_stock =await  _dBContext.GetDbSet<StockEntity>().AsNoTracking().Where(t=>t.qty>0&&t.goods_location_id == id ).AnyAsync();
-            if (exist_stock)
-            {
-                return (false, _stringLocalizer["location_exist_stock_not_delete"]);
-            }
-             var qty = await _dBContext.GetDbSet<GoodslocationEntity>().Where(t => t.id.Equals(id)).ExecuteDeleteAsync();
-             if (qty > 0)
-             {
-                 return (true, _stringLocalizer["delete_success"]);
-             }
-             else
-             {
-                 return (false, _stringLocalizer["delete_failed"]);
-             }
-         }
-         #endregion
-     }
- }
- 
+    public async Task<(bool flag, string msg)> UpdateAsync(GoodslocationViewModel viewModel, CurrentUser currentUser)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+        var duplicate = await connection.ExecuteScalarAsync<bool>("""
+            SELECT EXISTS(SELECT 1 FROM `wms_goodslocation`
+                WHERE `id` <> @id AND `warehouse_id` = @warehouse_id
+                  AND `location_name` = @location_name AND `tenant_id` = @tenant_id);
+            """, new { viewModel.id, viewModel.warehouse_id, viewModel.location_name, currentUser.tenant_id }, transaction);
+        if (duplicate)
+        {
+            await transaction.RollbackAsync();
+            return (false, string.Format(_stringLocalizer["exists_entity"], _stringLocalizer["location_name"], viewModel.location_name));
+        }
+
+        var exists = await connection.ExecuteScalarAsync<bool>(
+            "SELECT EXISTS(SELECT 1 FROM `wms_goodslocation` WHERE `id` = @id);",
+            new { viewModel.id }, transaction);
+        if (!exists)
+        {
+            await transaction.RollbackAsync();
+            return (false, _stringLocalizer["not_exists_entity"]);
+        }
+
+        var qty = await connection.ExecuteAsync("""
+            UPDATE `wms_goodslocation`
+            SET `warehouse_id`=@warehouse_id, `warehouse_name`=@warehouse_name,
+                `warehouse_area_name`=@warehouse_area_name, `warehouse_area_property`=@warehouse_area_property,
+                `location_name`=@location_name, `location_length`=@location_length,
+                `location_width`=@location_width, `location_heigth`=@location_heigth,
+                `location_volume`=@location_volume, `location_load`=@location_load,
+                `roadway_number`=@roadway_number, `shelf_number`=@shelf_number,
+                `layer_number`=@layer_number, `tag_number`=@tag_number, `is_valid`=@is_valid,
+                `warehouse_area_id`=@warehouse_area_id, `last_update_time`=@last_update_time
+            WHERE `id`=@id;
+            """, new
+        {
+            viewModel.id, viewModel.warehouse_id, viewModel.warehouse_name, viewModel.warehouse_area_name,
+            viewModel.warehouse_area_property, viewModel.location_name, viewModel.location_length,
+            viewModel.location_width, viewModel.location_heigth, viewModel.location_volume,
+            viewModel.location_load, viewModel.roadway_number, viewModel.shelf_number,
+            viewModel.layer_number, viewModel.tag_number, viewModel.is_valid,
+            viewModel.warehouse_area_id, last_update_time = DateTime.Now
+        }, transaction);
+        await transaction.CommitAsync();
+        return qty > 0 ? (true, _stringLocalizer["save_success"]) : (false, _stringLocalizer["save_failed"]);
+    }
+
+    public async Task<(bool flag, string msg)> DeleteAsync(int id)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+        var existStock = await connection.ExecuteScalarAsync<bool>("""
+            SELECT EXISTS(SELECT 1 FROM `wms_stock` WHERE `qty` > 0 AND `goods_location_id` = @id);
+            """, new { id }, transaction);
+        if (existStock)
+        {
+            await transaction.RollbackAsync();
+            return (false, _stringLocalizer["location_exist_stock_not_delete"]);
+        }
+
+        var qty = await connection.ExecuteAsync(
+            "DELETE FROM `wms_goodslocation` WHERE `id` = @id;", new { id }, transaction);
+        await transaction.CommitAsync();
+        return qty > 0 ? (true, _stringLocalizer["delete_success"]) : (false, _stringLocalizer["delete_failed"]);
+    }
+}
