@@ -26,7 +26,38 @@ dotnet user-secrets list --project backend/ModernWMS
 
 JWT 签名密钥必须至少包含 32 个 UTF-8 字节。共享或部署环境应改用受保护的进程环境变量或密钥管理服务，变量名分别为 `ConnectionStrings__MySqlConn` 和 `TokenSettings__SigningKey`。
 
-## 3. 初始化数据库并启动后端
+## 3. 推荐：统一启动和停止
+
+日常开发从仓库根目录运行统一启动器：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\Start-Development.ps1
+```
+
+启动器会依次完成以下操作：
+
+1. 检查 `dotnet`、`npm`、前端依赖和 21011/80 端口；端口被占用时会报告 PID，但不会终止未知进程。
+2. 单独执行数据库初始化；只有初始化成功才继续。
+3. 使用 `DatabaseInitialization__Enabled=false` 启动后端 watch，避免 watch 重启时重复迁移。
+4. 后端健康检查通过后启动前端，并把日志保存到输出中显示的临时目录。统一启动器会给前端进程覆盖本机 API 地址为 `http://127.0.0.1:21011`；手工执行 `npm run dev` 时仍使用前端环境文件中的地址。
+
+统一启动器只把数据库初始化从常驻进程中分离出来，不会关闭代码自动更新：后端仍由 `dotnet watch` 监视并自动重新生成、重启，前端仍由 Vite 开发服务器提供文件监听和 HMR。
+
+只做环境和端口检查，不初始化数据库或启动进程：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\Start-Development.ps1 -CheckOnly
+```
+
+停止本启动器启动的前后端：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\Stop-Development.ps1
+```
+
+停止脚本只会按状态文件中的 PID 和进程启动时间双重验证后，分别终止控制进程和实际监听进程，不会按进程名批量杀进程。不要同时使用 Rider 组合启动和统一启动器；如果端口已被 Rider 或其他程序占用，先在对应工具中正常停止。
+
+## 4. 手工初始化数据库并启动后端
 
 ```powershell
 dotnet run --project backend/ModernWMS -- --initialize-database-only
@@ -40,7 +71,7 @@ dotnet run --project backend/ModernWMS
 
 开发环境仅允许来自 `http://localhost`、`http://127.0.0.1`、`http://localhost:80` 和 `http://127.0.0.1:80` 的跨域请求。
 
-## 4. 安装并启动前端
+## 5. 手工安装并启动前端
 
 ```powershell
 cd frontend
@@ -59,17 +90,16 @@ npm run build
 subst W: /d
 ```
 
-## 5. Rider 一键启动
+## 6. Rider 一键启动
 
-使用 Rider 打开 `backend/ModernWMS.sln` 后，顶部启动栏会显示仓库共享的三个启动配置：
+使用 Rider 打开 `backend/ModernWMS.sln` 后，顶部启动栏会显示仓库共享的两个启动配置：
 
 - `后端：ModernWMS API`：只启动后端 API。
 - `前端：Vite`：在 `frontend` 目录执行 `npm run dev`。
-- `一键启动：前端 + 后端`：同时启动前端和后端，是日常开发推荐入口。
 
-首次使用时在顶部启动配置下拉框选择 `一键启动：前端 + 后端`，以后直接点击右侧运行按钮即可。前端依赖仍需事先安装；启动配置不会自动执行 `npm ci`。
+前端依赖仍需事先安装；启动配置不会自动执行 `npm ci`。需要稳定地同时启动前后端时，使用本页第 3 节的统一启动器。
 
-## 6. 测试
+## 7. 测试
 
 ```powershell
 dotnet restore backend/ModernWMS.sln
@@ -84,7 +114,7 @@ npm run test:e2e
 
 本机 Playwright 默认使用已安装的 Chrome；CI 环境使用 Playwright 默认浏览器。
 
-## 7. 外部商品图片访问规范
+## 8. 外部商品图片访问规范
 
 ERP 商品快照中的 `mainImage` 可能指向启用了 Referer 防盗链的腾讯 COS。此类对象在不带 Referer 时可以直接访问，但浏览器从 ModernWMS 页面加载时会因携带站点 Referer 收到 `403 Forbidden`；这不是普通的图片 CORS 问题，也不表示对象一定是私有读。
 

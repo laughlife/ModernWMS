@@ -16,6 +16,9 @@ public static class DatabaseInitializer
         await using var scope = services.CreateAsyncScope();
         var database = scope.ServiceProvider.GetRequiredService<SqlDBContext>();
 
+        var preflight = new DatabaseMigrationPreflight(
+            new MySqlDatabaseSchemaInspector(database.Database.GetDbConnection()));
+        await preflight.EnsureSafeAsync(cancellationToken);
         await database.Database.MigrateAsync(cancellationToken);
         var manifest = await SeedManifest.LoadAsync(cancellationToken);
 

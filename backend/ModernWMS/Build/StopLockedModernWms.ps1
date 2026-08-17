@@ -1,20 +1,3 @@
-param(
-    [Parameter(Mandatory = $true)]
-    [string]$ExecutablePath
-)
+﻿param([string]$ExecutablePath)
 
-$resolvedExecutablePath = [System.IO.Path]::GetFullPath($ExecutablePath)
-
-$lockedProcesses = Get-CimInstance Win32_Process -Filter "Name = 'ModernWMS.exe'" |
-    Where-Object {
-        $_.ExecutablePath -and
-        [string]::Equals(
-            [System.IO.Path]::GetFullPath($_.ExecutablePath),
-            $resolvedExecutablePath,
-            [System.StringComparison]::OrdinalIgnoreCase)
-    }
-
-foreach ($lockedProcess in $lockedProcesses) {
-    Write-Host "Stopping previous ModernWMS process $($lockedProcess.ProcessId) before build."
-    Stop-Process -Id $lockedProcess.ProcessId -Force
-}
+Write-Warning '构建阶段自动终止 ModernWMS 进程的逻辑已停用。请使用 scripts\Stop-Development.ps1 停止由统一启动器记录并验证过的进程。'
