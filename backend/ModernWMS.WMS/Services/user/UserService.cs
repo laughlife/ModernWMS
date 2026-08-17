@@ -3,9 +3,11 @@
  * developer：NoNo
  */
 
+using System.Data;
+using System.Text;
+using Dapper;
 using Mapster;
-using Microsoft.EntityFrameworkCore;
-using ModernWMS.Core.DBContext;
+using ModernWMS.Core.Database;
 using ModernWMS.Core.Services;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels;
@@ -13,11 +15,7 @@ using ModernWMS.WMS.IServices;
 using ModernWMS.Core.Models;
 using Microsoft.Extensions.Localization;
 using ModernWMS.Core.Utility;
-using System.Text;
 using ModernWMS.Core.JWT;
-using ModernWMS.Core.DynamicSearch;
-using Microsoft.AspNetCore.Components.Forms;
-using System.ComponentModel.Design;
 
 namespace ModernWMS.WMS.Services
 {
@@ -29,9 +27,9 @@ namespace ModernWMS.WMS.Services
         #region Args
 
         /// <summary>
-        /// The DBContext
+        /// MySQL connection factory
         /// </summary>
-        private readonly SqlDBContext _dBContext;
+        private readonly IMySqlConnectionFactory _connectionFactory;
 
         /// <summary>
         /// Localizer Service
@@ -47,15 +45,15 @@ namespace ModernWMS.WMS.Services
         /// <summary>
         ///User  constructor
         /// </summary>
-        /// <param name="dBContext">The DBContext</param>
+        /// <param name="connectionFactory">MySQL connection factory</param>
         /// <param name="stringLocalizer">Localizer</param>
         public UserService(
-            SqlDBContext dBContext
+            IMySqlConnectionFactory connectionFactory
           , IStringLocalizer<ModernWMS.Core.MultiLanguage> stringLocalizer
             )
         {
-            this._dBContext = dBContext;
-            this._stringLocalizer = stringLocalizer;
+            _connectionFactory = connectionFactory ?? throw new ArgumentNullException(nameof(connectionFactory));
+            _stringLocalizer = stringLocalizer ?? throw new ArgumentNullException(nameof(stringLocalizer));
         }
 
         #endregion constructor
@@ -69,18 +67,13 @@ namespace ModernWMS.WMS.Services
         /// <returns></returns>
         public async Task<List<FormSelectItem>> GetSelectItemsAsnyc(CurrentUser currentUser)
         {
-            var res = new List<FormSelectItem>();
-            var userrole_DBSet = _dBContext.GetDbSet<UserroleEntity>();
-            res.AddRange(await (from ur in userrole_DBSet.AsNoTracking()
-                                where ur.is_valid == true && ur.tenant_id == currentUser.tenant_id
-                                select new FormSelectItem
-                                {
-                                    code = "user_role",
-                                    name = ur.role_name,
-                                    value = ur.id.ToString(),
-                                    comments = "user's role",
-                                }).ToListAsync());
-            return res;
+            await using var connection = await _connectionFactory.OpenConnectionAsync();
+            return (await connection.QueryAsync<FormSelectItem>("""
+                SELECT 'user_role' AS `code`, `role_name` AS `name`, CAST(`id` AS CHAR) AS `value`,
+                       'user''s role' AS `comments`
+                FROM `wms_userrole`
+                WHERE `is_valid` = 1 AND `tenant_id` = @tenantId;
+                """, new { tenantId = currentUser.tenant_id })).AsList();
         }
 
         /// <summary>
@@ -91,27 +84,24 @@ namespace ModernWMS.WMS.Services
         /// <returns></returns>
         public async Task<(List<UserViewModel> data, int totals)> PageAsync(PageSearch pageSearch, CurrentUser currentUser)
         {
-            QueryCollection queries = new QueryCollection();
-            if (pageSearch.searchObjects.Any())
-            {
-                pageSearch.searchObjects.ForEach(s =>
-                {
-                    queries.Add(s);
-                });
-            }
-            var DbSet = _dBContext.GetDbSet<userEntity>();
-            var query = DbSet.AsNoTracking()
-                .Where(t => t.tenant_id.Equals(currentUser.tenant_id))
-                .Where(queries.AsExpression<userEntity>());
-            if (pageSearch.sqlTitle == "select")
-            {
-                query = query.Where(t => t.is_valid == true);
-            }
-            int totals = await query.CountAsync();
-            var list = await query.OrderByDescending(t => t.create_time)
-                       .Skip((pageSearch.pageIndex - 1) * pageSearch.pageSize)
-                       .Take(pageSearch.pageSize)
-                       .ToListAsync();
+            var where = DapperSearchBuilder.Build(pageSearch.searchObjects, UserSearchColumns);
+            where.Parameters.Add("tenantId", currentUser.tenant_id);
+            where.Parameters.Add("offset", (pageSearch.pageIndex - 1) * pageSearch.pageSize);
+            where.Parameters.Add("pageSize", pageSearch.pageSize);
+            var predicates = new List<string> { "`tenant_id` = @tenantId" };
+            if (!string.IsNullOrWhiteSpace(where.Sql)) predicates.Add(where.Sql);
+            if (pageSearch.sqlTitle == "select") predicates.Add("`is_valid` = 1");
+            var whereSql = string.Join(" AND ", predicates);
+            await using var connection = await _connectionFactory.OpenConnectionAsync();
+            using var grid = await connection.QueryMultipleAsync($"""
+                SELECT COUNT(*) FROM `wms_user` WHERE {whereSql};
+                SELECT {UserColumns} FROM `wms_user`
+                WHERE {whereSql}
+                ORDER BY `create_time` DESC
+                LIMIT @pageSize OFFSET @offset;
+                """, where.Parameters);
+            var totals = await grid.ReadSingleAsync<int>();
+            var list = (await grid.ReadAsync<userEntity>()).AsList();
             return (list.Adapt<List<UserViewModel>>(), totals);
         }
 
@@ -121,8 +111,10 @@ namespace ModernWMS.WMS.Services
         /// <returns></returns>
         public async Task<List<UserViewModel>> GetAllAsync(CurrentUser currentUser)
         {
-            var DbSet = _dBContext.GetDbSet<userEntity>();
-            var data = await DbSet.AsNoTracking().Where(t => t.tenant_id == currentUser.tenant_id).ToListAsync();
+            await using var connection = await _connectionFactory.OpenConnectionAsync();
+            var data = (await connection.QueryAsync<userEntity>($"""
+                SELECT {UserColumns} FROM `wms_user` WHERE `tenant_id` = @tenantId;
+                """, new { tenantId = currentUser.tenant_id })).AsList();
             return data.Adapt<List<UserViewModel>>();
         }
 
@@ -132,8 +124,10 @@ namespace ModernWMS.WMS.Services
         /// <returns></returns>
         public async Task<UserViewModel> GetAsync(int id)
         {
-            var DbSet = _dBContext.GetDbSet<userEntity>();
-            var entity = await DbSet.AsNoTracking().FirstOrDefaultAsync(t => t.id.Equals(id));
+            await using var connection = await _connectionFactory.OpenConnectionAsync();
+            var entity = await connection.QuerySingleOrDefaultAsync<userEntity>($"""
+                SELECT {UserColumns} FROM `wms_user` WHERE `id` = @id LIMIT 1;
+                """, new { id });
             if (entity == null)
             {
                 return null;
@@ -149,11 +143,6 @@ namespace ModernWMS.WMS.Services
         /// <returns></returns>
         public async Task<(int id, string msg)> AddAsync(UserViewModel viewModel, CurrentUser currentUser)
         {
-            var DbSet = _dBContext.GetDbSet<userEntity>();
-            if (await DbSet.AnyAsync(t => t.user_num == viewModel.user_num && t.tenant_id == currentUser.tenant_id))
-            {
-                return (0, string.Format(_stringLocalizer["exists_entity"], _stringLocalizer["user_num"], viewModel.user_num));
-            }
             var entity = viewModel.Adapt<userEntity>();
             entity.id = 0;
             var new_auth = GetRandomPassword();
@@ -161,16 +150,18 @@ namespace ModernWMS.WMS.Services
             entity.create_time = DateTime.Now;
             entity.last_update_time = DateTime.Now;
             entity.tenant_id = currentUser.tenant_id;
-            await DbSet.AddAsync(entity);
-            await _dBContext.SaveChangesAsync();
-            if (entity.id > 0)
+            await using var connection = await _connectionFactory.OpenConnectionAsync();
+            await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
+            try
             {
-                return (entity.id, new_auth);
+                if (await UserNumberExistsAsync(connection, transaction, entity.user_num, entity.tenant_id))
+                    return await RollbackResult((0, string.Format(_stringLocalizer["exists_entity"],
+                        _stringLocalizer["user_num"], viewModel.user_num)), transaction);
+                entity.id = await InsertUserAsync(connection, transaction, entity);
+                await transaction.CommitAsync();
+                return entity.id > 0 ? (entity.id, new_auth) : (0, _stringLocalizer["save_failed"]);
             }
-            else
-            {
-                return (0, _stringLocalizer["save_failed"]);
-            }
+            catch { await transaction.RollbackAsync(); throw; }
         }
 
         /// <summary>
@@ -181,43 +172,42 @@ namespace ModernWMS.WMS.Services
         /// <returns></returns>
         public async Task<(bool flag, string msg)> UpdateAsync(UserViewModel viewModel, CurrentUser currentUser)
         {
-            var DbSet = _dBContext.GetDbSet<userEntity>();
-            if (await DbSet.AnyAsync(t => t.id != viewModel.id && t.user_num == viewModel.user_num && t.tenant_id == currentUser.tenant_id))
+            await using var connection = await _connectionFactory.OpenConnectionAsync();
+            await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
+            try
             {
-                return (false, string.Format(_stringLocalizer["exists_entity"], _stringLocalizer["user_num"], viewModel.user_num));
-            }
-            var entity = await DbSet.FirstOrDefaultAsync(t => t.id.Equals(viewModel.id) && t.tenant_id == currentUser.tenant_id);
-            if (entity == null)
-            {
-                return (false, _stringLocalizer["not_exists_entity"]);
-            }
+                if (await UserNumberExistsAsync(connection, transaction, viewModel.user_num,
+                        currentUser.tenant_id, viewModel.id))
+                    return await RollbackResult((false, string.Format(_stringLocalizer["exists_entity"],
+                        _stringLocalizer["user_num"], viewModel.user_num)), transaction);
+                var entity = await connection.QuerySingleOrDefaultAsync<userEntity>($"""
+                    SELECT {UserColumns} FROM `wms_user`
+                    WHERE `id` = @id AND `tenant_id` = @tenantId FOR UPDATE;
+                    """, new { viewModel.id, tenantId = currentUser.tenant_id }, transaction);
+                if (entity == null)
+                    return await RollbackResult((false, _stringLocalizer["not_exists_entity"]), transaction);
 
-            if (IsAdminUser(entity))
-            {
-                entity.user_num = viewModel.user_num;
-                entity.is_valid = true;
-                entity.last_update_time = DateTime.Now;
-                await _dBContext.SaveChangesAsync();
-                return (true, _stringLocalizer["save_success"]);
+                var now = DateTime.Now;
+                var qty = IsAdminUser(entity)
+                    ? await connection.ExecuteAsync("""
+                        UPDATE `wms_user` SET `user_num`=@userNum,`is_valid`=1,`last_update_time`=@now
+                        WHERE `id`=@id AND `tenant_id`=@tenantId;
+                        """, new { userNum = viewModel.user_num, now, viewModel.id, tenantId = currentUser.tenant_id }, transaction)
+                    : await connection.ExecuteAsync("""
+                        UPDATE `wms_user` SET `user_num`=@userNum,`user_name`=@userName,
+                          `contact_tel`=@contactTel,`user_role`=@userRole,`sex`=@sex,
+                          `is_valid`=@isValid,`last_update_time`=@now
+                        WHERE `id`=@id AND `tenant_id`=@tenantId;
+                        """, new { userNum = viewModel.user_num, userName = viewModel.user_name,
+                            contactTel = viewModel.contact_tel, userRole = viewModel.user_role,
+                            viewModel.sex, isValid = viewModel.is_valid, now, viewModel.id,
+                            tenantId = currentUser.tenant_id }, transaction);
+                await transaction.CommitAsync();
+                return qty > 0
+                    ? (true, _stringLocalizer["save_success"])
+                    : (false, _stringLocalizer["save_failed"]);
             }
-
-            entity.id = viewModel.id;
-            entity.user_num = viewModel.user_num;
-            entity.user_name = viewModel.user_name;
-            entity.contact_tel = viewModel.contact_tel;
-            entity.user_role = viewModel.user_role;
-            entity.sex = viewModel.sex;
-            entity.is_valid = viewModel.is_valid;
-            entity.last_update_time = DateTime.Now;
-            var qty = await _dBContext.SaveChangesAsync();
-            if (qty > 0)
-            {
-                return (true, _stringLocalizer["save_success"]);
-            }
-            else
-            {
-                return (false, _stringLocalizer["save_failed"]);
-            }
+            catch { await transaction.RollbackAsync(); throw; }
         }
 
         /// <summary>
@@ -227,7 +217,10 @@ namespace ModernWMS.WMS.Services
         /// <returns></returns>
         public async Task<(bool flag, string msg)> DeleteAsync(int id)
         {
-            var qty = await _dBContext.GetDbSet<userEntity>().Where(t => t.id.Equals(id)).ExecuteDeleteAsync();
+            await using var connection = await _connectionFactory.OpenConnectionAsync();
+            await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted);
+            var qty = await connection.ExecuteAsync("DELETE FROM `wms_user` WHERE `id` = @id;", new { id }, transaction);
+            await transaction.CommitAsync();
             if (qty > 0)
             {
                 return (true, _stringLocalizer["delete_success"]);
@@ -247,7 +240,6 @@ namespace ModernWMS.WMS.Services
         public async Task<(bool flag, string msg)> ExcelAsync(List<UserExcelImportViewModel> datas, CurrentUser currentUser)
         {
             StringBuilder sb = new StringBuilder();
-            var DbSet = _dBContext.GetDbSet<userEntity>();
             var user_num_repeat_excel = datas.GroupBy(t => t.user_num).Select(t => new { user_num = t.Key, cnt = t.Count() }).Where(t => t.cnt > 1).ToList();
             foreach (var repeat in user_num_repeat_excel)
             {
@@ -258,13 +250,20 @@ namespace ModernWMS.WMS.Services
                 return (false, sb.ToString());
             }
 
-            var user_num_repeat_exists = await DbSet.Where(t => t.tenant_id == currentUser.tenant_id).Where(t => datas.Select(t => t.user_num).ToList().Contains(t.user_num)).Select(t => t.user_num).ToListAsync();
+            await using var connection = await _connectionFactory.OpenConnectionAsync();
+            await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
+            var userNumbers = datas.Select(t => t.user_num).ToArray();
+            var user_num_repeat_exists = userNumbers.Length == 0 ? [] : (await connection.QueryAsync<string>("""
+                SELECT `user_num` FROM `wms_user`
+                WHERE `tenant_id`=@tenantId AND `user_num` IN @userNumbers FOR UPDATE;
+                """, new { tenantId = currentUser.tenant_id, userNumbers }, transaction)).AsList();
             foreach (var repeat in user_num_repeat_exists)
             {
                 sb.AppendLine(string.Format(_stringLocalizer["exists_entity"], _stringLocalizer["user_num"], repeat));
             }
             if (user_num_repeat_exists.Count > 0)
             {
+                await transaction.RollbackAsync();
                 return (false, sb.ToString());
             }
 
@@ -278,8 +277,13 @@ namespace ModernWMS.WMS.Services
                 t.last_update_time = DateTime.Now;
                 t.is_valid = true;
             });
-            await DbSet.AddRangeAsync(entities);
-            var res = await _dBContext.SaveChangesAsync();
+            var res = 0;
+            foreach (var entity in entities)
+            {
+                await InsertUserAsync(connection, transaction, entity);
+                res++;
+            }
+            await transaction.CommitAsync();
             if (res > 0)
             {
                 return (true, _stringLocalizer["save_success"]);
@@ -294,11 +298,16 @@ namespace ModernWMS.WMS.Services
         /// <returns></returns>
         public async Task<(bool, string)> ResetPwd(BatchOperationViewModel viewModel)
         {
-            var DBSet = _dBContext.GetDbSet<userEntity>();
-            var entities = await DBSet.Where(t => viewModel.id_list.Contains(t.id)).ToListAsync();
             var newpassword = GetRandomPassword();
-            entities.ForEach(t => { t.auth_string = Md5Helper.Md5Encrypt32(newpassword); t.last_update_time = DateTime.Now; });
-            var res = await _dBContext.SaveChangesAsync();
+            if (viewModel.id_list.Count == 0) return (false, _stringLocalizer["operation_failed"]);
+            await using var connection = await _connectionFactory.OpenConnectionAsync();
+            await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted);
+            var res = await connection.ExecuteAsync("""
+                UPDATE `wms_user` SET `auth_string`=@authString,`last_update_time`=@now
+                WHERE `id` IN @ids;
+                """, new { authString = Md5Helper.Md5Encrypt32(newpassword), now = DateTime.Now,
+                    ids = viewModel.id_list }, transaction);
+            await transaction.CommitAsync();
             if (res > 0)
             {
                 return (true, newpassword);
@@ -313,18 +322,24 @@ namespace ModernWMS.WMS.Services
         /// <returns></returns>
         public async Task<(bool flag, string msg)> ChangePwd(UserChangePwdViewModel viewModel)
         {
-            var DBSet = _dBContext.GetDbSet<userEntity>();
-            var entity = await DBSet.FirstOrDefaultAsync(t => t.id.Equals(viewModel.id));
+            await using var connection = await _connectionFactory.OpenConnectionAsync();
+            await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
+            var entity = await connection.QuerySingleOrDefaultAsync<userEntity>($"""
+                SELECT {UserColumns} FROM `wms_user` WHERE `id`=@id FOR UPDATE;
+                """, new { viewModel.id }, transaction);
             if (entity == null)
             {
+                await transaction.RollbackAsync();
                 return (false, _stringLocalizer["not_exists_entity"]);
             }
             if (!entity.auth_string.Equals(viewModel.old_password))
             {
+                await transaction.RollbackAsync();
                 return (false, _stringLocalizer["old_password"] + _stringLocalizer["is_incorrect"]);
             }
-            entity.auth_string = viewModel.new_password;
-            await _dBContext.SaveChangesAsync();
+            await connection.ExecuteAsync("UPDATE `wms_user` SET `auth_string`=@password WHERE `id`=@id;",
+                new { password = viewModel.new_password, viewModel.id }, transaction);
+            await transaction.CommitAsync();
             return (true, _stringLocalizer["save_success"]);
         }
 
@@ -335,12 +350,6 @@ namespace ModernWMS.WMS.Services
         /// <returns></returns>
         public async Task<(bool flag, string msg)> Register(RegisterViewModel viewModel)
         {
-            var DbSet = _dBContext.GetDbSet<userEntity>();
-            var num_exist = await DbSet.AnyAsync(t => t.user_num == viewModel.user_name);
-            if (num_exist)
-            {
-                return (false, _stringLocalizer["username_existed"]);
-            }
             var entity = viewModel.Adapt<userEntity>();
             var time = DateTime.Now;
             entity.user_num = entity.user_name;
@@ -351,10 +360,17 @@ namespace ModernWMS.WMS.Services
             entity.email = viewModel.email;
             entity.sex = viewModel.sex;
             entity.is_valid = true;
-            await DbSet.AddAsync(entity);
-            await _dBContext.SaveChangesAsync();
-            if (entity.id > 0)
+            await using var connection = await _connectionFactory.OpenConnectionAsync();
+            await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
+            try
             {
+                if (await connection.ExecuteScalarAsync<bool>("""
+                    SELECT EXISTS(SELECT 1 FROM `wms_user` WHERE `user_num`=@userNum);
+                    """, new { userNum = viewModel.user_name }, transaction))
+                    return await RollbackResult((false, _stringLocalizer["username_existed"]), transaction);
+                entity.id = await InsertUserAsync(connection, transaction, entity);
+                if (entity.id <= 0)
+                    return await RollbackResult((false, _stringLocalizer["operation_failed"]), transaction);
                 var tenant_id = entity.id;
 
                 #region menus
@@ -594,28 +610,44 @@ namespace ModernWMS.WMS.Services
                 entity.creator = entity.user_name;
                 entity.user_role = "admin";
                 var adminrole = new UserroleEntity { is_valid = true, last_update_time = time, create_time = time, role_name = "admin", tenant_id = tenant_id };
-                await _dBContext.GetDbSet<UserroleEntity>().AddAsync(adminrole);
-                await _dBContext.GetDbSet<MenuEntity>().AddRangeAsync(menus);
-                await _dBContext.SaveChangesAsync();
+                await connection.ExecuteAsync("""
+                    UPDATE `wms_user` SET `tenant_id`=@tenantId,`creator`=@creator,`user_role`=@userRole
+                    WHERE `id`=@id;
+                    """, new { tenantId = tenant_id, creator = entity.creator, userRole = entity.user_role, entity.id }, transaction);
+                adminrole.id = await connection.ExecuteScalarAsync<int>("""
+                    INSERT INTO `wms_userrole`
+                      (`role_name`,`is_valid`,`create_time`,`last_update_time`,`tenant_id`)
+                    VALUES (@role_name,@is_valid,@create_time,@last_update_time,@tenant_id);
+                    SELECT LAST_INSERT_ID();
+                    """, adminrole, transaction);
                 foreach (var menu in menus)
                 {
-                    await _dBContext.GetDbSet<RolemenuEntity>().AddAsync(new RolemenuEntity
-                    {
+                    menu.id = await connection.ExecuteScalarAsync<int>("""
+                        INSERT INTO `wms_menu`
+                          (`menu_name`,`module`,`vue_path`,`vue_path_detail`,`vue_directory`,`sort`,`tenant_id`,`menu_actions`)
+                        VALUES (@menu_name,@module,@vue_path,@vue_path_detail,@vue_directory,@sort,@tenant_id,@menu_actions);
+                        SELECT LAST_INSERT_ID();
+                        """, menu, transaction);
+                }
+                foreach (var menu in menus)
+                {
+                    await connection.ExecuteAsync("""
+                        INSERT INTO `wms_rolemenu`
+                          (`userrole_id`,`menu_id`,`authority`,`create_time`,`last_update_time`,`tenant_id`,`menu_actions_authority`)
+                        VALUES (@userrole_id,@menu_id,@authority,@create_time,@last_update_time,@tenant_id,@menu_actions_authority);
+                        """, new RolemenuEntity {
                         userrole_id = adminrole.id,
                         authority = 1,
                         menu_id = menu.id,
                         tenant_id = tenant_id,
                         last_update_time = time,
                         create_time = time,
-                    });
+                    }, transaction);
                 }
-                await _dBContext.SaveChangesAsync();
+                await transaction.CommitAsync();
                 return (true, _stringLocalizer["operation_success"]);
             }
-            else
-            {
-                return (false, _stringLocalizer["operation_failed"]);
-            }
+            catch { await transaction.RollbackAsync(); throw; }
         }
 
         /// <summary>
@@ -639,6 +671,56 @@ namespace ModernWMS.WMS.Services
         private static bool IsAdminUser(userEntity entity)
         {
             return string.Equals(entity.user_role?.Trim(), AdminRoleName, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private const string UserColumns = """
+            `id`,`user_num`,`user_name`,`contact_tel`,`user_role`,`sex`,`is_valid`,`auth_string`,
+            `email`,`creator`,`create_time`,`last_update_time`,`tenant_id`
+            """;
+
+        private static readonly IReadOnlyDictionary<string, string> UserSearchColumns =
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["id"] = "`id`",
+                ["user_num"] = "`user_num`",
+                ["user_name"] = "`user_name`",
+                ["contact_tel"] = "`contact_tel`",
+                ["user_role"] = "`user_role`",
+                ["sex"] = "`sex`",
+                ["is_valid"] = "`is_valid`",
+                ["auth_string"] = "`auth_string`",
+                ["email"] = "`email`",
+                ["creator"] = "`creator`",
+                ["create_time"] = "`create_time`",
+                ["last_update_time"] = "`last_update_time`",
+                ["tenant_id"] = "`tenant_id`"
+            };
+
+        private static Task<bool> UserNumberExistsAsync(IDbConnection connection, IDbTransaction transaction,
+            string userNumber, long tenantId, int? excludedId = null) => connection.ExecuteScalarAsync<bool>("""
+                SELECT EXISTS(SELECT 1 FROM `wms_user`
+                WHERE `tenant_id`=@tenantId AND `user_num`=@userNumber
+                  AND (@excludedId IS NULL OR `id`<>@excludedId));
+                """, new { tenantId, userNumber, excludedId }, transaction);
+
+        private static Task<int> InsertUserAsync(IDbConnection connection, IDbTransaction transaction,
+            userEntity entity) => connection.ExecuteScalarAsync<int>("""
+                INSERT INTO `wms_user`
+                  (`user_num`,`user_name`,`contact_tel`,`user_role`,`sex`,`is_valid`,`auth_string`,`email`,
+                   `creator`,`create_time`,`last_update_time`,`tenant_id`)
+                VALUES
+                  (@user_num,@user_name,@contact_tel,@user_role,@sex,@is_valid,@auth_string,@email,
+                   @creator,@create_time,@last_update_time,@tenant_id);
+                SELECT LAST_INSERT_ID();
+                """, entity, transaction);
+
+        private static async Task<T> RollbackResult<T>(T result, IDbTransaction transaction)
+        {
+            if (transaction is System.Data.Common.DbTransaction dbTransaction)
+                await dbTransaction.RollbackAsync();
+            else
+                transaction.Rollback();
+            return result;
         }
 
         #endregion Api
