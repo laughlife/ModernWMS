@@ -1,5 +1,5 @@
-using Microsoft.EntityFrameworkCore;
-using ModernWMS.Core.DBContext;
+using Dapper;
+using ModernWMS.Core.Database;
 using ModernWMS.Core.JWT;
 using ModernWMS.Core.Models;
 using ModernWMS.Core.Services;
@@ -14,11 +14,25 @@ namespace ModernWMS.WMS.Services
     /// </summary>
     public class SupplierService : BaseService<SupplierEntity>, ISupplierService
     {
-        private readonly RuoyiDbContext _ruoyiDbContext;
+        private const string Projection = """
+            `id`,
+            COALESCE(`name`, '') AS `supplier_name`,
+            COALESCE(`name`, '') AS `name`,
+            COALESCE(`linkman`, '') AS `linkman`,
+            COALESCE(`telephone_num`, '') AS `telephone_num`,
+            COALESCE(`qq`, '') AS `qq`,
+            COALESCE(`email`, '') AS `email`,
+            COALESCE(`province_name`, '') AS `province_name`,
+            COALESCE(`city_name`, '') AS `city_name`,
+            COALESCE(`address_line`, '') AS `address_line`,
+            COALESCE(`remark`, '') AS `remark`
+            """;
 
-        public SupplierService(RuoyiDbContext ruoyiDbContext)
+        private readonly IMySqlConnectionFactory _connectionFactory;
+
+        public SupplierService(IMySqlConnectionFactory connectionFactory)
         {
-            _ruoyiDbContext = ruoyiDbContext;
+            _connectionFactory = connectionFactory;
         }
 
         /// <summary>
@@ -32,35 +46,32 @@ namespace ModernWMS.WMS.Services
                 ?.Text
                 ?.Trim();
 
-            var query = _ruoyiDbContext.Suppliers
-                .AsNoTracking()
-                .Where(t => !t.deleted);
-
-            if (!string.IsNullOrWhiteSpace(supplierNameKeyword))
+            var keywordClause = string.IsNullOrWhiteSpace(supplierNameKeyword)
+                ? string.Empty
+                : " AND `name` LIKE @keyword ESCAPE '!'";
+            var parameters = new
             {
-                query = query.Where(t => t.name != null && t.name.Contains(supplierNameKeyword));
-            }
+                keyword = string.IsNullOrWhiteSpace(supplierNameKeyword)
+                    ? null
+                    : $"%{EscapeLike(supplierNameKeyword)}%",
+                offset = (pageSearch.pageIndex - 1) * pageSearch.pageSize,
+                pageSize = pageSearch.pageSize
+            };
 
-            int totals = await query.CountAsync();
-            var list = await query
-                .OrderByDescending(t => t.id)
-                .Skip((pageSearch.pageIndex - 1) * pageSearch.pageSize)
-                .Take(pageSearch.pageSize)
-                .Select(t => new SupplierViewModel
-                {
-                    id = t.id,
-                    supplier_name = t.name ?? string.Empty,
-                    name = t.name ?? string.Empty,
-                    linkman = t.linkman ?? string.Empty,
-                    telephone_num = t.telephone_num ?? string.Empty,
-                    qq = t.qq ?? string.Empty,
-                    email = t.email ?? string.Empty,
-                    province_name = t.province_name ?? string.Empty,
-                    city_name = t.city_name ?? string.Empty,
-                    address_line = t.address_line ?? string.Empty,
-                    remark = t.remark ?? string.Empty
-                })
-                .ToListAsync();
+            await using var connection = await _connectionFactory.OpenConnectionAsync();
+            using var result = await connection.QueryMultipleAsync($"""
+                SELECT COUNT(*)
+                FROM `erp_supplier`
+                WHERE `deleted` = 0{keywordClause};
+
+                SELECT {Projection}
+                FROM `erp_supplier`
+                WHERE `deleted` = 0{keywordClause}
+                ORDER BY `id` DESC
+                LIMIT @pageSize OFFSET @offset;
+                """, parameters);
+            var totals = await result.ReadSingleAsync<int>();
+            var list = (await result.ReadAsync<SupplierViewModel>()).AsList();
 
             return (list, totals);
         }
@@ -70,25 +81,14 @@ namespace ModernWMS.WMS.Services
         /// </summary>
         public async Task<List<SupplierViewModel>> GetAllAsync()
         {
-            return await _ruoyiDbContext.Suppliers
-                .AsNoTracking()
-                .Where(t => !t.deleted)
-                .OrderBy(t => t.name)
-                .Select(t => new SupplierViewModel
-                {
-                    id = t.id,
-                    supplier_name = t.name ?? string.Empty,
-                    name = t.name ?? string.Empty,
-                    linkman = t.linkman ?? string.Empty,
-                    telephone_num = t.telephone_num ?? string.Empty,
-                    qq = t.qq ?? string.Empty,
-                    email = t.email ?? string.Empty,
-                    province_name = t.province_name ?? string.Empty,
-                    city_name = t.city_name ?? string.Empty,
-                    address_line = t.address_line ?? string.Empty,
-                    remark = t.remark ?? string.Empty
-                })
-                .ToListAsync();
+            await using var connection = await _connectionFactory.OpenConnectionAsync();
+            var rows = await connection.QueryAsync<SupplierViewModel>($"""
+                SELECT {Projection}
+                FROM `erp_supplier`
+                WHERE `deleted` = 0
+                ORDER BY `name`;
+                """);
+            return rows.AsList();
         }
 
         /// <summary>
@@ -96,24 +96,18 @@ namespace ModernWMS.WMS.Services
         /// </summary>
         public async Task<SupplierViewModel?> GetAsync(long id)
         {
-            return await _ruoyiDbContext.Suppliers
-                .AsNoTracking()
-                .Where(t => !t.deleted && t.id == id)
-                .Select(t => new SupplierViewModel
-                {
-                    id = t.id,
-                    supplier_name = t.name ?? string.Empty,
-                    name = t.name ?? string.Empty,
-                    linkman = t.linkman ?? string.Empty,
-                    telephone_num = t.telephone_num ?? string.Empty,
-                    qq = t.qq ?? string.Empty,
-                    email = t.email ?? string.Empty,
-                    province_name = t.province_name ?? string.Empty,
-                    city_name = t.city_name ?? string.Empty,
-                    address_line = t.address_line ?? string.Empty,
-                    remark = t.remark ?? string.Empty
-                })
-                .FirstOrDefaultAsync();
+            await using var connection = await _connectionFactory.OpenConnectionAsync();
+            return await connection.QuerySingleOrDefaultAsync<SupplierViewModel>($"""
+                SELECT {Projection}
+                FROM `erp_supplier`
+                WHERE `deleted` = 0 AND `id` = @id
+                LIMIT 1;
+                """, new { id });
         }
+
+        private static string EscapeLike(string value) => value
+            .Replace("!", "!!", StringComparison.Ordinal)
+            .Replace("%", "!%", StringComparison.Ordinal)
+            .Replace("_", "!_", StringComparison.Ordinal);
     }
 }
