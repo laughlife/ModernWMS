@@ -15,8 +15,19 @@ public sealed class MySqlConnectionFactory : IMySqlConnectionFactory, IDisposabl
     public MySqlConnectionFactory(string connectionString)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
-        _dataSource = new MySqlDataSourceBuilder(connectionString).Build();
+        var settings = new MySqlConnectionStringBuilder(connectionString);
+        if (IsLoopback(settings.Server) && !settings.ContainsKey("SslMode"))
+        {
+            settings.SslMode = MySqlSslMode.Disabled;
+        }
+
+        _dataSource = new MySqlDataSourceBuilder(settings.ConnectionString).Build();
     }
+
+    private static bool IsLoopback(string server) =>
+        string.Equals(server, "127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(server, "localhost", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(server, "::1", StringComparison.OrdinalIgnoreCase);
 
     /// <inheritdoc />
     public MySqlConnection CreateConnection() => _dataSource.CreateConnection();

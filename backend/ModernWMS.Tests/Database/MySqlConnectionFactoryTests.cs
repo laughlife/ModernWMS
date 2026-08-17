@@ -20,6 +20,23 @@ public class MySqlConnectionFactoryTests
         Assert.Equal(System.Data.ConnectionState.Closed, connection.State);
         Assert.Equal("modernwms_test", connection.Database);
         Assert.Equal("127.0.0.1", connection.DataSource);
+        Assert.Equal(
+            MySqlSslMode.Disabled,
+            new MySqlConnectionStringBuilder(connection.ConnectionString).SslMode);
+    }
+
+    [Fact]
+    public void Remote_connection_does_not_implicitly_disable_ssl()
+    {
+        const string remoteConnectionString =
+            "Server=db.internal.example;Port=3306;Database=modernwms;User Id=test;Password=test";
+
+        using var factory = new MySqlConnectionFactory(remoteConnectionString);
+        using var connection = factory.CreateConnection();
+
+        Assert.NotEqual(
+            MySqlSslMode.Disabled,
+            new MySqlConnectionStringBuilder(connection.ConnectionString).SslMode);
     }
 
     [Fact]
