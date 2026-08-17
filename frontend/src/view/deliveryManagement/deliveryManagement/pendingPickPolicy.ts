@@ -87,6 +87,14 @@ export const buildCompletePickingPayload = (
   row_version: order.row_version
 })
 
+export const buildRollbackPendingPickPayload = (
+  order: Pick<DispatchOrderSummary, 'row_version'>,
+  requestId: string
+): CompletePickingRequest => ({
+  request_id: requestId,
+  row_version: order.row_version
+})
+
 export const getPendingPickFailureOutcome = (errorCode: string): PendingPickFailureOutcome => {
   const workflowErrorCode = errorCode as DispatchWorkflowErrorCode
   const message = FAILURE_MESSAGES[workflowErrorCode]

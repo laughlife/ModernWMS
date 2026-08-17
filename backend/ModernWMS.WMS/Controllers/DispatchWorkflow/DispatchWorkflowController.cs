@@ -73,6 +73,14 @@ public sealed class DispatchWorkflowController : BaseController
         ExecuteAsync(() => _workflowService.CompletePickingAsync(id, request, CurrentUser, cancellationToken));
 
     [Authorize]
+    [HttpPost("{id:int}/rollback-pending-pick")]
+    public Task<ActionResult<ResultModel<RollbackPendingPickResult>>> RollbackPendingPickAsync(
+        int id,
+        RollbackPendingPickRequest request,
+        CancellationToken cancellationToken) =>
+        ExecuteAsync(() => _workflowService.RollbackPendingPickAsync(id, request, CurrentUser, cancellationToken));
+
+    [Authorize]
     [HttpPost("{id:int}/start-weighing")]
     public Task<ActionResult<ResultModel<WeighingCommandResult>>> StartWeighingAsync(
         int id,

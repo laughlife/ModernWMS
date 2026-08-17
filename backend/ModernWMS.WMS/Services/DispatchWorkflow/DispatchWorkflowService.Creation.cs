@@ -37,8 +37,25 @@ public partial class DispatchWorkflowService
             if (existing != null)
             {
                 if (existing.warehouse_id != request.warehouse_id) throw new InvalidOperationException("idempotent task set belongs to another warehouse");
-                await transaction.CommitAsync(cancellationToken);
-                return await LoadDetailAsync(existing.id, cancellationToken);
+                if (existing.status is DispatchOrderStatus.ManualCancelled or DispatchOrderStatus.SourceCancelled)
+                {
+                    // 回退/取消过的旧订单不再参与幂等重放：释放唯一键后同一任务组合可以重新建单。
+                    // create_idempotency_key 列宽 64，使用哈希后的回收键避免超长与冲突。
+                    await connection.ExecuteAsync(new CommandDefinition("""
+                        UPDATE `wms_dispatch_order` SET `create_idempotency_key`=@recycledKey,`last_update_time`=@now,
+                          `row_version`=`row_version`+1 WHERE `id`=@id;
+                        """, new
+                        {
+                            recycledKey = HashText($"recycled:{existing.id}:{existing.create_idempotency_key}"),
+                            now = DateTime.Now,
+                            id = existing.id
+                        }, transaction, cancellationToken: cancellationToken));
+                }
+                else
+                {
+                    await transaction.CommitAsync(cancellationToken);
+                    return await LoadDetailAsync(existing.id, cancellationToken);
+                }
             }
             var occupied = await FindOccupiedTaskIdsAsync(connection, transaction, taskIds, cancellationToken);
             if (occupied.Count > 0) throw new InvalidOperationException($"packing tasks already belong to an active order: {string.Join(',', occupied.Order())}");

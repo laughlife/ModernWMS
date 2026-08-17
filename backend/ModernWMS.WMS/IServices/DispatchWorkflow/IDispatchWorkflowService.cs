@@ -23,6 +23,12 @@ public interface IDispatchWorkflowService : IDependency
         CurrentUser currentUser,
         CancellationToken cancellationToken = default);
 
+    Task<RollbackPendingPickResult> RollbackPendingPickAsync(
+        int orderId,
+        RollbackPendingPickRequest request,
+        CurrentUser currentUser,
+        CancellationToken cancellationToken = default);
+
     Task<WeighingCommandResult> StartWeighingAsync(
         int orderId,
         WeighingOrderCommandRequest request,

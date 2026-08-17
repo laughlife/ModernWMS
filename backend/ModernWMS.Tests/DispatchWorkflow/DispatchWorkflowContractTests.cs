@@ -12,6 +12,7 @@ public sealed class DispatchWorkflowContractTests
 {
     [Theory]
     [InlineData(nameof(DispatchWorkflowController.CompletePickingAsync))]
+    [InlineData(nameof(DispatchWorkflowController.RollbackPendingPickAsync))]
     [InlineData(nameof(DispatchWorkflowController.DecideSourceChangeAsync))]
     [InlineData(nameof(DispatchWorkflowController.StartWeighingAsync))]
     [InlineData(nameof(DispatchWorkflowController.SaveWeighingBoxAsync))]
@@ -43,6 +44,18 @@ public sealed class DispatchWorkflowContractTests
             copy.GetCustomAttribute<Microsoft.AspNetCore.Mvc.HttpPostAttribute>()!.Template);
         Assert.DoesNotContain(typeof(SaveWeighingBoxRequest).GetProperties(), property => property.Name == "box_id");
         Assert.DoesNotContain(typeof(CopyWeighingBoxRequest).GetProperties(), property => property.Name == "target_box_id");
+    }
+
+    [Fact]
+    public void Rollback_pending_pick_route_uses_the_order_id_and_a_versioned_request()
+    {
+        var rollback = typeof(DispatchWorkflowController).GetMethod(
+            nameof(DispatchWorkflowController.RollbackPendingPickAsync))!;
+
+        Assert.Equal("{id:int}/rollback-pending-pick",
+            rollback.GetCustomAttribute<Microsoft.AspNetCore.Mvc.HttpPostAttribute>()!.Template);
+        Assert.Equal(["request_id", "row_version"],
+            typeof(RollbackPendingPickRequest).GetProperties().Select(property => property.Name).OrderBy(name => name).ToArray());
     }
 
     [Fact]

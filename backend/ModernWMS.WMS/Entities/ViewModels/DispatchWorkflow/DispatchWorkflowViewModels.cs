@@ -13,6 +13,20 @@ public sealed class CompletePickingRequest
     public long row_version { get; set; }
 }
 
+public sealed class RollbackPendingPickRequest
+{
+    public string request_id { get; set; } = string.Empty;
+    public long row_version { get; set; }
+}
+
+public sealed class RollbackPendingPickResult
+{
+    public int order_id { get; set; }
+    public string request_id { get; set; } = string.Empty;
+    public string status { get; set; } = string.Empty;
+    public long row_version { get; set; }
+}
+
 public sealed class CompletePickingResult
 {
     public int order_id { get; set; }

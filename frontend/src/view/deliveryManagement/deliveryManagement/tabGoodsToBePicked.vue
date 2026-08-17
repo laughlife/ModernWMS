@@ -127,7 +127,7 @@
       <vxe-column field="last_update_time" title="最后更新时间" width="180">
         <template #default="{ row }">{{ formatDateTime(row.last_update_time) }}</template>
       </vxe-column>
-      <vxe-column field="operate" :title="$t('system.page.operate')" width="150" fixed="right" :resizable="false">
+      <vxe-column field="operate" :title="$t('system.page.operate')" width="200" fixed="right" :resizable="false">
         <template #default="{ row }">
           <div class="row-actions">
             <TooltipBtn
@@ -143,6 +143,13 @@
               :tooltip-text="$t('wms.deliveryManagement.completePicking')"
               :disabled="data.loading || !data.authorityList.includes('picked-confirm')"
               @click="method.completeRow(row)"
+            />
+            <TooltipBtn
+              :flat="true"
+              icon="mdi-undo"
+              tooltip-text="回退"
+              :disabled="data.loading || data.printing"
+              @click="method.rollbackRow(row)"
             />
           </div>
         </template>
@@ -212,7 +219,8 @@ import {
   getDispatchOrder,
   getDispatchOrderPage,
   getDispatchOrderPrint,
-  reconcileDispatchOrder
+  reconcileDispatchOrder,
+  rollbackPendingPick
 } from '@/api/wms/dispatchWorkflow'
 import { hookComponent } from '@/components/system'
 import BtnGroup from '@/components/system/btnGroup.vue'
@@ -230,6 +238,7 @@ import {
   buildCompletePickingPayload,
   buildPendingPickBatchPrintSnapshots,
   buildPendingPickPageRequest,
+  buildRollbackPendingPickPayload,
   getPendingPickFailureOutcome,
   shouldAcceptPendingPickResponse,
   shouldAcceptPendingPickPrintContext,
@@ -472,6 +481,26 @@ const method = reactive({
           return
         }
         hookComponent.$message({ type: 'success', content: i18n.global.t('wms.deliveryManagement.picked') })
+        await method.getGoodsToBePicked()
+        emit('statusChanged')
+      }
+    })
+  },
+  rollbackRow: (row: PendingPickTableRow) => {
+    hookComponent.$dialog({
+      content: '确认回退该拣货单？回退后装箱任务将回到装箱任务列表，可重新选择建单。',
+      handleConfirm: async () => {
+        const result = await rollbackPendingPick(row.id, buildRollbackPendingPickPayload(row, createRequestId()))
+        if (!result.isSuccess) {
+          const outcome = getPendingPickFailureOutcome(result.errorMessage)
+          hookComponent.$message({
+            type: 'error',
+            content: `${outcome.message ?? i18n.global.t(outcome.messageKey)}（${result.errorMessage}）`
+          })
+          await refreshAfterFailure(row.id)
+          return
+        }
+        hookComponent.$message({ type: 'success', content: '已回退，装箱任务已回到装箱任务列表' })
         await method.getGoodsToBePicked()
         emit('statusChanged')
       }

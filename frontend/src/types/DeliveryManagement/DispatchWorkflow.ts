@@ -147,6 +147,8 @@ export interface WorkflowCommandResult extends VersionedCommandRequest {
 
 export type CompletePickingRequest = VersionedCommandRequest
 export type CompletePickingResult = WorkflowCommandResult
+export type RollbackPendingPickRequest = VersionedCommandRequest
+export type RollbackPendingPickResult = WorkflowCommandResult
 export type WeighingOrderCommandRequest = VersionedCommandRequest
 export type WeighingCommandResult = WorkflowCommandResult
 export type OutboundCommandRequest = VersionedCommandRequest

@@ -6,6 +6,7 @@ import {
   buildPendingPickBatchPrintSnapshots,
   buildPendingPickPageRequest,
   buildPendingPickPrintSnapshot,
+  buildRollbackPendingPickPayload,
   getPendingPickFailureOutcome,
   shouldAcceptPendingPickPrintContext,
   shouldAcceptPendingPickResponse,
@@ -229,6 +230,13 @@ describe('pending pick policy', () => {
   it('builds the whole-order complete-picking payload from request id and current row version', () => {
     expect(buildCompletePickingPayload(summary, 'pick-request-18')).toEqual({
       request_id: 'pick-request-18',
+      row_version: 7
+    })
+  })
+
+  it('builds the rollback payload from request id and current row version', () => {
+    expect(buildRollbackPendingPickPayload(summary, 'rollback-request-18')).toEqual({
+      request_id: 'rollback-request-18',
       row_version: 7
     })
   })

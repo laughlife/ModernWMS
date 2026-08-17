@@ -17,6 +17,7 @@ import {
   getDispatchWarehouseAccess,
   getWorkflowPackingTaskPage,
   reconcileDispatchOrder,
+  rollbackPendingPick,
   saveDispatchWeighingBox,
   signDispatchOrder,
   startDispatchWeighing
@@ -116,6 +117,10 @@ describe('dispatch workflow api contract', () => {
     const pickingPayload = { request_id: 'pick-1', row_version: 7 }
     completeDispatchPicking(12, pickingPayload)
     expectLastRequest({ url: '/dispatch-workflow/12/complete-picking', method: 'post', data: pickingPayload })
+
+    const rollbackPayload = { request_id: 'rollback-1', row_version: 7 }
+    rollbackPendingPick(12, rollbackPayload)
+    expectLastRequest({ url: '/dispatch-workflow/12/rollback-pending-pick', method: 'post', data: rollbackPayload })
 
     const startPayload = { request_id: 'start-1', row_version: 8 }
     startDispatchWeighing(12, startPayload)

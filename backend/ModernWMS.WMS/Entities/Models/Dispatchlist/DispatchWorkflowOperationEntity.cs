@@ -7,6 +7,7 @@ namespace ModernWMS.WMS.Entities.Models;
 /// <summary>Commands whose request IDs form the dispatch workflow idempotency boundary.</summary>
 public enum DispatchWorkflowOperation : byte
 {
+    RollbackPendingPick = 5,
     CompletePicking = 10,
     StartWeighing = 20,
     SaveWeighing = 30,

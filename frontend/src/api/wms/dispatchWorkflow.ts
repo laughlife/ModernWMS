@@ -16,6 +16,8 @@ import type {
   PackingTaskPage,
   PackingTaskPageRequest,
   PageData,
+  RollbackPendingPickRequest,
+  RollbackPendingPickResult,
   SaveWeighingBoxRequest,
   SignDispatchOrderRequest,
   SignDispatchOrderResult,
@@ -77,6 +79,10 @@ export const getDispatchOrderPrint = (orderId: number) => request<DispatchOrderD
 
 export const completeDispatchPicking = (orderId: number, data: CompletePickingRequest) => request<CompletePickingResult>({
   url: `/dispatch-workflow/${orderId}/complete-picking`, method: 'post', data
+})
+
+export const rollbackPendingPick = (orderId: number, data: RollbackPendingPickRequest) => request<RollbackPendingPickResult>({
+  url: `/dispatch-workflow/${orderId}/rollback-pending-pick`, method: 'post', data
 })
 
 export const startDispatchWeighing = (orderId: number, data: WeighingOrderCommandRequest) => request<WeighingCommandResult>({

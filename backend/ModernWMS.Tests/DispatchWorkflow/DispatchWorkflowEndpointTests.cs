@@ -28,6 +28,8 @@ public class DispatchWorkflowEndpointTests
     [InlineData("GET", "/dispatch-workflow/counts?warehouse_id=320118")]
     [InlineData("GET", "/dispatch-workflow/1")]
     [InlineData("POST", "/dispatch-workflow/1/reconcile")]
+    [InlineData("POST", "/dispatch-workflow/1/complete-picking")]
+    [InlineData("POST", "/dispatch-workflow/1/rollback-pending-pick")]
     [InlineData("GET", "/dispatch-workflow/1/print")]
     public async Task Dispatch_workflow_endpoints_reject_anonymous_requests(string method, string url)
     {
