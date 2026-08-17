@@ -6,7 +6,7 @@ For Chinese documentation, see [README.zh_CN.md](README.zh_CN.md).
 
 ## Technology stack
 
-- .NET SDK 10.0.302 / ASP.NET Core 10 / Entity Framework Core 10
+- .NET SDK 10.0.302 / ASP.NET Core 10 / Dapper / MySqlConnector / Flyway
 - Backend target framework: `net10.0`
 - MySQL 8.4
 - Node.js 24.16.0 or newer / npm 11.17.0
@@ -74,7 +74,7 @@ npm run test:e2e
 - [Database initialization](docs/database.md)
 - [Windows-native deployment](docs/deployment.md)
 - [Modernization baseline](docs/baseline.md)
-- [Upgrade plan](升级计划.md)
+- [Archived modernization plan (historical only)](升级计划.md)
 
 ## License
 

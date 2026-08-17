@@ -4,7 +4,7 @@ ModernWMS 是一个前后端分离的仓库管理系统。本分支已完成整�
 
 ## 当前技术栈
 
-- .NET SDK 10.0.302、ASP.NET Core 10、Entity Framework Core 10
+- .NET SDK 10.0.302、ASP.NET Core 10、Dapper、MySqlConnector、Flyway
 - 后端目标框架固定为 `net10.0`
 - MySQL 8.4
 - Node.js 24.16.0 或更高版本、npm 11.17.0
@@ -72,7 +72,7 @@ npm run test:e2e
 - [数据库与初始化](docs/database.md)
 - [Windows 原生部署](docs/deployment.md)
 - [升级前行为基线](docs/baseline.md)
-- [整体升级计划](升级计划.md)
+- [历史升级计划（仅供追溯）](升级计划.md)
 
 ## 许可协议
 
