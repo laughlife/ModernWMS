@@ -1,6 +1,7 @@
 using System.Data;
 using Dapper;
 using Microsoft.Extensions.Localization;
+using ModernWMS.Core;
 using ModernWMS.Core.Database;
 using ModernWMS.Core.JWT;
 using ModernWMS.Core.Models;
