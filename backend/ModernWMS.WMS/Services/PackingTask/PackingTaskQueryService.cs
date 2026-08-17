@@ -1,43 +1,74 @@
-using Microsoft.EntityFrameworkCore;
+using System.Data;
+using Dapper;
 using Microsoft.Extensions.Configuration;
-using ModernWMS.Core.DBContext;
+using ModernWMS.Core.Database;
 using ModernWMS.Core.DBContext.Entities;
 using ModernWMS.Core.JWT;
 using ModernWMS.Core.Models;
 using ModernWMS.WMS.Entities.ViewModels;
 using ModernWMS.WMS.Entities.ViewModels.PackingTask;
 using ModernWMS.WMS.IServices;
-using ModernWMS.WMS.Entities.Models;
-using ModernWMS.WMS.Entities.Models.PackingTask;
 
 namespace ModernWMS.WMS.Services;
 
-/// <summary>
-/// Reads formal packing-task snapshots without creating WMS or FBA business facts.
-/// </summary>
+internal sealed record PackingTaskPageRequest(
+    string Keyword,
+    long? WarehouseId,
+    int Offset,
+    int PageSize,
+    long TenantId);
+
+internal sealed record PackingTaskStockAvailability(string SkuCode, int Qty);
+
+internal sealed record PackingTaskPageData(
+    List<ErpPackingTaskEntity> Tasks,
+    List<ErpPackingTaskItemEntity> Items,
+    IReadOnlyDictionary<long, PackingTaskStockAvailability> AvailabilityByItemId,
+    int Totals);
+
+internal sealed record PackingTaskSelectableData(
+    List<SelectableStockViewModel> Rows,
+    int WarehouseId,
+    string WarehouseName);
+
+internal sealed record PackingTaskStockSaveResult(bool IsSuccess, string Message);
+
+/// <summary>Testable query boundary implemented with Dapper in production.</summary>
+internal interface IPackingTaskQueryDataSource
+{
+    Task<PackingTaskPageData> LoadPageAsync(PackingTaskPageRequest request);
+
+    Task<PackingTaskSelectableData?> LoadSelectableStockAsync(
+        PackingTaskStockPageRequest request,
+        CurrentUser currentUser);
+
+    Task<PackingTaskStockSaveResult> SaveSelectionAsync(
+        PackingTaskStockSelectRequest request,
+        CurrentUser currentUser);
+}
+
+/// <summary>Reads formal packing-task snapshots without creating dispatch business facts.</summary>
 public class PackingTaskQueryService : IPackingTaskQueryService
 {
-    private readonly RuoyiDbContext _ruoyiDbContext;
+    private readonly IPackingTaskQueryDataSource _dataSource;
     private readonly IConfiguration _configuration;
-    private readonly SqlDBContext? _wmsDbContext;
     private readonly IWarehouseAccessService? _warehouseAccessService;
 
     public PackingTaskQueryService(
-        RuoyiDbContext ruoyiDbContext,
-        IConfiguration configuration)
-        : this(ruoyiDbContext, configuration, null, null)
+        IMySqlConnectionFactory connectionFactory,
+        IConfiguration configuration,
+        IWarehouseAccessService warehouseAccessService)
+        : this(new DapperPackingTaskQueryDataSource(connectionFactory), configuration, warehouseAccessService)
     {
     }
 
-    public PackingTaskQueryService(
-        RuoyiDbContext ruoyiDbContext,
+    internal PackingTaskQueryService(
+        IPackingTaskQueryDataSource dataSource,
         IConfiguration configuration,
-        SqlDBContext? wmsDbContext,
-        IWarehouseAccessService? warehouseAccessService)
+        IWarehouseAccessService? warehouseAccessService = null)
     {
-        _ruoyiDbContext = ruoyiDbContext;
-        _configuration = configuration;
-        _wmsDbContext = wmsDbContext;
+        _dataSource = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
+        _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
         _warehouseAccessService = warehouseAccessService;
     }
 
@@ -48,7 +79,6 @@ public class PackingTaskQueryService : IPackingTaskQueryService
             return Failure("装箱任务功能未启用");
         }
 
-        var keyword = FindSearchText(pageSearch, "keyword");
         var warehouseText = FindSearchText(pageSearch, "warehouse_id");
         long? warehouseId = long.TryParse(warehouseText, out var parsedWarehouseId) && parsedWarehouseId > 0
             ? parsedWarehouseId
@@ -69,64 +99,17 @@ public class PackingTaskQueryService : IPackingTaskQueryService
             }
         }
 
-        var query = _ruoyiDbContext.PackingTasks.AsNoTracking()
-            .Where(t => !t.source_deleted
-                && !t.source_canceled);
-
-        if (warehouseId != null)
-        {
-            query = query.Where(t => t.warehouse_id == warehouseId.Value);
-        }
-
-        if (_wmsDbContext != null)
-        {
-            var activeSourceTaskIds = await _wmsDbContext.GetDbSet<DispatchPackingTaskEntity>()
-                .AsNoTracking()
-                .Where(t => t.active_source_task_id != null)
-                .Select(t => t.active_source_task_id!.Value)
-                .ToListAsync();
-            if (activeSourceTaskIds.Count > 0)
-            {
-                query = query.Where(t => !activeSourceTaskIds.Contains(t.sellfox_task_id));
-            }
-        }
-
-        if (!string.IsNullOrWhiteSpace(keyword))
-        {
-            query = query.Where(t => t.packing_task_sn.Contains(keyword)
-                || _ruoyiDbContext.PackingTaskItems.Any(i => !i.source_deleted
-                    && i.sellfox_task_id == t.sellfox_task_id
-                    && ((i.commodity_name != null && i.commodity_name.Contains(keyword))
-                        || (i.commodity_sku != null && i.commodity_sku.Contains(keyword))
-                        || (i.sku != null && i.sku.Contains(keyword))
-                        || (i.fn_sku != null && i.fn_sku.Contains(keyword))
-                        || (i.msku != null && i.msku.Contains(keyword)))));
-        }
-
-        var totals = await query.CountAsync();
         var pageIndex = Math.Max(pageSearch.pageIndex, 1);
         var pageSize = Math.Clamp(pageSearch.pageSize, 1, 200);
-        var tasks = await query
-            .OrderByDescending(t => t.source_create_time)
-            .ThenByDescending(t => t.id)
-            .Skip((pageIndex - 1) * pageSize)
-            .Take(pageSize)
-            .ToListAsync();
-
-        if (tasks.Count == 0)
-        {
-            return new PackingTaskQueryResult(true, string.Empty, [], totals);
-        }
-
-        var taskIds = tasks.Select(t => t.sellfox_task_id).ToList();
-        var items = await _ruoyiDbContext.PackingTaskItems.AsNoTracking()
-            .Where(t => !t.source_deleted && taskIds.Contains(t.sellfox_task_id))
-            .OrderBy(t => t.id)
-            .ToListAsync();
-        var itemsByTask = items.GroupBy(t => t.sellfox_task_id).ToDictionary(t => t.Key, t => t.ToList());
-        var stockAvailability = await ResolveStockAvailabilityAsync(items, currentUser.tenant_id);
-
-        var data = tasks.Select(task => new PackingTaskQueryViewModel
+        var page = await _dataSource.LoadPageAsync(new PackingTaskPageRequest(
+            FindSearchText(pageSearch, "keyword"),
+            warehouseId,
+            (pageIndex - 1) * pageSize,
+            pageSize,
+            currentUser.tenant_id));
+        var itemsByTask = page.Items.GroupBy(t => t.sellfox_task_id)
+            .ToDictionary(t => t.Key, t => t.ToList());
+        var data = page.Tasks.Select(task => new PackingTaskQueryViewModel
         {
             id = task.id,
             sellfox_task_id = task.sellfox_task_id,
@@ -141,18 +124,57 @@ public class PackingTaskQueryService : IPackingTaskQueryService
             shop_name = task.shop_name,
             marketplace_name = task.marketplace_name,
             item_list = (itemsByTask.GetValueOrDefault(task.sellfox_task_id) ?? [])
-                .Select(item => BuildItemViewModel(item, stockAvailability))
+                .Select(item => BuildItemViewModel(item, page.AvailabilityByItemId))
                 .ToList()
         }).ToList();
 
-        return new PackingTaskQueryResult(true, string.Empty, data, totals);
+        return new PackingTaskQueryResult(true, string.Empty, data, page.Totals);
+    }
+
+    public async Task<(List<SelectableStockViewModel> data, int totals)> SelectableStockPageAsync(
+        PackingTaskStockPageRequest request,
+        CurrentUser currentUser)
+    {
+        var loaded = await _dataSource.LoadSelectableStockAsync(request, currentUser);
+        if (loaded == null)
+        {
+            return ([], 0);
+        }
+
+        foreach (var row in loaded.Rows)
+        {
+            row.warehouse_id = loaded.WarehouseId;
+            row.warehouse_name = loaded.WarehouseName;
+        }
+
+        var ordered = loaded.Rows.OrderByDescending(t => t.matched)
+            .ThenByDescending(t => t.available_qty)
+            .ThenBy(t => t.sku_code)
+            .ToList();
+        var totals = ordered.Count;
+        var pageIndex = Math.Max(request.page_index, 1);
+        var pageSize = Math.Clamp(request.page_size, 1, 200);
+        return (ordered.Skip((pageIndex - 1) * pageSize).Take(pageSize).ToList(), totals);
+    }
+
+    public async Task<(bool flag, string message)> SelectStockAsync(
+        PackingTaskStockSelectRequest request,
+        CurrentUser currentUser)
+    {
+        if (request.qty <= 0)
+        {
+            return (false, "选择数量必须大于0");
+        }
+
+        var result = await _dataSource.SaveSelectionAsync(request, currentUser);
+        return (result.IsSuccess, result.Message);
     }
 
     private static PackingTaskQueryItemViewModel BuildItemViewModel(
         ErpPackingTaskItemEntity item,
-        IReadOnlyDictionary<long, StockAvailability> stockAvailability)
+        IReadOnlyDictionary<long, PackingTaskStockAvailability> availabilityByItemId)
     {
-        var availability = stockAvailability.GetValueOrDefault(item.id);
+        var availability = availabilityByItemId.GetValueOrDefault(item.id);
         return new PackingTaskQueryItemViewModel
         {
             id = item.id,
@@ -172,446 +194,390 @@ public class PackingTaskQueryService : IPackingTaskQueryService
         };
     }
 
-    /// <summary>
-    /// Resolves the reference available quantity for each packing-task item from WMS stock.
-    /// The source SKU follows the <c>xxxx-1</c>/<c>xxxx-2</c> variant convention: the trailing
-    /// <c>-N</c> suffix is ignored and stock is summed across all variants of the same SPU.
-    /// </summary>
-    private async Task<Dictionary<long, StockAvailability>> ResolveStockAvailabilityAsync(
-        List<ErpPackingTaskItemEntity> items,
-        long tenantId)
-    {
-        var result = new Dictionary<long, StockAvailability>();
-        if (_wmsDbContext == null)
-        {
-            return result;
-        }
-
-        var commodityIds = items
-            .Where(t => t.commodity_id is > 0)
-            .Select(t => t.commodity_id!.Value)
-            .Distinct()
-            .ToList();
-        if (commodityIds.Count == 0)
-        {
-            return result;
-        }
-
-        var maps = await _ruoyiDbContext.CommodityMaps.AsNoTracking()
-            .Where(t => t.tenant_id == tenantId && commodityIds.Contains(t.erp_commodity_id))
-            .Select(t => new { t.erp_commodity_id, t.wms_sku_id })
-            .ToListAsync();
-        var skuIdByCommodityId = maps
-            .Where(t => t.wms_sku_id > 0)
-            .GroupBy(t => t.erp_commodity_id)
-            .ToDictionary(t => t.Key, t => t.First().wms_sku_id);
-        var skuIds = skuIdByCommodityId.Values.Distinct().ToList();
-        if (skuIds.Count == 0)
-        {
-            return result;
-        }
-
-        var mappedSkus = await _wmsDbContext.GetDbSet<SkuEntity>().AsNoTracking()
-            .Where(t => skuIds.Contains(t.id))
-            .Select(t => new { t.id, t.sku_code, t.spu_id })
-            .ToListAsync();
-        var spuIds = mappedSkus.Select(t => t.spu_id).Distinct().ToList();
-        if (spuIds.Count == 0)
-        {
-            return result;
-        }
-
-        var variantSkus = await _wmsDbContext.GetDbSet<SkuEntity>().AsNoTracking()
-            .Where(t => spuIds.Contains(t.spu_id))
-            .Select(t => new { t.id, t.spu_id })
-            .ToListAsync();
-        var variantSkuIds = variantSkus.Select(t => t.id).Distinct().ToList();
-        var spuIdBySkuId = variantSkus.ToDictionary(t => t.id, t => t.spu_id);
-
-        var stockQtyBySpuId = new Dictionary<int, int>();
-        if (variantSkuIds.Count > 0)
-        {
-            var stockRows = await _wmsDbContext.GetDbSet<StockEntity>().AsNoTracking()
-                .Where(t => t.tenant_id == tenantId && !t.is_freeze && variantSkuIds.Contains(t.sku_id))
-                .Select(t => new { t.sku_id, t.qty })
-                .ToListAsync();
-            foreach (var stock in stockRows)
-            {
-                if (spuIdBySkuId.TryGetValue(stock.sku_id, out var spuId))
-                {
-                    stockQtyBySpuId[spuId] = stockQtyBySpuId.GetValueOrDefault(spuId) + stock.qty;
-                }
-            }
-        }
-
-        var skuById = mappedSkus.ToDictionary(t => t.id, t => t);
-        foreach (var item in items)
-        {
-            if (item.commodity_id is not long commodityId
-                || !skuIdByCommodityId.TryGetValue(commodityId, out var skuId)
-                || !skuById.TryGetValue(skuId, out var sku))
-            {
-                continue;
-            }
-
-            var qty = stockQtyBySpuId.TryGetValue(sku.spu_id, out var total) ? total : 0;
-            result[item.id] = new StockAvailability(StripVariantSuffix(sku.sku_code), qty);
-        }
-
-        return result;
-    }
-
-    /// <summary>
-    /// Removes a trailing <c>-N</c> variant suffix such as <c>xxxx-1</c> or <c>xxxx-2</c>.
-    /// </summary>
-    private static string StripVariantSuffix(string skuCode)
-    {
-        if (string.IsNullOrWhiteSpace(skuCode))
-        {
-            return skuCode;
-        }
-
-        var dashIndex = skuCode.LastIndexOf('-');
-        if (dashIndex > 0
-            && dashIndex < skuCode.Length - 1
-            && skuCode[(dashIndex + 1)..].All(char.IsDigit))
-        {
-            return skuCode[..dashIndex];
-        }
-
-        return skuCode;
-    }
-
-    private sealed record StockAvailability(string SkuCode, int Qty);
-
-    /// <summary>
-    /// 查询装箱任务明细行可选择的库存：任务绑定仓库内、当前人未锁定（可用>0）、
-    /// 当前 SKU 按去掉 -N 变体后缀的基础 SKU 优先匹配；查看更多通过分页加载更多库存。
-    /// </summary>
-    public async Task<(List<SelectableStockViewModel> data, int totals)> SelectableStockPageAsync(
-        PackingTaskStockPageRequest request,
-        CurrentUser currentUser)
-    {
-        if (_wmsDbContext == null)
-        {
-            return ([], 0);
-        }
-
-        var item = await _ruoyiDbContext.PackingTaskItems.AsNoTracking()
-            .FirstOrDefaultAsync(t => t.sellfox_item_id == request.sellfox_item_id
-                && t.sellfox_task_id == request.sellfox_task_id
-                && !t.source_deleted);
-        if (item == null)
-        {
-            return ([], 0);
-        }
-
-        var task = await _ruoyiDbContext.PackingTasks.AsNoTracking()
-            .FirstOrDefaultAsync(t => t.sellfox_task_id == request.sellfox_task_id
-                && !t.source_deleted && !t.source_canceled);
-        if (task?.warehouse_id == null)
-        {
-            return ([], 0);
-        }
-
-        var warehouse = await _wmsDbContext.GetDbSet<WarehouseEntity>().AsNoTracking()
-            .FirstOrDefaultAsync(t => t.erp_warehouse_id == task.warehouse_id.Value && t.is_valid);
-        if (warehouse == null)
-        {
-            return ([], 0);
-        }
-
-        var locationIds = await _wmsDbContext.GetDbSet<GoodslocationEntity>().AsNoTracking()
-            .Where(t => t.warehouse_id == warehouse.id && t.is_valid && t.warehouse_area_property != 5)
-            .Select(t => t.id)
-            .ToListAsync();
-        if (locationIds.Count == 0)
-        {
-            return ([], 0);
-        }
-
-        string? baseSkuCode = null;
-        int? mappedSkuId = null;
-        if (item.commodity_id is long commodityId)
-        {
-            var map = await _ruoyiDbContext.CommodityMaps.AsNoTracking()
-                .FirstOrDefaultAsync(t => t.tenant_id == currentUser.tenant_id && t.erp_commodity_id == commodityId);
-            if (map != null && map.wms_sku_id > 0)
-            {
-                mappedSkuId = map.wms_sku_id;
-                var mappedSku = await _wmsDbContext.GetDbSet<SkuEntity>().AsNoTracking()
-                    .FirstOrDefaultAsync(t => t.id == map.wms_sku_id);
-                if (mappedSku != null)
-                {
-                    baseSkuCode = StripVariantSuffix(mappedSku.sku_code);
-                }
-            }
-        }
-
-        var stockRows = await (
-            from stock in _wmsDbContext.GetDbSet<StockEntity>().AsNoTracking()
-            join sku in _wmsDbContext.GetDbSet<SkuEntity>().AsNoTracking() on stock.sku_id equals sku.id
-            join spu in _wmsDbContext.GetDbSet<SpuEntity>().AsNoTracking() on sku.spu_id equals spu.id
-            join location in _wmsDbContext.GetDbSet<GoodslocationEntity>().AsNoTracking() on stock.goods_location_id equals location.id
-            where stock.tenant_id == currentUser.tenant_id && locationIds.Contains(location.id)
-            select new
-            {
-                stock.id,
-                stock.sku_id,
-                stock.qty,
-                stock.is_freeze,
-                stock.goods_location_id,
-                stock.goods_owner_id,
-                stock.series_number,
-                stock.expiry_date,
-                location.location_name,
-                sku.sku_code,
-                spu.spu_code,
-                spu.spu_name
-            })
-            .ToListAsync();
-
-        var skuIds = stockRows.Select(t => t.sku_id).Distinct().ToList();
-        var locks = await LoadStockLocksAsync(skuIds, locationIds);
-
-        var selections = await _wmsDbContext.GetDbSet<PackingTaskStockSelectionEntity>().AsNoTracking()
-            .Where(t => t.tenant_id == currentUser.tenant_id
-                && t.sellfox_task_id == request.sellfox_task_id
-                && t.sellfox_item_id == request.sellfox_item_id)
-            .ToListAsync();
-        var selectedQtyByStockId = selections.GroupBy(t => t.stock_id)
-            .ToDictionary(t => t.Key, t => t.Sum(x => x.qty));
-
-        var ownerIds = stockRows.Select(t => t.goods_owner_id).Distinct().ToList();
-        var ownerNames = ownerIds.Count == 0
-            ? new Dictionary<int, string>()
-            : await _wmsDbContext.GetDbSet<GoodsownerEntity>().AsNoTracking()
-                .Where(t => ownerIds.Contains(t.id))
-                .Select(t => new { t.id, t.goods_owner_name })
-                .ToDictionaryAsync(t => t.id, t => t.goods_owner_name);
-        var imageBySkuId = await LoadCommodityImageMapAsync(skuIds, currentUser.tenant_id);
-
-        var rows = new List<SelectableStockViewModel>();
-        foreach (var stock in stockRows)
-        {
-            var available = stock.is_freeze
-                ? 0
-                : Math.Max(0, stock.qty
-                    - locks.GetValueOrDefault((stock.sku_id, stock.goods_location_id))
-                    - selectedQtyByStockId.GetValueOrDefault(stock.id));
-            var selected = selectedQtyByStockId.ContainsKey(stock.id);
-            if (!selected && available <= 0)
-            {
-                continue;
-            }
-
-            var matched = mappedSkuId != null
-                && (stock.sku_id == mappedSkuId
-                    || (baseSkuCode != null
-                        && string.Equals(StripVariantSuffix(stock.sku_code), baseSkuCode, StringComparison.OrdinalIgnoreCase)));
-            rows.Add(new SelectableStockViewModel
-            {
-                stock_id = stock.id,
-                sku_id = stock.sku_id,
-                sku_code = stock.sku_code,
-                spu_code = stock.spu_code,
-                commodity_name = stock.spu_name,
-                main_image = imageBySkuId.GetValueOrDefault(stock.sku_id) ?? string.Empty,
-                goods_location_id = stock.goods_location_id,
-                location_name = stock.location_name,
-                warehouse_id = warehouse.id,
-                warehouse_name = warehouse.warehouse_name,
-                goods_owner_id = stock.goods_owner_id,
-                goods_owner_name = ownerNames.GetValueOrDefault(stock.goods_owner_id) ?? string.Empty,
-                qty = stock.qty,
-                available_qty = available,
-                series_number = stock.series_number,
-                expiry_date = stock.expiry_date,
-                matched = matched,
-                selected = selected
-            });
-        }
-
-        var ordered = rows
-            .OrderByDescending(t => t.matched)
-            .ThenByDescending(t => t.available_qty)
-            .ThenBy(t => t.sku_code)
-            .ToList();
-        var totals = ordered.Count;
-        var pageIndex = Math.Max(request.page_index, 1);
-        var pageSize = Math.Clamp(request.page_size, 1, 200);
-        var page = ordered.Skip((pageIndex - 1) * pageSize).Take(pageSize).ToList();
-        return (page, totals);
-    }
-
-    /// <summary>
-    /// 保存装箱任务明细行对某个库存行的选择（同任务+明细+库存行唯一，重复选择覆盖数量）。
-    /// </summary>
-    public async Task<(bool flag, string message)> SelectStockAsync(
-        PackingTaskStockSelectRequest request,
-        CurrentUser currentUser)
-    {
-        if (_wmsDbContext == null)
-        {
-            return (false, "WMS数据库不可用");
-        }
-
-        if (request.qty <= 0)
-        {
-            return (false, "选择数量必须大于0");
-        }
-
-        var item = await _ruoyiDbContext.PackingTaskItems.AsNoTracking()
-            .FirstOrDefaultAsync(t => t.sellfox_item_id == request.sellfox_item_id
-                && t.sellfox_task_id == request.sellfox_task_id
-                && !t.source_deleted);
-        if (item == null)
-        {
-            return (false, "装箱任务明细不存在");
-        }
-
-        var stock = await _wmsDbContext.GetDbSet<StockEntity>().AsNoTracking()
-            .FirstOrDefaultAsync(t => t.id == request.stock_id && t.tenant_id == currentUser.tenant_id);
-        if (stock == null)
-        {
-            return (false, "库存不存在");
-        }
-        if (stock.is_freeze)
-        {
-            return (false, "该库存已冻结，不能选择");
-        }
-
-        var sku = await _wmsDbContext.GetDbSet<SkuEntity>().AsNoTracking()
-            .FirstOrDefaultAsync(t => t.id == stock.sku_id);
-
-        var now = DateTime.Now;
-        var dbSet = _wmsDbContext.GetDbSet<PackingTaskStockSelectionEntity>();
-        var existing = await dbSet
-            .FirstOrDefaultAsync(t => t.tenant_id == currentUser.tenant_id
-                && t.sellfox_task_id == request.sellfox_task_id
-                && t.sellfox_item_id == request.sellfox_item_id
-                && t.stock_id == request.stock_id);
-        if (existing == null)
-        {
-            dbSet.Add(new PackingTaskStockSelectionEntity
-            {
-                tenant_id = currentUser.tenant_id,
-                sellfox_task_id = request.sellfox_task_id,
-                sellfox_item_id = request.sellfox_item_id,
-                wms_sku_id = stock.sku_id,
-                stock_id = request.stock_id,
-                qty = request.qty,
-                goods_location_id = stock.goods_location_id,
-                goods_owner_id = stock.goods_owner_id,
-                sku_code = sku?.sku_code ?? string.Empty,
-                selected_by = currentUser.user_id,
-                selected_by_name = currentUser.user_name,
-                create_time = now,
-                last_update_time = now
-            });
-        }
-        else
-        {
-            existing.wms_sku_id = stock.sku_id;
-            existing.qty = request.qty;
-            existing.goods_location_id = stock.goods_location_id;
-            existing.goods_owner_id = stock.goods_owner_id;
-            existing.sku_code = sku?.sku_code ?? string.Empty;
-            existing.selected_by = currentUser.user_id;
-            existing.selected_by_name = currentUser.user_name;
-            existing.last_update_time = now;
-        }
-
-        await _wmsDbContext.SaveChangesAsync();
-        return (true, "库存选择成功");
-    }
-
-    private async Task<Dictionary<(int SkuId, int LocationId), int>> LoadStockLocksAsync(
-        List<int> skuIds,
-        List<int> locationIds)
-    {
-        var locks = new Dictionary<(int, int), int>();
-        if (skuIds.Count == 0 || locationIds.Count == 0)
-        {
-            return locks;
-        }
-
-        var dispatchRows = await (
-            from detail in _wmsDbContext!.GetDbSet<DispatchlistEntity>().AsNoTracking()
-            join pick in _wmsDbContext!.GetDbSet<DispatchpicklistEntity>().AsNoTracking()
-                on detail.id equals pick.dispatchlist_id
-            where detail.dispatch_status > 1 && detail.dispatch_status < 6
-                && skuIds.Contains(pick.sku_id) && locationIds.Contains(pick.goods_location_id)
-            group pick by new { pick.sku_id, pick.goods_location_id } into g
-            select new { g.Key.sku_id, g.Key.goods_location_id, qty = g.Sum(t => t.pick_qty) })
-            .ToListAsync();
-        AddLocks(locks, dispatchRows.Select(t => (t.sku_id, t.goods_location_id, t.qty)));
-
-        var processRows = await _wmsDbContext!.GetDbSet<StockprocessdetailEntity>().AsNoTracking()
-            .Where(t => !t.is_update_stock && skuIds.Contains(t.sku_id) && locationIds.Contains(t.goods_location_id))
-            .GroupBy(t => new { t.sku_id, t.goods_location_id })
-            .Select(g => new { g.Key.sku_id, g.Key.goods_location_id, qty = g.Sum(t => t.qty) })
-            .ToListAsync();
-        AddLocks(locks, processRows.Select(t => (t.sku_id, t.goods_location_id, t.qty)));
-
-        var moveRows = await _wmsDbContext!.GetDbSet<StockmoveEntity>().AsNoTracking()
-            .Where(t => t.move_status == 0 && skuIds.Contains(t.sku_id) && locationIds.Contains(t.orig_goods_location_id))
-            .GroupBy(t => new { t.sku_id, t.orig_goods_location_id })
-            .Select(g => new { g.Key.sku_id, location_id = g.Key.orig_goods_location_id, qty = g.Sum(t => t.qty) })
-            .ToListAsync();
-        AddLocks(locks, moveRows.Select(t => (t.sku_id, t.location_id, t.qty)));
-
-        return locks;
-    }
-
-    private static void AddLocks(
-        Dictionary<(int, int), int> locks,
-        IEnumerable<(int SkuId, int LocationId, int Qty)> rows)
-    {
-        foreach (var (skuId, locationId, qty) in rows)
-        {
-            locks[(skuId, locationId)] = locks.GetValueOrDefault((skuId, locationId)) + qty;
-        }
-    }
-
-    private async Task<Dictionary<int, string>> LoadCommodityImageMapAsync(List<int> skuIds, long tenantId)
-    {
-        var result = new Dictionary<int, string>();
-        if (skuIds.Count == 0)
-        {
-            return result;
-        }
-
-        var maps = await _ruoyiDbContext.CommodityMaps.AsNoTracking()
-            .Where(t => t.tenant_id == tenantId && skuIds.Contains(t.wms_sku_id))
-            .Select(t => new { t.wms_sku_id, t.erp_commodity_id })
-            .ToListAsync();
-        var commodityIds = maps.Select(t => t.erp_commodity_id.ToString()).Distinct().ToList();
-        var images = commodityIds.Count == 0
-            ? []
-            : await _ruoyiDbContext.Commodities.AsNoTracking()
-                .Where(t => commodityIds.Contains(t.id) && !string.IsNullOrEmpty(t.img_url))
-                .Select(t => new { t.id, t.img_url })
-                .ToListAsync();
-        foreach (var map in maps)
-        {
-            var image = images.FirstOrDefault(t => t.id == map.erp_commodity_id.ToString());
-            if (image?.img_url != null && !result.ContainsKey(map.wms_sku_id))
-            {
-                result[map.wms_sku_id] = image.img_url;
-            }
-        }
-
-        return result;
-    }
-
     private static PackingTaskQueryResult Failure(string message) => new(false, message, [], 0);
 
-    private static string FindSearchText(PageSearch pageSearch, string name)
+    private static string FindSearchText(PageSearch pageSearch, string name) =>
+        pageSearch.searchObjects.FirstOrDefault(t =>
+            string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase))?.Text?.Trim() ?? string.Empty;
+
+    private sealed class DapperPackingTaskQueryDataSource(IMySqlConnectionFactory connectionFactory)
+        : IPackingTaskQueryDataSource
     {
-        return pageSearch.searchObjects
-            .FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase))
-            ?.Text
-            ?.Trim() ?? string.Empty;
+        private readonly IMySqlConnectionFactory _connectionFactory = connectionFactory
+            ?? throw new ArgumentNullException(nameof(connectionFactory));
+
+        public async Task<PackingTaskPageData> LoadPageAsync(PackingTaskPageRequest request)
+        {
+            const string whereSql = """
+                FROM ruiyi_sellfox_packing_task AS task
+                WHERE task.source_deleted = 0
+                  AND task.source_canceled = 0
+                  AND (@WarehouseId IS NULL OR task.warehouse_id = @WarehouseId)
+                  AND NOT EXISTS (
+                    SELECT 1 FROM wms_dispatch_packing_task AS active_task
+                    WHERE active_task.active_source_task_id = task.sellfox_task_id)
+                  AND (@HasKeyword = 0
+                    OR LOCATE(@Keyword, task.packing_task_sn) > 0
+                    OR EXISTS (
+                      SELECT 1 FROM ruiyi_sellfox_packing_task_item AS search_item
+                      WHERE search_item.sellfox_task_id = task.sellfox_task_id
+                        AND search_item.source_deleted = 0
+                        AND (LOCATE(@Keyword, search_item.commodity_name) > 0
+                          OR LOCATE(@Keyword, search_item.commodity_sku) > 0
+                          OR LOCATE(@Keyword, search_item.sku) > 0
+                          OR LOCATE(@Keyword, search_item.fn_sku) > 0
+                          OR LOCATE(@Keyword, search_item.msku) > 0)))
+                """;
+            var parameters = new
+            {
+                HasKeyword = string.IsNullOrEmpty(request.Keyword) ? 0 : 1,
+                request.Keyword,
+                request.WarehouseId,
+                request.Offset,
+                request.PageSize,
+                request.TenantId
+            };
+            await using var connection = await _connectionFactory.OpenConnectionAsync();
+            var totals = await connection.QuerySingleAsync<int>(
+                $"SELECT COUNT(*) {whereSql}", parameters);
+            var tasks = (await connection.QueryAsync<ErpPackingTaskEntity>($"""
+                SELECT task.id, task.sellfox_task_id, task.packing_task_sn, task.warehouse_id,
+                       task.warehouse_name, task.complete_num, task.task_num, task.create_name,
+                       task.source_create_time, task.item_count, task.shop_name, task.marketplace_name
+                {whereSql}
+                ORDER BY task.source_create_time DESC, task.id DESC
+                LIMIT @PageSize OFFSET @Offset
+                """, parameters)).AsList();
+            if (tasks.Count == 0)
+            {
+                return new PackingTaskPageData([], [],
+                    new Dictionary<long, PackingTaskStockAvailability>(), totals);
+            }
+
+            var taskIds = tasks.Select(t => t.sellfox_task_id).ToArray();
+            var items = (await connection.QueryAsync<ErpPackingTaskItemEntity>("""
+                SELECT id, sellfox_item_id, sellfox_task_id, commodity_id, commodity_sku,
+                       commodity_name, main_image, fn_sku, sku, msku, task_num,
+                       quantity_shipped, stock_available
+                FROM ruiyi_sellfox_packing_task_item
+                WHERE source_deleted = 0 AND sellfox_task_id IN @TaskIds
+                ORDER BY id
+                """, new { TaskIds = taskIds })).AsList();
+            var availabilityRows = (await connection.QueryAsync<AvailabilityRow>("""
+                SELECT item.id AS ItemId,
+                       mapped_sku.sku_code AS SkuCode,
+                       COALESCE(SUM(CASE WHEN stock.is_freeze = 0 THEN stock.qty ELSE 0 END), 0) AS Qty
+                FROM ruiyi_sellfox_packing_task_item AS item
+                INNER JOIN wms_erp_commodity_map AS commodity_map
+                  ON commodity_map.erp_commodity_id = item.commodity_id
+                 AND commodity_map.tenant_id = @TenantId
+                 AND commodity_map.wms_sku_id > 0
+                INNER JOIN wms_sku AS mapped_sku ON mapped_sku.id = commodity_map.wms_sku_id
+                INNER JOIN wms_sku AS variant_sku ON variant_sku.spu_id = mapped_sku.spu_id
+                LEFT JOIN wms_stock AS stock
+                  ON stock.sku_id = variant_sku.id AND stock.tenant_id = @TenantId
+                WHERE item.source_deleted = 0 AND item.sellfox_task_id IN @TaskIds
+                GROUP BY item.id, mapped_sku.sku_code
+                """, new { TaskIds = taskIds, request.TenantId })).AsList();
+            var availability = availabilityRows.ToDictionary(
+                t => t.ItemId,
+                t => new PackingTaskStockAvailability(StripVariantSuffix(t.SkuCode), t.Qty));
+            return new PackingTaskPageData(tasks, items, availability, totals);
+        }
+
+        public async Task<PackingTaskSelectableData?> LoadSelectableStockAsync(
+            PackingTaskStockPageRequest request,
+            CurrentUser currentUser)
+        {
+            await using var connection = await _connectionFactory.OpenConnectionAsync();
+            var context = await connection.QuerySingleOrDefaultAsync<SelectableContext>("""
+                SELECT warehouse.id AS WarehouseId, warehouse.warehouse_name AS WarehouseName,
+                       commodity_map.wms_sku_id AS MappedSkuId, mapped_sku.sku_code AS MappedSkuCode
+                FROM ruiyi_sellfox_packing_task_item AS item
+                INNER JOIN ruiyi_sellfox_packing_task AS task
+                  ON task.sellfox_task_id = item.sellfox_task_id
+                 AND task.source_deleted = 0 AND task.source_canceled = 0
+                INNER JOIN wms_warehouse AS warehouse
+                  ON warehouse.erp_warehouse_id = task.warehouse_id AND warehouse.is_valid = 1
+                LEFT JOIN wms_erp_commodity_map AS commodity_map
+                  ON commodity_map.erp_commodity_id = item.commodity_id
+                 AND commodity_map.tenant_id = @TenantId
+                LEFT JOIN wms_sku AS mapped_sku ON mapped_sku.id = commodity_map.wms_sku_id
+                WHERE item.sellfox_task_id = @TaskId AND item.sellfox_item_id = @ItemId
+                  AND item.source_deleted = 0
+                LIMIT 1
+                """, new
+            {
+                TenantId = currentUser.tenant_id,
+                TaskId = request.sellfox_task_id,
+                ItemId = request.sellfox_item_id
+            });
+            if (context == null)
+            {
+                return null;
+            }
+
+            var rows = (await connection.QueryAsync<SelectableRow>("""
+                SELECT stock.id AS stock_id, stock.sku_id, sku.sku_code, spu.spu_code,
+                       spu.spu_name AS commodity_name,
+                       COALESCE((
+                         SELECT commodity.img_url
+                         FROM wms_erp_commodity_map AS image_map
+                         INNER JOIN erp_commodity AS commodity
+                           ON commodity.id = CAST(image_map.erp_commodity_id AS CHAR)
+                         WHERE image_map.wms_sku_id = stock.sku_id
+                           AND image_map.tenant_id = @TenantId
+                           AND commodity.img_url <> ''
+                         ORDER BY image_map.id
+                         LIMIT 1), '') AS main_image,
+                       stock.goods_location_id, location.location_name,
+                       stock.goods_owner_id, COALESCE(owner.goods_owner_name, '') AS goods_owner_name,
+                       stock.qty, stock.is_freeze, stock.series_number, stock.expiry_date,
+                       COALESCE(selection.selected_qty, 0) AS selected_qty,
+                       COALESCE(dispatch_lock.lock_qty, 0) + COALESCE(process_lock.lock_qty, 0)
+                         + COALESCE(move_lock.lock_qty, 0) AS locked_qty
+                FROM wms_stock AS stock
+                INNER JOIN wms_sku AS sku ON sku.id = stock.sku_id
+                INNER JOIN wms_spu AS spu ON spu.id = sku.spu_id
+                INNER JOIN wms_goodslocation AS location
+                  ON location.id = stock.goods_location_id
+                 AND location.warehouse_id = @WarehouseId
+                 AND location.is_valid = 1 AND location.warehouse_area_property <> 5
+                LEFT JOIN wms_goodsowner AS owner ON owner.id = stock.goods_owner_id
+                LEFT JOIN (
+                  SELECT stock_id, SUM(qty) AS selected_qty
+                  FROM wms_packing_task_stock_selection
+                  WHERE tenant_id = @TenantId AND sellfox_task_id = @TaskId AND sellfox_item_id = @ItemId
+                  GROUP BY stock_id) AS selection ON selection.stock_id = stock.id
+                LEFT JOIN (
+                  SELECT pick.sku_id, pick.goods_location_id, SUM(pick.pick_qty) AS lock_qty
+                  FROM wms_dispatchpicklist AS pick
+                  INNER JOIN wms_dispatchlist AS detail ON detail.id = pick.dispatchlist_id
+                  WHERE detail.dispatch_status > 1 AND detail.dispatch_status < 6
+                  GROUP BY pick.sku_id, pick.goods_location_id) AS dispatch_lock
+                  ON dispatch_lock.sku_id = stock.sku_id
+                 AND dispatch_lock.goods_location_id = stock.goods_location_id
+                LEFT JOIN (
+                  SELECT sku_id, goods_location_id, SUM(qty) AS lock_qty
+                  FROM wms_stockprocessdetail WHERE is_update_stock = 0
+                  GROUP BY sku_id, goods_location_id) AS process_lock
+                  ON process_lock.sku_id = stock.sku_id
+                 AND process_lock.goods_location_id = stock.goods_location_id
+                LEFT JOIN (
+                  SELECT sku_id, orig_goods_location_id, SUM(qty) AS lock_qty
+                  FROM wms_stockmove WHERE move_status = 0
+                  GROUP BY sku_id, orig_goods_location_id) AS move_lock
+                  ON move_lock.sku_id = stock.sku_id
+                 AND move_lock.orig_goods_location_id = stock.goods_location_id
+                WHERE stock.tenant_id = @TenantId
+                """, new
+            {
+                TenantId = currentUser.tenant_id,
+                TaskId = request.sellfox_task_id,
+                ItemId = request.sellfox_item_id,
+                context.WarehouseId
+            })).AsList();
+            var baseSkuCode = StripVariantSuffix(context.MappedSkuCode ?? string.Empty);
+            var resultRows = new List<SelectableStockViewModel>();
+            foreach (var row in rows)
+            {
+                var available = row.is_freeze ? 0 : Math.Max(0, row.qty - row.locked_qty - row.selected_qty);
+                var selected = row.selected_qty > 0;
+                if (!selected && available <= 0)
+                {
+                    continue;
+                }
+
+                resultRows.Add(new SelectableStockViewModel
+                {
+                    stock_id = row.stock_id,
+                    sku_id = row.sku_id,
+                    sku_code = row.sku_code,
+                    spu_code = row.spu_code,
+                    commodity_name = row.commodity_name,
+                    main_image = row.main_image,
+                    goods_location_id = row.goods_location_id,
+                    location_name = row.location_name,
+                    goods_owner_id = row.goods_owner_id,
+                    goods_owner_name = row.goods_owner_name,
+                    qty = row.qty,
+                    available_qty = available,
+                    series_number = row.series_number,
+                    expiry_date = row.expiry_date,
+                    matched = context.MappedSkuId is > 0
+                        && (row.sku_id == context.MappedSkuId
+                            || (!string.IsNullOrEmpty(baseSkuCode)
+                                && string.Equals(StripVariantSuffix(row.sku_code), baseSkuCode,
+                                    StringComparison.OrdinalIgnoreCase))),
+                    selected = selected
+                });
+            }
+
+            return new PackingTaskSelectableData(resultRows, context.WarehouseId, context.WarehouseName);
+        }
+
+        public async Task<PackingTaskStockSaveResult> SaveSelectionAsync(
+            PackingTaskStockSelectRequest request,
+            CurrentUser currentUser)
+        {
+            await using var connection = await _connectionFactory.OpenConnectionAsync();
+            await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted);
+            try
+            {
+                var itemExists = await connection.ExecuteScalarAsync<bool>("""
+                    SELECT EXISTS(
+                      SELECT 1 FROM ruiyi_sellfox_packing_task_item
+                      WHERE sellfox_item_id = @ItemId AND sellfox_task_id = @TaskId AND source_deleted = 0)
+                    """, new { ItemId = request.sellfox_item_id, TaskId = request.sellfox_task_id }, transaction);
+                if (!itemExists)
+                {
+                    return await RollbackResultAsync(transaction, "装箱任务明细不存在");
+                }
+
+                var stock = await connection.QuerySingleOrDefaultAsync<SelectionStockRow>("""
+                    SELECT stock.id, stock.sku_id, stock.goods_location_id, stock.goods_owner_id,
+                           stock.is_freeze, sku.sku_code
+                    FROM wms_stock AS stock
+                    LEFT JOIN wms_sku AS sku ON sku.id = stock.sku_id
+                    WHERE stock.id = @StockId AND stock.tenant_id = @TenantId
+                    FOR UPDATE
+                    """, new { StockId = request.stock_id, TenantId = currentUser.tenant_id }, transaction);
+                if (stock == null)
+                {
+                    return await RollbackResultAsync(transaction, "库存不存在");
+                }
+                if (stock.is_freeze)
+                {
+                    return await RollbackResultAsync(transaction, "该库存已冻结，不能选择");
+                }
+
+                var existingId = await connection.QuerySingleOrDefaultAsync<int?>("""
+                    SELECT id FROM wms_packing_task_stock_selection
+                    WHERE tenant_id = @TenantId AND sellfox_task_id = @TaskId
+                      AND sellfox_item_id = @ItemId AND stock_id = @StockId
+                    ORDER BY id LIMIT 1 FOR UPDATE
+                    """, new
+                {
+                    TenantId = currentUser.tenant_id,
+                    TaskId = request.sellfox_task_id,
+                    ItemId = request.sellfox_item_id,
+                    StockId = request.stock_id
+                }, transaction);
+                var values = new
+                {
+                    Id = existingId,
+                    TenantId = currentUser.tenant_id,
+                    TaskId = request.sellfox_task_id,
+                    ItemId = request.sellfox_item_id,
+                    WmsSkuId = stock.sku_id,
+                    StockId = request.stock_id,
+                    request.qty,
+                    stock.goods_location_id,
+                    stock.goods_owner_id,
+                    SkuCode = stock.sku_code ?? string.Empty,
+                    SelectedBy = currentUser.user_id,
+                    SelectedByName = currentUser.user_name ?? string.Empty,
+                    Now = DateTime.Now
+                };
+                if (existingId == null)
+                {
+                    await connection.ExecuteAsync("""
+                        INSERT INTO wms_packing_task_stock_selection
+                          (tenant_id, sellfox_task_id, sellfox_item_id, wms_sku_id, stock_id, qty,
+                           goods_location_id, goods_owner_id, sku_code, selected_by, selected_by_name,
+                           create_time, last_update_time)
+                        VALUES
+                          (@TenantId, @TaskId, @ItemId, @WmsSkuId, @StockId, @qty,
+                           @goods_location_id, @goods_owner_id, @SkuCode, @SelectedBy, @SelectedByName,
+                           @Now, @Now)
+                        """, values, transaction);
+                }
+                else
+                {
+                    await connection.ExecuteAsync("""
+                        UPDATE wms_packing_task_stock_selection
+                        SET wms_sku_id = @WmsSkuId, qty = @qty,
+                            goods_location_id = @goods_location_id, goods_owner_id = @goods_owner_id,
+                            sku_code = @SkuCode, selected_by = @SelectedBy,
+                            selected_by_name = @SelectedByName, last_update_time = @Now
+                        WHERE id = @Id
+                        """, values, transaction);
+                }
+
+                await transaction.CommitAsync();
+                return new PackingTaskStockSaveResult(true, "库存选择成功");
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
+        private static async Task<PackingTaskStockSaveResult> RollbackResultAsync(
+            System.Data.Common.DbTransaction transaction,
+            string message)
+        {
+            await transaction.RollbackAsync();
+            return new PackingTaskStockSaveResult(false, message);
+        }
+
+        private static string StripVariantSuffix(string skuCode)
+        {
+            if (string.IsNullOrWhiteSpace(skuCode))
+            {
+                return skuCode;
+            }
+
+            var dashIndex = skuCode.LastIndexOf('-');
+            return dashIndex > 0 && dashIndex < skuCode.Length - 1
+                && skuCode[(dashIndex + 1)..].All(char.IsDigit)
+                ? skuCode[..dashIndex]
+                : skuCode;
+        }
+
+        private sealed class AvailabilityRow
+        {
+            public long ItemId { get; init; }
+            public string SkuCode { get; init; } = string.Empty;
+            public int Qty { get; init; }
+        }
+
+        private sealed class SelectableContext
+        {
+            public int WarehouseId { get; init; }
+            public string WarehouseName { get; init; } = string.Empty;
+            public int? MappedSkuId { get; init; }
+            public string? MappedSkuCode { get; init; }
+        }
+
+        private sealed class SelectableRow
+        {
+            public int stock_id { get; init; }
+            public int sku_id { get; init; }
+            public string sku_code { get; init; } = string.Empty;
+            public string spu_code { get; init; } = string.Empty;
+            public string commodity_name { get; init; } = string.Empty;
+            public string main_image { get; init; } = string.Empty;
+            public int goods_location_id { get; init; }
+            public string location_name { get; init; } = string.Empty;
+            public int goods_owner_id { get; init; }
+            public string goods_owner_name { get; init; } = string.Empty;
+            public int qty { get; init; }
+            public bool is_freeze { get; init; }
+            public string series_number { get; init; } = string.Empty;
+            public DateTime? expiry_date { get; init; }
+            public int selected_qty { get; init; }
+            public int locked_qty { get; init; }
+        }
+
+        private sealed class SelectionStockRow
+        {
+            public int sku_id { get; init; }
+            public int goods_location_id { get; init; }
+            public int goods_owner_id { get; init; }
+            public bool is_freeze { get; init; }
+            public string? sku_code { get; init; }
+        }
     }
 }

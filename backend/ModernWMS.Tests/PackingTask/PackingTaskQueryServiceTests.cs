@@ -1,40 +1,52 @@
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
-using ModernWMS.Core.DBContext;
+using ModernWMS.Core.Database;
 using ModernWMS.Core.DBContext.Entities;
 using ModernWMS.Core.DynamicSearch;
 using ModernWMS.Core.JWT;
 using ModernWMS.Core.Models;
+using ModernWMS.WMS.Entities.ViewModels.PackingTask;
 using ModernWMS.WMS.Services;
-using ModernWMS.WMS.Entities.Models;
 
 namespace ModernWMS.Tests.PackingTask;
 
 public class PackingTaskQueryServiceTests
 {
     [Fact]
+    public void Constructor_uses_Dapper_connection_factory_and_has_no_EF_DbContext_dependency()
+    {
+        var parameterTypes = typeof(PackingTaskQueryService).GetConstructors()
+            .SelectMany(t => t.GetParameters())
+            .Select(t => t.ParameterType)
+            .ToArray();
+
+        Assert.Contains(typeof(IMySqlConnectionFactory), parameterTypes);
+        Assert.DoesNotContain(parameterTypes, t => t.Name.EndsWith("DbContext", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task PageAsync_returns_feature_disabled_without_reading_tasks()
     {
-        await using var ruoyiDatabase = CreateRuoyiDatabase();
-        var service = CreateService(ruoyiDatabase, enabled: false);
+        var source = new InMemoryPackingTaskQueryDataSource();
+        var service = CreateService(source, enabled: false);
 
         var result = await service.PageAsync(new PageSearch(), CurrentTenant());
 
         Assert.False(result.IsSuccess);
         Assert.Equal(0, result.Totals);
         Assert.Empty(result.Data);
+        Assert.Empty(source.PageRequests);
     }
 
     [Fact]
     public async Task PageAsync_returns_tasks_from_all_warehouses_without_tenant_binding()
     {
-        await using var ruoyiDatabase = CreateRuoyiDatabase();
-        await ruoyiDatabase.PackingTasks.AddRangeAsync(
+        var source = new InMemoryPackingTaskQueryDataSource();
+        source.Tasks.AddRange([
             Task(1, 101, "SHENZHEN", 320118, DateTime.UtcNow),
-            Task(2, 102, "OTHER-WAREHOUSE", 9, DateTime.UtcNow));
-        await ruoyiDatabase.SaveChangesAsync();
+            Task(2, 102, "OTHER-WAREHOUSE", 9, DateTime.UtcNow)
+        ]);
 
-        var result = await CreateService(ruoyiDatabase).PageAsync(new PageSearch(), CurrentTenant());
+        var result = await CreateService(source).PageAsync(new PageSearch(), CurrentTenant());
 
         Assert.True(result.IsSuccess);
         Assert.Equal(2, result.Totals);
@@ -44,40 +56,31 @@ public class PackingTaskQueryServiceTests
     [Fact]
     public async Task PageAsync_filters_orders_and_preserves_nullable_item_quantities()
     {
-        await using var ruoyiDatabase = CreateRuoyiDatabase();
+        var source = new InMemoryPackingTaskQueryDataSource();
         var commonTime = new DateTime(2026, 8, 15, 8, 0, 0);
-        await ruoyiDatabase.PackingTasks.AddRangeAsync(
+        source.Tasks.AddRange([
             Task(1, 101, "PACK-101", 320118, commonTime),
             Task(2, 102, "PACK-102", 320118, commonTime),
             Task(3, 103, "OTHER-WAREHOUSE", 9, commonTime.AddDays(1)),
             Task(4, 104, "CANCELED", 320118, commonTime.AddDays(1), canceled: true),
             Task(5, 105, "DELETED", 320118, commonTime.AddDays(1), deleted: true),
-            Task(6, 106, "NULL-TIME", 320118, null));
-        await ruoyiDatabase.PackingTaskItems.AddRangeAsync(
+            Task(6, 106, "NULL-TIME", 320118, null)
+        ]);
+        source.Items.AddRange([
             new ErpPackingTaskItemEntity
             {
-                id = 11,
-                sellfox_item_id = 1001,
-                sellfox_task_id = 102,
-                commodity_name = null,
-                commodity_sku = "SKU-102",
-                fn_sku = null,
-                msku = "MSKU-102",
-                task_num = null,
-                quantity_shipped = 0,
-                stock_available = null
+                id = 11, sellfox_item_id = 1001, sellfox_task_id = 102,
+                commodity_name = null, commodity_sku = "SKU-102", fn_sku = null,
+                msku = "MSKU-102", task_num = null, quantity_shipped = 0, stock_available = null
             },
             new ErpPackingTaskItemEntity
             {
-                id = 12,
-                sellfox_item_id = 1002,
-                sellfox_task_id = 102,
-                commodity_name = "soft deleted",
-                source_deleted = true
-            });
-        await ruoyiDatabase.SaveChangesAsync();
+                id = 12, sellfox_item_id = 1002, sellfox_task_id = 102,
+                commodity_name = "soft deleted", source_deleted = true
+            }
+        ]);
 
-        var result = await CreateService(ruoyiDatabase).PageAsync(new PageSearch(), CurrentTenant());
+        var result = await CreateService(source).PageAsync(new PageSearch(), CurrentTenant());
 
         Assert.True(result.IsSuccess);
         Assert.Equal(4, result.Totals);
@@ -94,64 +97,40 @@ public class PackingTaskQueryServiceTests
     [Fact]
     public async Task PageAsync_searches_only_task_and_product_identifiers()
     {
-        await using var ruoyiDatabase = CreateRuoyiDatabase();
-        await ruoyiDatabase.PackingTasks.AddRangeAsync(
+        var source = new InMemoryPackingTaskQueryDataSource();
+        source.Tasks.AddRange([
             Task(1, 101, "PACK-101", 320118, DateTime.UtcNow),
-            Task(2, 102, "PACK-102", 320118, DateTime.UtcNow));
-        await ruoyiDatabase.PackingTaskItems.AddAsync(new ErpPackingTaskItemEntity
+            Task(2, 102, "PACK-102", 320118, DateTime.UtcNow)
+        ]);
+        source.Items.Add(new ErpPackingTaskItemEntity
         {
-            id = 11,
-            sellfox_item_id = 1001,
-            sellfox_task_id = 102,
-            fn_sku = "FNSKU-HIT"
+            id = 11, sellfox_item_id = 1001, sellfox_task_id = 102, fn_sku = "FNSKU-HIT"
         });
-        await ruoyiDatabase.SaveChangesAsync();
         var page = new PageSearch
         {
             searchObjects = [new SearchObject { Name = "keyword", Text = "FNSKU-HIT" }]
         };
 
-        var result = await CreateService(ruoyiDatabase).PageAsync(page, CurrentTenant());
+        var result = await CreateService(source).PageAsync(page, CurrentTenant());
 
         Assert.True(result.IsSuccess);
         Assert.Equal(1, result.Totals);
         Assert.Equal(102, Assert.Single(result.Data).sellfox_task_id);
+        Assert.Equal("FNSKU-HIT", Assert.Single(source.PageRequests).Keyword);
     }
 
     [Fact]
     public async Task PageAsync_filters_by_authorized_warehouse_and_excludes_tasks_in_active_orders()
     {
-        await using var ruoyiDatabase = CreateRuoyiDatabase();
-        await using var wmsDatabase = new SqlDBContext(new DbContextOptionsBuilder<SqlDBContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
-        await ruoyiDatabase.PackingTasks.AddRangeAsync(
+        var source = new InMemoryPackingTaskQueryDataSource();
+        source.Tasks.AddRange([
             Task(1, 101, "ACTIVE", 320118, DateTime.UtcNow),
             Task(2, 102, "AVAILABLE", 320118, DateTime.UtcNow),
-            Task(3, 103, "OTHER", 9, DateTime.UtcNow));
-        var order = new DispatchOrderEntity
-        {
-            dispatch_no = "PK-1",
-            create_idempotency_key = "key-1",
-            warehouse_id = 320118,
-            status = DispatchOrderStatus.PendingPick,
-            create_time = DateTime.Now,
-            last_update_time = DateTime.Now
-        };
-        var linked = new DispatchPackingTaskEntity
-        {
-            dispatch_order = order,
-            source_task_id = 101,
-            source_task_no = "ACTIVE",
-            task_no = "ACTIVE",
-            create_time = DateTime.Now,
-            last_update_time = DateTime.Now
-        };
-        linked.SetActiveState(true);
-        await wmsDatabase.AddAsync(linked);
-        await ruoyiDatabase.SaveChangesAsync();
-        await wmsDatabase.SaveChangesAsync();
+            Task(3, 103, "OTHER", 9, DateTime.UtcNow)
+        ]);
+        source.ActiveSourceTaskIds.Add(101);
         var access = new ModernWMS.Tests.DispatchWorkflow.RecordingWarehouseAccess();
-        var service = CreateService(ruoyiDatabase, wmsDatabase: wmsDatabase, access: access.Contract);
+        var service = CreateService(source, access: access.Contract);
         var page = new PageSearch
         {
             searchObjects = [new SearchObject { Name = "warehouse_id", Text = "320118" }]
@@ -161,22 +140,21 @@ public class PackingTaskQueryServiceTests
 
         Assert.Equal(102, Assert.Single(result.Data).sellfox_task_id);
         Assert.Contains(320118, access.CheckedWarehouseIds);
+        Assert.Equal(320118, Assert.Single(source.PageRequests).WarehouseId);
     }
 
     [Fact]
     public async Task PageAsync_uses_role_authorized_default_instead_of_hardcoded_admin_warehouse()
     {
-        await using var ruoyiDatabase = CreateRuoyiDatabase();
-        await using var wmsDatabase = new SqlDBContext(new DbContextOptionsBuilder<SqlDBContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
-        await ruoyiDatabase.PackingTasks.AddRangeAsync(
+        var source = new InMemoryPackingTaskQueryDataSource();
+        source.Tasks.AddRange([
             Task(1, 101, "ADMIN-DEFAULT", 320118, DateTime.UtcNow),
-            Task(2, 102, "ROLE-DEFAULT", 9, DateTime.UtcNow));
-        await ruoyiDatabase.SaveChangesAsync();
+            Task(2, 102, "ROLE-DEFAULT", 9, DateTime.UtcNow)
+        ]);
         var access = new ModernWMS.Tests.DispatchWorkflow.RecordingWarehouseAccess { DefaultWarehouseId = 9 };
-        var service = CreateService(ruoyiDatabase, wmsDatabase: wmsDatabase, access: access.Contract);
 
-        var result = await service.PageAsync(new PageSearch(), CurrentTenant());
+        var result = await CreateService(source, access: access.Contract)
+            .PageAsync(new PageSearch(), CurrentTenant());
 
         Assert.Equal(102, Assert.Single(result.Data).sellfox_task_id);
     }
@@ -184,50 +162,38 @@ public class PackingTaskQueryServiceTests
     [Fact]
     public async Task PageAsync_matches_stock_availability_by_base_sku_ignoring_variant_suffix()
     {
-        await using var ruoyiDatabase = CreateRuoyiDatabase();
-        await using var wmsDatabase = new SqlDBContext(new DbContextOptionsBuilder<SqlDBContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
-
-        await ruoyiDatabase.PackingTasks.AddAsync(Task(1, 101, "PACK-101", 320118, DateTime.UtcNow));
-        await ruoyiDatabase.PackingTaskItems.AddAsync(new ErpPackingTaskItemEntity
+        var source = new InMemoryPackingTaskQueryDataSource();
+        source.Tasks.Add(Task(1, 101, "PACK-101", 320118, DateTime.UtcNow));
+        source.Items.Add(new ErpPackingTaskItemEntity
         {
-            id = 11,
-            sellfox_item_id = 1001,
-            sellfox_task_id = 101,
-            commodity_id = 501
+            id = 11, sellfox_item_id = 1001, sellfox_task_id = 101, commodity_id = 501
         });
-        await ruoyiDatabase.CommodityMaps.AddAsync(new ErpCommodityMapEntity
-        {
-            erp_commodity_id = 501,
-            wms_sku_id = 21,
-            wms_spu_id = 31,
-            tenant_id = 1
-        });
-        await ruoyiDatabase.SaveChangesAsync();
-
-        await wmsDatabase.GetDbSet<SkuEntity>().AddRangeAsync(
-            new SkuEntity { id = 21, spu_id = 31, sku_code = "SKU-BASE-1" },
-            new SkuEntity { id = 22, spu_id = 31, sku_code = "SKU-BASE-2" });
-        await wmsDatabase.GetDbSet<StockEntity>().AddRangeAsync(
-            new StockEntity { id = 1, sku_id = 21, qty = 40, tenant_id = 1 },
-            new StockEntity { id = 2, sku_id = 22, qty = 60, tenant_id = 1 },
-            new StockEntity { id = 3, sku_id = 21, qty = 5, tenant_id = 1, is_freeze = true });
-        await wmsDatabase.SaveChangesAsync();
-
+        source.AvailabilityByItemId[11] = new PackingTaskStockAvailability("SKU-BASE", 100);
         var access = new ModernWMS.Tests.DispatchWorkflow.RecordingWarehouseAccess();
-        var service = CreateService(ruoyiDatabase, wmsDatabase: wmsDatabase, access: access.Contract);
 
-        var result = await service.PageAsync(new PageSearch(), CurrentTenant());
+        var result = await CreateService(source, access: access.Contract)
+            .PageAsync(new PageSearch(), CurrentTenant());
 
         var item = Assert.Single(Assert.Single(result.Data).item_list);
         Assert.Equal("SKU-BASE", item.stock_sku_code);
         Assert.Equal(100, item.stock_available_qty);
     }
 
+    [Fact]
+    public async Task PageAsync_clamps_page_values_before_querying_data_source()
+    {
+        var source = new InMemoryPackingTaskQueryDataSource();
+
+        await CreateService(source).PageAsync(new PageSearch { pageIndex = -2, pageSize = 500 }, CurrentTenant());
+
+        var request = Assert.Single(source.PageRequests);
+        Assert.Equal(0, request.Offset);
+        Assert.Equal(200, request.PageSize);
+    }
+
     private static PackingTaskQueryService CreateService(
-        RuoyiDbContext ruoyiDatabase,
+        IPackingTaskQueryDataSource source,
         bool enabled = true,
-        SqlDBContext? wmsDatabase = null,
         ModernWMS.WMS.IServices.IWarehouseAccessService? access = null)
     {
         var configuration = new ConfigurationBuilder()
@@ -236,19 +202,12 @@ public class PackingTaskQueryServiceTests
                 ["Features:PackingTaskFirstStep"] = enabled.ToString()
             })
             .Build();
-        return wmsDatabase == null
-            ? new PackingTaskQueryService(ruoyiDatabase, configuration)
-            : new PackingTaskQueryService(ruoyiDatabase, configuration, wmsDatabase, access!);
+        return new PackingTaskQueryService(source, configuration, access);
     }
 
     private static ErpPackingTaskEntity Task(
-        long id,
-        long sellfoxTaskId,
-        string taskNo,
-        long warehouseId,
-        DateTime? sourceCreateTime,
-        bool canceled = false,
-        bool deleted = false) => new()
+        long id, long sellfoxTaskId, string taskNo, long warehouseId,
+        DateTime? sourceCreateTime, bool canceled = false, bool deleted = false) => new()
         {
             id = id,
             sellfox_task_id = sellfoxTaskId,
@@ -261,11 +220,51 @@ public class PackingTaskQueryServiceTests
 
     private static CurrentUser CurrentTenant() => new() { tenant_id = 1 };
 
-    private static RuoyiDbContext CreateRuoyiDatabase()
+    private sealed class InMemoryPackingTaskQueryDataSource : IPackingTaskQueryDataSource
     {
-        var options = new DbContextOptionsBuilder<RuoyiDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            .Options;
-        return new RuoyiDbContext(options);
+        public List<ErpPackingTaskEntity> Tasks { get; } = [];
+        public List<ErpPackingTaskItemEntity> Items { get; } = [];
+        public HashSet<long> ActiveSourceTaskIds { get; } = [];
+        public Dictionary<long, PackingTaskStockAvailability> AvailabilityByItemId { get; } = [];
+        public List<PackingTaskPageRequest> PageRequests { get; } = [];
+
+        public Task<PackingTaskPageData> LoadPageAsync(PackingTaskPageRequest request)
+        {
+            PageRequests.Add(request);
+            var query = Tasks.Where(t => !t.source_deleted && !t.source_canceled);
+            if (request.WarehouseId != null)
+            {
+                query = query.Where(t => t.warehouse_id == request.WarehouseId);
+            }
+            query = query.Where(t => !ActiveSourceTaskIds.Contains(t.sellfox_task_id));
+            if (!string.IsNullOrWhiteSpace(request.Keyword))
+            {
+                query = query.Where(t => t.packing_task_sn.Contains(request.Keyword)
+                    || Items.Any(i => !i.source_deleted && i.sellfox_task_id == t.sellfox_task_id
+                        && new[] { i.commodity_name, i.commodity_sku, i.sku, i.fn_sku, i.msku }
+                            .Any(value => value?.Contains(request.Keyword) == true)));
+            }
+
+            var totals = query.Count();
+            var tasks = query.OrderByDescending(t => t.source_create_time)
+                .ThenByDescending(t => t.id)
+                .Skip(request.Offset)
+                .Take(request.PageSize)
+                .ToList();
+            var ids = tasks.Select(t => t.sellfox_task_id).ToHashSet();
+            var items = Items.Where(t => !t.source_deleted && ids.Contains(t.sellfox_task_id))
+                .OrderBy(t => t.id)
+                .ToList();
+            return System.Threading.Tasks.Task.FromResult(
+                new PackingTaskPageData(tasks, items, AvailabilityByItemId, totals));
+        }
+
+        public Task<PackingTaskSelectableData?> LoadSelectableStockAsync(
+            PackingTaskStockPageRequest request, CurrentUser currentUser) =>
+            System.Threading.Tasks.Task.FromResult<PackingTaskSelectableData?>(null);
+
+        public Task<PackingTaskStockSaveResult> SaveSelectionAsync(
+            PackingTaskStockSelectRequest request, CurrentUser currentUser) =>
+            System.Threading.Tasks.Task.FromResult(new PackingTaskStockSaveResult(false, "not used"));
     }
 }
