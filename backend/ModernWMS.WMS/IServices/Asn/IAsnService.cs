@@ -2,7 +2,6 @@
  * date：2022-12-22
  * developer：AMo
  */
-using Microsoft.EntityFrameworkCore;
 using ModernWMS.Core.JWT;
 using ModernWMS.Core.Models;
 using ModernWMS.Core.Services;

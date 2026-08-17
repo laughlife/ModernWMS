@@ -5,7 +5,6 @@ using ModernWMS.Core.Models;
 using ModernWMS.WMS.Entities.ViewModels.DispatchWorkflow;
 using ModernWMS.WMS.IServices.DispatchWorkflow;
 using ModernWMS.WMS.Services.DispatchWorkflow;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Http;
 
 namespace ModernWMS.WMS.Controllers.DispatchWorkflow;
@@ -189,16 +188,6 @@ public sealed class DispatchWorkflowController : BaseController
         {
             return StatusCode(StatusCodes.Status404NotFound,
                 ResultModel<T>.Error(exception.Message, StatusCodes.Status404NotFound));
-        }
-        catch (DbUpdateConcurrencyException exception)
-        {
-            return StatusCode(StatusCodes.Status409Conflict,
-                ResultModel<T>.Error(exception.Message, StatusCodes.Status409Conflict));
-        }
-        catch (DbUpdateException exception)
-        {
-            return StatusCode(StatusCodes.Status409Conflict,
-                ResultModel<T>.Error(exception.Message, StatusCodes.Status409Conflict));
         }
         catch (DispatchWorkflowCommandException exception)
         {
