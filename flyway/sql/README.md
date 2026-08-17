@@ -18,3 +18,8 @@ V20260818000100__add_example_table.sql
 - 空开发库：显式执行 `Update-Database.ps1 -Apply`，Flyway 会执行 V1 创建 WMS 结构。
 - 已有开发库：不得执行 V1；使用 README 中的一次性 `-BaselineExisting` 流程。脚本会逐表比较 `SHOW CREATE TABLE` 的 SHA-256 指纹，完全匹配后才记录版本 1。
 - V1 一旦在任何库执行或登记，不得修改。以后所有结构变化新增 `V...__description.sql`。
+
+`V2__seed_wms_identity.sql` 将 `SeedData` 中确定的 WMS 角色、菜单和角色菜单基线写入
+`wms_userrole`、`wms_menu`、`wms_rolemenu`。它只按主键补充缺失记录，绝不覆盖已有记录，
+也不访问任何 ERP 表。它不会创建默认用户或提交固定密码哈希；新环境管理员必须显式配置。
+表中的 `datetime(6)` 值按 MySQL 可存储的六位小数精度保留。

@@ -43,3 +43,6 @@ powershell -ExecutionPolicy Bypass -File scripts\Update-Database.ps1 `
 这不是跳过检查：脚本先读取 `INFORMATION_SCHEMA` 和每张表的 `SHOW CREATE TABLE`，与 `flyway/wms-baseline-manifest.json` 的 50 张表结构指纹逐一比较。只有全部一致才执行 Flyway `baseline`，在 `wms_flyway_schema_history` 登记版本 1；任一表缺失、多出或结构不同都会拒绝写入。该流程不会复制数据，也不会读取或校验 ERP 表。执行前仍必须备份数据库。
 
 脚本没有远程/生产绕过参数，并同时要求主机是回环地址、库名严格等于 `ruoyi-vue-pro`。日常启动不会调用上述命令。
+
+版本 2 仅按主键补充 `SeedData` 中确定的 WMS 角色与菜单授权基线；已有同 ID 记录保持不变。
+该数据迁移只写入 `wms_userrole`、`wms_menu` 和 `wms_rolemenu`，不访问 ERP 表，也不会固化默认管理员账号、密码哈希或邮箱。新环境的首个管理员必须通过独立的一次性配置流程显式创建。
