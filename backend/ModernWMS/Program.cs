@@ -22,7 +22,7 @@ try
     var initializeDatabaseOnly = args.Contains(
         "--initialize-database-only",
         StringComparer.OrdinalIgnoreCase);
-    if (initializeDatabaseOnly || app.Configuration.GetValue("DatabaseInitialization:Enabled", true))
+    if (initializeDatabaseOnly)
     {
         await DatabaseInitializer.InitializeAsync(app.Services);
     }

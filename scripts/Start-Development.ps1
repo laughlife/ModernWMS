@@ -6,6 +6,8 @@ param(
     [ValidateRange(1, 65535)]
     [int]$FrontendPort = 80,
 
+    [switch]$ApplyMigrations,
+
     [switch]$CheckOnly
 )
 
@@ -328,20 +330,25 @@ try {
 
     New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
 
-    Write-Host '[1/3] 初始化并迁移数据库。失败时不会启动后端或前端。'
-    $previousInitializationEnvironment = [Environment]::GetEnvironmentVariable('ASPNETCORE_ENVIRONMENT', 'Process')
-    try {
-        $env:ASPNETCORE_ENVIRONMENT = 'Development'
-        & $dotnetCommand run --project $backendProject --no-launch-profile --no-restore -- --initialize-database-only
-        if ($LASTEXITCODE -ne 0) {
-            throw "数据库初始化失败（退出码 $LASTEXITCODE）。请先处理上方数据库错误，再重新运行启动器。"
+    if ($ApplyMigrations) {
+        Write-Host '[数据库] 已显式请求迁移；迁移失败时不会启动后端或前端。'
+        $previousInitializationEnvironment = [Environment]::GetEnvironmentVariable('ASPNETCORE_ENVIRONMENT', 'Process')
+        try {
+            $env:ASPNETCORE_ENVIRONMENT = 'Development'
+            & $dotnetCommand run --project $backendProject --no-launch-profile --no-restore -- --initialize-database-only
+            if ($LASTEXITCODE -ne 0) {
+                throw "数据库初始化失败（退出码 $LASTEXITCODE）。请先处理上方数据库错误，再重新运行启动器。"
+            }
+        }
+        finally {
+            [Environment]::SetEnvironmentVariable('ASPNETCORE_ENVIRONMENT', $previousInitializationEnvironment, 'Process')
         }
     }
-    finally {
-        [Environment]::SetEnvironmentVariable('ASPNETCORE_ENVIRONMENT', $previousInitializationEnvironment, 'Process')
+    else {
+        Write-Host '[数据库] 普通开发启动不检查、不修改数据库。需要迁移时请显式传入 -ApplyMigrations。'
     }
 
-    Write-Host "[2/3] 启动后端 watch：http://127.0.0.1:$BackendPort"
+    Write-Host "[1/2] 启动后端 watch：http://127.0.0.1:$BackendPort"
     $previousDatabaseInitialization = [Environment]::GetEnvironmentVariable('DatabaseInitialization__Enabled', 'Process')
     $previousAspNetCoreUrls = [Environment]::GetEnvironmentVariable('ASPNETCORE_URLS', 'Process')
     $previousAspNetCoreEnvironment = [Environment]::GetEnvironmentVariable('ASPNETCORE_ENVIRONMENT', 'Process')
@@ -400,7 +407,7 @@ try {
     $backendEntry['portOwnershipConfirmed'] = $true
     Save-DevelopmentState -BackendEntry $backendEntry -FrontendEntry $null
 
-    Write-Host "[3/3] 启动前端：http://127.0.0.1:$FrontendPort"
+    Write-Host "[2/2] 启动前端：http://127.0.0.1:$FrontendPort"
     $previousViteBasePath = [Environment]::GetEnvironmentVariable('VITE_BASE_PATH', 'Process')
     $previousViteServerPort = [Environment]::GetEnvironmentVariable('VITE_SERVER_PORT', 'Process')
     $previousViteCliPort = [Environment]::GetEnvironmentVariable('VITE_CLI_PORT', 'Process')

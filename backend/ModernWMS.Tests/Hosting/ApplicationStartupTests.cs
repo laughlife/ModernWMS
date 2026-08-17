@@ -34,6 +34,29 @@ public class ApplicationStartupTests
     }
 
     [Fact]
+    public async Task Ordinary_web_startup_never_runs_database_initialization_even_when_legacy_setting_is_true()
+    {
+        await using var factory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder =>
+            {
+                builder.UseEnvironment("Development");
+                builder.UseSetting(
+                    "ConnectionStrings:MySqlConn",
+                    "Server=127.0.0.1;Port=1;Database=must_not_be_opened;User Id=invalid;Connection Timeout=1");
+                builder.UseSetting(
+                    "TokenSettings:SigningKey",
+                    "modernwms-local-smoke-key-32-bytes-minimum");
+                builder.UseSetting("DatabaseInitialization:Enabled", "true");
+            });
+
+        using var client = factory.CreateClient();
+        using var response = await client.GetAsync("/health");
+
+        response.EnsureSuccessStatusCode();
+        Assert.Equal("Healthy", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public void Wms_and_ruoyi_contexts_share_the_single_application_database()
     {
         using var factory = new WebApplicationFactory<Program>()
