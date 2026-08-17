@@ -4,7 +4,7 @@
 
 ## 范围与架构
 
-- 本仓库负责仓储管理应用，包括 ASP.NET Core 后端、EF Core 迁移、WMS 领域服务和 Vue 前端。
+- 本仓库负责仓储管理应用，包括 ASP.NET Core 后端、Dapper/MySqlConnector 数据访问、Flyway 结构迁移、WMS 领域服务和 Vue 前端。
 - 后端依赖方向为：`ModernWMS` Web Host -> `ModernWMS.WMS` 业务域 -> `ModernWMS.Core` 基础设施。
 - 核心业务包括 ASN/收货、出库、库存、调整、冻结、移库、加工、盘点、仓库/库位、货主/SKU、打印、运费、用户/角色/菜单和操作日志。
 - 除非用户明确要求，不得检查或修改独立的同级项目 `FBAShipmentSync`。
