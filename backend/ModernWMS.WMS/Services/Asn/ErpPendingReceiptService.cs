@@ -1,4 +1,5 @@
 using System.Data;
+using System.Linq.Expressions;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using ModernWMS.Core.DBContext;
@@ -11,18 +12,19 @@ using ModernWMS.WMS.IServices;
 namespace ModernWMS.WMS.Services;
 
 /// <summary>
-/// ERP-backed pending receipt query for the Shenzhen warehouse.
+/// ERP-backed pending receipt query scoped to the warehouse selected by the current user.
 /// </summary>
 public partial class ErpPendingReceiptService : IErpPendingReceiptService
 {
-    private const long ShenzhenWarehouseId = 320118;
     private const string WaitReceiptStatus = "WAIT_RECEIPT";
     private const string DeliveredTrackingStatus = "DELIVERED";
     private readonly RuoyiDbContext _ruoyiDbContext;
+    private readonly IWarehouseAccessService _warehouseAccessService;
 
-    public ErpPendingReceiptService(RuoyiDbContext ruoyiDbContext)
+    public ErpPendingReceiptService(RuoyiDbContext ruoyiDbContext, IWarehouseAccessService warehouseAccessService)
     {
         _ruoyiDbContext = ruoyiDbContext;
+        _warehouseAccessService = warehouseAccessService;
     }
 
     /// <summary>
@@ -30,70 +32,38 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
     /// </summary>
     public async Task<(List<ErpPendingReceiptViewModel> data, int totals)> PageAsync(
         PageSearch pageSearch,
-        bool delivered,
+        ErpPendingReceiptListKind kind,
         CurrentUser currentUser)
     {
         var supplierName = FindSearchText(pageSearch, "supplier_name");
         var productKeyword = FindSearchText(pageSearch, "product_keyword");
 
+        var warehouseId = await ResolveWarehouseAsync(pageSearch, currentUser);
+        if (warehouseId == null)
+        {
+            return ([], 0);
+        }
+
         var query = _ruoyiDbContext.LogisticsInfos
             .AsNoTracking()
             .Where(t => !t.deleted
                 && t.lifecycle_status == WaitReceiptStatus
-                && t.to_warehouse_id == ShenzhenWarehouseId
+                && t.to_warehouse_id == warehouseId.Value
                 && !_ruoyiDbContext.ReceiptRecords.Any(receipt => receipt.shipment_id == t.id));
 
-        // 中文说明：两个页签只按最新物流签收事实拆分；没有轨迹、空状态、在途及其它状态都留在待到货。
-        query = query.Where(shipment => _ruoyiDbContext.Tracks
-            .AsNoTracking()
-            .Where(track => !track.deleted && track.track_number == shipment.tracking_no)
-            .OrderByDescending(track => track.update_time)
-            .ThenByDescending(track => track.id)
-            .Select(track => track.tracking_status.Trim().ToUpper() == DeliveredTrackingStatus
-                || track.actual_delivery_time != null
-                || (track.provider_status_code != null
-                    && (track.provider_status_code.Trim().ToUpper() == DeliveredTrackingStatus
-                        || track.provider_status_code.Trim() == "3"))
-                || (track.business_stage != null
-                    && track.business_stage.Trim().ToUpper() == DeliveredTrackingStatus)
-                || (track.last_event_stage != null
-                    && (track.last_event_stage.Trim().ToUpper() == DeliveredTrackingStatus
-                        || track.last_event_stage.Trim() == "3"))
-                || (!((track.provider_status_name != null
-                            && (track.provider_status_name.Contains("未签收")
-                                || track.provider_status_name.Contains("未妥投")
-                                || track.provider_status_name.Contains("拒签")
-                                || track.provider_status_name.Contains("签收失败")
-                                || track.provider_status_name.Contains("无法签收")
-                                || track.provider_status_name.Contains("待签收")
-                                || track.provider_status_name.Contains("等待签收")
-                                || track.provider_status_name.Contains("签收异常")))
-                        || (track.last_event_description != null
-                            && (track.last_event_description.Contains("未签收")
-                                || track.last_event_description.Contains("未妥投")
-                                || track.last_event_description.Contains("拒签")
-                                || track.last_event_description.Contains("签收失败")
-                                || track.last_event_description.Contains("无法签收")
-                                || track.last_event_description.Contains("待签收")
-                                || track.last_event_description.Contains("等待签收")
-                                || track.last_event_description.Contains("签收异常"))))
-                    && ((track.provider_status_name != null
-                            && (track.provider_status_name == "签收"
-                                || track.provider_status_name == "本人签收"
-                                || track.provider_status_name == "已签收"
-                                || track.provider_status_name == "妥投"
-                                || track.provider_status_name == "已妥投"
-                                || track.provider_status_name.Contains("签收成功")
-                                || track.provider_status_name.ToLower().Contains("delivered")
-                                || track.provider_status_name.ToLower().Contains("signed for")))
-                        || (track.last_event_description != null
-                            && (track.last_event_description.Contains("本人签收")
-                                || track.last_event_description.Contains("已签收")
-                                || track.last_event_description.Contains("签收成功")
-                                || track.last_event_description.Contains("妥投")
-                                || track.last_event_description.ToLower().Contains("delivered")
-                                || track.last_event_description.ToLower().Contains("signed for"))))))
-            .FirstOrDefault() == delivered);
+        if (kind == ErpPendingReceiptListKind.ToShip)
+        {
+            // 待发货：尚未产生发货时间。
+            query = query.Where(t => t.shipment_time == null);
+        }
+        else
+        {
+            // 待到货 与 到货通知 都要求已发货，仅按最新物流签收事实拆分。
+            query = query.Where(t => t.shipment_time != null);
+            query = kind == ErpPendingReceiptListKind.Arrived
+                ? query.Where(LatestTrackDelivered())
+                : query.Where(Not(LatestTrackDelivered()));
+        }
 
         if (!string.IsNullOrWhiteSpace(supplierName))
         {
@@ -144,7 +114,7 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
              WHERE erp_warehouse_id=@erpId AND tenant_id=@tenantId AND is_valid=1
              LIMIT 1
             """,
-            ("@erpId", ShenzhenWarehouseId), ("@tenantId", currentUser.tenant_id));
+            ("@erpId", warehouseId.Value), ("@tenantId", currentUser.tenant_id));
 
         var result = new List<ErpPendingReceiptViewModel>(shipments.Count);
         foreach (var shipment in shipments)
@@ -161,6 +131,80 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
         return (result, totals);
     }
 
+    private async Task<long?> ResolveWarehouseAsync(PageSearch pageSearch, CurrentUser currentUser)
+    {
+        var warehouseText = FindSearchText(pageSearch, "warehouse_id");
+        long? warehouseId = long.TryParse(warehouseText, out var parsed) && parsed > 0 ? parsed : null;
+        if (warehouseId == null)
+        {
+            return (await _warehouseAccessService.GetAllowedAsync(currentUser)).default_warehouse_id;
+        }
+
+        await _warehouseAccessService.EnsureAllowedAsync(warehouseId.Value, currentUser);
+        return warehouseId;
+    }
+
+    /// <summary>
+    /// Whether the shipment's latest track evidence shows a signed/delivered state.
+    /// </summary>
+    private Expression<Func<ErpLogisticsInfoEntity, bool>> LatestTrackDelivered() =>
+        shipment => _ruoyiDbContext.Tracks
+            .AsNoTracking()
+            .Where(track => !track.deleted && track.track_number == shipment.tracking_no)
+            .OrderByDescending(track => track.update_time)
+            .ThenByDescending(track => track.id)
+            .Select(track => track.tracking_status.Trim().ToUpper() == DeliveredTrackingStatus
+                || track.actual_delivery_time != null
+                || (track.provider_status_code != null
+                    && (track.provider_status_code.Trim().ToUpper() == DeliveredTrackingStatus
+                        || track.provider_status_code.Trim() == "3"))
+                || (track.business_stage != null
+                    && track.business_stage.Trim().ToUpper() == DeliveredTrackingStatus)
+                || (track.last_event_stage != null
+                    && (track.last_event_stage.Trim().ToUpper() == DeliveredTrackingStatus
+                        || track.last_event_stage.Trim() == "3"))
+                || (!((track.provider_status_name != null
+                            && (track.provider_status_name.Contains("未签收")
+                                || track.provider_status_name.Contains("未妥投")
+                                || track.provider_status_name.Contains("拒签")
+                                || track.provider_status_name.Contains("签收失败")
+                                || track.provider_status_name.Contains("无法签收")
+                                || track.provider_status_name.Contains("待签收")
+                                || track.provider_status_name.Contains("等待签收")
+                                || track.provider_status_name.Contains("签收异常")))
+                        || (track.last_event_description != null
+                            && (track.last_event_description.Contains("未签收")
+                                || track.last_event_description.Contains("未妥投")
+                                || track.last_event_description.Contains("拒签")
+                                || track.last_event_description.Contains("签收失败")
+                                || track.last_event_description.Contains("无法签收")
+                                || track.last_event_description.Contains("待签收")
+                                || track.last_event_description.Contains("等待签收")
+                                || track.last_event_description.Contains("签收异常"))))
+                    && ((track.provider_status_name != null
+                            && (track.provider_status_name == "签收"
+                                || track.provider_status_name == "本人签收"
+                                || track.provider_status_name == "已签收"
+                                || track.provider_status_name == "妥投"
+                                || track.provider_status_name == "已妥投"
+                                || track.provider_status_name.Contains("签收成功")
+                                || track.provider_status_name.ToLower().Contains("delivered")
+                                || track.provider_status_name.ToLower().Contains("signed for")))
+                        || (track.last_event_description != null
+                            && (track.last_event_description.Contains("本人签收")
+                                || track.last_event_description.Contains("已签收")
+                                || track.last_event_description.Contains("签收成功")
+                                || track.last_event_description.Contains("妥投")
+                                || track.last_event_description.ToLower().Contains("delivered")
+                                || track.last_event_description.ToLower().Contains("signed for"))))))
+            .FirstOrDefault();
+
+    private static Expression<Func<T, bool>> Not<T>(Expression<Func<T, bool>> predicate)
+    {
+        var body = Expression.Not(predicate.Body);
+        return Expression.Lambda<Func<T, bool>>(body, predicate.Parameters);
+    }
+
     public async Task<ErpPendingReceiptLogisticsViewModel?> GetLogisticsAsync(long shipmentId)
     {
         var shipment = await _ruoyiDbContext.LogisticsInfos
@@ -168,7 +212,7 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
             .FirstOrDefaultAsync(t => t.id == shipmentId
                 && !t.deleted
                 && t.lifecycle_status == WaitReceiptStatus
-                && t.to_warehouse_id == ShenzhenWarehouseId);
+                && t.to_warehouse_id != null);
         if (shipment == null)
         {
             return null;
@@ -258,10 +302,15 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
                 .FirstOrDefaultAsync(t => t.id == input.shipment_id
                     && !t.deleted
                     && t.lifecycle_status == WaitReceiptStatus
-                    && t.to_warehouse_id == ShenzhenWarehouseId);
+                    && t.to_warehouse_id != null);
             if (shipment == null)
             {
-                return (false, "未找到可收货的深圳自建仓货件", 0);
+                return (false, "未找到可收货的货件", 0);
+            }
+            var access = await _warehouseAccessService.GetAllowedAsync(currentUser);
+            if (!access.warehouses.Any(t => t.id == shipment.to_warehouse_id))
+            {
+                return (false, "无权操作该仓库的货件", 0);
             }
             if (shipment.source_version != input.source_version)
             {
@@ -433,7 +482,7 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
             shipment_type = shipment.shipment_type ?? string.Empty,
             shipment_qty = shipment.shipment_qty ?? 0,
             shipment_time = shipment.shipment_time,
-            warehouse_id = shipment.to_warehouse_id ?? ShenzhenWarehouseId,
+            warehouse_id = shipment.to_warehouse_id ?? 0,
             warehouse_name = shipment.to_warehouse_name ?? string.Empty,
             wms_warehouse_id = wmsWarehouseId,
             freight_forwarder_name = shipment.freight_forwarder_name ?? string.Empty,

@@ -24,12 +24,21 @@ public class ErpPendingReceiptController : BaseController
     }
 
     /// <summary>
-    /// Lists ERP shipments waiting for receipt at the Shenzhen warehouse.
+    /// Lists ERP shipments that have not been shipped yet.
+    /// </summary>
+    [HttpPost("to-ship-list")]
+    public async Task<ResultModel<PageData<ErpPendingReceiptViewModel>>> ToShipPageAsync(PageSearch pageSearch)
+    {
+        return await BuildPageAsync(pageSearch, ErpPendingReceiptListKind.ToShip);
+    }
+
+    /// <summary>
+    /// Lists ERP shipments waiting for receipt (shipped but not signed).
     /// </summary>
     [HttpPost("list")]
     public async Task<ResultModel<PageData<ErpPendingReceiptViewModel>>> PageAsync(PageSearch pageSearch)
     {
-        return await BuildPageAsync(pageSearch, false);
+        return await BuildPageAsync(pageSearch, ErpPendingReceiptListKind.PendingArrival);
     }
 
     /// <summary>
@@ -38,7 +47,7 @@ public class ErpPendingReceiptController : BaseController
     [HttpPost("arrived-list")]
     public async Task<ResultModel<PageData<ErpPendingReceiptViewModel>>> ArrivedPageAsync(PageSearch pageSearch)
     {
-        return await BuildPageAsync(pageSearch, true);
+        return await BuildPageAsync(pageSearch, ErpPendingReceiptListKind.Arrived);
     }
 
     /// <summary>
@@ -81,9 +90,9 @@ public class ErpPendingReceiptController : BaseController
 
     private async Task<ResultModel<PageData<ErpPendingReceiptViewModel>>> BuildPageAsync(
         PageSearch pageSearch,
-        bool delivered)
+        ErpPendingReceiptListKind kind)
     {
-        var (data, totals) = await _erpPendingReceiptService.PageAsync(pageSearch, delivered, CurrentUser);
+        var (data, totals) = await _erpPendingReceiptService.PageAsync(pageSearch, kind, CurrentUser);
         return ResultModel<PageData<ErpPendingReceiptViewModel>>.Success(new PageData<ErpPendingReceiptViewModel>
         {
             Rows = data,

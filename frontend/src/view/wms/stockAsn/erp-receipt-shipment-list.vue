@@ -67,6 +67,13 @@
                   <td colspan="4">{{ $t('system.page.noData') }}</td>
                 </tr>
               </tbody>
+              <tfoot>
+                <tr>
+                  <td colspan="4" class="supplierFooter">
+                    {{ $t('wms.erpPendingReceipt.supplier_name') }}：{{ row.supplier_name || '-' }}
+                  </td>
+                </tr>
+              </tfoot>
             </v-table>
           </div>
         </template>
@@ -93,7 +100,6 @@
           </div>
         </template>
       </vxe-column>
-      <vxe-column field="supplier_name" :title="$t('wms.erpPendingReceipt.supplier_name')" min-width="150"></vxe-column>
       <vxe-column :title="$t('wms.erpPendingReceipt.product_summary')" min-width="280">
         <template #default="{ row }">
           <div class="productSummaryList">
@@ -106,9 +112,15 @@
         </template>
       </vxe-column>
       <vxe-column field="shipment_qty" :title="$t('wms.erpPendingReceipt.shipment_qty')" width="110"></vxe-column>
-      <vxe-column field="logistics_name" :title="$t('wms.erpPendingReceipt.logistics_name')" min-width="130"></vxe-column>
-      <vxe-column field="tracking_no" :title="$t('wms.erpPendingReceipt.tracking_no')" min-width="180"></vxe-column>
-      <vxe-column field="tracking_status_name" :title="$t('wms.erpPendingReceipt.tracking_status')" min-width="130"></vxe-column>
+      <vxe-column :title="$t('wms.erpPendingReceipt.logistics_detail_title')" min-width="200">
+        <template #default="{ row }">
+          <div class="logisticsInfoCell">
+            <div class="logisticsPrimaryLine">{{ row.logistics_name || '-' }}</div>
+            <div class="logisticsSecondaryLine">{{ row.tracking_no || '-' }}</div>
+            <div class="logisticsSecondaryLine">{{ method.displayTrackingStatus(row.tracking_status_name) }}</div>
+          </div>
+        </template>
+      </vxe-column>
       <vxe-column field="latest_event_desc" :title="$t('wms.erpPendingReceipt.latest_event_desc')" min-width="240"></vxe-column>
       <vxe-column field="shipment_time" :title="$t('wms.erpPendingReceipt.shipment_time')" min-width="170"></vxe-column>
       <vxe-column field="warehouse_name" :title="$t('wms.erpPendingReceipt.warehouse_name')" min-width="150"></vxe-column>
@@ -142,7 +154,7 @@
 <script lang="ts" setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import type { VxePagerEvents } from 'vxe-table'
-import { getErpArrivedReceiptList, getErpPendingReceiptList } from '@/api/wms/stockAsn'
+import { getErpArrivedReceiptList, getErpPendingReceiptList, getErpToShipReceiptList } from '@/api/wms/stockAsn'
 import { hookComponent } from '@/components/system'
 import BtnGroup from '@/components/system/btnGroup.vue'
 import customPager from '@/components/custom-pager.vue'
@@ -153,15 +165,30 @@ import { computedCardHeight, computedTableHeight } from '@/constant/style'
 import { DEFAULT_PAGE_SIZE, PAGE_LAYOUT, PAGE_SIZE } from '@/constant/vxeTable'
 import { DEBOUNCE_TIME } from '@/constant/system'
 import i18n from '@/languages/i18n'
-import type { btnGroupItem, SearchObject } from '@/types/System/Form'
+import { SearchOperator, type btnGroupItem, type SearchObject } from '@/types/System/Form'
 import type { ErpPendingReceiptVO } from '@/types/WMS/StockAsn'
 import { getMenuAuthorityList, setSearchObject } from '@/utils/common'
 import { exportData } from '@/utils/exportTable'
 import { buildReceiptProductDisplay } from '@/utils/receiptProductDisplay'
 
+type ReceiptListType = 'to-ship' | 'pending' | 'arrived'
+
 const props = defineProps<{
-  listType: 'pending' | 'arrived'
+  listType: ReceiptListType
+  warehouseId: number | null
 }>()
+
+const LIST_API: Record<ReceiptListType, typeof getErpPendingReceiptList> = {
+  'to-ship': getErpToShipReceiptList,
+  pending: getErpPendingReceiptList,
+  arrived: getErpArrivedReceiptList
+}
+
+const LIST_TITLE: Record<ReceiptListType, string> = {
+  'to-ship': '待发货',
+  pending: i18n.global.t('wms.stockAsn.tabToDoArrival'),
+  arrived: i18n.global.t('wms.stockAsn.tabNotice')
+}
 
 const xTable = ref()
 const logisticsDetailRef = ref<InstanceType<typeof ErpLogisticsDetail>>()
@@ -184,12 +211,36 @@ const data = reactive({
   authorityList: getMenuAuthorityList()
 })
 
+const buildSearchObjects = (): SearchObject[] => {
+  const searchObjects = setSearchObject(data.searchForm)
+  if (props.warehouseId !== null) {
+    searchObjects.push({
+      name: 'warehouse_id',
+      operator: SearchOperator.EQUAL,
+      text: String(props.warehouseId),
+      value: String(props.warehouseId)
+    })
+  }
+  return searchObjects
+}
+
 const method = reactive({
+  displayTrackingStatus: (value?: string | null): string => {
+    const normalized = (value ?? '').trim()
+    if (normalized === '') return '-'
+    return normalized.toUpperCase() === 'UNKNOWN' ? '未知' : value as string
+  },
   refresh: () => {
     method.getStockAsnList()
   },
   getStockAsnList: async () => {
-    const request = props.listType === 'arrived' ? getErpArrivedReceiptList : getErpPendingReceiptList
+    if (props.warehouseId === null) {
+      data.tableData = []
+      data.tablePage.total = 0
+      return
+    }
+    data.tablePage.searchObjects = buildSearchObjects()
+    const request = LIST_API[props.listType]
     const { data: res } = await request(data.tablePage)
     if (!res.isSuccess) {
       hookComponent.$message({ type: 'error', content: res.errorMessage })
@@ -206,7 +257,7 @@ const method = reactive({
   exportTable: () => {
     exportData({
       table: xTable.value,
-      filename: i18n.global.t(props.listType === 'arrived' ? 'wms.stockAsn.tabNotice' : 'wms.stockAsn.tabToDoArrival'),
+      filename: LIST_TITLE[props.listType],
       columnFilterMethod({ column }: any) {
         return !['expand'].includes(column?.type) && !['operate'].includes(column?.field)
       }
@@ -220,7 +271,6 @@ const method = reactive({
   },
   sureSearch: () => {
     data.tablePage.pageIndex = 1
-    data.tablePage.searchObjects = setSearchObject(data.searchForm)
     method.getStockAsnList()
   }
 })
@@ -259,6 +309,14 @@ watch(
     }, DEBOUNCE_TIME)
   },
   { deep: true }
+)
+
+watch(
+  () => props.warehouseId,
+  () => {
+    data.tablePage.pageIndex = 1
+    method.getStockAsnList()
+  }
 )
 </script>
 
@@ -340,6 +398,28 @@ watch(
 }
 
 .shipmentPurchaseNo {
+  margin-top: 4px;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  font-size: 12px;
+}
+
+.supplierFooter {
+  text-align: left !important;
+  padding-top: 10px !important;
+  border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  font-weight: 500;
+}
+
+.logisticsInfoCell {
+  text-align: left;
+}
+
+.logisticsPrimaryLine {
+  color: rgba(var(--v-theme-on-surface), 0.87);
+  font-weight: 500;
+}
+
+.logisticsSecondaryLine {
   margin-top: 4px;
   color: rgba(var(--v-theme-on-surface), 0.6);
   font-size: 12px;
