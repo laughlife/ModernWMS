@@ -1,5 +1,5 @@
-using Microsoft.EntityFrameworkCore;
-using ModernWMS.Core.DBContext;
+using Dapper;
+using ModernWMS.Core.Database;
 using ModernWMS.WMS.Entities.ViewModels;
 using ModernWMS.WMS.IServices;
 
@@ -11,17 +11,17 @@ namespace ModernWMS.WMS.Services;
 public class OperatorGroupService : IOperatorGroupService
 {
     /// <summary>
-    /// Ruoyi primary DBContext
+    /// Shared ERP/WMS MySQL connection factory.
     /// </summary>
-    private readonly RuoyiDbContext _ruoyiDbContext;
+    private readonly IMySqlConnectionFactory _connectionFactory;
 
     /// <summary>
     /// constructor
     /// </summary>
-    /// <param name="ruoyiDbContext">Ruoyi primary DBContext</param>
-    public OperatorGroupService(RuoyiDbContext ruoyiDbContext)
+    /// <param name="connectionFactory">shared MySQL connection factory</param>
+    public OperatorGroupService(IMySqlConnectionFactory connectionFactory)
     {
-        this._ruoyiDbContext = ruoyiDbContext;
+        _connectionFactory = connectionFactory;
     }
 
     /// <summary>
@@ -30,27 +30,26 @@ public class OperatorGroupService : IOperatorGroupService
     /// <returns>operator group list</returns>
     public async Task<List<OperatorGroupViewModel>> GetAllAsync()
     {
-        var query =
-            from dept in _ruoyiDbContext.SystemDepts.AsNoTracking()
-            join user in _ruoyiDbContext.SystemUsers.AsNoTracking().Where(t => !t.deleted)
-                on dept.leader_user_id equals (long?)user.id into userGroup
-            from leader in userGroup.DefaultIfEmpty()
-            where dept.dept == "operator" && !dept.deleted
-            orderby dept.sort, dept.id
-            select new
-            {
-                group_name = dept.name ?? string.Empty,
-                leader_name = leader == null ? string.Empty : leader.nickname ?? string.Empty,
-                phone = leader == null ? string.Empty : leader.mobile ?? string.Empty
-            };
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        var rows = (await connection.QueryAsync<OperatorGroupViewModel>("""
+            SELECT
+                COALESCE(dept.`name`, '') AS `group_name`,
+                COALESCE(leader.`nickname`, '') AS `leader_name`,
+                COALESCE(leader.`mobile`, '') AS `phone`
+            FROM `system_dept` AS dept
+            LEFT JOIN `system_users` AS leader
+                ON leader.`id` = dept.`leader_user_id`
+                AND leader.`deleted` = 0
+            WHERE dept.`dept` = 'operator'
+                AND dept.`deleted` = 0
+            ORDER BY dept.`sort`, dept.`id`;
+            """)).AsList();
 
-        var data = await query.ToListAsync();
-        return data.Select((item, index) => new OperatorGroupViewModel
+        for (var index = 0; index < rows.Count; index++)
         {
-            sequence = index + 1,
-            group_name = item.group_name,
-            leader_name = item.leader_name,
-            phone = item.phone
-        }).ToList();
+            rows[index].sequence = index + 1;
+        }
+
+        return rows;
     }
 }
