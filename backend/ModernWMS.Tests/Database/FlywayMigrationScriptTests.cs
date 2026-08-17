@@ -70,7 +70,7 @@ public sealed class FlywayMigrationScriptTests
         string? switchArgument = null,
         string toolVersion = ExpectedFlywayVersion,
         bool confirmDevelopmentDatabase = true,
-        string url = "jdbc:mysql://127.0.0.1:3306/test_database")
+        string url = "jdbc:mysql://127.0.0.1:3306/ruoyi-vue-pro")
     {
         var repositoryRoot = FindRepositoryRoot();
         var scriptPath = Path.Combine(repositoryRoot, "scripts", "Update-Database.ps1");
