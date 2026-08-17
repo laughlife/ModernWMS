@@ -1,0 +1,65 @@
+using System.Reflection;
+using Microsoft.AspNetCore.Authorization;
+using ModernWMS.Core.JWT;
+using ModernWMS.WMS.Controllers.DispatchWorkflow;
+using ModernWMS.WMS.Entities.ViewModels.DispatchWorkflow;
+using ModernWMS.WMS.Services.DispatchWorkflow;
+using MySqlConnector;
+
+namespace ModernWMS.Tests.DispatchWorkflow;
+
+public sealed class DispatchWorkflowContractTests
+{
+    [Theory]
+    [InlineData(nameof(DispatchWorkflowController.CompletePickingAsync))]
+    [InlineData(nameof(DispatchWorkflowController.DecideSourceChangeAsync))]
+    [InlineData(nameof(DispatchWorkflowController.StartWeighingAsync))]
+    [InlineData(nameof(DispatchWorkflowController.SaveWeighingBoxAsync))]
+    [InlineData(nameof(DispatchWorkflowController.CopyWeighingBoxAsync))]
+    [InlineData(nameof(DispatchWorkflowController.CompleteTaskWeighingAsync))]
+    [InlineData(nameof(DispatchWorkflowController.CompleteOrderWeighingAsync))]
+    [InlineData(nameof(DispatchWorkflowController.ConfirmOutboundAsync))]
+    [InlineData(nameof(DispatchWorkflowController.CancelOutboundAsync))]
+    [InlineData(nameof(DispatchWorkflowController.SignAsync))]
+    public void Mutation_endpoints_require_explicit_authorization(string methodName)
+    {
+        var method = typeof(DispatchWorkflowController).GetMethod(methodName);
+
+        Assert.NotNull(method);
+        Assert.NotNull(method!.GetCustomAttribute<AuthorizeAttribute>());
+    }
+
+    [Fact]
+    public void Weighing_box_routes_use_resource_ids_without_repeating_target_ids_in_bodies()
+    {
+        var save = typeof(DispatchWorkflowController).GetMethod(
+            nameof(DispatchWorkflowController.SaveWeighingBoxAsync))!;
+        var copy = typeof(DispatchWorkflowController).GetMethod(
+            nameof(DispatchWorkflowController.CopyWeighingBoxAsync))!;
+
+        Assert.Equal("{id:int}/boxes/{boxId:int}",
+            save.GetCustomAttribute<Microsoft.AspNetCore.Mvc.HttpPutAttribute>()!.Template);
+        Assert.Equal("{id:int}/boxes/{targetBoxId:int}/copy",
+            copy.GetCustomAttribute<Microsoft.AspNetCore.Mvc.HttpPostAttribute>()!.Template);
+        Assert.DoesNotContain(typeof(SaveWeighingBoxRequest).GetProperties(), property => property.Name == "box_id");
+        Assert.DoesNotContain(typeof(CopyWeighingBoxRequest).GetProperties(), property => property.Name == "target_box_id");
+    }
+
+    [Fact]
+    public void Source_guard_exposes_an_internal_overload_for_the_callers_transaction()
+    {
+        var overload = typeof(DispatchWorkflowService).GetMethod(
+            nameof(DispatchWorkflowService.EnsurePostPickSourceCurrentAsync),
+            BindingFlags.Instance | BindingFlags.NonPublic,
+            binder: null,
+            types:
+            [
+                typeof(MySqlConnection), typeof(MySqlTransaction), typeof(int),
+                typeof(CurrentUser), typeof(CancellationToken)
+            ],
+            modifiers: null);
+
+        Assert.NotNull(overload);
+        Assert.Equal(typeof(Task<PostPickSourceGuardResult>), overload!.ReturnType);
+    }
+}

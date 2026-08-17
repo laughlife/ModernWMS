@@ -12,7 +12,7 @@ using ModernWMS.WMS.Entities.ViewModels.DispatchWorkflow;
 using ModernWMS.WMS.IServices.DispatchWorkflow;
 using ModernWMS.Core.JWT;
 using System.Reflection;
-using Microsoft.EntityFrameworkCore;
+using ModernWMS.WMS.Services.DispatchWorkflow;
 
 namespace ModernWMS.Tests.DispatchWorkflow;
 
@@ -70,8 +70,7 @@ public class DispatchWorkflowEndpointTests
         { new UnauthorizedAccessException("denied"), 403 },
         { new KeyNotFoundException("missing"), 404 },
         { new InvalidOperationException("state conflict"), 409 },
-        { new DbUpdateConcurrencyException("concurrent"), 409 },
-        { new DbUpdateException("unique conflict"), 409 }
+        { DispatchWorkflowCommandException.ConcurrencyConflict(), 409 }
     };
 
     private static WebApplicationFactory<Program> CreateFactory() =>
