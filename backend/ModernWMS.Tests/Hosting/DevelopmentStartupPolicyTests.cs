@@ -3,14 +3,15 @@ namespace ModernWMS.Tests.Hosting;
 public class DevelopmentStartupPolicyTests
 {
     [Fact]
-    public void Development_launcher_requires_an_explicit_switch_before_running_database_migrations()
+    public void Development_launcher_never_runs_database_migrations()
     {
         var repositoryRoot = FindRepositoryRoot();
         var script = File.ReadAllText(Path.Combine(repositoryRoot, "scripts", "Start-Development.ps1"));
 
-        Assert.Contains("[switch]$ApplyMigrations", script, StringComparison.Ordinal);
-        Assert.Contains("if ($ApplyMigrations)", script, StringComparison.Ordinal);
-        Assert.DoesNotContain("'[1/3] 初始化并迁移数据库。失败时不会启动后端或前端。'", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("ApplyMigrations", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("initialize-database-only", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("DatabaseInitialization", script, StringComparison.Ordinal);
+        Assert.Contains("'watch', 'run'", script, StringComparison.Ordinal);
     }
 
     private static string FindRepositoryRoot()
