@@ -41,17 +41,18 @@ npm ci
 npm run dev
 ```
 
-Open `http://127.0.0.1:80`. The deterministic baseline account is `admin` / `1`; change this password immediately outside a disposable local environment.
+Open `http://127.0.0.1:80`. Accounts are provisioned explicitly by each development or deployment environment; the repository no longer embeds a default administrator password.
 
 ## Database initialization
 
-The application shares the `ruoyi-vue-pro` database with Ruoyi/ERP. ModernWMS-owned tables use the `wms_` prefix. It applies EF Core migrations and inserts missing baseline records on startup. To initialize the database and exit:
+The application shares the `ruoyi-vue-pro` database with Ruoyi/ERP. ModernWMS-owned tables use the `wms_` prefix. Application startup and hot reload never modify the database; schema changes are applied explicitly through Flyway:
 
 ```powershell
-dotnet run --project backend/ModernWMS -- --initialize-database-only
+powershell -ExecutionPolicy Bypass -File scripts\Update-Database.ps1 -ConfirmDevelopmentDatabase
+powershell -ExecutionPolicy Bypass -File scripts\Update-Database.ps1 -ConfirmDevelopmentDatabase -Apply
 ```
 
-Initialization is idempotent for the embedded baseline record IDs. See [docs/database.md](docs/database.md) for details.
+The script only accepts the loopback `ruoyi-vue-pro` development database. It runs `info` and `validate` by default; only `-Apply` changes the schema. See [docs/database.md](docs/database.md) for details.
 
 ## Verification
 

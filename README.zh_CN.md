@@ -39,17 +39,18 @@ npm ci
 npm run dev
 ```
 
-浏览器访问 `http://127.0.0.1:80`。确定性基础数据中的账号为 `admin`、密码为 `1`；除一次性本机测试环境外，登录后应立即修改密码。
+浏览器访问 `http://127.0.0.1:80`。账号由开发或部署环境显式创建，仓库不再内置默认管理员密码。
 
 ## 数据库初始化
 
-ModernWMS 与 Ruoyi/ERP 共用 `ruoyi-vue-pro` 数据库，WMS 自有表统一使用 `wms_` 前缀。应用启动时会自动应用 EF Core Migration，并补齐缺失的基础数据。只初始化数据库、不启动 Web 服务时执行：
+ModernWMS 与 Ruoyi/ERP 共用 `ruoyi-vue-pro` 数据库，WMS 自有表统一使用 `wms_` 前缀。应用启动和代码热重载都不会修改数据库；结构变更只能通过显式 Flyway 命令执行：
 
 ```powershell
-dotnet run --project backend/ModernWMS -- --initialize-database-only
+powershell -ExecutionPolicy Bypass -File scripts\Update-Database.ps1 -ConfirmDevelopmentDatabase
+powershell -ExecutionPolicy Bypass -File scripts\Update-Database.ps1 -ConfirmDevelopmentDatabase -Apply
 ```
 
-基础数据按固定主键幂等写入，重复初始化不会重复插入。详情见 [数据库说明](docs/database.md)。
+脚本只允许本机回环地址上的 `ruoyi-vue-pro` 开发库；默认仅执行 `info` 和 `validate`，传入 `-Apply` 才会修改结构。详情见 [数据库说明](docs/database.md)。
 
 ## 验证命令
 

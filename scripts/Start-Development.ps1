@@ -6,8 +6,6 @@ param(
     [ValidateRange(1, 65535)]
     [int]$FrontendPort = 80,
 
-    [switch]$ApplyMigrations,
-
     [switch]$CheckOnly
 )
 
@@ -330,30 +328,12 @@ try {
 
     New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
 
-    if ($ApplyMigrations) {
-        Write-Host '[数据库] 已显式请求迁移；迁移失败时不会启动后端或前端。'
-        $previousInitializationEnvironment = [Environment]::GetEnvironmentVariable('ASPNETCORE_ENVIRONMENT', 'Process')
-        try {
-            $env:ASPNETCORE_ENVIRONMENT = 'Development'
-            & $dotnetCommand run --project $backendProject --no-launch-profile --no-restore -- --initialize-database-only
-            if ($LASTEXITCODE -ne 0) {
-                throw "数据库初始化失败（退出码 $LASTEXITCODE）。请先处理上方数据库错误，再重新运行启动器。"
-            }
-        }
-        finally {
-            [Environment]::SetEnvironmentVariable('ASPNETCORE_ENVIRONMENT', $previousInitializationEnvironment, 'Process')
-        }
-    }
-    else {
-        Write-Host '[数据库] 普通开发启动不检查、不修改数据库。需要迁移时请显式传入 -ApplyMigrations。'
-    }
+    Write-Host '[数据库] 开发启动不检查、不修改数据库；结构变更只通过 scripts\Update-Database.ps1 显式执行。'
 
     Write-Host "[1/2] 启动后端 watch：http://127.0.0.1:$BackendPort"
-    $previousDatabaseInitialization = [Environment]::GetEnvironmentVariable('DatabaseInitialization__Enabled', 'Process')
     $previousAspNetCoreUrls = [Environment]::GetEnvironmentVariable('ASPNETCORE_URLS', 'Process')
     $previousAspNetCoreEnvironment = [Environment]::GetEnvironmentVariable('ASPNETCORE_ENVIRONMENT', 'Process')
     try {
-        $env:DatabaseInitialization__Enabled = 'false'
         $env:ASPNETCORE_URLS = "http://0.0.0.0:$BackendPort"
         $env:ASPNETCORE_ENVIRONMENT = 'Development'
         $backendProcess = Start-Process -FilePath $dotnetCommand `
@@ -365,7 +345,6 @@ try {
             -PassThru
     }
     finally {
-        [Environment]::SetEnvironmentVariable('DatabaseInitialization__Enabled', $previousDatabaseInitialization, 'Process')
         [Environment]::SetEnvironmentVariable('ASPNETCORE_URLS', $previousAspNetCoreUrls, 'Process')
         [Environment]::SetEnvironmentVariable('ASPNETCORE_ENVIRONMENT', $previousAspNetCoreEnvironment, 'Process')
     }
