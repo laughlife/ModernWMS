@@ -1,11 +1,10 @@
 using System.Globalization;
 using System.Text.Json;
-using Microsoft.EntityFrameworkCore;
-using ModernWMS.Core.DBContext;
+using Dapper;
+using ModernWMS.Core.Database;
 using ModernWMS.Core.DBContext.Entities;
 using ModernWMS.Core.JWT;
 using ModernWMS.Core.Models;
-using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels;
 using ModernWMS.WMS.IServices;
 
@@ -20,17 +19,14 @@ public class FbaShipmentService : IFbaShipmentService
     private const string FbaTransferType = "OVERSEA_FBA_SHIPMENT";
     private const string WaitShipmentStatus = "WAIT_SHIPMENT";
 
-    private readonly RuoyiDbContext _ruoyiDbContext;
-    private readonly SqlDBContext _wmsDbContext;
+    private readonly IMySqlConnectionFactory _connectionFactory;
     private readonly IDispatchlistService _dispatchlistService;
 
     public FbaShipmentService(
-        RuoyiDbContext ruoyiDbContext,
-        SqlDBContext wmsDbContext,
+        IMySqlConnectionFactory connectionFactory,
         IDispatchlistService dispatchlistService)
     {
-        _ruoyiDbContext = ruoyiDbContext;
-        _wmsDbContext = wmsDbContext;
+        _connectionFactory = connectionFactory;
         _dispatchlistService = dispatchlistService;
     }
 
@@ -40,54 +36,54 @@ public class FbaShipmentService : IFbaShipmentService
         var deptName = FindSearchText(pageSearch, "dept_name");
         var orderUserName = FindSearchText(pageSearch, "order_user_name");
 
-        var query = _ruoyiDbContext.StockMoves.AsNoTracking()
-            .Where(t => !t.deleted
-                && t.transfer_type == FbaTransferType
-                && t.status == WaitShipmentStatus
-                && t.shipment_status == WaitShipmentStatus
-                && t.from_warehouse_id == ShenzhenWarehouseId);
-
-        var preparedDispatchNos = await _wmsDbContext.GetDbSet<DispatchlistEntity>()
-            .AsNoTracking()
-            .Where(t => t.tenant_id == currentUser.tenant_id)
-            .Select(t => t.dispatch_no)
-            .Distinct()
-            .ToListAsync();
-        if (preparedDispatchNos.Count > 0)
-        {
-            query = query.Where(t => !preparedDispatchNos.Contains(t.no));
-        }
-
-        if (!string.IsNullOrWhiteSpace(keyword))
-        {
-            query = query.Where(t => t.no.Contains(keyword)
-                || (t.remark != null && t.remark.Contains(keyword))
-                || _ruoyiDbContext.StockMoveItems.Any(i => !i.deleted
-                    && i.stock_move_id == t.id
-                    && ((i.product_snapshot_json != null && i.product_snapshot_json.Contains(keyword))
-                        || (i.commodity_sku != null && i.commodity_sku.Contains(keyword))
-                        || (i.commodity_name != null && i.commodity_name.Contains(keyword)))));
-        }
-
-        if (!string.IsNullOrWhiteSpace(deptName))
-        {
-            query = query.Where(t => t.dept_name != null && t.dept_name.Contains(deptName));
-        }
-
-        if (!string.IsNullOrWhiteSpace(orderUserName))
-        {
-            query = query.Where(t => t.order_user_name != null && t.order_user_name.Contains(orderUserName));
-        }
-
-        var totals = await query.CountAsync();
         var pageIndex = Math.Max(pageSearch.pageIndex, 1);
         var pageSize = Math.Clamp(pageSearch.pageSize, 1, 200);
-        var moves = await query
-            .OrderByDescending(t => t.create_time)
-            .ThenByDescending(t => t.id)
-            .Skip((pageIndex - 1) * pageSize)
-            .Take(pageSize)
-            .ToListAsync();
+        var where = new List<string>
+        {
+            "move.deleted = 0",
+            "move.transfer_type = @transferType",
+            "move.status = @status",
+            "move.shipment_status = @shipmentStatus",
+            "move.from_warehouse_id = @warehouseId",
+            "NOT EXISTS (SELECT 1 FROM wms_dispatchlist detail WHERE detail.tenant_id = @tenantId AND detail.dispatch_no = move.no)"
+        };
+        var parameters = new DynamicParameters(new
+        {
+            transferType = FbaTransferType,
+            status = WaitShipmentStatus,
+            shipmentStatus = WaitShipmentStatus,
+            warehouseId = ShenzhenWarehouseId,
+            tenantId = currentUser.tenant_id,
+            offset = (pageIndex - 1) * pageSize,
+            pageSize
+        });
+        if (!string.IsNullOrWhiteSpace(keyword))
+        {
+            where.Add("""(move.no LIKE @keyword OR move.remark LIKE @keyword OR EXISTS (SELECT 1 FROM trk_stock_move_item item WHERE item.deleted = 0 AND item.stock_move_id = move.id AND (item.product_snapshot_json LIKE @keyword OR item.commodity_sku LIKE @keyword OR item.commodity_name LIKE @keyword)))""");
+            parameters.Add("keyword", $"%{keyword}%");
+        }
+        if (!string.IsNullOrWhiteSpace(deptName))
+        {
+            where.Add("move.dept_name LIKE @deptName");
+            parameters.Add("deptName", $"%{deptName}%");
+        }
+        if (!string.IsNullOrWhiteSpace(orderUserName))
+        {
+            where.Add("move.order_user_name LIKE @orderUserName");
+            parameters.Add("orderUserName", $"%{orderUserName}%");
+        }
+
+        var whereSql = string.Join(" AND ", where);
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        using var result = await connection.QueryMultipleAsync($"""
+            SELECT COUNT(*) FROM trk_stock_move move WHERE {whereSql};
+            SELECT move.* FROM trk_stock_move move
+            WHERE {whereSql}
+            ORDER BY move.create_time DESC, move.id DESC
+            LIMIT @pageSize OFFSET @offset;
+            """, parameters);
+        var totals = await result.ReadSingleAsync<int>();
+        var moves = (await result.ReadAsync<ErpStockMoveEntity>()).AsList();
 
         if (moves.Count == 0)
         {
@@ -95,16 +91,17 @@ public class FbaShipmentService : IFbaShipmentService
         }
 
         var moveIds = moves.Select(t => t.id).ToList();
-        var moveItems = await _ruoyiDbContext.StockMoveItems.AsNoTracking()
-            .Where(t => !t.deleted && moveIds.Contains(t.stock_move_id))
-            .OrderBy(t => t.id)
-            .ToListAsync();
+        var moveItems = (await connection.QueryAsync<ErpStockMoveItemEntity>("""
+            SELECT * FROM trk_stock_move_item
+            WHERE deleted = 0 AND stock_move_id IN @moveIds
+            ORDER BY id
+            """, new { moveIds })).AsList();
         var stockIds = moveItems.Where(t => t.stock_id.HasValue).Select(t => t.stock_id!.Value).Distinct().ToList();
         var stocks = stockIds.Count == 0
             ? new Dictionary<long, ErpBusinessStockEntity>()
-            : await _ruoyiDbContext.BusinessStocks.AsNoTracking()
-                .Where(t => !t.deleted && stockIds.Contains(t.id))
-                .ToDictionaryAsync(t => t.id);
+            : (await connection.QueryAsync<ErpBusinessStockEntity>("""
+                SELECT * FROM trk_stock WHERE deleted = 0 AND id IN @stockIds
+                """, new { stockIds })).ToDictionary(t => t.id);
 
         var snapshots = moveItems.ToDictionary(t => t.id, t => ParseSnapshot(t.product_snapshot_json, t.remark));
         var fbaShipmentIds = snapshots.Values
@@ -114,9 +111,9 @@ public class FbaShipmentService : IFbaShipmentService
             .ToList();
         var fbaShipments = fbaShipmentIds.Count == 0
             ? new Dictionary<long, ErpFbaShipmentEntity>()
-            : await _ruoyiDbContext.FbaShipments.AsNoTracking()
-                .Where(t => !t.deleted && fbaShipmentIds.Contains(t.id))
-                .ToDictionaryAsync(t => t.id);
+            : (await connection.QueryAsync<ErpFbaShipmentEntity>("""
+                SELECT * FROM erp_fba_shipment WHERE deleted = 0 AND id IN @fbaShipmentIds
+                """, new { fbaShipmentIds })).ToDictionary(t => t.id);
         var itemsByMove = moveItems.GroupBy(t => t.stock_move_id).ToDictionary(t => t.Key, t => t.ToList());
 
         var data = moves.Select(move => BuildViewModel(
@@ -130,13 +127,21 @@ public class FbaShipmentService : IFbaShipmentService
 
     public async Task<(bool flag, string msg)> PreparePickingAsync(long stockMoveId, CurrentUser currentUser)
     {
-        var move = await _ruoyiDbContext.StockMoves.AsNoTracking()
-            .FirstOrDefaultAsync(t => t.id == stockMoveId
-                && !t.deleted
-                && t.transfer_type == FbaTransferType
-                && t.status == WaitShipmentStatus
-                && t.shipment_status == WaitShipmentStatus
-                && t.from_warehouse_id == ShenzhenWarehouseId);
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        var move = await connection.QuerySingleOrDefaultAsync<ErpStockMoveEntity>("""
+            SELECT * FROM trk_stock_move
+            WHERE id = @stockMoveId AND deleted = 0
+              AND transfer_type = @transferType AND status = @status
+              AND shipment_status = @shipmentStatus AND from_warehouse_id = @warehouseId
+            LIMIT 1
+            """, new
+        {
+            stockMoveId,
+            transferType = FbaTransferType,
+            status = WaitShipmentStatus,
+            shipmentStatus = WaitShipmentStatus,
+            warehouseId = ShenzhenWarehouseId
+        });
         if (move == null)
         {
             return (false, "FBA发货单不存在、状态已变化或不属于深圳自建仓");
@@ -146,10 +151,11 @@ public class FbaShipmentService : IFbaShipmentService
             return (false, "ERP发货准备单号为空或超过WMS发货单号长度限制");
         }
 
-        var moveItems = await _ruoyiDbContext.StockMoveItems.AsNoTracking()
-            .Where(t => !t.deleted && t.stock_move_id == stockMoveId)
-            .OrderBy(t => t.id)
-            .ToListAsync();
+        var moveItems = (await connection.QueryAsync<ErpStockMoveItemEntity>("""
+            SELECT * FROM trk_stock_move_item
+            WHERE deleted = 0 AND stock_move_id = @stockMoveId
+            ORDER BY id
+            """, new { stockMoveId })).AsList();
         if (moveItems.Count == 0)
         {
             return (false, "FBA发货单没有可拣货的商品明细");
@@ -160,9 +166,11 @@ public class FbaShipmentService : IFbaShipmentService
             .Select(t => t.commodity_id!.Value)
             .Distinct()
             .ToList();
-        var commodityMaps = await _ruoyiDbContext.CommodityMaps.AsNoTracking()
-            .Where(t => t.tenant_id == currentUser.tenant_id && commodityIds.Contains(t.erp_commodity_id))
-            .ToDictionaryAsync(t => t.erp_commodity_id);
+        var commodityMaps = (await connection.QueryAsync<ErpCommodityMapEntity>("""
+            SELECT erp_commodity_id, wms_spu_id, wms_sku_id, commodity_sku, tenant_id
+            FROM wms_erp_commodity_map
+            WHERE tenant_id = @tenantId AND erp_commodity_id IN @commodityIds
+            """, new { tenantId = currentUser.tenant_id, commodityIds })).ToDictionary(t => t.erp_commodity_id);
         var missingItem = moveItems.FirstOrDefault(t => !t.commodity_id.HasValue || !commodityMaps.ContainsKey(t.commodity_id.Value));
         if (missingItem != null)
         {
@@ -180,29 +188,42 @@ public class FbaShipmentService : IFbaShipmentService
             requestedItems.Add(new DispatchlistAddViewModel { sku_id = group.Key, qty = (int)quantity });
         }
 
-        var warehouse = await _wmsDbContext.GetDbSet<WarehouseEntity>().AsNoTracking()
-            .FirstOrDefaultAsync(t => t.tenant_id == currentUser.tenant_id
-                && t.erp_warehouse_id == ShenzhenWarehouseId
-                && t.is_valid);
-        if (warehouse == null)
+        var warehouseId = await connection.QuerySingleOrDefaultAsync<int?>("""
+            SELECT id FROM wms_warehouse
+            WHERE tenant_id = @tenantId AND erp_warehouse_id = @erpWarehouseId AND is_valid = 1
+            LIMIT 1
+            """, new { tenantId = currentUser.tenant_id, erpWarehouseId = ShenzhenWarehouseId });
+        if (!warehouseId.HasValue)
         {
             return (false, "有座山深圳仓尚未绑定有效的WMS仓库");
         }
 
-        var ownerMap = await _ruoyiDbContext.GoodsOwnerMaps.AsNoTracking()
-            .FirstOrDefaultAsync(t => t.tenant_id == currentUser.tenant_id
-                && t.erp_dept_id == (move.dept_id ?? 0)
-                && t.erp_order_user_id == (move.order_user_id ?? 0));
-        if (ownerMap == null || !await _wmsDbContext.GetDbSet<GoodsownerEntity>().AsNoTracking()
-            .AnyAsync(t => t.id == ownerMap.wms_goods_owner_id && t.tenant_id == currentUser.tenant_id && t.is_valid))
+        var goodsOwnerId = await connection.QuerySingleOrDefaultAsync<int?>("""
+            SELECT mapping.wms_goods_owner_id
+            FROM wms_erp_goods_owner_map mapping
+            INNER JOIN wms_goodsowner owner
+              ON owner.id = mapping.wms_goods_owner_id
+             AND owner.tenant_id = mapping.tenant_id
+             AND owner.is_valid = 1
+            WHERE mapping.tenant_id = @tenantId
+              AND mapping.erp_dept_id = @deptId
+              AND mapping.erp_order_user_id = @orderUserId
+            LIMIT 1
+            """, new
+        {
+            tenantId = currentUser.tenant_id,
+            deptId = move.dept_id ?? 0,
+            orderUserId = move.order_user_id ?? 0
+        });
+        if (!goodsOwnerId.HasValue)
         {
             return (false, "发货归属尚未匹配有效的WMS库存所属人");
         }
 
         return await _dispatchlistService.PreparePickingAsync(
             move.no,
-            warehouse.id,
-            ownerMap.wms_goods_owner_id,
+            warehouseId.Value,
+            goodsOwnerId.Value,
             requestedItems,
             currentUser);
     }
