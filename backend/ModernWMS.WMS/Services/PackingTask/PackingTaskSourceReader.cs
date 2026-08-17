@@ -1,9 +1,8 @@
-using System.Data;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using Microsoft.EntityFrameworkCore;
-using ModernWMS.Core.DBContext;
+using Dapper;
+using ModernWMS.Core.Database;
 using ModernWMS.Core.DBContext.Entities;
 using ModernWMS.WMS.Entities.ViewModels.PackingTask;
 using ModernWMS.WMS.IServices.PackingTask;
@@ -20,12 +19,17 @@ public sealed class PackingTaskSourceReader : IPackingTaskSourceReader
     private const string SourceItemTable = "ruiyi_sellfox_packing_task_item";
     private const string RequiredCartonsColumn = "cartons_json";
     private const int RequiredSourceColumnCount = 4;
-    private readonly RuoyiDbContext _database;
+    private readonly IMySqlConnectionFactory _connectionFactory;
     private readonly Func<CancellationToken, Task<PackingTaskSourceCapability>>? _capabilityProbe;
+    private readonly Func<
+        IReadOnlyCollection<long>,
+        CancellationToken,
+        Task<(IReadOnlyList<ErpPackingTaskEntity> Tasks, IReadOnlyList<ErpPackingTaskItemEntity> Items)>>?
+        _sourceLoader;
 
-    public PackingTaskSourceReader(RuoyiDbContext database)
+    public PackingTaskSourceReader(IMySqlConnectionFactory connectionFactory)
     {
-        _database = database;
+        _connectionFactory = connectionFactory ?? throw new ArgumentNullException(nameof(connectionFactory));
     }
 
     /// <summary>
@@ -33,11 +37,17 @@ public sealed class PackingTaskSourceReader : IPackingTaskSourceReader
     /// requiring a live MySQL INFORMATION_SCHEMA.
     /// </summary>
     public PackingTaskSourceReader(
-        RuoyiDbContext database,
-        Func<CancellationToken, Task<PackingTaskSourceCapability>> capabilityProbe)
+        IMySqlConnectionFactory connectionFactory,
+        Func<CancellationToken, Task<PackingTaskSourceCapability>> capabilityProbe,
+        Func<
+            IReadOnlyCollection<long>,
+            CancellationToken,
+            Task<(IReadOnlyList<ErpPackingTaskEntity> Tasks, IReadOnlyList<ErpPackingTaskItemEntity> Items)>>
+            sourceLoader)
     {
-        _database = database;
+        _connectionFactory = connectionFactory ?? throw new ArgumentNullException(nameof(connectionFactory));
         _capabilityProbe = capabilityProbe ?? throw new ArgumentNullException(nameof(capabilityProbe));
+        _sourceLoader = sourceLoader ?? throw new ArgumentNullException(nameof(sourceLoader));
     }
 
     public async Task<PackingTaskSourceCapability> VerifyCapabilityAsync(
@@ -48,30 +58,10 @@ public sealed class PackingTaskSourceReader : IPackingTaskSourceReader
             return await _capabilityProbe(cancellationToken);
         }
 
-        if (!_database.Database.IsRelational())
-        {
-            var task = _database.Model.FindEntityType(typeof(ErpPackingTaskEntity));
-            var item = _database.Model.FindEntityType(typeof(ErpPackingTaskItemEntity));
-            var hasRequiredModel = task?.FindProperty(nameof(ErpPackingTaskEntity.cartons_json)) is not null
-                && task.FindProperty(nameof(ErpPackingTaskEntity.sellfox_task_id)) is not null
-                && item?.FindProperty(nameof(ErpPackingTaskItemEntity.sellfox_task_id)) is not null
-                && item.FindProperty(nameof(ErpPackingTaskItemEntity.sellfox_item_id)) is not null;
-            return !hasRequiredModel
-                ? UnsupportedCapability()
-                : new PackingTaskSourceCapability(true, string.Empty);
-        }
-
-        var connection = _database.Database.GetDbConnection();
-        var shouldClose = connection.State != ConnectionState.Open;
         try
         {
-            if (shouldClose)
-            {
-                await connection.OpenAsync(cancellationToken);
-            }
-
-            await using var command = connection.CreateCommand();
-            command.CommandText = """
+            await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+            const string sql = """
                 SELECT COUNT(*)
                 FROM INFORMATION_SCHEMA.COLUMNS
                 WHERE TABLE_SCHEMA = DATABASE()
@@ -81,21 +71,12 @@ public sealed class PackingTaskSourceReader : IPackingTaskSourceReader
                     (TABLE_NAME = @item_table AND COLUMN_NAME IN ('sellfox_task_id', 'sellfox_item_id'))
                   )
                 """;
-
-            var tableParameter = command.CreateParameter();
-            tableParameter.ParameterName = "@task_table";
-            tableParameter.Value = SourceTable;
-            command.Parameters.Add(tableParameter);
-
-            var itemTableParameter = command.CreateParameter();
-            itemTableParameter.ParameterName = "@item_table";
-            itemTableParameter.Value = SourceItemTable;
-            command.Parameters.Add(itemTableParameter);
-
-            var value = await command.ExecuteScalarAsync(cancellationToken);
-            var exists = value is not null
-                && value != DBNull.Value
-                && Convert.ToInt64(value) == RequiredSourceColumnCount;
+            var command = new CommandDefinition(
+                sql,
+                new { task_table = SourceTable, item_table = SourceItemTable },
+                cancellationToken: cancellationToken);
+            var columnCount = await connection.QuerySingleAsync<long>(command);
+            var exists = columnCount == RequiredSourceColumnCount;
             return exists
                 ? new PackingTaskSourceCapability(true, string.Empty)
                 : UnsupportedCapability();
@@ -105,13 +86,6 @@ public sealed class PackingTaskSourceReader : IPackingTaskSourceReader
             return new PackingTaskSourceCapability(
                 false,
                 $"无法验证共享表 {SourceTable}.{RequiredCartonsColumn}：{exception.Message}");
-        }
-        finally
-        {
-            if (shouldClose && connection.State == ConnectionState.Open)
-            {
-                await connection.CloseAsync();
-            }
         }
     }
 
@@ -137,11 +111,9 @@ public sealed class PackingTaskSourceReader : IPackingTaskSourceReader
             throw new InvalidOperationException(capability.Error);
         }
 
-        var tasks = await _database.PackingTasks.AsNoTracking()
-            .Where(x => requestedIds.Contains(x.sellfox_task_id))
-            .OrderBy(x => x.sellfox_task_id)
-            .ThenBy(x => x.id)
-            .ToListAsync(cancellationToken);
+        var (tasks, items) = _sourceLoader is null
+            ? await LoadSourceAsync(requestedIds, cancellationToken)
+            : await _sourceLoader(requestedIds, cancellationToken);
 
         var duplicateTask = tasks.GroupBy(x => x.sellfox_task_id).FirstOrDefault(x => x.Count() > 1);
         if (duplicateTask is not null)
@@ -157,12 +129,6 @@ public sealed class PackingTaskSourceReader : IPackingTaskSourceReader
                 $"共享表缺少请求的 SellFox 装箱任务ID：{string.Join(", ", missingIds)}");
         }
 
-        var items = await _database.PackingTaskItems.AsNoTracking()
-            .Where(x => requestedIds.Contains(x.sellfox_task_id) && !x.source_deleted)
-            .OrderBy(x => x.sellfox_task_id)
-            .ThenBy(x => x.sellfox_item_id)
-            .ThenBy(x => x.id)
-            .ToListAsync(cancellationToken);
         var itemsByTask = items.GroupBy(x => x.sellfox_task_id).ToDictionary(x => x.Key, x => x.ToList());
 
         var snapshots = new List<PackingTaskSourceSnapshot>(tasks.Count);
@@ -172,6 +138,69 @@ public sealed class PackingTaskSourceReader : IPackingTaskSourceReader
         }
 
         return snapshots;
+    }
+
+    private async Task<(
+        IReadOnlyList<ErpPackingTaskEntity> Tasks,
+        IReadOnlyList<ErpPackingTaskItemEntity> Items)> LoadSourceAsync(
+        IReadOnlyCollection<long> requestedIds,
+        CancellationToken cancellationToken)
+    {
+        const string taskSql = """
+            SELECT id,
+                   sellfox_task_id,
+                   packing_task_sn,
+                   warehouse_id,
+                   warehouse_name,
+                   source_status,
+                   complete_num,
+                   task_num,
+                   carton_num,
+                   shop_id,
+                   shop_name,
+                   marketplace_name,
+                   cartons_json,
+                   source_hash,
+                   source_canceled,
+                   source_deleted
+            FROM ruiyi_sellfox_packing_task
+            WHERE sellfox_task_id IN @SourceTaskIds
+            ORDER BY sellfox_task_id, id
+            """;
+        const string itemSql = """
+            SELECT id,
+                   sellfox_item_id,
+                   sellfox_task_id,
+                   commodity_id,
+                   commodity_sku,
+                   commodity_name,
+                   main_image,
+                   fn_sku,
+                   sku,
+                   msku,
+                   shop_id,
+                   shop_name,
+                   task_num,
+                   quantity_shipped,
+                   source_hash,
+                   source_deleted
+            FROM ruiyi_sellfox_packing_task_item
+            WHERE sellfox_task_id IN @SourceTaskIds
+              AND source_deleted = 0
+            ORDER BY sellfox_task_id, sellfox_item_id, id
+            """;
+
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        var parameters = new { SourceTaskIds = requestedIds };
+        var tasks = (await connection.QueryAsync<ErpPackingTaskEntity>(new CommandDefinition(
+            taskSql,
+            parameters,
+            cancellationToken: cancellationToken))).AsList();
+        var items = (await connection.QueryAsync<ErpPackingTaskItemEntity>(new CommandDefinition(
+            itemSql,
+            parameters,
+            cancellationToken: cancellationToken))).AsList();
+        return (tasks, items);
     }
 
     private static PackingTaskSourceSnapshot BuildSnapshot(

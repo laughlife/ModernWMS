@@ -1,28 +1,55 @@
-using Microsoft.EntityFrameworkCore;
-using ModernWMS.Core.DBContext;
+using ModernWMS.Core.Database;
 using ModernWMS.Core.DBContext.Entities;
 using ModernWMS.WMS.Entities.ViewModels.PackingTask;
 using ModernWMS.WMS.Services.PackingTask;
+using Dapper;
+using MySqlConnector;
 
 namespace ModernWMS.Tests.PackingTask;
 
 public class PackingTaskSourceReaderTests
 {
+    [Database.DevelopmentMySqlFact]
+    public async Task ReadAsync_reads_the_current_development_sellfox_schema()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("MODERNWMS_TEST_MYSQL")!;
+        var settings = new MySqlConnectionStringBuilder(connectionString);
+        Assert.Contains(settings.Server, ["127.0.0.1", "localhost", "::1"], StringComparer.OrdinalIgnoreCase);
+        Assert.Equal("ruoyi-vue-pro", settings.Database);
+
+        await using var factory = new MySqlConnectionFactory(connectionString);
+        await using var connection = await factory.OpenConnectionAsync();
+        var sourceTaskId = await connection.QueryFirstOrDefaultAsync<long?>("""
+            SELECT `sellfox_task_id`
+            FROM `ruiyi_sellfox_packing_task`
+            WHERE `source_deleted` = 0
+            ORDER BY `sellfox_task_id`
+            LIMIT 1;
+            """);
+        Assert.NotNull(sourceTaskId);
+
+        var reader = new PackingTaskSourceReader(factory);
+        Assert.True((await reader.VerifyCapabilityAsync()).IsSupported);
+        var snapshot = Assert.Single(await reader.ReadAsync([sourceTaskId.Value]));
+        Assert.Equal(sourceTaskId.Value, snapshot.SourceTaskId);
+    }
+
     [Fact]
     public async Task ReadAsync_preserves_task_and_item_boundaries_and_computes_stable_version()
     {
-        await using var database = CreateDatabase();
-        database.PackingTasks.AddRange(
+        var tasks = new List<ErpPackingTaskEntity>
+        {
             Task(1, 101, "TASK-101", 320118, "[{\"weight\":2,\"id\":\"B-2\"},{\"id\":\"B-1\"}]"),
             Task(2, 102, "TASK-102", 320118, "[{\"id\":\"B-3\"}]")
-        );
-        database.PackingTaskItems.AddRange(
+        };
+        var items = new List<ErpPackingTaskItemEntity>
+        {
             Item(13, 1003, 102, "SAME-SKU", 3),
             Item(12, 1002, 101, "SAME-SKU", 2),
-            Item(11, 1001, 101, "SAME-SKU", 1));
-        await database.SaveChangesAsync();
+            Item(11, 1001, 101, "SAME-SKU", 1)
+        };
+        var reader = CreateReader(tasks, items);
 
-        var reader = new PackingTaskSourceReader(database);
         var first = await reader.ReadAsync([102, 101]);
         var second = await reader.ReadAsync([101, 102]);
 
@@ -37,16 +64,12 @@ public class PackingTaskSourceReaderTests
     [Fact]
     public async Task ReadAsync_changes_version_when_latest_item_quantity_changes()
     {
-        await using var database = CreateDatabase();
-        database.PackingTasks.Add(Task(1, 101, "TASK-101", 320118, "[{\"id\":\"B-1\"}]"));
+        var tasks = new[] { Task(1, 101, "TASK-101", 320118, "[{\"id\":\"B-1\"}]") };
         var item = Item(11, 1001, 101, "SKU-1", 1);
-        database.PackingTaskItems.Add(item);
-        await database.SaveChangesAsync();
-        var reader = new PackingTaskSourceReader(database);
+        var reader = CreateReader(tasks, [item]);
         var before = Assert.Single(await reader.ReadAsync([101]));
 
         item.task_num = 2;
-        await database.SaveChangesAsync();
         var after = Assert.Single(await reader.ReadAsync([101]));
 
         Assert.NotEqual(before.SourceVersion, after.SourceVersion);
@@ -55,15 +78,12 @@ public class PackingTaskSourceReaderTests
     [Fact]
     public async Task ReadAsync_fails_closed_for_duplicate_item_identity()
     {
-        await using var database = CreateDatabase();
-        database.PackingTasks.Add(Task(1, 101, "TASK-101", 320118, "[{\"id\":\"B-1\"}]"));
-        database.PackingTaskItems.AddRange(
-            Item(11, 1001, 101, "SKU-1", 1),
-            Item(12, 1001, 101, "SKU-2", 1));
-        await database.SaveChangesAsync();
+        var reader = CreateReader(
+            [Task(1, 101, "TASK-101", 320118, "[{\"id\":\"B-1\"}]")],
+            [Item(11, 1001, 101, "SKU-1", 1), Item(12, 1001, 101, "SKU-2", 1)]);
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => new PackingTaskSourceReader(database).ReadAsync([101]));
+            () => reader.ReadAsync([101]));
 
         Assert.Contains("商品ID", exception.Message);
     }
@@ -71,13 +91,12 @@ public class PackingTaskSourceReaderTests
     [Fact]
     public async Task ReadAsync_fails_the_whole_batch_and_lists_every_missing_task_id()
     {
-        await using var database = CreateDatabase();
-        database.PackingTasks.Add(Task(1, 101, "TASK-101", 320118, "[{\"id\":\"B-1\"}]"));
-        database.PackingTaskItems.Add(Item(11, 1001, 101, "SKU-1", 1));
-        await database.SaveChangesAsync();
+        var reader = CreateReader(
+            [Task(1, 101, "TASK-101", 320118, "[{\"id\":\"B-1\"}]")],
+            [Item(11, 1001, 101, "SKU-1", 1)]);
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => new PackingTaskSourceReader(database).ReadAsync([103, 101, 102]));
+            () => reader.ReadAsync([103, 101, 102]));
 
         Assert.Contains("102, 103", exception.Message);
         Assert.Contains("缺少", exception.Message);
@@ -86,22 +105,21 @@ public class PackingTaskSourceReaderTests
     [Fact]
     public async Task ReadAsync_reports_cancelled_tombstone_without_validating_warehouse_items_or_boxes()
     {
-        await using var database = CreateDatabase();
         var task = Task(1, 101, "TASK-101", 320118, "not-json");
         task.source_canceled = true;
         task.warehouse_id = null;
         task.task_num = null;
-        database.PackingTasks.Add(task);
-        database.PackingTaskItems.Add(new ErpPackingTaskItemEntity
-        {
-            id = 11,
-            sellfox_task_id = 101,
-            sellfox_item_id = 0,
-            task_num = -1
-        });
-        await database.SaveChangesAsync();
+        var reader = CreateReader(
+            [task],
+            [new ErpPackingTaskItemEntity
+            {
+                id = 11,
+                sellfox_task_id = 101,
+                sellfox_item_id = 0,
+                task_num = -1
+            }]);
 
-        var snapshot = Assert.Single(await new PackingTaskSourceReader(database).ReadAsync([101]));
+        var snapshot = Assert.Single(await reader.ReadAsync([101]));
 
         Assert.True(snapshot.IsCancelled);
         Assert.Equal(101, snapshot.SourceTaskId);
@@ -114,12 +132,11 @@ public class PackingTaskSourceReaderTests
     [Fact]
     public async Task ReadAsync_accepts_an_active_task_without_physical_boxes_before_weighing()
     {
-        await using var database = CreateDatabase();
-        database.PackingTasks.Add(Task(1, 101, "TASK-101", 320118, "[]"));
-        database.PackingTaskItems.Add(Item(11, 1001, 101, "SKU-1", 1));
-        await database.SaveChangesAsync();
+        var reader = CreateReader(
+            [Task(1, 101, "TASK-101", 320118, "[]")],
+            [Item(11, 1001, 101, "SKU-1", 1)]);
 
-        var snapshot = Assert.Single(await new PackingTaskSourceReader(database).ReadAsync([101]));
+        var snapshot = Assert.Single(await reader.ReadAsync([101]));
 
         Assert.False(snapshot.IsCancelled);
         Assert.Single(snapshot.Items);
@@ -130,13 +147,12 @@ public class PackingTaskSourceReaderTests
     [Fact]
     public async Task ReadAsync_rejects_active_task_without_stable_box_identity()
     {
-        await using var database = CreateDatabase();
-        database.PackingTasks.Add(Task(1, 101, "TASK-101", 320118, "[{\"weight\":1}]") );
-        database.PackingTaskItems.Add(Item(11, 1001, 101, "SKU-1", 1));
-        await database.SaveChangesAsync();
+        var reader = CreateReader(
+            [Task(1, 101, "TASK-101", 320118, "[{\"weight\":1}]")],
+            [Item(11, 1001, 101, "SKU-1", 1)]);
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => new PackingTaskSourceReader(database).ReadAsync([101]));
+            () => reader.ReadAsync([101]));
 
         Assert.Contains("稳定箱ID", exception.Message);
     }
@@ -147,15 +163,12 @@ public class PackingTaskSourceReaderTests
     [InlineData(-1)]
     public async Task ReadAsync_rejects_non_positive_header_task_quantity(int? quantity)
     {
-        await using var database = CreateDatabase();
         var task = Task(1, 101, "TASK-101", 320118, "[{\"id\":\"B-1\"}]");
         task.task_num = quantity;
-        database.PackingTasks.Add(task);
-        database.PackingTaskItems.Add(Item(11, 1001, 101, "SKU-1", 1));
-        await database.SaveChangesAsync();
+        var reader = CreateReader([task], [Item(11, 1001, 101, "SKU-1", 1)]);
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => new PackingTaskSourceReader(database).ReadAsync([101]));
+            () => reader.ReadAsync([101]));
 
         Assert.Contains("task_num 必须大于 0", exception.Message);
     }
@@ -166,15 +179,14 @@ public class PackingTaskSourceReaderTests
     [InlineData(-1)]
     public async Task ReadAsync_rejects_non_positive_item_task_quantity(int? quantity)
     {
-        await using var database = CreateDatabase();
-        database.PackingTasks.Add(Task(1, 101, "TASK-101", 320118, "[{\"id\":\"B-1\"}]"));
         var item = Item(11, 1001, 101, "SKU-1", 1);
         item.task_num = quantity;
-        database.PackingTaskItems.Add(item);
-        await database.SaveChangesAsync();
+        var reader = CreateReader(
+            [Task(1, 101, "TASK-101", 320118, "[{\"id\":\"B-1\"}]")],
+            [item]);
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => new PackingTaskSourceReader(database).ReadAsync([101]));
+            () => reader.ReadAsync([101]));
 
         Assert.Contains("task_num 必须大于 0", exception.Message);
     }
@@ -182,22 +194,22 @@ public class PackingTaskSourceReaderTests
     [Fact]
     public async Task ReadAsync_rejects_active_task_without_items()
     {
-        await using var database = CreateDatabase();
-        database.PackingTasks.Add(Task(1, 101, "TASK-101", 320118, "[{\"id\":\"B-1\"}]"));
-        await database.SaveChangesAsync();
+        var reader = CreateReader(
+            [Task(1, 101, "TASK-101", 320118, "[{\"id\":\"B-1\"}]")],
+            []);
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => new PackingTaskSourceReader(database).ReadAsync([101]));
+            () => reader.ReadAsync([101]));
 
         Assert.Contains("未包含有效商品", exception.Message);
     }
 
     [Fact]
-    public async Task VerifyCapabilityAsync_uses_model_contract_for_non_relational_tests()
+    public async Task VerifyCapabilityAsync_returns_injected_capability_without_opening_a_connection()
     {
-        await using var database = CreateDatabase();
+        var reader = CreateReader([], []);
 
-        var capability = await new PackingTaskSourceReader(database).VerifyCapabilityAsync();
+        var capability = await reader.VerifyCapabilityAsync();
 
         Assert.True(capability.IsSupported, capability.Error);
     }
@@ -205,26 +217,48 @@ public class PackingTaskSourceReaderTests
     [Fact]
     public async Task ReadAsync_fails_before_query_when_required_source_column_is_missing()
     {
-        await using var database = CreateDatabase();
+        var sourceRead = false;
         var reader = new PackingTaskSourceReader(
-            database,
+            new ThrowingConnectionFactory(),
             _ => System.Threading.Tasks.Task.FromResult(new PackingTaskSourceCapability(
                 false,
-                "共享表缺少必需字段 ruiyi_sellfox_packing_task.cartons_json")));
+                "共享表缺少必需字段 ruiyi_sellfox_packing_task.cartons_json")),
+            (_, _) =>
+            {
+                sourceRead = true;
+                return System.Threading.Tasks.Task.FromResult((
+                    (IReadOnlyList<ErpPackingTaskEntity>)[],
+                    (IReadOnlyList<ErpPackingTaskItemEntity>)[]));
+            });
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(
             () => reader.ReadAsync([101]));
 
         Assert.Contains("cartons_json", exception.Message);
+        Assert.False(sourceRead);
     }
 
-    private static RuoyiDbContext CreateDatabase()
-    {
-        var options = new DbContextOptionsBuilder<RuoyiDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            .Options;
-        return new RuoyiDbContext(options);
-    }
+    private static PackingTaskSourceReader CreateReader(
+        IReadOnlyCollection<ErpPackingTaskEntity> tasks,
+        IReadOnlyCollection<ErpPackingTaskItemEntity> items) => new(
+            new ThrowingConnectionFactory(),
+            _ => System.Threading.Tasks.Task.FromResult(new PackingTaskSourceCapability(true, string.Empty)),
+            (requestedIds, _) =>
+            {
+                var ids = requestedIds.ToHashSet();
+                return System.Threading.Tasks.Task.FromResult((
+                    (IReadOnlyList<ErpPackingTaskEntity>)tasks
+                        .Where(x => ids.Contains(x.sellfox_task_id))
+                        .OrderBy(x => x.sellfox_task_id)
+                        .ThenBy(x => x.id)
+                        .ToArray(),
+                    (IReadOnlyList<ErpPackingTaskItemEntity>)items
+                        .Where(x => ids.Contains(x.sellfox_task_id) && !x.source_deleted)
+                        .OrderBy(x => x.sellfox_task_id)
+                        .ThenBy(x => x.sellfox_item_id)
+                        .ThenBy(x => x.id)
+                        .ToArray()));
+            });
 
     private static ErpPackingTaskEntity Task(
         long id, long sourceTaskId, string taskNo, long warehouseId, string cartonsJson) => new()
@@ -249,4 +283,12 @@ public class PackingTaskSourceReaderTests
         task_num = quantity,
         source_hash = $"item-{sourceItemId}"
     };
+
+    private sealed class ThrowingConnectionFactory : IMySqlConnectionFactory
+    {
+        public MySqlConnection CreateConnection() => throw new InvalidOperationException("测试不允许连接数据库");
+
+        public ValueTask<MySqlConnection> OpenConnectionAsync(CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("测试不允许连接数据库");
+    }
 }
