@@ -31,114 +31,132 @@
     </v-row>
   </div>
 
-  <div class="mt-5" :style="{ height: cardHeight }">
-    <vxe-table
-      ref="xTable"
-      :column-config="{ minWidth: '120px' }"
-      :data="data.tableData"
-      :height="tableHeight"
-      :row-config="{ keyField: 'sellfox_task_id' }"
-      align="center"
-      @checkbox-change="method.handleSelectionChange"
-      @checkbox-all="method.handleSelectionChange"
-    >
-      <template #empty>
-        <div class="emptyState">
-          <v-icon icon="mdi-package-variant-closed" size="38"></v-icon>
-          <div>{{ data.errorMessage || $t('wms.deliveryManagement.noPackingTask') }}</div>
-        </div>
-      </template>
-      <vxe-column type="checkbox" width="52" fixed="left"></vxe-column>
-      <vxe-column type="seq" width="60"></vxe-column>
-      <vxe-column type="expand" width="60">
-        <template #content="{ row }">
-          <div class="productDetail">
-            <v-table density="compact">
-              <thead>
-                <tr>
-                  <th></th>
-                  <th>{{ $t('wms.deliveryManagement.productInfo') }}</th>
-                  <th>SKU</th>
-                  <th>FNSKU / MSKU</th>
-                  <th>{{ $t('wms.deliveryManagement.packingTaskQty') }}</th>
-                  <th>{{ $t('wms.deliveryManagement.packedQty') }}</th>
-                  <th>{{ $t('wms.deliveryManagement.availableQty') }}</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="item in row.item_list" :key="item.id">
-                  <td class="detailImageCell">
-                    <ProductImage :src="item.main_image || ''" :alt="item.commodity_name || item.commodity_sku || ''" :width="56" :height="56" />
-                  </td>
-                  <td class="detailProductCell">
-                    <div class="primaryText">{{ method.displayValue(item.commodity_name) }}</div>
-                    <div class="secondaryText">{{ method.displayValue(item.commodity_id) }}</div>
-                  </td>
-                  <td>{{ method.displayValue(item.commodity_sku || item.sku) }}</td>
-                  <td>
-                    <div>{{ method.displayValue(item.fn_sku) }}</div>
-                    <div class="secondaryText">{{ method.displayValue(item.msku) }}</div>
-                  </td>
-                  <td>{{ method.displayValue(item.task_num) }}</td>
-                  <td>{{ method.displayValue(item.quantity_shipped) }}</td>
-                  <td>{{ method.displayValue(item.stock_available) }}</td>
-                </tr>
-              </tbody>
-            </v-table>
-          </div>
-        </template>
-      </vxe-column>
-      <vxe-column width="96">
-        <template #default="{ row }">
-          <ProductImage
-            :src="row.item_list[0]?.main_image || ''"
-            :alt="row.item_list[0]?.commodity_name || row.packing_task_sn"
-            :width="64" :height="64"
-          />
-        </template>
-      </vxe-column>
-      <vxe-column field="packing_task_sn" :title="$t('wms.deliveryManagement.packingTaskNo')" min-width="210"></vxe-column>
-      <vxe-column :title="$t('wms.deliveryManagement.shopInfo')" min-width="180">
-        <template #default="{ row }">
-          <div class="leftCell">
-            <div class="primaryText">{{ method.displayValue(row.shop_name) }}</div>
-            <div class="secondaryText">{{ method.displayValue(row.marketplace_name) }}</div>
-          </div>
-        </template>
-      </vxe-column>
-      <vxe-column :title="$t('wms.deliveryManagement.packingProgress')" min-width="150">
-        <template #default="{ row }">
-          {{ method.displayValue(row.complete_num) }} / {{ method.displayValue(row.task_num) }}
-        </template>
-      </vxe-column>
-      <vxe-column field="warehouse_name" :title="$t('wms.deliveryManagement.warehouseName')" min-width="150"></vxe-column>
-      <vxe-column field="source_create_time" :title="$t('wms.deliveryManagement.packingCreatedTime')" min-width="170"></vxe-column>
-      <vxe-column field="create_name" :title="$t('wms.deliveryManagement.creator')" min-width="140"></vxe-column>
-    </vxe-table>
-    <custom-pager
-      :current-page="data.tablePage.pageIndex" :page-size="data.tablePage.pageSize"
-      perfect :total="data.tablePage.total" :page-sizes="PAGE_SIZE" :layouts="PAGE_LAYOUT"
-      @page-change="method.handlePageChange"
-    ></custom-pager>
+  <div class="mt-5 packing-task-list">
+    <div v-for="row in data.tableData" :key="row.sellfox_task_id" class="packing-task-card">
+      <div class="card-header">
+        <v-checkbox
+          :model-value="method.isSelected(row)"
+          density="compact"
+          hide-details
+          @change="method.toggleSelect(row)"
+        ></v-checkbox>
+        <span class="header-item">拣货单号：-</span>
+        <span class="header-item">装箱任务号：{{ row.packing_task_sn }}</span>
+        <v-chip size="small" color="primary" variant="tonal">待拣货</v-chip>
+        <span class="header-spacer"></span>
+        <span class="header-item">仓库：{{ row.warehouse_name || '-' }}</span>
+        <span class="header-item">进度：{{ row.complete_num ?? 0 }}/{{ row.task_num ?? 0 }}</span>
+        <span class="header-item">创建：{{ row.create_name || '-' }} {{ row.source_create_time || '' }}</span>
+        <v-btn
+          size="small"
+          color="primary"
+          variant="tonal"
+          :loading="data.creatingRowId === row.sellfox_task_id"
+          :disabled="data.creating || props.warehouseId === null"
+          @click="method.createPickingOrderForRow(row)"
+        >
+          生成拣货单
+        </v-btn>
+      </div>
+      <div class="card-body">
+        <v-table density="compact">
+          <thead>
+            <tr>
+              <th class="colImage">图片</th>
+              <th>商品信息</th>
+              <th>FNSKU / MSKU</th>
+              <th>装箱信息</th>
+              <th>任务量</th>
+              <th>可用量</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="item in row.item_list" :key="item.id">
+              <td class="detailImageCell">
+                <ProductImage
+                  :src="item.main_image || ''"
+                  :alt="item.commodity_name || item.commodity_sku || ''"
+                  :width="56" :height="56"
+                />
+              </td>
+              <td class="detailProductCell">
+                <v-tooltip location="top" text="点击复制">
+                  <template #activator="{ props: tipProps }">
+                    <div class="productTextLine" v-bind="tipProps" @click="method.copyText(item.commodity_name, '商品名称已复制')">
+                      <span class="primaryText">{{ method.displayValue(item.commodity_name) }}</span>
+                      <v-icon icon="mdi-content-copy" size="15" color="success"></v-icon>
+                    </div>
+                  </template>
+                </v-tooltip>
+                <v-tooltip location="top" text="点击复制">
+                  <template #activator="{ props: tipProps }">
+                    <div class="productTextLine" v-bind="tipProps" @click="method.copyText(item.commodity_sku || item.sku, '商品SKU已复制')">
+                      <span class="secondaryText">{{ method.displayValue(item.commodity_sku || item.sku) }}</span>
+                      <v-icon icon="mdi-content-copy" size="15" color="success"></v-icon>
+                    </div>
+                  </template>
+                </v-tooltip>
+              </td>
+              <td>
+                <div>{{ method.displayValue(item.fn_sku) }}</div>
+                <div class="secondaryText">{{ method.displayValue(item.msku) }}</div>
+              </td>
+              <td class="packingInfoCell">
+                <div>店铺：{{ row.shop_name || '-' }}</div>
+                <div>站点：{{ row.marketplace_name || '-' }}</div>
+                <div>负责人：{{ row.create_name || '-' }}</div>
+              </td>
+              <td>{{ method.displayValue(item.task_num) }}</td>
+              <td>
+                <div class="availableCell">
+                  <span>{{ method.displayStockAvailable(item) }}</span>
+                  <v-btn
+                    size="x-small"
+                    color="primary"
+                    variant="tonal"
+                    @click="method.openStockSelect(row, item)"
+                  >
+                    选择库存
+                  </v-btn>
+                </div>
+              </td>
+            </tr>
+            <tr v-if="row.item_list.length === 0">
+              <td colspan="6">{{ i18n.global.t('system.page.noData') }}</td>
+            </tr>
+          </tbody>
+        </v-table>
+      </div>
+    </div>
+
+    <div v-if="data.tableData.length === 0" class="emptyState">
+      <v-icon icon="mdi-package-variant-closed" size="38"></v-icon>
+      <div>{{ data.errorMessage || $t('wms.deliveryManagement.noPackingTask') }}</div>
+    </div>
   </div>
+
+  <custom-pager
+    :current-page="data.tablePage.pageIndex" :page-size="data.tablePage.pageSize"
+    perfect :total="data.tablePage.total" :page-sizes="PAGE_SIZE" :layouts="PAGE_LAYOUT"
+    @page-change="method.handlePageChange"
+  ></custom-pager>
+
+  <SelectStockDialog ref="selectStockDialogRef" />
 </template>
 
 <script lang="ts" setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import type { VxePagerEvents } from 'vxe-table'
 import { createDispatchOrder, getWorkflowPackingTaskPage } from '@/api/wms/dispatchWorkflow'
 import BtnGroup from '@/components/system/btnGroup.vue'
 import { hookComponent } from '@/components/system'
 import ProductImage from '@/components/system/product-image.vue'
 import customPager from '@/components/custom-pager.vue'
-import { computedCardHeight, computedTableHeight } from '@/constant/style'
 import { DEFAULT_PAGE_SIZE, PAGE_LAYOUT, PAGE_SIZE } from '@/constant/vxeTable'
 import { DEBOUNCE_TIME } from '@/constant/system'
 import i18n from '@/languages/i18n'
-import type { PackingTaskVO } from '@/types/DeliveryManagement/PackingTask'
+import type { PackingTaskItemVO, PackingTaskVO } from '@/types/DeliveryManagement/PackingTask'
 import type { btnGroupItem } from '@/types/System/Form'
 import { getMenuAuthorityList } from '@/utils/common'
-import { exportData } from '@/utils/exportTable'
 import {
   buildPackingTaskPageRequest,
   createTaskSetIdempotencyKey,
@@ -146,16 +164,20 @@ import {
   resetPackingTaskPageState,
   validatePackingTaskSelection
 } from './packingTaskSelection'
+import SelectStockDialog from './select-stock-dialog.vue'
 
 const props = defineProps<{ warehouseId: number | null }>()
 const emit = defineEmits<{ statusChanged: [] }>()
 
-const xTable = ref()
+const selectStockDialogRef = ref<InstanceType<typeof SelectStockDialog>>()
+
 const data = reactive({
   searchForm: { keyword: '' },
   tableData: ref<PackingTaskVO[]>([]),
+  selectedTaskIds: ref<number[]>([]),
   errorMessage: '',
   creating: false,
+  creatingRowId: null as number | null,
   selectedTaskCount: 0,
   tablePage: reactive({
     total: 0,
@@ -170,13 +192,70 @@ let pageRequestId = 0
 
 const method = reactive({
   displayValue: (value: unknown): string | number => value === null || value === undefined ? '' : value as string | number,
+  summaryName: (row: PackingTaskVO): string => {
+    const first = row.item_list?.[0]
+    return first?.commodity_name || first?.commodity_sku || '-'
+  },
+  summarySku: (row: PackingTaskVO): string => {
+    const first = row.item_list?.[0]
+    return first?.commodity_sku || first?.sku || '-'
+  },
+  displayStockAvailable: (item: PackingTaskItemVO): string => {
+    if (!item.stock_sku_code) return '-'
+    return `库存${item.stock_sku_code}:数量${item.stock_available_qty ?? 0}`
+  },
+  copyText: async (text: string | number | null | undefined, successMessage: string) => {
+    const value = String(text ?? '').trim()
+    if (!value) {
+      hookComponent.$message({ type: 'warning', content: '没有可复制的内容' })
+      return
+    }
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value)
+      } else {
+        const textarea = document.createElement('textarea')
+        textarea.value = value
+        textarea.style.position = 'fixed'
+        textarea.style.opacity = '0'
+        document.body.appendChild(textarea)
+        textarea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textarea)
+      }
+      hookComponent.$message({ type: 'success', content: successMessage })
+    } catch {
+      hookComponent.$message({ type: 'error', content: '复制失败，请手动复制' })
+    }
+  },
+  isSelected: (row: PackingTaskVO): boolean => data.selectedTaskIds.includes(row.sellfox_task_id),
+  toggleSelect: (row: PackingTaskVO): void => {
+    const ids = [...data.selectedTaskIds]
+    const index = ids.indexOf(row.sellfox_task_id)
+    if (index >= 0) {
+      ids.splice(index, 1)
+    } else {
+      ids.push(row.sellfox_task_id)
+    }
+    const selection = validatePackingTaskSelection(
+      data.tableData.filter((t) => ids.includes(t.sellfox_task_id)),
+      props.warehouseId
+    )
+    if (!selection.ok && selection.reason === 'CROSS_WAREHOUSE') {
+      hookComponent.$message({ type: 'error', content: '一张WMS拣货单只能包含同一仓库的装箱任务' })
+      data.selectedTaskIds = ids.filter((id) => id !== row.sellfox_task_id)
+      data.selectedTaskCount = data.selectedTaskIds.length
+      return
+    }
+    data.selectedTaskIds = ids
+    data.selectedTaskCount = ids.length
+  },
   clearSelection: () => {
-    xTable.value?.clearCheckboxRow()
+    data.selectedTaskIds = []
     data.selectedTaskCount = 0
   },
   clearPage: () => {
     resetPackingTaskPageState(data)
-    xTable.value?.clearCheckboxRow()
   },
   getPage: async () => {
     const requestId = ++pageRequestId
@@ -210,51 +289,27 @@ const method = reactive({
     }
   },
   refresh: () => method.getPage(),
-  handlePageChange: ref<VxePagerEvents.PageChange>(({ currentPage, pageSize }) => {
+  handlePageChange: ({ currentPage, pageSize }: { currentPage: number; pageSize: number }) => {
     data.tablePage.pageIndex = currentPage
     data.tablePage.pageSize = pageSize
     method.getPage()
-  }),
+  },
   sureSearch: () => {
     data.tablePage.pageIndex = 1
     method.getPage()
   },
-  handleSelectionChange: ({ row }: { row?: PackingTaskVO }) => {
-    const selectedRows = (xTable.value?.getCheckboxRecords() ?? []) as PackingTaskVO[]
-    const selection = validatePackingTaskSelection(selectedRows, props.warehouseId)
-    if (!selection.ok && selection.reason === 'CROSS_WAREHOUSE') {
-      if (row) xTable.value?.setCheckboxRow(row, false)
-      else xTable.value?.clearCheckboxRow()
-      hookComponent.$message({
-        type: 'error',
-        content: i18n.global.t('wms.deliveryManagement.crossWarehouseForbidden')
-      })
-      data.selectedTaskCount = (xTable.value?.getCheckboxRecords() ?? []).length
-      return
-    }
-    data.selectedTaskCount = selectedRows.length
+  openStockSelect: (task: PackingTaskVO, item: PackingTaskItemVO) => {
+    selectStockDialogRef.value?.openDialog(task, item)
   },
-  createPickingOrder: async () => {
-    const selectedRows = (xTable.value?.getCheckboxRecords() ?? []) as PackingTaskVO[]
-    const selection = validatePackingTaskSelection(selectedRows, props.warehouseId)
-    if (!selection.ok) {
-      const content = selection.reason === 'CROSS_WAREHOUSE'
-        ? i18n.global.t('wms.deliveryManagement.crossWarehouseForbidden')
-        : selection.reason === 'WAREHOUSE_REQUIRED'
-          ? i18n.global.t('wms.deliveryManagement.warehouseRequired')
-          : '请至少选择一个有效的装箱任务'
-      hookComponent.$message({ type: 'error', content })
-      return
-    }
-
+  createOrderForTaskIds: async (sourceTaskIds: number[]) => {
     const warehouseId = props.warehouseId
     if (warehouseId === null) return
     data.creating = true
     try {
-      const idempotencyKey = await createTaskSetIdempotencyKey(selection.sourceTaskIds)
+      const idempotencyKey = await createTaskSetIdempotencyKey(sourceTaskIds)
       const res = await createDispatchOrder({
         warehouse_id: warehouseId,
-        source_task_ids: selection.sourceTaskIds,
+        source_task_ids: sourceTaskIds,
         idempotency_key: idempotencyKey
       })
       if (!res.isSuccess) {
@@ -263,8 +318,8 @@ const method = reactive({
         return
       }
 
-      data.tableData = removeCreatedPackingTasks(data.tableData, selection.sourceTaskIds)
-      data.tablePage.total = Math.max(0, data.tablePage.total - selection.sourceTaskIds.length)
+      data.tableData = removeCreatedPackingTasks(data.tableData, sourceTaskIds)
+      data.tablePage.total = Math.max(0, data.tablePage.total - sourceTaskIds.length)
       method.clearSelection()
       hookComponent.$message({ type: 'success', content: 'WMS待拣货单已生成' })
       emit('statusChanged')
@@ -277,28 +332,41 @@ const method = reactive({
       await method.getPage()
     } finally {
       data.creating = false
+      data.creatingRowId = null
     }
   },
-  exportTable: () => {
-    exportData({
-      table: xTable.value,
-      filename: i18n.global.t('wms.deliveryManagement.packingTask'),
-      columnFilterMethod({ column }: any) {
-        return column?.type !== 'expand'
-      }
-    })
+  createPickingOrder: async () => {
+    const selection = validatePackingTaskSelection(
+      data.tableData.filter((t) => data.selectedTaskIds.includes(t.sellfox_task_id)),
+      props.warehouseId
+    )
+    if (!selection.ok) {
+      const content = selection.reason === 'CROSS_WAREHOUSE'
+        ? '一张WMS拣货单只能包含同一仓库的装箱任务'
+        : selection.reason === 'WAREHOUSE_REQUIRED'
+          ? '请先选择仓库'
+          : '请至少选择一个有效的装箱任务'
+      hookComponent.$message({ type: 'error', content })
+      return
+    }
+    await method.createOrderForTaskIds(selection.sourceTaskIds)
+  },
+  createPickingOrderForRow: async (row: PackingTaskVO) => {
+    const selection = validatePackingTaskSelection([row], props.warehouseId)
+    if (!selection.ok) {
+      hookComponent.$message({ type: 'error', content: '请先选择仓库' })
+      return
+    }
+    data.creatingRowId = row.sellfox_task_id
+    await method.createOrderForTaskIds(selection.sourceTaskIds)
   }
 })
 
 onMounted(() => {
   data.btnList = [
-    { name: i18n.global.t('system.page.refresh'), icon: 'mdi-refresh', code: '', click: method.refresh },
-    { name: i18n.global.t('system.page.export'), icon: 'mdi-export-variant', code: 'invoice-export', click: method.exportTable }
+    { name: i18n.global.t('system.page.refresh'), icon: 'mdi-refresh', code: '', click: method.refresh }
   ]
 })
-
-const cardHeight = computed(() => computedCardHeight({ hasTab: false, hasOperateBtn: false }))
-const tableHeight = computed(() => computedTableHeight({ hasTab: false, hasOperateBtn: false }))
 
 watch(
   () => data.searchForm,
@@ -341,9 +409,73 @@ defineExpose({ getPackingTask: method.getPage })
   align-items: center;
 }
 
-.leftCell,
-.detailProductCell {
+.packing-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.packing-task-card {
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 8px 14px;
+  background: rgba(var(--v-theme-primary), 0.06);
+}
+
+.header-item {
+  color: rgba(var(--v-theme-on-surface), 0.87);
+  font-weight: 500;
+}
+
+.header-spacer {
+  flex: 1;
+}
+
+.card-body {
+  padding: 10px 14px;
+}
+
+.colImage {
+  width: 76px;
+}
+
+.detailImageCell {
+  width: 76px;
+  padding: 6px 10px !important;
+}
+
+.detailProductCell,
+.packingInfoCell {
   text-align: left;
+}
+
+.packingInfoCell {
+  line-height: 1.7;
+}
+
+.productTextLine {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.productTextLine:hover .primaryText,
+.productTextLine:hover .secondaryText {
+  color: rgba(var(--v-theme-primary), 0.95);
+}
+
+.productTextLine .secondaryText {
+  margin-top: 0;
 }
 
 .primaryText {
@@ -357,13 +489,10 @@ defineExpose({ getPackingTask: method.getPage })
   font-size: 12px;
 }
 
-.productDetail {
-  padding: 12px 72px;
-}
-
-.detailImageCell {
-  width: 76px;
-  padding: 6px 10px !important;
+.availableCell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .emptyState {

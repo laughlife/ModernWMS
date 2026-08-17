@@ -181,6 +181,49 @@ public class PackingTaskQueryServiceTests
         Assert.Equal(102, Assert.Single(result.Data).sellfox_task_id);
     }
 
+    [Fact]
+    public async Task PageAsync_matches_stock_availability_by_base_sku_ignoring_variant_suffix()
+    {
+        await using var ruoyiDatabase = CreateRuoyiDatabase();
+        await using var wmsDatabase = new SqlDBContext(new DbContextOptionsBuilder<SqlDBContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+
+        await ruoyiDatabase.PackingTasks.AddAsync(Task(1, 101, "PACK-101", 320118, DateTime.UtcNow));
+        await ruoyiDatabase.PackingTaskItems.AddAsync(new ErpPackingTaskItemEntity
+        {
+            id = 11,
+            sellfox_item_id = 1001,
+            sellfox_task_id = 101,
+            commodity_id = 501
+        });
+        await ruoyiDatabase.CommodityMaps.AddAsync(new ErpCommodityMapEntity
+        {
+            erp_commodity_id = 501,
+            wms_sku_id = 21,
+            wms_spu_id = 31,
+            tenant_id = 1
+        });
+        await ruoyiDatabase.SaveChangesAsync();
+
+        await wmsDatabase.GetDbSet<SkuEntity>().AddRangeAsync(
+            new SkuEntity { id = 21, spu_id = 31, sku_code = "SKU-BASE-1" },
+            new SkuEntity { id = 22, spu_id = 31, sku_code = "SKU-BASE-2" });
+        await wmsDatabase.GetDbSet<StockEntity>().AddRangeAsync(
+            new StockEntity { id = 1, sku_id = 21, qty = 40, tenant_id = 1 },
+            new StockEntity { id = 2, sku_id = 22, qty = 60, tenant_id = 1 },
+            new StockEntity { id = 3, sku_id = 21, qty = 5, tenant_id = 1, is_freeze = true });
+        await wmsDatabase.SaveChangesAsync();
+
+        var access = new ModernWMS.Tests.DispatchWorkflow.RecordingWarehouseAccess();
+        var service = CreateService(ruoyiDatabase, wmsDatabase: wmsDatabase, access: access.Contract);
+
+        var result = await service.PageAsync(new PageSearch(), CurrentTenant());
+
+        var item = Assert.Single(Assert.Single(result.Data).item_list);
+        Assert.Equal("SKU-BASE", item.stock_sku_code);
+        Assert.Equal(100, item.stock_available_qty);
+    }
+
     private static PackingTaskQueryService CreateService(
         RuoyiDbContext ruoyiDatabase,
         bool enabled = true,

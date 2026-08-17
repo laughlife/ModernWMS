@@ -11,6 +11,8 @@ export interface PackingTaskItemVO {
   task_num?: number | null
   quantity_shipped?: number | null
   stock_available?: number | null
+  stock_sku_code?: string | null
+  stock_available_qty?: number | null
 }
 
 export interface PackingTaskVO {
@@ -27,4 +29,39 @@ export interface PackingTaskVO {
   shop_name?: string | null
   marketplace_name?: string | null
   item_list: PackingTaskItemVO[]
+}
+
+export interface SelectableStockVO {
+  stock_id: number
+  sku_id: number
+  sku_code: string
+  spu_code: string
+  commodity_name: string
+  main_image: string
+  goods_location_id: number
+  location_name: string
+  warehouse_id: number
+  warehouse_name: string
+  goods_owner_id: number
+  goods_owner_name: string
+  qty: number
+  available_qty: number
+  series_number: string
+  expiry_date?: string | null
+  matched: boolean
+  selected: boolean
+}
+
+export interface PackingTaskStockPageRequest {
+  sellfox_task_id: number
+  sellfox_item_id: number
+  page_index: number
+  page_size: number
+}
+
+export interface PackingTaskStockSelectRequest {
+  sellfox_task_id: number
+  sellfox_item_id: number
+  stock_id: number
+  qty: number
 }

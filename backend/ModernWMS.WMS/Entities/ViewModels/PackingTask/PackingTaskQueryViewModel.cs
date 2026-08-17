@@ -38,4 +38,14 @@ public class PackingTaskQueryItemViewModel
     public int? task_num { get; set; }
     public int? quantity_shipped { get; set; }
     public int? stock_available { get; set; }
+
+    /// <summary>
+    /// WMS 基础 SKU 编码（去掉 -1/-2 等变体后缀后的前缀），用于「库存xxxx:数量」参考值展示。
+    /// </summary>
+    public string? stock_sku_code { get; set; }
+
+    /// <summary>
+    /// 匹配到 WMS 基础 SKU 的可用库存合计（同一 SPU 下所有变体的非冻结库存之和）。
+    /// </summary>
+    public int? stock_available_qty { get; set; }
 }

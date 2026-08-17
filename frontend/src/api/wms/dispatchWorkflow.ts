@@ -15,6 +15,7 @@ import type {
   OutboundCommandResult,
   PackingTaskPage,
   PackingTaskPageRequest,
+  PageData,
   SaveWeighingBoxRequest,
   SignDispatchOrderRequest,
   SignDispatchOrderResult,
@@ -25,6 +26,11 @@ import type {
   WeighingCommandResult,
   WeighingOrderCommandRequest
 } from '@/types/DeliveryManagement/DispatchWorkflow'
+import type {
+  PackingTaskStockPageRequest,
+  PackingTaskStockSelectRequest,
+  SelectableStockVO
+} from '@/types/DeliveryManagement/PackingTask'
 
 const request = <T>(config: AxiosRequestConfig): Promise<ApiResult<T>> =>
   http(config).then((response) => {
@@ -109,3 +115,9 @@ export const cancelDispatchOutbound = (orderId: number, data: OutboundCommandReq
 
 export const signDispatchOrder = (orderId: number, data: SignDispatchOrderRequest) =>
   request<SignDispatchOrderResult>({ url: `/dispatch-workflow/${orderId}/sign`, method: 'post', data })
+
+export const getPackingTaskSelectableStock = (data: PackingTaskStockPageRequest) =>
+  request<PageData<SelectableStockVO>>({ url: '/packing-task-query/selectable-stock', method: 'post', data })
+
+export const selectPackingTaskStock = (data: PackingTaskStockSelectRequest) =>
+  request<boolean>({ url: '/packing-task-query/select-stock', method: 'post', data })

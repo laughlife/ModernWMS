@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using ModernWMS.Core.Controller;
 using ModernWMS.Core.Models;
 using ModernWMS.WMS.Entities.ViewModels;
+using ModernWMS.WMS.Entities.ViewModels.PackingTask;
 using ModernWMS.WMS.IServices;
 
 namespace ModernWMS.WMS.Controllers;
@@ -37,5 +38,32 @@ public class PackingTaskQueryController : BaseController
             Rows = result.Data,
             Totals = result.Totals
         });
+    }
+
+    /// <summary>
+    /// 查询装箱任务明细行可选择的库存列表（分页，查看更多=下一页）。
+    /// </summary>
+    [HttpPost("selectable-stock")]
+    public async Task<ResultModel<PageData<SelectableStockViewModel>>> SelectableStockPageAsync(
+        PackingTaskStockPageRequest request)
+    {
+        var (data, totals) = await _packingTaskQueryService.SelectableStockPageAsync(request, CurrentUser);
+        return ResultModel<PageData<SelectableStockViewModel>>.Success(new PageData<SelectableStockViewModel>
+        {
+            Rows = data,
+            Totals = totals
+        });
+    }
+
+    /// <summary>
+    /// 保存装箱任务明细行对某个库存行的选择。
+    /// </summary>
+    [HttpPost("select-stock")]
+    public async Task<ResultModel<bool>> SelectStockAsync(PackingTaskStockSelectRequest request)
+    {
+        var (flag, message) = await _packingTaskQueryService.SelectStockAsync(request, CurrentUser);
+        return flag
+            ? ResultModel<bool>.Success(true, message)
+            : ResultModel<bool>.Error(message);
     }
 }

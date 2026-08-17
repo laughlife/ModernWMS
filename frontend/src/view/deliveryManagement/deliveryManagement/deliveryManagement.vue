@@ -178,6 +178,7 @@ const handleGoToCompleted = (): void => {
 }
 
 const changeTab = (tab: unknown): void => {
+  refreshStatusCounts()
   nextTick(() => {
     switch (tab) {
       case 'tabFbaShipment':
