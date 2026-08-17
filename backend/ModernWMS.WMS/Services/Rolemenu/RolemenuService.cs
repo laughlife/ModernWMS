@@ -75,7 +75,7 @@ public class RolemenuService : BaseService<RolemenuEntity>, IRolemenuService
         if (IsAdminRole(role.role_name))
         {
             var rows = await db.QueryAsync<MenuRow>(MenuColumnsSql + " WHERE `tenant_id`=@tenantId ORDER BY `sort`,`menu_name`;", new { tenantId=currentUser.tenant_id });
-            return rows.Select(ToMenu).ToList();
+            return rows.Select(row => ToMenu(row, false)).ToList();
         }
         var menus = await db.QueryAsync<MenuRow>("""
             SELECT m.`id`,m.`menu_name`,m.`module`,m.`vue_path`,m.`vue_path_detail`,m.`vue_directory`,m.`sort`,
@@ -84,7 +84,7 @@ public class RolemenuService : BaseService<RolemenuEntity>, IRolemenuService
             WHERE rm.`userrole_id`=@roleId AND rm.`tenant_id`=@tenantId AND m.`tenant_id`=@tenantId
             ORDER BY m.`sort`,m.`menu_name`;
             """, new { roleId=userrole_id, tenantId=currentUser.tenant_id });
-        return menus.Select(ToMenu).ToList();
+        return menus.Select(row => ToMenu(row, false)).ToList();
     }
 
     public async Task<(int id, string msg)> AddAsync(RolemenuBothViewModel viewModel, CurrentUser currentUser)
