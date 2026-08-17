@@ -18,7 +18,28 @@ $env:MODERNWMS_FLYWAY_PATH = 'C:\Tools\flyway-11.15.0\flyway.cmd'
 - 只允许回环地址上的本机开发库，且每次必须显式传入 `-ConfirmDevelopmentDatabase`
 - 普通运行只执行 `info` 和 `validate`
 - 只有显式传入 `-Apply` 才执行 `migrate`
+- 空库通过 `V1__baseline_wms_schema.sql` 创建 50 张 WMS 自有表；不创建或修改 ERP 表
 
 本脚本不提供生产数据库或远程数据库的绕过开关。生产迁移必须单独设计、评审并授权，不能用本机开发脚本执行。
 
-既有 EF 数据库转为 Flyway 前，需要先完成物理结构审计和一次性基线评审。此目录当前不会自动 baseline，也不会补写任何迁移历史。
+## 两种首次接入方式
+
+空的本机开发库在备份并确认连接后执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\Update-Database.ps1 `
+  -ConfirmDevelopmentDatabase -Apply
+```
+
+已有 50 张 WMS 表的本机开发库只能执行一次显式基线登记：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\Update-Database.ps1 `
+  -ConfirmDevelopmentDatabase `
+  -BaselineExisting `
+  -ConfirmExistingSchemaFingerprint 'WMS_SCHEMA_MATCHES_V1'
+```
+
+这不是跳过检查：脚本先读取 `INFORMATION_SCHEMA` 和每张表的 `SHOW CREATE TABLE`，与 `flyway/wms-baseline-manifest.json` 的 50 张表结构指纹逐一比较。只有全部一致才执行 Flyway `baseline`，在 `wms_flyway_schema_history` 登记版本 1；任一表缺失、多出或结构不同都会拒绝写入。该流程不会复制数据，也不会读取或校验 ERP 表。执行前仍必须备份数据库。
+
+脚本没有远程/生产绕过参数，并同时要求主机是回环地址、库名严格等于 `ruoyi-vue-pro`。日常启动不会调用上述命令。

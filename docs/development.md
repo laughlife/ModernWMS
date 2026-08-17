@@ -69,9 +69,14 @@ powershell -ExecutionPolicy Bypass -File scripts\Update-Database.ps1 -ConfirmDev
 
 # 备份并确认目标环境后，才显式应用迁移
 powershell -ExecutionPolicy Bypass -File scripts\Update-Database.ps1 -ConfirmDevelopmentDatabase -Apply
+
+# 仅供已有 WMS 表、尚无 Flyway 历史的本机开发库使用一次
+powershell -ExecutionPolicy Bypass -File scripts\Update-Database.ps1 `
+  -ConfirmDevelopmentDatabase -BaselineExisting `
+  -ConfirmExistingSchemaFingerprint 'WMS_SCHEMA_MATCHES_V1'
 ```
 
-脚本只接受固定的 Flyway `11.15.0`，并强制使用 `wms_flyway_schema_history`、`cleanDisabled=true` 和 `baselineOnMigrate=false`。它仅允许回环地址上的本机开发库，且每次都要求 `-ConfirmDevelopmentDatabase`；生产库和远程库必须使用另行评审、授权的发布流程，不能通过此脚本访问。工具安装及既有数据库基线限制见 `flyway/README.md`。连接信息只通过当前进程环境变量或脚本参数传入，不写入仓库；密码只读取 `FLYWAY_PASSWORD`，避免出现在命令行参数中。普通后端启动和文件变更后的自动重启都不会调用 Flyway。
+脚本只接受固定的 Flyway `11.15.0`，并强制使用 `wms_flyway_schema_history`、`cleanDisabled=true` 和 `baselineOnMigrate=false`。它仅允许回环地址、且库名严格等于 `ruoyi-vue-pro` 的本机开发库，并要求 `-ConfirmDevelopmentDatabase`；生产库和远程库没有绕过开关。已有库的 `-BaselineExisting` 还会对 50 张 WMS 表逐表执行只读结构指纹核验，完全匹配 V1 后才登记基线。工具安装及完整限制见 `flyway/README.md`。连接信息只通过当前进程环境变量或脚本参数传入，不写入仓库；密码只读取 `FLYWAY_PASSWORD`。普通后端启动和文件变更后的自动重启都不会调用 Flyway。
 
 ## 5. 手工启动后端
 
