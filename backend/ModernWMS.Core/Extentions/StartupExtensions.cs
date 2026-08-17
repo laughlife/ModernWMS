@@ -23,6 +23,7 @@ using ModernWMS.Core.DI;
 using Microsoft.Extensions.Localization;
 using Hangfire;
 using Hangfire.MemoryStorage;
+using ModernWMS.Core.Database;
 
 namespace ModernWMS.Core.Extentions
 {
@@ -53,6 +54,8 @@ namespace ModernWMS.Core.Extentions
             {
                 throw new InvalidOperationException("ConnectionStrings:MySqlConn is required.");
             }
+
+            services.AddModernWmsDatabase(databaseConnectionString);
 
             services.AddDbContextPool<SqlDBContext>(t =>
             {

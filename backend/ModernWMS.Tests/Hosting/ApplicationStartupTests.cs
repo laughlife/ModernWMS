@@ -2,7 +2,9 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using ModernWMS.Core.Database;
 using ModernWMS.Core.DBContext;
+using MySqlConnector;
 using System.Data.Common;
 
 namespace ModernWMS.Tests.Hosting;
@@ -88,6 +90,31 @@ public class ApplicationStartupTests
         Assert.Equal(wmsConnectionString["server"], ruoyiConnectionString["server"]);
         Assert.Equal(wmsConnectionString["database"], ruoyiConnectionString["database"]);
         Assert.Equal(wmsConnectionString["user id"], ruoyiConnectionString["user id"]);
+    }
+
+    [Fact]
+    public void Dapper_factory_uses_the_same_shared_application_database()
+    {
+        using var factory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder =>
+            {
+                builder.UseEnvironment("Development");
+                builder.UseSetting(
+                    "ConnectionStrings:MySqlConn",
+                    "Server=192.168.100.2;Port=3306;Database=ruoyi-vue-pro;User Id=ruoyi_user;Password=ruoyi_password");
+                builder.UseSetting(
+                    "TokenSettings:SigningKey",
+                    "modernwms-local-smoke-key-32-bytes-minimum");
+            });
+
+        using var scope = factory.Services.CreateScope();
+        var connectionFactory = scope.ServiceProvider.GetRequiredService<IMySqlConnectionFactory>();
+        using var connection = connectionFactory.CreateConnection();
+        var connectionString = new MySqlConnectionStringBuilder(connection.ConnectionString);
+
+        Assert.Equal("192.168.100.2", connection.DataSource);
+        Assert.Equal("ruoyi-vue-pro", connection.Database);
+        Assert.Equal("ruoyi_user", connectionString.UserID);
     }
 
     [Fact]
