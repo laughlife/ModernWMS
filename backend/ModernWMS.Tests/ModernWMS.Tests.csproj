@@ -21,6 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\ModernWMS.LegacyEf\ModernWMS.LegacyEf.csproj" />
     <ProjectReference Include="..\ModernWMS.Core\ModernWMS.Core.csproj" />
     <ProjectReference Include="..\ModernWMS.WMS\ModernWMS.WMS.csproj" />
     <ProjectReference Include="..\ModernWMS\ModernWMS.csproj" />

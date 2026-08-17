@@ -23,7 +23,7 @@ public sealed class DesignTimeSqlDbContextFactory : IDesignTimeDbContextFactory<
         var options = new DbContextOptionsBuilder<SqlDBContext>()
             .UseMySQL(connectionString, mysql =>
             {
-                mysql.MigrationsAssembly("ModernWMS");
+                mysql.MigrationsAssembly("ModernWMS.LegacyEf");
                 mysql.MigrationsHistoryTable("wms_ef_migrations_history");
             })
             .Options;
