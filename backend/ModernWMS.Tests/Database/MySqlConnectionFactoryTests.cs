@@ -34,4 +34,18 @@ public class MySqlConnectionFactoryTests
         var second = provider.GetRequiredService<IMySqlConnectionFactory>();
         Assert.Same(first, second);
     }
+
+    [Fact]
+    public void AddModernWmsDatabase_registers_the_transaction_boundary()
+    {
+        var services = new ServiceCollection();
+
+        services.AddModernWmsDatabase(ConnectionString);
+
+        using var provider = services.BuildServiceProvider();
+        Assert.IsType<MySqlDatabaseSessionFactory>(
+            provider.GetRequiredService<IDatabaseSessionFactory>());
+        Assert.IsType<DatabaseTransactionExecutor>(
+            provider.GetRequiredService<IDatabaseTransactionExecutor>());
+    }
 }

@@ -19,6 +19,8 @@ public static class DatabaseServiceCollectionExtensions
 
         services.AddSingleton<IMySqlConnectionFactory>(
             _ => new MySqlConnectionFactory(connectionString));
+        services.AddSingleton<IDatabaseSessionFactory, MySqlDatabaseSessionFactory>();
+        services.AddSingleton<IDatabaseTransactionExecutor, DatabaseTransactionExecutor>();
         return services;
     }
 }
