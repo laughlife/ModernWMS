@@ -6,10 +6,8 @@ using ModernWMS.Core.Models;
 using System.Linq;
 using ModernWMS.Core.Utility;
 using System.Data;
-using Mapster;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Internal;
-using ModernWMS.Core.DBContext;
+using Dapper;
+using ModernWMS.Core.Database;
 using Microsoft.Extensions.Localization;
 using ModernWMS.Core.JWT;
 
@@ -20,13 +18,13 @@ namespace ModernWMS.Core.Services
     /// </summary>
     public class AccountService : IAccountService
     {
-        private readonly SqlDBContext _sqlDBContext;
+        private readonly IMySqlConnectionFactory _connectionFactory;
         private readonly IStringLocalizer<ModernWMS.Core.MultiLanguage> _stringLocalizer;
 
-        public AccountService(SqlDBContext sqlDBContext, IStringLocalizer<ModernWMS.Core.MultiLanguage> stringLocalizer
+        public AccountService(IMySqlConnectionFactory connectionFactory, IStringLocalizer<ModernWMS.Core.MultiLanguage> stringLocalizer
 )
         {
-            _sqlDBContext = sqlDBContext;
+            _connectionFactory = connectionFactory;
             _stringLocalizer = stringLocalizer;
         }
 
@@ -38,34 +36,29 @@ namespace ModernWMS.Core.Services
         /// <returns></returns>
         public async Task<LoginOutputViewModel> Login(LoginInputViewModel loginInput, CurrentUser currentUser)
         {
-            var users = await (from user in _sqlDBContext.GetDbSet<userEntity>().AsNoTracking()
-                                                join ur in _sqlDBContext.GetDbSet<UserroleEntity>().AsNoTracking() on user.user_role equals ur.role_name
-                                                where ur.tenant_id == user.tenant_id&&(user.user_name == loginInput.user_name || user.user_num == loginInput.user_name)
-                                                select new  {
-                                                    user_id = user.id,
-                                                    user_num = user.user_num,
-                                                    user_name = user.user_name,
-                                                    user_role = user.user_role,
-                                                    userrole_id = ur.id,
-                                                    cipher = user.auth_string,
-                                                    tenant_id = user.tenant_id
-                                                }
-                                               ).ToListAsync();
             string md5_password = Core.Utility.Md5Helper.Md5Encrypt32(loginInput.password);
-            var result = users.FirstOrDefault(t=>t.cipher== md5_password || t.cipher == loginInput.password);
-            if(result!= null)
-            {
-                return new LoginOutputViewModel()
+            await using var connection = await _connectionFactory.OpenConnectionAsync();
+            return (await connection.QueryFirstOrDefaultAsync<LoginOutputViewModel>("""
+                SELECT
+                    user.`id` AS `user_id`,
+                    user.`user_num`,
+                    user.`user_name`,
+                    user.`user_role`,
+                    role.`id` AS `userrole_id`,
+                    user.`tenant_id`
+                FROM `wms_user` AS user
+                INNER JOIN `wms_userrole` AS role
+                    ON role.`role_name` = user.`user_role`
+                    AND role.`tenant_id` = user.`tenant_id`
+                WHERE (user.`user_name` = @loginName OR user.`user_num` = @loginName)
+                    AND (user.`auth_string` = @md5Password OR user.`auth_string` = @plainPassword)
+                LIMIT 1;
+                """, new
                 {
-                    user_id = result.user_id,
-                    user_name = result.user_name,
-                    user_num = result.user_num,
-                    user_role = result.user_role,
-                    userrole_id = result.userrole_id,
-                    tenant_id= result.tenant_id,
-                };
-            }
-            return null;
+                    loginName = loginInput.user_name,
+                    md5Password = md5_password,
+                    plainPassword = loginInput.password
+                }))!;
         }
         
         public string HelloWorld ()
