@@ -1,4 +1,5 @@
-using Microsoft.EntityFrameworkCore;
+using System.Data;
+using Dapper;
 using ModernWMS.Core.JWT;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels.DispatchWorkflow;
@@ -8,238 +9,129 @@ namespace ModernWMS.WMS.Services.DispatchWorkflow;
 
 public partial class DispatchWorkflowService
 {
-    public async Task<DispatchOrderDetailViewModel> ReconcileAsync(
-        int orderId,
-        CurrentUser currentUser,
+    public async Task<DispatchOrderDetailViewModel> ReconcileAsync(int orderId, CurrentUser currentUser,
         CancellationToken cancellationToken = default)
     {
-        await using var transaction = _dbContext.Database.IsRelational()
-            ? await _dbContext.Database.BeginTransactionAsync(cancellationToken)
-            : null;
-        var order = await _dbContext.GetDbSet<DispatchOrderEntity>()
-            .Include(t => t.packing_tasks.Where(task => task.is_active))
-                .ThenInclude(task => task.items)
-            .SingleOrDefaultAsync(t => t.id == orderId, cancellationToken)
-            ?? throw new KeyNotFoundException($"dispatch order not found: {orderId}");
-        await _warehouseAccessService.EnsureAllowedAsync(order.warehouse_id, currentUser);
-        if (order.status != DispatchOrderStatus.PendingPick)
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var tx = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
+        try
         {
-            return await LoadDetailAsync(orderId, cancellationToken);
-        }
-
-        var activeTasks = order.packing_tasks.Where(t => t.is_active).ToList();
-        if (activeTasks.Count == 0)
-        {
-            order.status = DispatchOrderStatus.SourceCancelled;
-            order.last_update_time = DateTime.Now;
-            await _dbContext.SaveChangesAsync(cancellationToken);
-            if (transaction != null)
+            var order = await LoadReconcileOrderAsync(connection, tx, orderId, cancellationToken);
+            await _warehouseAccessService.EnsureAllowedAsync(order.warehouse_id, currentUser);
+            if (order.status != DispatchOrderStatus.PendingPick)
             {
-                await transaction.CommitAsync(cancellationToken);
+                await tx.CommitAsync(cancellationToken);
+                return await LoadDetailAsync(orderId, cancellationToken);
             }
-
-            return await LoadDetailAsync(orderId, cancellationToken);
-        }
-
-        var snapshots = await _sourceReader.ReadAsync(
-            activeTasks.Select(t => t.source_task_id).ToArray(),
-            cancellationToken);
-        if (snapshots.Count != activeTasks.Count)
-        {
-            throw new InvalidOperationException("one or more packing tasks are missing during reconciliation");
-        }
-
-        if (snapshots.Where(t => !t.IsCancelled).Any(t => t.WarehouseId != order.warehouse_id))
-        {
-            throw new InvalidOperationException("packing task warehouse changed; order reconciliation rejected");
-        }
-
-        var now = DateTime.Now;
-        foreach (var task in activeTasks)
-        {
-            var snapshot = snapshots.Single(t => t.SourceTaskId == task.source_task_id);
-            if (snapshot.IsCancelled)
+            var tasks = order.packing_tasks.Where(x=>x.is_active).ToList();
+            if (tasks.Count==0)
             {
-                await CancelTaskAsync(task, now, cancellationToken);
-                continue;
+                await connection.ExecuteAsync(new CommandDefinition("""
+                    UPDATE `wms_dispatch_order` SET `status`=@status,`last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id`=@orderId;
+                    """,new {status=DispatchOrderStatus.SourceCancelled,now=DateTime.Now,orderId},tx,cancellationToken:cancellationToken));
+                await tx.CommitAsync(cancellationToken); return await LoadDetailAsync(orderId,cancellationToken);
             }
-
-            if (!string.Equals(task.source_version, snapshot.SourceVersion, StringComparison.Ordinal))
+            var snapshots=await _sourceReader.ReadAsync(tasks.Select(x=>x.source_task_id).ToArray(),cancellationToken);
+            if(snapshots.Count!=tasks.Count) throw new InvalidOperationException("one or more packing tasks are missing during reconciliation");
+            if(snapshots.Where(x=>!x.IsCancelled).Any(x=>x.WarehouseId!=order.warehouse_id))
+                throw new InvalidOperationException("packing task warehouse changed; order reconciliation rejected");
+            var now=DateTime.Now;
+            foreach(var task in tasks)
             {
-                await RemoveTaskAllocationsAsync(task, cancellationToken);
-                RebuildTaskItems(task, snapshot, null, now);
+                var snapshot=snapshots.Single(x=>x.SourceTaskId==task.source_task_id);
+                if(snapshot.IsCancelled) await CancelTaskAsync(connection,tx,task,now,cancellationToken);
+                else if(!string.Equals(task.source_version,snapshot.SourceVersion,StringComparison.Ordinal))
+                {
+                    await RemoveTaskAllocationsAsync(connection,tx,task,cancellationToken);
+                    await RebuildTaskItemsAsync(connection,tx,task,snapshot,now,cancellationToken);
+                }
+                else await connection.ExecuteAsync(new CommandDefinition("""
+                    UPDATE `wms_dispatch_packing_task_item` SET `wms_sku_id`=NULL,`last_update_time`=@now,`row_version`=`row_version`+1
+                    WHERE `packing_task_id`=@taskId AND `is_active`=1 AND `wms_sku_id` IS NOT NULL;
+                    """,new {now,taskId=task.id},tx,cancellationToken:cancellationToken));
             }
-            else
-            {
-                ClearTaskSkuBindings(task, now);
-            }
+            await connection.ExecuteAsync(new CommandDefinition("""
+                UPDATE `wms_dispatch_order` SET `status`=@status,`source_version`=@version,`source_snapshot`=@snapshot,
+                  `last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id`=@orderId;
+                """,new {status=snapshots.Any(x=>!x.IsCancelled)?DispatchOrderStatus.PendingPick:DispatchOrderStatus.SourceCancelled,
+                    version=CombinedVersion(snapshots),snapshot=SnapshotJson(snapshots),now,orderId},tx,cancellationToken:cancellationToken));
+            await EnsureSourceUnchangedAsync(tasks,snapshots,cancellationToken);
+            await tx.CommitAsync(cancellationToken);
+            return await LoadDetailAsync(orderId,cancellationToken);
         }
-
-        var remainingSnapshots = snapshots.Where(t => !t.IsCancelled).ToList();
-        order.status = remainingSnapshots.Count == 0
-            ? DispatchOrderStatus.SourceCancelled
-            : DispatchOrderStatus.PendingPick;
-        order.source_version = CombinedVersion(snapshots);
-        order.source_snapshot = SnapshotJson(snapshots);
-        order.last_update_time = now;
-        if (transaction == null)
-        {
-            await EnsureSourceUnchangedAsync(activeTasks, snapshots, cancellationToken);
-            await _dbContext.SaveChangesAsync(cancellationToken);
-        }
-        else
-        {
-            await _dbContext.SaveChangesAsync(cancellationToken);
-            await EnsureSourceUnchangedAsync(activeTasks, snapshots, cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-        }
-
-        return await LoadDetailAsync(orderId, cancellationToken);
+        catch { await tx.RollbackAsync(CancellationToken.None); throw; }
     }
 
-    private async Task EnsureSourceUnchangedAsync(
-        IReadOnlyCollection<DispatchPackingTaskEntity> activeTasks,
-        IReadOnlyList<PackingTaskSourceSnapshot> snapshots,
-        CancellationToken cancellationToken)
+    private async Task EnsureSourceUnchangedAsync(IReadOnlyCollection<DispatchPackingTaskEntity> tasks,
+        IReadOnlyList<PackingTaskSourceSnapshot> snapshots,CancellationToken ct)
     {
-        var commitSnapshots = await _sourceReader.ReadAsync(
-            activeTasks.Select(t => t.source_task_id).ToArray(),
-            cancellationToken);
-        if (!string.Equals(SnapshotJson(commitSnapshots), SnapshotJson(snapshots), StringComparison.Ordinal))
-        {
-            throw new DbUpdateConcurrencyException("packing task source changed during reconciliation");
-        }
+        var commit=await _sourceReader.ReadAsync(tasks.Select(x=>x.source_task_id).ToArray(),ct);
+        if(!string.Equals(SnapshotJson(commit),SnapshotJson(snapshots),StringComparison.Ordinal))
+            throw new InvalidOperationException("packing task source changed during reconciliation");
     }
 
-    private async Task CancelTaskAsync(
-        DispatchPackingTaskEntity task,
-        DateTime now,
-        CancellationToken cancellationToken)
+    private static async Task<DispatchOrderEntity> LoadReconcileOrderAsync(System.Data.IDbConnection c,IDbTransaction tx,int id,CancellationToken ct)
     {
-        await RemoveTaskAllocationsAsync(task, cancellationToken);
-
-        foreach (var item in task.items)
-        {
-            item.is_active = false;
-            item.last_update_time = now;
-        }
-
-        task.SetActiveState(false);
-        task.source_cancelled_at = now;
-        task.status = DispatchOrderStatus.SourceCancelled;
-        task.last_update_time = now;
+        using var r=await c.QueryMultipleAsync(new CommandDefinition("""
+            SELECT * FROM `wms_dispatch_order` WHERE `id`=@id FOR UPDATE;
+            SELECT * FROM `wms_dispatch_packing_task` WHERE `dispatch_order_id`=@id AND `is_active`=1 FOR UPDATE;
+            SELECT i.* FROM `wms_dispatch_packing_task_item` i JOIN `wms_dispatch_packing_task` t ON t.`id`=i.`packing_task_id`
+            WHERE t.`dispatch_order_id`=@id AND t.`is_active`=1 FOR UPDATE;
+            """,new{id},tx,cancellationToken:ct));
+        var order=await r.ReadSingleOrDefaultAsync<DispatchOrderEntity>()??throw new KeyNotFoundException($"dispatch order not found: {id}");
+        order.packing_tasks=(await r.ReadAsync<DispatchPackingTaskEntity>()).AsList(); var items=(await r.ReadAsync<DispatchPackingTaskItemEntity>()).AsList();
+        foreach(var t in order.packing_tasks)t.items=items.Where(x=>x.packing_task_id==t.id).ToList(); return order;
     }
 
-    private async Task RemoveTaskAllocationsAsync(
-        DispatchPackingTaskEntity task,
-        CancellationToken cancellationToken)
+    private static async Task RemoveTaskAllocationsAsync(System.Data.IDbConnection c,IDbTransaction tx,DispatchPackingTaskEntity task,CancellationToken ct)
     {
-        var itemIds = task.items.Select(t => t.id).Where(t => t > 0).ToList();
-        if (itemIds.Count > 0)
-        {
-            var allocations = await _dbContext.GetDbSet<DispatchpicklistEntity>()
-                .Where(t => t.packing_task_item_id != null && itemIds.Contains(t.packing_task_item_id.Value))
-                .ToListAsync(cancellationToken);
-            if (allocations.Any(t => t.is_update_stock))
-            {
-                throw new InvalidOperationException(
-                    "packing task has allocations that already updated stock; automatic reconciliation is forbidden");
-            }
-
-            _dbContext.GetDbSet<DispatchpicklistEntity>().RemoveRange(
-                allocations.Where(t => !t.is_update_stock));
-        }
+        var ids=task.items.Where(x=>x.id>0).Select(x=>x.id).ToArray(); if(ids.Length==0)return;
+        if(await c.ExecuteScalarAsync<bool>(new CommandDefinition("""
+            SELECT EXISTS(SELECT 1 FROM `wms_dispatchpicklist` WHERE `packing_task_item_id` IN @ids AND `is_update_stock`=1);
+            """,new{ids},tx,cancellationToken:ct)))
+            throw new InvalidOperationException("packing task has allocations that already updated stock; automatic reconciliation is forbidden");
+        await c.ExecuteAsync(new CommandDefinition("DELETE FROM `wms_dispatchpicklist` WHERE `packing_task_item_id` IN @ids AND `is_update_stock`=0;",
+            new{ids},tx,cancellationToken:ct));
     }
 
-    private static void RebuildTaskItems(
-        DispatchPackingTaskEntity task,
-        PackingTaskSourceSnapshot snapshot,
-        IReadOnlyDictionary<long, int>? skuMappings,
-        DateTime now)
+    private static async Task CancelTaskAsync(System.Data.IDbConnection c,IDbTransaction tx,DispatchPackingTaskEntity task,DateTime now,CancellationToken ct)
     {
-        var sourceItems = snapshot.Items.ToDictionary(t => t.SourceItemId);
-        foreach (var existing in task.items)
-        {
-            if (sourceItems.TryGetValue(existing.source_item_id, out var current))
-            {
-                ApplyItem(existing, current, snapshot.SourceVersion, skuMappings, now);
-                sourceItems.Remove(existing.source_item_id);
-            }
-            else
-            {
-                existing.is_active = false;
-                existing.last_update_time = now;
-            }
-        }
-
-        foreach (var item in sourceItems.Values)
-        {
-            task.items.Add(CreateItem(item, snapshot.SourceVersion, skuMappings, now));
-        }
-
-        task.task_no = snapshot.TaskNo;
-        task.source_task_no = snapshot.TaskNo;
-        task.source_cartons_json = snapshot.CartonsJson;
-        task.source_version = snapshot.SourceVersion;
-        task.expected_box_count = snapshot.Boxes.Count;
-        task.stable_box_identity_verified = snapshot.Boxes.Count > 0
-            && snapshot.Boxes.All(t => !string.IsNullOrWhiteSpace(t.SourceBoxIdentity));
-        task.box_identity_validation_error = snapshot.Boxes.Count == 0
-            ? "来源尚未提供物理箱，进入称重前必须同步并验证稳定箱ID"
-            : string.Empty;
-        task.last_update_time = now;
+        await RemoveTaskAllocationsAsync(c,tx,task,ct);
+        await c.ExecuteAsync(new CommandDefinition("""
+            UPDATE `wms_dispatch_packing_task_item` SET `is_active`=0,`last_update_time`=@now,`row_version`=`row_version`+1 WHERE `packing_task_id`=@id;
+            UPDATE `wms_dispatch_packing_task` SET `is_active`=0,`active_source_task_id`=NULL,`source_cancelled_at`=@now,
+              `status`=@status,`last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id`=@id;
+            """,new{now,id=task.id,status=DispatchOrderStatus.SourceCancelled},tx,cancellationToken:ct));
     }
 
-    private static void ApplyItem(
-        DispatchPackingTaskItemEntity entity,
-        PackingTaskSourceItem source,
-        string sourceVersion,
-        IReadOnlyDictionary<long, int>? skuMappings,
-        DateTime now)
+    private static async Task RebuildTaskItemsAsync(System.Data.IDbConnection c,IDbTransaction tx,DispatchPackingTaskEntity task,
+        PackingTaskSourceSnapshot snapshot,DateTime now,CancellationToken ct)
     {
-        entity.source_commodity_id = source.CommodityId;
-        entity.wms_sku_id = skuMappings is null ? null : MappedSkuId(source, skuMappings);
-        entity.commodity_sku = source.CommoditySku;
-        entity.commodity_name = source.CommodityName;
-        entity.fn_sku = source.FnSku;
-        entity.msku = source.Msku;
-        entity.required_qty = source.Quantity;
-        entity.source_quantity_shipped = source.Quantity;
-        entity.source_version = sourceVersion;
-        entity.source_snapshot = source.SourceSnapshot;
-        entity.is_active = true;
-        entity.last_update_time = now;
-    }
-
-    private static void RefreshTaskSkuMappings(
-        DispatchPackingTaskEntity task,
-        PackingTaskSourceSnapshot snapshot,
-        IReadOnlyDictionary<long, int> skuMappings,
-        DateTime now)
-    {
-        var sourceItems = snapshot.Items.ToDictionary(t => t.SourceItemId);
-        foreach (var entity in task.items.Where(t => t.is_active))
+        var source=snapshot.Items.ToDictionary(x=>x.SourceItemId);
+        foreach(var existing in task.items)
         {
-            if (!sourceItems.TryGetValue(entity.source_item_id, out var source))
-            {
-                throw new InvalidOperationException("packing task source version does not match its item snapshot");
-            }
-
-            var mappedSkuId = MappedSkuId(source, skuMappings);
-            if (entity.wms_sku_id != mappedSkuId)
-            {
-                entity.wms_sku_id = mappedSkuId;
-                entity.last_update_time = now;
-            }
+            if(source.Remove(existing.source_item_id,out var item))
+                await c.ExecuteAsync(new CommandDefinition("""
+                    UPDATE `wms_dispatch_packing_task_item` SET `source_commodity_id`=@CommodityId,`wms_sku_id`=NULL,`commodity_sku`=@CommoditySku,
+                      `commodity_name`=@CommodityName,`fn_sku`=@FnSku,`msku`=@Msku,`required_qty`=@Quantity,`source_quantity_shipped`=@Quantity,
+                      `source_version`=@version,`source_snapshot`=@SourceSnapshot,`is_active`=1,`last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id`=@id;
+                    """,new{item.CommodityId,item.CommoditySku,item.CommodityName,item.FnSku,item.Msku,item.Quantity,version=snapshot.SourceVersion,item.SourceSnapshot,now,existing.id},tx,cancellationToken:ct));
+            else await c.ExecuteAsync(new CommandDefinition("UPDATE `wms_dispatch_packing_task_item` SET `is_active`=0,`last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id`=@id;",new{now,existing.id},tx,cancellationToken:ct));
         }
-    }
-
-    private static void ClearTaskSkuBindings(DispatchPackingTaskEntity task, DateTime now)
-    {
-        foreach (var item in task.items.Where(t => t.is_active && t.wms_sku_id != null))
+        foreach(var item in source.Values)
         {
-            item.wms_sku_id = null;
-            item.last_update_time = now;
+            var entity=CreateItem(item,snapshot.SourceVersion,null,now); entity.packing_task_id=task.id;
+            await c.ExecuteAsync(new CommandDefinition("""
+                INSERT INTO `wms_dispatch_packing_task_item` (`packing_task_id`,`source_item_id`,`source_commodity_id`,`wms_sku_id`,`commodity_sku`,`commodity_name`,`fn_sku`,`msku`,`required_qty`,`source_quantity_shipped`,`source_stock_available`,`source_version`,`source_snapshot`,`is_active`,`create_time`,`last_update_time`,`row_version`)
+                VALUES (@packing_task_id,@source_item_id,@source_commodity_id,NULL,@commodity_sku,@commodity_name,@fn_sku,@msku,@required_qty,@source_quantity_shipped,@source_stock_available,@source_version,@source_snapshot,1,@create_time,@last_update_time,0);
+                """,entity,tx,cancellationToken:ct));
         }
+        await c.ExecuteAsync(new CommandDefinition("""
+            UPDATE `wms_dispatch_packing_task` SET `task_no`=@TaskNo,`source_task_no`=@TaskNo,`source_cartons_json`=@CartonsJson,
+              `source_version`=@SourceVersion,`expected_box_count`=@boxCount,`stable_box_identity_verified`=@verified,
+              `box_identity_validation_error`=@error,`last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id`=@id;
+            """,new{snapshot.TaskNo,snapshot.CartonsJson,snapshot.SourceVersion,boxCount=snapshot.Boxes.Count,
+                verified=snapshot.Boxes.Count>0&&snapshot.Boxes.All(x=>!string.IsNullOrWhiteSpace(x.SourceBoxIdentity)),
+                error=snapshot.Boxes.Count==0?"来源尚未提供物理箱，进入称重前必须同步并验证稳定箱ID":"",now,id=task.id},tx,cancellationToken:ct));
     }
 }

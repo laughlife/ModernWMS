@@ -1,9 +1,8 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using Microsoft.EntityFrameworkCore;
-using ModernWMS.Core.DBContext;
-using ModernWMS.Core.DBContext.Entities;
+using Dapper;
+using ModernWMS.Core.Database;
 using ModernWMS.Core.JWT;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels.DispatchWorkflow;
@@ -17,18 +16,18 @@ namespace ModernWMS.WMS.Services.DispatchWorkflow;
 
 public partial class DispatchWorkflowService : IDispatchWorkflowService
 {
-    private readonly SqlDBContext _dbContext;
+    private readonly IMySqlConnectionFactory _connectionFactory;
     private readonly IPackingTaskSourceReader _sourceReader;
     private readonly IWarehouseAccessService _warehouseAccessService;
     private readonly IDispatchSignNotificationClient? _dispatchSignNotificationClient;
 
     public DispatchWorkflowService(
-        SqlDBContext dbContext,
+        IMySqlConnectionFactory connectionFactory,
         IPackingTaskSourceReader sourceReader,
         IWarehouseAccessService warehouseAccessService,
         IDispatchSignNotificationClient? dispatchSignNotificationClient = null)
     {
-        _dbContext = dbContext;
+        _connectionFactory = connectionFactory;
         _sourceReader = sourceReader;
         _warehouseAccessService = warehouseAccessService;
         _dispatchSignNotificationClient = dispatchSignNotificationClient;
@@ -55,23 +54,21 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
         return reconciled;
     }
 
-    internal async Task<DispatchOrderEntity> FindOrderAsync(int orderId, CancellationToken cancellationToken) =>
-        await _dbContext.GetDbSet<DispatchOrderEntity>()
-            .SingleOrDefaultAsync(t => t.id == orderId, cancellationToken)
-        ?? throw new KeyNotFoundException($"dispatch order not found: {orderId}");
+    internal async Task<DispatchOrderEntity> FindOrderAsync(int orderId, CancellationToken cancellationToken)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        return await connection.QuerySingleOrDefaultAsync<DispatchOrderEntity>(new CommandDefinition(
+            "SELECT * FROM `wms_dispatch_order` WHERE `id`=@orderId LIMIT 1;",
+            new { orderId }, cancellationToken: cancellationToken))
+            ?? throw new KeyNotFoundException($"dispatch order not found: {orderId}");
+    }
 
     internal async Task<DispatchOrderDetailViewModel> LoadDetailAsync(
         int orderId,
         CancellationToken cancellationToken)
     {
-        var order = await _dbContext.GetDbSet<DispatchOrderEntity>()
-            .AsNoTracking()
-            .Include(t => t.packing_tasks.Where(task => task.is_active))
-                .ThenInclude(task => task.items.Where(item => item.is_active))
-            .Include(t => t.source_change_events.Where(sourceEvent =>
-                sourceEvent.decision == DispatchSourceChangeDecision.OutboundAnomaly))
-            .SingleOrDefaultAsync(t => t.id == orderId, cancellationToken)
-            ?? throw new KeyNotFoundException($"dispatch order not found: {orderId}");
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        var order = await LoadOrderAggregateAsync(connection, orderId, cancellationToken);
 
         return ToDetail(order);
     }
@@ -216,11 +213,11 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
             return new Dictionary<long, int>();
         }
 
-        var mappings = await _dbContext.GetDbSet<ErpCommodityMapEntity>()
-            .AsNoTracking()
-            .Where(t => commodityIds.Contains(t.erp_commodity_id))
-            .Select(t => new { t.erp_commodity_id, t.wms_sku_id })
-            .ToListAsync(cancellationToken);
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        var mappings = (await connection.QueryAsync<CommodityMapRow>(new CommandDefinition("""
+            SELECT `erp_commodity_id`,`wms_sku_id` FROM `wms_erp_commodity_map`
+            WHERE `erp_commodity_id` IN @commodityIds;
+            """, new { commodityIds }, cancellationToken: cancellationToken))).AsList();
         var resolved = new Dictionary<long, int>();
         foreach (var commodityId in commodityIds)
         {
@@ -253,4 +250,34 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
             ? skuId
             : throw DispatchWorkflowCommandException.SkuMappingMissing(
                 "packing task item has no WMS SKU mapping");
+
+    internal static async Task<DispatchOrderEntity> LoadOrderAggregateAsync(
+        System.Data.IDbConnection connection,
+        int orderId,
+        CancellationToken cancellationToken)
+    {
+        using var result = await connection.QueryMultipleAsync(new CommandDefinition("""
+            SELECT * FROM `wms_dispatch_order` WHERE `id`=@orderId LIMIT 1;
+            SELECT * FROM `wms_dispatch_packing_task` WHERE `dispatch_order_id`=@orderId AND `is_active`=1;
+            SELECT i.* FROM `wms_dispatch_packing_task_item` i
+            JOIN `wms_dispatch_packing_task` t ON t.`id`=i.`packing_task_id`
+            WHERE t.`dispatch_order_id`=@orderId AND t.`is_active`=1 AND i.`is_active`=1;
+            SELECT * FROM `wms_dispatch_source_change_event`
+            WHERE `dispatch_order_id`=@orderId AND `decision`=@anomaly;
+            """, new { orderId, anomaly = DispatchSourceChangeDecision.OutboundAnomaly }, cancellationToken: cancellationToken));
+        var order = await result.ReadSingleOrDefaultAsync<DispatchOrderEntity>()
+            ?? throw new KeyNotFoundException($"dispatch order not found: {orderId}");
+        order.packing_tasks = (await result.ReadAsync<DispatchPackingTaskEntity>()).AsList();
+        var items = (await result.ReadAsync<DispatchPackingTaskItemEntity>()).AsList();
+        foreach (var task in order.packing_tasks)
+            task.items = items.Where(x => x.packing_task_id == task.id).ToList();
+        order.source_change_events = (await result.ReadAsync<DispatchSourceChangeEventEntity>()).AsList();
+        return order;
+    }
+
+    private sealed class CommodityMapRow
+    {
+        public long erp_commodity_id { get; set; }
+        public int wms_sku_id { get; set; }
+    }
 }
