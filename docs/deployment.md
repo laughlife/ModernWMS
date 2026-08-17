@@ -34,13 +34,14 @@ TokenSettings__SigningKey=至少32个UTF-8字节的随机密钥
 
 如果前后端不同源，还必须在生产配置中通过 `Cors:AllowedOrigins` 明确列出前端来源；不要使用任意来源通配策略。
 
-## 3. 初始化并启动后端
+## 3. 更新结构并启动后端
+
+Web Host 不注册 EF DbContext，也不执行数据库初始化。发布前应先通过单独评审和授权的 Flyway 发布流程完成结构升级；本仓库的 `scripts/Update-Database.ps1` 仅允许本机开发库，不能用于生产环境。
 
 启动发布产物时，工作目录必须是发布目录；`nlog.config`、`appsettings.json` 等文件按当前工作目录加载：
 
 ```powershell
 cd artifacts/backend
-dotnet ModernWMS.dll --initialize-database-only
 dotnet ModernWMS.dll
 ```
 
@@ -67,4 +68,4 @@ Invoke-WebRequest http://127.0.0.1:21011/health -UseBasicParsing
 
 预期 HTTP 状态为 `200`，响应正文为 `Healthy`。随后检查 Swagger、登录、菜单、仓库、货主、SKU、入库、出库、库存、调整和打印功能，并确认日志中没有持续异常。
 
-发布新版本前备份 MySQL。升级时先停止后端服务，替换发布目录，执行一次 `--initialize-database-only`，再启动服务并完成健康检查。
+发布新版本前备份 MySQL。升级时先停止后端服务，通过独立 Flyway 发布流程应用已评审的版本化 SQL，再替换发布目录、启动服务并完成健康检查。`--initialize-database-only` 已被禁用，传入该参数会直接拒绝启动。

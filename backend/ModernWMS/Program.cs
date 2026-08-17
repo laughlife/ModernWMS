@@ -1,5 +1,4 @@
 using ModernWMS.Core.Extentions;
-using ModernWMS.Initialization;
 using NLog;
 using NLog.Web;
 
@@ -11,25 +10,20 @@ try
 {
     logger.Debug("--- run");
 
+    if (args.Contains("--initialize-database-only", StringComparer.OrdinalIgnoreCase))
+    {
+        throw new InvalidOperationException(
+            "Web Host database initialization has been removed. Use scripts/Update-Database.ps1 and Flyway explicitly.");
+    }
+
     var builder = WebApplication.CreateBuilder(args);
     builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = null);
     builder.Logging.ClearProviders();
     builder.Logging.SetMinimumLevel(Microsoft.Extensions.Logging.LogLevel.Trace);
     builder.Host.UseNLog();
-    builder.Services.AddExtensionsService(builder.Configuration, builder.Environment);
+    builder.Services.AddExtensionsService(builder.Configuration);
 
     var app = builder.Build();
-    var initializeDatabaseOnly = args.Contains(
-        "--initialize-database-only",
-        StringComparer.OrdinalIgnoreCase);
-    if (initializeDatabaseOnly)
-    {
-        await DatabaseInitializer.InitializeAsync(app.Services);
-    }
-    if (initializeDatabaseOnly)
-    {
-        return;
-    }
     app.UseExtensionsConfigure(app.Environment, app.Services, app.Configuration);
     app.Run();
 }

@@ -3,7 +3,6 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -13,8 +12,6 @@ using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
 using Swashbuckle.AspNetCore.Filters;
 using System.Reflection;
-using ModernWMS.Core.DBContext;
-using Microsoft.Extensions.Logging.Debug;
 using ModernWMS.Core.Swagger;
 using ModernWMS.Core.JWT;
 using ModernWMS.Core.Middleware;
@@ -29,10 +26,8 @@ namespace ModernWMS.Core.Extentions
 {
     public static class StartupExtensions
     {
-        public static void AddExtensionsService(this IServiceCollection services, IConfiguration configuration, IHostEnvironment environment)
+        public static void AddExtensionsService(this IServiceCollection services, IConfiguration configuration)
         {
-            const int databaseContextPoolSize = 20;
-
             services.AddLocalization();
             services.AddSingleton<IStringLocalizer>((sp) =>
             {
@@ -56,29 +51,6 @@ namespace ModernWMS.Core.Extentions
             }
 
             services.AddModernWmsDatabase(databaseConnectionString);
-
-            services.AddDbContextPool<SqlDBContext>(t =>
-            {
-                t.UseMySQL(databaseConnectionString, b =>
-                {
-                    b.MigrationsAssembly("ModernWMS");
-                    b.MigrationsHistoryTable("wms_ef_migrations_history");
-                });
-                if (environment.IsDevelopment())
-                {
-                    t.EnableSensitiveDataLogging();
-                    t.UseLoggerFactory(new LoggerFactory(new[] { new DebugLoggerProvider() }));
-                }
-            }, databaseContextPoolSize);
-            services.AddDbContextPool<RuoyiDbContext>(t =>
-            {
-                t.UseMySQL(databaseConnectionString);
-                if (environment.IsDevelopment())
-                {
-                    t.EnableSensitiveDataLogging();
-                    t.UseLoggerFactory(new LoggerFactory(new[] { new DebugLoggerProvider() }));
-                }
-            }, databaseContextPoolSize);
             var allowedOrigins = configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
             services.AddCors(options => options.AddPolicy("Frontend", policy =>
             {
