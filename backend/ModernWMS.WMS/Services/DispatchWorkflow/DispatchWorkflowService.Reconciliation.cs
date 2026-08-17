@@ -36,25 +36,34 @@ public partial class DispatchWorkflowService
             if(snapshots.Where(x=>!x.IsCancelled).Any(x=>x.WarehouseId!=order.warehouse_id))
                 throw new InvalidOperationException("packing task warehouse changed; order reconciliation rejected");
             var now=DateTime.Now;
+            var changed=false;
             foreach(var task in tasks)
             {
                 var snapshot=snapshots.Single(x=>x.SourceTaskId==task.source_task_id);
-                if(snapshot.IsCancelled) await CancelTaskAsync(connection,tx,task,now,cancellationToken);
+                if(snapshot.IsCancelled) { await CancelTaskAsync(connection,tx,task,now,cancellationToken); changed=true; }
                 else if(!string.Equals(task.source_version,snapshot.SourceVersion,StringComparison.Ordinal))
                 {
                     await RemoveTaskAllocationsAsync(connection,tx,task,cancellationToken);
                     await RebuildTaskItemsAsync(connection,tx,task,snapshot,now,cancellationToken);
+                    changed=true;
                 }
                 else await connection.ExecuteAsync(new CommandDefinition("""
                     UPDATE `wms_dispatch_packing_task_item` SET `wms_sku_id`=NULL,`last_update_time`=@now,`row_version`=`row_version`+1
                     WHERE `packing_task_id`=@taskId AND `is_active`=1 AND `wms_sku_id` IS NOT NULL;
                     """,new {now,taskId=task.id},tx,cancellationToken:cancellationToken));
             }
-            await connection.ExecuteAsync(new CommandDefinition("""
-                UPDATE `wms_dispatch_order` SET `status`=@status,`source_version`=@version,`source_snapshot`=@snapshot,
-                  `last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id`=@orderId;
-                """,new {status=snapshots.Any(x=>!x.IsCancelled)?DispatchOrderStatus.PendingPick:DispatchOrderStatus.SourceCancelled,
-                    version=CombinedVersion(snapshots),snapshot=SnapshotJson(snapshots),now,orderId},tx,cancellationToken:cancellationToken));
+            // 仅在确有变化时推进订单版本：待拣货页每次加载与角标刷新都会对全部待拣货订单执行
+            // reconcile，若每次都无条件 row_version+1，前端缓存版本会迅速过期，导致回退/拣货
+            // 复核等命令误报 CONCURRENCY_CONFLICT。
+            if(changed)
+            {
+                var updated=await connection.ExecuteAsync(new CommandDefinition("""
+                    UPDATE `wms_dispatch_order` SET `status`=@status,`source_version`=@version,`source_snapshot`=@snapshot,
+                      `last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id`=@orderId;
+                    """,new {status=snapshots.Any(x=>!x.IsCancelled)?DispatchOrderStatus.PendingPick:DispatchOrderStatus.SourceCancelled,
+                        version=CombinedVersion(snapshots),snapshot=SnapshotJson(snapshots),now,orderId},tx,cancellationToken:cancellationToken));
+                if(updated!=1) throw new InvalidOperationException("dispatch order reconciliation failed to update the order");
+            }
             await EnsureSourceUnchangedAsync(tasks,snapshots,cancellationToken);
             await tx.CommitAsync(cancellationToken);
             return await LoadDetailAsync(orderId,cancellationToken);
