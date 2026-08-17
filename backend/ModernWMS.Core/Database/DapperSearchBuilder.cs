@@ -51,6 +51,22 @@ public static class DapperSearchBuilder
                     clauses.Add($"{column} LIKE @{parameterName} ESCAPE '!'");
                     parameters.Add(parameterName, $"%{EscapeLike(filter.Text)}%");
                     break;
+                case Operators.GreaterThan:
+                    clauses.Add($"{column} > @{parameterName}");
+                    parameters.Add(parameterName, filter.Text);
+                    break;
+                case Operators.GreaterThanOrEqual:
+                    clauses.Add($"{column} >= @{parameterName}");
+                    parameters.Add(parameterName, filter.Text);
+                    break;
+                case Operators.LessThan:
+                    clauses.Add($"{column} < @{parameterName}");
+                    parameters.Add(parameterName, filter.Text);
+                    break;
+                case Operators.LessThanOrEqual:
+                    clauses.Add($"{column} <= @{parameterName}");
+                    parameters.Add(parameterName, filter.Text);
+                    break;
                 default:
                     throw new ArgumentException(
                         $"Search operator '{filter.Operator}' is not supported yet.",

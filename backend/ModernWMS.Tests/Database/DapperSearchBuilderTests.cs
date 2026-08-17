@@ -76,4 +76,39 @@ public class DapperSearchBuilderTests
 
         Assert.Equal(@"%A!%!_!!\B%", result.Parameters.Get<string>("filter0"));
     }
+
+    [Theory]
+    [InlineData(Operators.GreaterThan, ">")]
+    [InlineData(Operators.GreaterThanOrEqual, ">=")]
+    [InlineData(Operators.LessThan, "<")]
+    [InlineData(Operators.LessThanOrEqual, "<=")]
+    public void Build_supports_parameterized_comparison_operators(Operators searchOperator, string sqlOperator)
+    {
+        var result = DapperSearchBuilder.Build(
+            [new SearchObject
+            {
+                Name = "warehouse_id",
+                Operator = searchOperator,
+                Text = "100"
+            }],
+            AllowedColumns);
+
+        Assert.Equal($"o.warehouse_id {sqlOperator} @filter0", result.Sql);
+        Assert.Equal("100", result.Parameters.Get<string>("filter0"));
+    }
+
+    [Fact]
+    public void Build_rejects_the_none_operator_instead_of_silently_ignoring_it()
+    {
+        var exception = Assert.Throws<ArgumentException>(() => DapperSearchBuilder.Build(
+            [new SearchObject
+            {
+                Name = "warehouse_id",
+                Operator = Operators.None,
+                Text = "100"
+            }],
+            AllowedColumns));
+
+        Assert.Contains("not supported", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
 }
