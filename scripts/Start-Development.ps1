@@ -330,24 +330,28 @@ try {
 
     Write-Host '[数据库] 开发启动不检查、不修改数据库；结构变更只通过 scripts\Update-Database.ps1 显式执行。'
 
-    Write-Host "[1/2] 启动后端 watch：http://127.0.0.1:$BackendPort"
-    $previousAspNetCoreUrls = [Environment]::GetEnvironmentVariable('ASPNETCORE_URLS', 'Process')
-    $previousAspNetCoreEnvironment = [Environment]::GetEnvironmentVariable('ASPNETCORE_ENVIRONMENT', 'Process')
-    try {
-        $env:ASPNETCORE_URLS = "http://0.0.0.0:$BackendPort"
-        $env:ASPNETCORE_ENVIRONMENT = 'Development'
-        $backendProcess = Start-Process -FilePath $dotnetCommand `
-            -ArgumentList @('watch', 'run', '--project', $backendProject, '--no-hot-reload', '--no-launch-profile', '--no-restore') `
-            -WorkingDirectory $repositoryRoot `
-            -RedirectStandardOutput (Join-Path $logDirectory 'backend.stdout.log') `
-            -RedirectStandardError (Join-Path $logDirectory 'backend.stderr.log') `
-            -WindowStyle Hidden `
-            -PassThru
+    Write-Host "[1/2] 启动后端变更检测（每分钟检测源码，稳定后自动重启）：http://127.0.0.1:$BackendPort"
+    $watcherScript = Join-Path $PSScriptRoot 'Watch-Backend.ps1'
+    if (-not (Test-Path -LiteralPath $watcherScript)) {
+        throw "找不到后端变更检测脚本：$watcherScript"
     }
-    finally {
-        [Environment]::SetEnvironmentVariable('ASPNETCORE_URLS', $previousAspNetCoreUrls, 'Process')
-        [Environment]::SetEnvironmentVariable('ASPNETCORE_ENVIRONMENT', $previousAspNetCoreEnvironment, 'Process')
-    }
+    $selfExecutable = (Get-Process -Id $PID).Path
+    $backendProcess = Start-Process -FilePath $selfExecutable `
+        -ArgumentList @(
+            '-NoProfile',
+            '-ExecutionPolicy', 'Bypass',
+            '-File', $watcherScript,
+            '-Project', $backendProject,
+            '-Port', [string]$BackendPort,
+            '-StatePath', $statePath,
+            '-LogDirectory', $logDirectory,
+            '-IntervalSeconds', '60'
+        ) `
+        -WorkingDirectory $repositoryRoot `
+        -RedirectStandardOutput (Join-Path $logDirectory 'backend.watcher.log') `
+        -RedirectStandardError (Join-Path $logDirectory 'backend.watcher.stderr.log') `
+        -WindowStyle Hidden `
+        -PassThru
 
     $backendEntry = [ordered]@{
         pid = $backendProcess.Id

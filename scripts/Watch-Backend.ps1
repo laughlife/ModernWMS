@@ -1,0 +1,275 @@
+﻿[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$Project,
+
+    [Parameter(Mandatory = $true)]
+    [ValidateRange(1, 65535)]
+    [int]$Port,
+
+    [Parameter(Mandatory = $true)]
+    [string]$StatePath,
+
+    [Parameter(Mandatory = $true)]
+    [string]$LogDirectory,
+
+    [ValidateRange(10, 3600)]
+    [int]$IntervalSeconds = 60
+)
+
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+
+$repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$backendRoot = [System.IO.Path]::GetFullPath((Split-Path -Parent (Split-Path -Parent $Project)))
+$appStdoutLog = Join-Path $LogDirectory 'backend.stdout.log'
+$appStderrLog = Join-Path $LogDirectory 'backend.stderr.log'
+$healthUrl = "http://127.0.0.1:$Port/health"
+
+function Write-WatcherLog {
+    param([Parameter(Mandatory = $true)][string]$Message)
+
+    Write-Host ("[{0}] {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Message)
+}
+
+function Get-SourceFingerprint {
+    param([Parameter(Mandatory = $true)][string]$Root)
+
+    $files = Get-ChildItem -LiteralPath $Root -Recurse -File -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.FullName -notmatch '\\(bin|obj)(\\|$)' -and
+            $_.FullName -notmatch '\\\.git(\\|$)' -and
+            ($_.Extension -eq '.cs' -or $_.Extension -eq '.csproj' -or
+             ($_.Extension -eq '.json' -and $_.Name -like 'appsettings*.json'))
+        }
+    $maxTicks = [long]0
+    $count = 0
+    foreach ($file in $files) {
+        if ($file.LastWriteTimeUtc.Ticks -gt $maxTicks) {
+            $maxTicks = $file.LastWriteTimeUtc.Ticks
+        }
+        $count++
+    }
+    return "$count|$maxTicks"
+}
+
+function Get-PortOwner {
+    param([Parameter(Mandatory = $true)][int]$Port)
+
+    $lines = & "$env:SystemRoot\System32\netstat.exe" -ano -p tcp 2>$null
+    foreach ($line in $lines) {
+        if ($line -notmatch '^\s*TCP\s+(\S+):(\d+)\s+\S+\s+LISTENING\s+(\d+)\s*$') {
+            continue
+        }
+        if ([int]$Matches[2] -ne $Port) {
+            continue
+        }
+        $processId = [int]$Matches[3]
+        $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
+        return [pscustomobject]@{
+            Port = $Port
+            ProcessId = $processId
+            ProcessName = if ($process) { $process.ProcessName } else { '<无法读取>' }
+        }
+    }
+
+    return $null
+}
+
+function Wait-PortReleased {
+    param(
+        [Parameter(Mandatory = $true)][int]$TargetPort,
+        [int]$TimeoutSeconds = 10
+    )
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        if ($null -eq (Get-PortOwner -Port $TargetPort)) {
+            return $true
+        }
+        Start-Sleep -Milliseconds 250
+    }
+    return $false
+}
+
+function Test-BackendHealthy {
+    param([int]$TimeoutSeconds = 30)
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        try {
+            $response = Invoke-WebRequest -Uri $healthUrl -UseBasicParsing -TimeoutSec 2
+            if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 500) {
+                return $true
+            }
+        }
+        catch {
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    return $false
+}
+
+function Get-ListenerEntry {
+    param([Parameter(Mandatory = $true)][int]$TargetPort)
+
+    $owner = Get-PortOwner -Port $TargetPort
+    if ($null -eq $owner) {
+        return $null
+    }
+    $process = Get-Process -Id $owner.ProcessId -ErrorAction SilentlyContinue
+    if ($null -eq $process) {
+        return $null
+    }
+    $executablePath = $null
+    try {
+        $executablePath = $process.Path
+    }
+    catch {
+        $executablePath = $null
+    }
+    return [ordered]@{
+        pid = $process.Id
+        startTimeUtc = $process.StartTime.ToUniversalTime().ToString('O')
+        processName = $process.ProcessName
+        executablePath = $executablePath
+    }
+}
+
+function Update-StateListener {
+    if (-not (Test-Path -LiteralPath $StatePath)) {
+        Write-WatcherLog "状态文件不存在，跳过 listener 更新：$StatePath"
+        return
+    }
+
+    $state = $null
+    try {
+        $state = Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json
+    }
+    catch {
+        Write-WatcherLog "读取状态文件失败，跳过 listener 更新：$($_.Exception.Message)"
+        return
+    }
+    if ($null -eq $state.backend) {
+        Write-WatcherLog '状态文件缺少 backend 条目，跳过 listener 更新。'
+        return
+    }
+
+    $listener = Get-ListenerEntry -TargetPort $Port
+    if ($null -eq $listener) {
+        Write-WatcherLog "端口 $Port 未找到监听进程，跳过 listener 更新。"
+        return
+    }
+
+    $state.backend | Add-Member -NotePropertyName 'listener' -NotePropertyValue $listener -Force
+    $state.backend | Add-Member -NotePropertyName 'portOwnershipConfirmed' -NotePropertyValue $true -Force
+    $tempPath = "$StatePath.tmp"
+    try {
+        $state | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $tempPath -Encoding UTF8
+        Move-Item -LiteralPath $tempPath -Destination $StatePath -Force
+        Write-WatcherLog "状态文件已更新：后端监听 PID $($listener.pid)。"
+    }
+    catch {
+        Write-WatcherLog "写入状态文件失败：$($_.Exception.Message)"
+    }
+}
+
+function Stop-AppProcess {
+    param($Process)
+
+    if ($null -eq $Process) {
+        return
+    }
+    try {
+        if (-not $Process.HasExited) {
+            & "$env:SystemRoot\System32\taskkill.exe" /PID $Process.Id /T /F 2>$null | Out-Null
+        }
+    }
+    catch {
+    }
+}
+
+function Start-AppProcess {
+    param([Parameter(Mandatory = $true)][string]$DotnetPath)
+
+    $env:ASPNETCORE_URLS = "http://0.0.0.0:$Port"
+    $env:ASPNETCORE_ENVIRONMENT = 'Development'
+
+    return Start-Process -FilePath $DotnetPath `
+        -ArgumentList @('run', '--project', $Project, '--no-launch-profile', '--no-restore') `
+        -WorkingDirectory $repositoryRoot `
+        -RedirectStandardOutput $appStdoutLog `
+        -RedirectStandardError $appStderrLog `
+        -WindowStyle Hidden `
+        -PassThru
+}
+
+Write-WatcherLog "后端变更检测已启动：项目 $Project，端口 $Port，检测间隔 $IntervalSeconds 秒。"
+Write-WatcherLog '重启规则：检测到源码变更后，等待源码连续 1 个检测周期无变化，且距上次重启满 1 个检测周期，才自动重启。'
+
+$dotnetCommand = (Get-Command 'dotnet' -ErrorAction Stop).Source
+$appProcess = $null
+$lastFingerprint = $null
+$pendingRestart = $false
+$stableSinceUtc = $null
+$lastRestartUtc = $null
+
+while ($true) {
+    try {
+        $fingerprint = Get-SourceFingerprint -Root $backendRoot
+
+        if ($null -ne $lastFingerprint -and $fingerprint -ne $lastFingerprint) {
+            $pendingRestart = $true
+            $stableSinceUtc = Get-Date
+            Write-WatcherLog '检测到源码变更，等待源码稳定后自动重启。'
+        }
+        $lastFingerprint = $fingerprint
+
+        $appAlive = ($null -ne $appProcess) -and (-not $appProcess.HasExited)
+        $now = Get-Date
+        $rateLimited = ($null -ne $lastRestartUtc) -and (($now - $lastRestartUtc).TotalSeconds -lt $IntervalSeconds)
+        $quietPeriodOk = (-not $pendingRestart) -or
+            (($null -ne $stableSinceUtc) -and (($now - $stableSinceUtc).TotalSeconds -ge $IntervalSeconds))
+
+        $shouldStart = $false
+        $reason = ''
+        if ($null -eq $appProcess) {
+            $shouldStart = $true
+            $reason = '初始启动'
+        }
+        elseif (-not $appAlive) {
+            if (-not $rateLimited) {
+                $shouldStart = $true
+                $reason = '进程已退出，自动恢复'
+            }
+        }
+        elseif ($pendingRestart -and $quietPeriodOk -and (-not $rateLimited)) {
+            $shouldStart = $true
+            $reason = '源码已稳定且限频间隔已满，自动重启'
+        }
+
+        if ($shouldStart) {
+            Write-WatcherLog "触发重启：$reason"
+            Stop-AppProcess -Process $appProcess
+            if (-not (Wait-PortReleased -TargetPort $Port)) {
+                Write-WatcherLog "警告：端口 $Port 未在超时时间内释放，仍尝试启动。"
+            }
+            $appProcess = Start-AppProcess -DotnetPath $dotnetCommand
+            $pendingRestart = $false
+            $stableSinceUtc = $null
+            $lastRestartUtc = Get-Date
+            if (Test-BackendHealthy) {
+                Write-WatcherLog '健康检查通过，后端已就绪。'
+                Update-StateListener
+            }
+            else {
+                Write-WatcherLog '警告：健康检查未通过，将在下一轮重试。'
+            }
+        }
+    }
+    catch {
+        Write-WatcherLog "本轮处理失败，继续运行：$($_.Exception.Message)"
+    }
+
+    Start-Sleep -Seconds $IntervalSeconds
+}
