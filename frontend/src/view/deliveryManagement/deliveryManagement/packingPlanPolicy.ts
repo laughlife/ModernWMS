@@ -20,15 +20,15 @@ export const isMeasuredBox = (box: PackingPlanBox): boolean =>
 
 export const canCompletePackingPlan = (plan: PackingPlan): boolean =>
   plan.boxes.length > 0
-  && plan.boxes.every((box) => box.items.length > 0 && isMeasuredBox(box))
+  && plan.boxes.every((box) => box.items.some((item) => Number(item.task_qty) > 0) && isMeasuredBox(box))
   && plan.items.every((item) => allocatedTaskQty(plan, item.id) === itemTaskLimit(plan, item))
 
 export const canConfirmPackingPlan = (plan: PackingPlan): boolean =>
   plan.packing_plan_status === 'DRAFT'
   && plan.boxes.length > 0
-  && plan.boxes.every((box) => box.items.length > 0
+  && plan.boxes.every((box) => box.items.some((item) => Number(item.task_qty) > 0)
     && isMeasuredBox(box)
-    && box.items.every((item) => Number.isInteger(Number(item.task_qty)) && Number(item.task_qty) > 0))
+    && box.items.every((item) => Number.isInteger(Number(item.task_qty)) && Number(item.task_qty) >= 0))
   && plan.boxes.some((box) => box.items.some((item) => Number(item.task_qty) > 0))
   && plan.items.every((item) => allocatedTaskQty(plan, item.id) <= Number(item.task_qty))
 

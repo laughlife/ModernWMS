@@ -32,7 +32,7 @@
             <v-text-field v-model.number="box.width" type="number" min="0" label="宽(cm)" density="compact" hide-details :disabled="!editable" />
             <v-text-field v-model.number="box.height" type="number" min="0" label="高(cm)" density="compact" hide-details :disabled="!editable" />
           </div>
-          <div v-if="box.items.length" class="box-item-header">
+          <div class="box-item-header">
             <span>商品信息</span><span>任务量</span><span>变体</span><span>商品需求量</span><span>操作</span>
           </div>
           <div v-for="(boxItem, itemIndex) in box.items" :key="boxItem.packing_task_item_id" class="box-item-row">
@@ -40,10 +40,10 @@
               <span>{{ product(boxItem.packing_task_item_id)?.commodity_name || '-' }}</span>
               <small>SKU：{{ product(boxItem.packing_task_item_id)?.commodity_sku || '-' }}</small>
             </span>
-            <v-text-field v-model.number="boxItem.task_qty" type="number" min="1" label="任务量" density="compact" hide-details :disabled="!editable" />
+            <v-text-field v-model.number="boxItem.task_qty" type="number" min="0" label="任务量" density="compact" hide-details :disabled="!editable" />
             <span>{{ product(boxItem.packing_task_item_id)?.variant_qty || 0 }}</span>
             <span>{{ Number(boxItem.task_qty || 0) * Number(product(boxItem.packing_task_item_id)?.variant_qty || 0) }}</span>
-            <v-btn icon="mdi-close" size="x-small" variant="text" :disabled="!editable" @click="box.items.splice(itemIndex, 1)" />
+            <v-btn icon="mdi-close" size="x-small" variant="text" :disabled="!editable" @click="box.items[itemIndex].task_qty = 0" />
           </div>
           <div class="add-product-row">
             <v-select v-model="selectedProduct[box.client_key]" :items="availableProducts(box)" item-title="commodity_name" item-value="id" label="添加同任务商品" density="compact" hide-details :disabled="!editable" />
@@ -76,8 +76,31 @@ const errorMessage = ref(''); const selectedProduct = ref<Record<string, number 
 const editable = computed(() => !props.frozen && plan.value?.packing_plan_status === 'DRAFT')
 const requestId = () => globalThis.crypto?.randomUUID?.() ?? `packing-${Date.now()}-${Math.random().toString(16).slice(2)}`
 const product = (id: number) => plan.value?.items.find((item) => item.id === id)
-const load = async () => { loading.value = true; errorMessage.value = ''; try { const result = await getDispatchPackingPlan(props.orderId, props.packingTaskId, true); if (!result.isSuccess) throw new Error(result.errorMessage); plan.value = result.data } catch (error) { errorMessage.value = error instanceof Error ? error.message : String(error) } finally { loading.value = false } }
-const addEmptyBox = () => { if (plan.value) plan.value.boxes.push(newDraftBox(plan.value.boxes.length + 1)) }
+const fillBoxProductRows = (packingPlan: PackingPlan, initializeFirstBox = false) => {
+  if (initializeFirstBox && packingPlan.packing_plan_status === 'DRAFT' && packingPlan.boxes.length === 0) {
+    packingPlan.boxes.push(newDraftBox(1))
+  }
+  const fillFirstBox = initializeFirstBox && packingPlan.boxes.length === 1 && packingPlan.boxes[0].items.length === 0
+  packingPlan.boxes.forEach((box) => {
+    const currentItems = new Map(box.items.map((item) => [item.packing_task_item_id, item]))
+    box.items = packingPlan.items.map((item) => currentItems.get(item.id) ?? {
+      packing_task_item_id: item.id,
+      task_qty: fillFirstBox ? itemTaskLimit(packingPlan, item) : 0
+    })
+  })
+  plan.value = packingPlan
+}
+const boxesForSave = () => plan.value?.boxes.map((box) => ({
+  ...box,
+  items: box.items.filter((item) => Number(item.task_qty) > 0)
+})) ?? []
+const load = async () => { loading.value = true; errorMessage.value = ''; try { const result = await getDispatchPackingPlan(props.orderId, props.packingTaskId, true); if (!result.isSuccess) throw new Error(result.errorMessage); fillBoxProductRows(result.data, true) } catch (error) { errorMessage.value = error instanceof Error ? error.message : String(error) } finally { loading.value = false } }
+const addEmptyBox = () => {
+  if (!plan.value) return
+  const box = newDraftBox(plan.value.boxes.length + 1)
+  box.items = plan.value.items.map((item) => ({ packing_task_item_id: item.id, task_qty: remainingTaskQty(plan.value!, item) }))
+  plan.value.boxes.push(box)
+}
 const removeBox = (index: number) => plan.value?.boxes.splice(index, 1)
 const copyBox = (box: PackingPlanBox, index: number) => {
   if (!plan.value) return
@@ -85,10 +108,10 @@ const copyBox = (box: PackingPlanBox, index: number) => {
   plan.value.boxes.forEach((entry, boxIndex) => { entry.box_sequence = boxIndex + 1 })
   hookComponent.$message({ type: 'info', content: `已复制为第 ${index + 2} 箱，请按实际装箱数量调整后保存` })
 }
-const availableProducts = (box: PackingPlanBox) => plan.value?.items.filter((item) => !box.items.some((entry) => entry.packing_task_item_id === item.id) && remainingTaskQty(plan.value!, item) > 0) ?? []
-const addProduct = (box: PackingPlanBox) => { const id = selectedProduct.value[box.client_key]; const item = id ? product(id) : undefined; if (!plan.value || !item) return; box.items.push({ packing_task_item_id: item.id, task_qty: remainingTaskQty(plan.value, item) }); selectedProduct.value[box.client_key] = null }
-const savePacking = async () => { if (!plan.value) return; saving.value = true; try { const result = await saveDispatchPackingPlan(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value.row_version, task_row_version: plan.value.task_row_version, boxes: plan.value.boxes }); if (!result.isSuccess) throw new Error(result.errorMessage); plan.value = result.data; hookComponent.$message({ type: 'success', content: '装箱信息已保存，确定装箱完成前可继续修改或删除' }); emit('saved') } catch (error) { hookComponent.$message({ type: 'error', content: error instanceof Error ? error.message : String(error) }) } finally { saving.value = false } }
-const completePacking = () => { if (!plan.value) return; const leftovers = plan.value.items.filter((item) => remainingTaskQty(plan.value!, item) > 0).map((item) => `${item.commodity_name}：未装任务量 ${remainingTaskQty(plan.value!, item)}，释放库存 ${releasedRequiredQty(plan.value!, item)} 件`); hookComponent.$dialog({ content: leftovers.length ? `确定装箱完成后将不能再修改或删除。以下余量会解除锁定：${leftovers.join('；')}` : '确定装箱完成后将不能再修改或删除，是否继续？', handleConfirm: async () => { if (!plan.value) return; completing.value = true; try { const saved = await saveDispatchPackingPlan(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value.row_version, task_row_version: plan.value.task_row_version, boxes: plan.value.boxes }); if (!saved.isSuccess) throw new Error(saved.errorMessage); plan.value = saved.data; const confirmed = await confirmDispatchActualPacking(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value.row_version, task_row_version: plan.value.task_row_version }); if (!confirmed.isSuccess) throw new Error(confirmed.errorMessage); plan.value = confirmed.data; const taskResult = await completeDispatchTaskWeighing(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value.row_version }); if (!taskResult.isSuccess) throw new Error(taskResult.errorMessage); const orderResult = await completeDispatchOrderWeighing(props.orderId, { request_id: requestId(), row_version: taskResult.data.row_version }); hookComponent.$message({ type: 'success', content: orderResult.isSuccess ? '装箱及称重已完成，已进入待出库' : '当前装箱任务已完成，其他装箱任务完成后进入待出库' }); emit('completed') } catch (error) { hookComponent.$message({ type: 'error', content: error instanceof Error ? error.message : String(error) }) } finally { completing.value = false } } }) }
+const availableProducts = (box: PackingPlanBox) => plan.value?.items.filter((item) => Number(box.items.find((entry) => entry.packing_task_item_id === item.id)?.task_qty || 0) === 0 && remainingTaskQty(plan.value!, item) > 0) ?? []
+const addProduct = (box: PackingPlanBox) => { const id = selectedProduct.value[box.client_key]; const item = id ? product(id) : undefined; if (!plan.value || !item) return; const boxItem = box.items.find((entry) => entry.packing_task_item_id === item.id); if (boxItem) boxItem.task_qty = remainingTaskQty(plan.value, item); else box.items.push({ packing_task_item_id: item.id, task_qty: remainingTaskQty(plan.value, item) }); selectedProduct.value[box.client_key] = null }
+const savePacking = async () => { if (!plan.value) return; saving.value = true; try { const result = await saveDispatchPackingPlan(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value.row_version, task_row_version: plan.value.task_row_version, boxes: boxesForSave() }); if (!result.isSuccess) throw new Error(result.errorMessage); fillBoxProductRows(result.data); hookComponent.$message({ type: 'success', content: '装箱信息已保存，确定装箱完成前可继续修改或删除' }); emit('saved') } catch (error) { hookComponent.$message({ type: 'error', content: error instanceof Error ? error.message : String(error) }) } finally { saving.value = false } }
+const completePacking = () => { if (!plan.value) return; const leftovers = plan.value.items.filter((item) => remainingTaskQty(plan.value!, item) > 0).map((item) => `${item.commodity_name}：未装任务量 ${remainingTaskQty(plan.value!, item)}，释放库存 ${releasedRequiredQty(plan.value!, item)} 件`); hookComponent.$dialog({ content: leftovers.length ? `确定装箱完成后将不能再修改或删除。以下余量会解除锁定：${leftovers.join('；')}` : '确定装箱完成后将不能再修改或删除，是否继续？', handleConfirm: async () => { if (!plan.value) return; completing.value = true; try { const saved = await saveDispatchPackingPlan(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value.row_version, task_row_version: plan.value.task_row_version, boxes: boxesForSave() }); if (!saved.isSuccess) throw new Error(saved.errorMessage); fillBoxProductRows(saved.data); const confirmed = await confirmDispatchActualPacking(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value!.row_version, task_row_version: plan.value!.task_row_version }); if (!confirmed.isSuccess) throw new Error(confirmed.errorMessage); plan.value = confirmed.data; const taskResult = await completeDispatchTaskWeighing(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value.row_version }); if (!taskResult.isSuccess) throw new Error(taskResult.errorMessage); const orderResult = await completeDispatchOrderWeighing(props.orderId, { request_id: requestId(), row_version: taskResult.data.row_version }); hookComponent.$message({ type: 'success', content: orderResult.isSuccess ? '装箱及称重已完成，已进入待出库' : '当前装箱任务已完成，其他装箱任务完成后进入待出库' }); emit('completed') } catch (error) { hookComponent.$message({ type: 'error', content: error instanceof Error ? error.message : String(error) }) } finally { completing.value = false } } }) }
 onMounted(load)
 </script>
 
