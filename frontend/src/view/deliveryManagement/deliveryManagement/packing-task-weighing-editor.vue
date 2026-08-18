@@ -80,9 +80,16 @@
           </div>
         </v-card-text>
       </v-card>
-      <div class="editor-actions">
-        <v-btn :loading="saving" :disabled="!editable" @click="savePacking">保存</v-btn>
-        <v-btn color="primary" :loading="completing" :disabled="!editable || !canConfirmPackingPlan(plan)" @click="completePacking">确定装箱完成</v-btn>
+      <div class="editor-footer">
+        <div class="completion-status">
+          <strong>装箱信息可随时保存</strong>
+          <small v-if="completionHint" :title="completionHint">装箱完成还需：{{ completionHint }}</small>
+          <small v-else>信息已填写完整，可以确定装箱完成</small>
+        </div>
+        <div class="editor-actions">
+          <v-btn :loading="saving" :disabled="!editable" @click="savePacking">保存</v-btn>
+          <v-btn color="primary" :loading="completing" :disabled="!editable || !canConfirmPackingPlan(plan)" @click="completePacking">确定装箱完成</v-btn>
+        </div>
       </div>
     </template>
   </div>
@@ -102,6 +109,25 @@ const plan = ref<PackingPlan | null>(null)
 const loading = ref(false); const saving = ref(false); const completing = ref(false)
 const errorMessage = ref(''); const selectedProduct = ref<Record<string, number | null>>({})
 const editable = computed(() => !props.frozen && plan.value?.packing_plan_status === 'DRAFT')
+const completionHint = computed(() => {
+  if (!plan.value) return ''
+  if (plan.value.boxes.length === 0) return '至少建立一个箱子'
+  const issues: string[] = []
+  plan.value.boxes.forEach((box, index) => {
+    const missing: string[] = []
+    if (Number(box.weight) <= 0) missing.push('重量')
+    if (Number(box.length) <= 0) missing.push('长')
+    if (Number(box.width) <= 0) missing.push('宽')
+    if (Number(box.height) <= 0) missing.push('高')
+    if (!box.items.some((item) => Number(item.task_qty) > 0)) missing.push('商品任务量')
+    if (box.items.some((item) => !Number.isInteger(Number(item.task_qty)) || Number(item.task_qty) < 0)) missing.push('有效整数任务量')
+    if (missing.length) issues.push(`第${index + 1}箱缺少${missing.join('、')}`)
+  })
+  plan.value.items.forEach((item) => {
+    if (allocatedTaskQty(plan.value!, item.id) > itemTaskLimit(plan.value!, item)) issues.push(`${item.commodity_name}任务量超限`)
+  })
+  return issues.join('；')
+})
 const requestId = () => globalThis.crypto?.randomUUID?.() ?? `packing-${Date.now()}-${Math.random().toString(16).slice(2)}`
 const product = (id: number) => plan.value?.items.find((item) => item.id === id)
 const fillBoxProductRows = (packingPlan: PackingPlan, initializeFirstBox = false) => {
@@ -145,7 +171,7 @@ onMounted(load)
 
 <style scoped lang="less">
 .packing-editor { padding: 4px; background: rgb(var(--v-theme-surface)); }
-.editor-heading,.box-title,.editor-actions,.box-toolbar,.add-product-row,.box-item-row { display: flex; align-items: center; gap: 12px; }
+.editor-heading,.box-title,.editor-actions,.box-toolbar,.add-product-row,.box-item-row,.editor-footer { display: flex; align-items: center; gap: 12px; }
 .editor-heading,.box-title { justify-content: space-between; }.product-pool { margin-top: 10px; }.box-toolbar { margin: 14px 0; }
 .packing-progress { margin-bottom: 14px; overflow: hidden; border: 1px solid rgba(var(--v-border-color),var(--v-border-opacity)); border-radius: 6px; }
 .packing-progress-title { padding: 9px 12px; background: rgba(var(--v-theme-primary),.08); font-weight: 600; }
@@ -154,6 +180,9 @@ onMounted(load)
 .box-card { background: rgb(var(--v-theme-surface)); }.box-card + .box-card { margin-top: 12px; }.measurement-grid { display: grid; grid-template-columns: repeat(4, minmax(120px,1fr)); gap: 10px; }
 .box-item-header,.box-item-row { display: grid; grid-template-columns: minmax(180px,2fr) minmax(100px,1fr) minmax(70px,.7fr) minmax(110px,1fr) 48px; align-items: center; gap: 12px; }
 .box-item-header { margin-top: 16px; padding: 8px 0; border-bottom: 1px solid rgba(var(--v-border-color),var(--v-border-opacity)); font-weight: 600; }
-.box-item-row { margin-top: 10px; }.box-item-row small { display: block; }.add-product-row { margin-top: 12px; max-width: 650px; }.editor-actions { justify-content: flex-end; margin-top: 16px; }
+.box-item-row { margin-top: 10px; }.box-item-row small { display: block; }.add-product-row { margin-top: 12px; max-width: 650px; }
+.editor-footer { position: sticky; z-index: 3; bottom: -20px; justify-content: space-between; margin: 16px -20px -20px; padding: 12px 20px; border-top: 1px solid rgba(var(--v-border-color),var(--v-border-opacity)); background: rgb(var(--v-theme-surface)); box-shadow: 0 -3px 10px rgba(0,0,0,.08); }
+.completion-status { min-width: 0; }.completion-status strong,.completion-status small { display: block; }.completion-status small { max-width: 900px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.editor-actions { justify-content: flex-end; flex-shrink: 0; }
 small { opacity: .65; }
 </style>
