@@ -52,7 +52,13 @@
         </v-table>
       </section>
       <v-card v-for="(box, boxIndex) in plan.boxes" :key="box.client_key" variant="outlined" class="box-card">
-        <v-card-title class="box-title"><span>第 {{ boxIndex + 1 }} 箱</span><v-btn icon="mdi-delete-outline" size="small" color="error" variant="text" :disabled="!editable" @click="removeBox(boxIndex)" /></v-card-title>
+        <v-card-title class="box-title">
+          <span>第 {{ boxIndex + 1 }} 箱</span>
+          <div class="box-actions">
+            <v-btn size="small" prepend-icon="mdi-content-copy" variant="tonal" :disabled="!editable" @click="copyBox(box, boxIndex)">复制</v-btn>
+            <v-btn icon="mdi-delete-outline" size="small" color="error" variant="text" :disabled="!editable" @click="removeBox(boxIndex)" />
+          </div>
+        </v-card-title>
         <v-card-text>
           <div class="measurement-grid">
             <v-text-field v-model.number="box.weight" type="number" min="0" label="重量(kg)" density="compact" hide-details :disabled="!editable" />
@@ -72,11 +78,6 @@
             <span>{{ product(boxItem.packing_task_item_id)?.variant_qty || 0 }}</span>
             <span>{{ Number(boxItem.task_qty || 0) * Number(product(boxItem.packing_task_item_id)?.variant_qty || 0) }}</span>
             <v-btn icon="mdi-close" size="x-small" variant="text" :disabled="!editable" @click="box.items[itemIndex].task_qty = 0" />
-          </div>
-          <div class="add-product-row">
-            <v-select v-model="selectedProduct[box.client_key]" :items="availableProducts(box)" item-title="commodity_name" item-value="id" label="添加同任务商品" density="compact" hide-details :disabled="!editable" />
-            <v-btn size="small" :disabled="!editable || !selectedProduct[box.client_key]" @click="addProduct(box)">添加</v-btn>
-            <v-btn size="small" prepend-icon="mdi-content-copy" :disabled="!editable" @click="copyBox(box, boxIndex)">复制</v-btn>
           </div>
         </v-card-text>
       </v-card>
@@ -107,7 +108,7 @@ const props = defineProps<{ orderId: number; packingTaskId: number; frozen?: boo
 const emit = defineEmits<{ saved: []; completed: [] }>()
 const plan = ref<PackingPlan | null>(null)
 const loading = ref(false); const saving = ref(false); const completing = ref(false)
-const errorMessage = ref(''); const selectedProduct = ref<Record<string, number | null>>({})
+const errorMessage = ref('')
 const editable = computed(() => !props.frozen && plan.value?.packing_plan_status === 'DRAFT')
 const completionHint = computed(() => {
   if (!plan.value) return ''
@@ -162,8 +163,6 @@ const copyBox = (box: PackingPlanBox, index: number) => {
   plan.value.boxes.forEach((entry, boxIndex) => { entry.box_sequence = boxIndex + 1 })
   hookComponent.$message({ type: 'info', content: `已复制为第 ${index + 2} 箱，请按实际装箱数量调整后保存` })
 }
-const availableProducts = (box: PackingPlanBox) => plan.value?.items.filter((item) => Number(box.items.find((entry) => entry.packing_task_item_id === item.id)?.task_qty || 0) === 0 && remainingTaskQty(plan.value!, item) > 0) ?? []
-const addProduct = (box: PackingPlanBox) => { const id = selectedProduct.value[box.client_key]; const item = id ? product(id) : undefined; if (!plan.value || !item) return; const boxItem = box.items.find((entry) => entry.packing_task_item_id === item.id); if (boxItem) boxItem.task_qty = remainingTaskQty(plan.value, item); else box.items.push({ packing_task_item_id: item.id, task_qty: remainingTaskQty(plan.value, item) }); selectedProduct.value[box.client_key] = null }
 const savePacking = async () => { if (!plan.value) return; saving.value = true; try { const result = await saveDispatchPackingPlan(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value.row_version, task_row_version: plan.value.task_row_version, boxes: boxesForSave() }); if (!result.isSuccess) throw new Error(result.errorMessage); fillBoxProductRows(result.data); hookComponent.$message({ type: 'success', content: '装箱信息已保存，确定装箱完成前可继续修改或删除' }); emit('saved') } catch (error) { hookComponent.$message({ type: 'error', content: error instanceof Error ? error.message : String(error) }) } finally { saving.value = false } }
 const completePacking = () => { if (!plan.value) return; const leftovers = plan.value.items.filter((item) => remainingTaskQty(plan.value!, item) > 0).map((item) => `${item.commodity_name}：未装任务量 ${remainingTaskQty(plan.value!, item)}，释放库存 ${releasedRequiredQty(plan.value!, item)} 件`); hookComponent.$dialog({ content: leftovers.length ? `确定装箱完成后将不能再修改或删除。以下余量会解除锁定：${leftovers.join('；')}` : '确定装箱完成后将不能再修改或删除，是否继续？', handleConfirm: async () => { if (!plan.value) return; completing.value = true; try { const saved = await saveDispatchPackingPlan(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value.row_version, task_row_version: plan.value.task_row_version, boxes: boxesForSave() }); if (!saved.isSuccess) throw new Error(saved.errorMessage); fillBoxProductRows(saved.data); const confirmed = await confirmDispatchActualPacking(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value!.row_version, task_row_version: plan.value!.task_row_version }); if (!confirmed.isSuccess) throw new Error(confirmed.errorMessage); plan.value = confirmed.data; const taskResult = await completeDispatchTaskWeighing(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value.row_version }); if (!taskResult.isSuccess) throw new Error(taskResult.errorMessage); const orderResult = await completeDispatchOrderWeighing(props.orderId, { request_id: requestId(), row_version: taskResult.data.row_version }); hookComponent.$message({ type: 'success', content: orderResult.isSuccess ? '装箱及称重已完成，已进入待出库' : '当前装箱任务已完成，其他装箱任务完成后进入待出库' }); emit('completed') } catch (error) { hookComponent.$message({ type: 'error', content: error instanceof Error ? error.message : String(error) }) } finally { completing.value = false } } }) }
 onMounted(load)
@@ -171,7 +170,7 @@ onMounted(load)
 
 <style scoped lang="less">
 .packing-editor { padding: 4px; background: rgb(var(--v-theme-surface)); }
-.editor-heading,.box-title,.editor-actions,.box-toolbar,.add-product-row,.box-item-row,.editor-footer { display: flex; align-items: center; gap: 12px; }
+.editor-heading,.box-title,.box-actions,.editor-actions,.box-toolbar,.box-item-row,.editor-footer { display: flex; align-items: center; gap: 12px; }
 .editor-heading,.box-title { justify-content: space-between; }.product-pool { margin-top: 10px; }.box-toolbar { margin: 14px 0; }
 .packing-progress { margin-bottom: 14px; overflow: hidden; border: 1px solid rgba(var(--v-border-color),var(--v-border-opacity)); border-radius: 6px; }
 .packing-progress-title { padding: 9px 12px; background: rgba(var(--v-theme-primary),.08); font-weight: 600; }
@@ -180,7 +179,7 @@ onMounted(load)
 .box-card { background: rgb(var(--v-theme-surface)); }.box-card + .box-card { margin-top: 12px; }.measurement-grid { display: grid; grid-template-columns: repeat(4, minmax(120px,1fr)); gap: 10px; }
 .box-item-header,.box-item-row { display: grid; grid-template-columns: minmax(180px,2fr) minmax(100px,1fr) minmax(70px,.7fr) minmax(110px,1fr) 48px; align-items: center; gap: 12px; }
 .box-item-header { margin-top: 16px; padding: 8px 0; border-bottom: 1px solid rgba(var(--v-border-color),var(--v-border-opacity)); font-weight: 600; }
-.box-item-row { margin-top: 10px; }.box-item-row small { display: block; }.add-product-row { margin-top: 12px; max-width: 650px; }
+.box-item-row { margin-top: 10px; }.box-item-row small { display: block; }
 .editor-footer { position: sticky; z-index: 3; bottom: -20px; justify-content: space-between; margin: 16px -20px -20px; padding: 12px 20px; border-top: 1px solid rgba(var(--v-border-color),var(--v-border-opacity)); background: rgb(var(--v-theme-surface)); box-shadow: 0 -3px 10px rgba(0,0,0,.08); }
 .completion-status { min-width: 0; }.completion-status strong,.completion-status small { display: block; }.completion-status small { max-width: 900px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .editor-actions { justify-content: flex-end; flex-shrink: 0; }
