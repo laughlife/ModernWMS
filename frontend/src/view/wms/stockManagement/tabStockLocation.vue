@@ -40,7 +40,22 @@
               :disabled="!data.searchForm.warehouse_id"
             ></v-select>
           </v-col>
-          <v-col cols="4"></v-col>
+          <v-col cols="4">
+            <v-autocomplete
+              v-model="data.searchForm.member_id"
+              :items="data.memberOptions"
+              :item-title="memberOptionTitle"
+              item-value="user_id"
+              clearable
+              hide-details
+              density="comfortable"
+              class="searchInput ml-5 mt-1"
+              label="组员筛选"
+              variant="solo"
+              :loading="data.memberOptionsLoading"
+              @update:search="method.searchMembers"
+            ></v-autocomplete>
+          </v-col>
         </v-row>
       </v-col>
     </v-row>
@@ -113,8 +128,8 @@ import { DEBOUNCE_TIME } from '@/constant/system'
 import { setSearchObject, getMenuAuthorityList } from '@/utils/common'
 import { SearchObject, btnGroupItem } from '@/types/System/Form'
 import { getStockLocationList } from '@/api/wms/stockManagement'
-import { getWarehouseAreaSelect, getWarehouseSelect } from '@/api/base/warehouseSetting'
-import type { WarehouseAreaVO } from '@/types/Base/Warehouse'
+import { getWarehouseAreaSelect, getWarehouseSelect, getOperatorMemberOptions } from '@/api/base/warehouseSetting'
+import type { WarehouseAreaVO, OperatorGroupMemberOptionVO } from '@/types/Base/Warehouse'
 import i18n from '@/languages/i18n'
 import customPager from '@/components/custom-pager.vue'
 import skuInfo from './sku-info.vue'
@@ -139,8 +154,11 @@ const data = reactive({
   warehouseOptionsLoaded: false,
   searchForm: {
     warehouse_id: '',
-    warehouse_area_id: ''
+    warehouse_area_id: '',
+    member_id: null as number | null
   },
+  memberOptions: [] as OperatorGroupMemberOptionVO[],
+  memberOptionsLoading: false,
   activeTab: null,
   tableData: ref<StockLocationVO[]>([]),
   tablePage: reactive({
@@ -154,6 +172,9 @@ const data = reactive({
   // Menu operation permissions
   authorityList: getMenuAuthorityList()
 })
+
+const memberOptionTitle = (item: OperatorGroupMemberOptionVO): string =>
+  item ? `${item.group_name}/${item.member_name}` : ''
 
 const method = reactive({
   closeDialogShowInfo: () => {
@@ -210,6 +231,19 @@ const method = reactive({
   refresh: () => {
     method.getStockLocationList()
   },
+  searchMembers: async (keyword: string) => {
+    data.memberOptionsLoading = true
+    try {
+      const { data: res } = await getOperatorMemberOptions(keyword)
+      if (res.isSuccess) {
+        data.memberOptions = res.data
+      }
+    } catch {
+      data.memberOptions = []
+    } finally {
+      data.memberOptionsLoading = false
+    }
+  },
   getStockLocationList: async () => {
     if (!data.warehouseOptionsLoaded) {
       return
@@ -248,6 +282,7 @@ const method = reactive({
 })
 
 onMounted(() => {
+  method.searchMembers('')
   method.loadWarehouseOptions()
   data.btnList = [
     {

@@ -60,9 +60,34 @@ public class StockService : BaseService<StockEntity>, IStockService
 
     public async Task<(List<LocationStockManagementViewModel> data, int totals)> LocationStockPageAsync(PageSearch page, CurrentUser user)
     {
-        var filter = DapperSearchBuilder.Build(page.searchObjects, LocationColumns);
+        var memberFilter = page.searchObjects.FirstOrDefault(x =>
+            string.Equals(x.Name, "member_id", StringComparison.OrdinalIgnoreCase));
+        var columnFilters = page.searchObjects.Where(x =>
+            !string.Equals(x.Name, "member_id", StringComparison.OrdinalIgnoreCase)).ToList();
+        var filter = DapperSearchBuilder.Build(columnFilters, LocationColumns);
         AddPage(filter.Parameters, page, user.tenant_id);
         var where = "q.`qty`>0" + (filter.Sql.Length == 0 ? "" : " AND " + filter.Sql);
+
+        if (memberFilter != null && long.TryParse(memberFilter.Text, out var memberId) && memberId > 0)
+        {
+            await using var connection = await _connectionFactory.OpenConnectionAsync();
+            var groupIds = (await connection.QueryAsync<long>(MemberOperatorGroupsCte, new { member_id = memberId })).AsList();
+            if (groupIds.Count > 0)
+            {
+                filter.Parameters.Add("groupIds", groupIds);
+                where += """
+                     AND q.`warehouse_area_id` IN (
+                        SELECT b.`warehouse_area_id` FROM `wms_warehousearea_operator_group` b
+                        WHERE b.`tenant_id`=@tenantId AND b.`dept_id` IN @groupIds
+                     )
+                    """;
+            }
+            else
+            {
+                where += " AND 1=0";
+            }
+        }
+
         var result = await QueryPageAsync<LocationStockManagementViewModel>(LocationInventoryCte, LocationInventorySelect, where, "q.`sku_code`", filter.Parameters);
         await PopulateProductImagesAsync(result.data, user.tenant_id, x => x.sku_id, (x, url) => x.product_image = url);
         return result;
@@ -281,6 +306,21 @@ public class StockService : BaseService<StockEntity>, IStockService
         LEFT JOIN move_lock ml ON ml.`sku_id`=sg.`sku_id` AND ml.`goods_location_id`=sg.`goods_location_id` AND ml.`goods_owner_id`=sg.`goods_owner_id` AND ml.`expiry_date`<=>sg.`expiry_date` AND ml.`price`<=>sg.`price` AND ml.`putaway_date`<=>sg.`putaway_date`
         JOIN `wms_sku` sku ON sku.`id`=sg.`sku_id` JOIN `wms_spu` spu ON spu.`id`=sku.`spu_id`
         JOIN `wms_goodslocation` gl ON gl.`id`=sg.`goods_location_id` JOIN `wms_warehouse` wh ON wh.`id`=gl.`warehouse_id`
+        """;
+
+    private const string MemberOperatorGroupsCte = """
+        WITH RECURSIVE ancestors AS (
+            SELECT d.`id`, d.`parent_id`, d.`dept`, 0 AS depth
+            FROM `system_dept` d
+            JOIN `system_users` u ON u.`dept_id` = d.`id`
+            WHERE u.`id`=@member_id AND u.`deleted`=0
+            UNION ALL
+            SELECT p.`id`, p.`parent_id`, p.`dept`, a.depth + 1
+            FROM `system_dept` p
+            JOIN ancestors a ON p.`id` = a.`parent_id`
+            WHERE p.`deleted`=0 AND a.`parent_id`<>0 AND a.depth < 20
+        )
+        SELECT DISTINCT `id` FROM ancestors WHERE `dept`='operator';
         """;
 
     private const string PhoneInventorySelect = """
