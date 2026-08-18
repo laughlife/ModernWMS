@@ -227,6 +227,15 @@ const searching = ref(false)
 // 装箱任务量（箱数），锁定数量 = 装箱任务量 × 变体数量。
 const taskQty = computed(() => item.value?.task_num ?? 1)
 
+// 商品 SKU 第一个 “-” 后的内容可能是 2、2-pcs 等形式，只取其中首段阿拉伯数字。
+const extractSkuVariant = (sku: string | null | undefined): number | null => {
+  const normalizedSku = String(sku ?? '').trim()
+  const separatorIndex = normalizedSku.indexOf('-')
+  if (separatorIndex < 0) return null
+  const matched = normalizedSku.slice(separatorIndex + 1).match(/\d+/)
+  return matched ? Number(matched[0]) : null
+}
+
 // 列表行附带可手动维护的变体数。已选择的行按“已锁定数量 ÷ 任务量”回显变体数，
 // 未选择的行默认 1 变体。
 const toRow = (r: SelectableStockVO): StockRow => ({
@@ -290,6 +299,19 @@ const method = reactive({
     method.loadPage()
   },
   selectStock: (row: StockRow) => {
+    const skuVariant = extractSkuVariant(item.value?.commodity_sku || item.value?.sku)
+    if (skuVariant !== null && skuVariant !== Number(row.variant)) {
+      hookComponent.$dialog({
+        content: '所选的变体和商品信息变体数量不一致，是否继续执行？',
+        confirmText: '是',
+        cancleText: '否',
+        handleConfirm: () => method.checkStockOwner(row)
+      })
+      return
+    }
+    method.checkStockOwner(row)
+  },
+  checkStockOwner: (row: StockRow) => {
     if (row.is_creator_stock) {
       method.confirmSelectStock(row)
       return
