@@ -100,8 +100,10 @@ $frontendRoot = Join-Path $repositoryRoot 'frontend'
 $backendProject = Join-Path $repositoryRoot 'backend\ModernWMS\ModernWMS.csproj'
 $frontendProductionEnv = Join-Path $frontendRoot '.env.production'
 $backendProductionConfig = Join-Path $repositoryRoot 'backend\ModernWMS\appsettings.Production.json'
+$nginxProductionConfig = Join-Path $repositoryRoot 'deploy\nginx\conf.d\wsm.nyamtn.conf'
 $productionDatabaseHost = '192.168.100.112'
 $productionDatabasePort = 8866
+$backendListenUrl = 'http://127.0.0.1:21011'
 $publishRoot = Join-Path $repositoryRoot 'artifacts\publish'
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $packageName = "ModernWMS-prod-$timestamp"
@@ -109,6 +111,8 @@ $stagingRoot = Join-Path $publishRoot "$packageName.staging"
 $frontendBuildRoot = Join-Path $publishRoot "$packageName.frontend-build"
 $frontendPackageRoot = Join-Path $stagingRoot 'frontend'
 $backendPackageRoot = Join-Path $stagingRoot 'backend'
+$deployPackageRoot = Join-Path $stagingRoot 'deploy\nginx\conf.d'
+$deploymentGuidePath = Join-Path $stagingRoot '部署说明.txt'
 $zipPath = Join-Path $publishRoot 'wms.zip'
 $zipTempPath = Join-Path $publishRoot "$packageName.tmp.zip"
 $resolvedPublishRoot = [IO.Path]::GetFullPath($publishRoot).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
@@ -139,6 +143,9 @@ if (-not (Test-Path -LiteralPath $frontendProductionEnv -PathType Leaf)) {
 }
 if (-not (Test-Path -LiteralPath $backendProductionConfig -PathType Leaf)) {
     throw "后端生产配置不存在：$backendProductionConfig"
+}
+if (-not (Test-Path -LiteralPath $nginxProductionConfig -PathType Leaf)) {
+    throw "Nginx 生产配置不存在：$nginxProductionConfig"
 }
 if ((Test-Path -LiteralPath $stagingRoot) -or
     (Test-Path -LiteralPath $frontendBuildRoot) -or
@@ -189,6 +196,7 @@ Set-ConnectionStringValue -Builder $productionConnectionBuilder -CandidateKeys @
 
 New-Item -ItemType Directory -Path $frontendPackageRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $backendPackageRoot -Force | Out-Null
+New-Item -ItemType Directory -Path $deployPackageRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $frontendBuildRoot -Force | Out-Null
 
 try {
@@ -235,7 +243,33 @@ try {
     $publishedProductionConfig | Add-Member -NotePropertyName 'TokenSettings' -NotePropertyValue ([pscustomobject]@{
         SigningKey = $developmentSigningKey
     }) -Force
+    $publishedProductionConfig | Add-Member -NotePropertyName 'Urls' -NotePropertyValue $backendListenUrl -Force
     $publishedProductionConfig | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $productionConfigPath -Encoding utf8
+
+    Copy-Item -LiteralPath $nginxProductionConfig -Destination $deployPackageRoot -Force
+    @'
+ModernWMS Linux 生产更新包
+
+本压缩包用于已经完成基础环境配置的 Linux 生产服务器，解压后包含：
+- frontend：Nginx 静态站点文件
+- backend：ASP.NET Core 后端发布文件
+- deploy/nginx/conf.d/wsm.nyamtn.conf：Nginx 站点配置
+
+部署前置条件：
+1. 服务器已经安装 .NET 10 ASP.NET Core Runtime 和 Nginx。
+2. wms.nyamtn.com 的 TLS 证书已经按 Nginx 配置中的路径准备好。
+3. 生产数据库已备份，所需 Flyway 版本化 SQL 已经过评审并单独执行。
+4. 不要使用本包自动初始化或迁移生产数据库。
+
+建议部署位置：/opt/modernwms
+后端工作目录：/opt/modernwms/backend
+后端启动命令：dotnet ModernWMS.dll
+后端监听地址：http://127.0.0.1:21011
+前端目录：/opt/modernwms/frontend
+
+Nginx 配置复制到服务器前必须先核对域名、证书路径和目录，然后执行 nginx -t。
+替换线上文件和重启服务属于生产操作，应按现有服务管理流程执行；本发布脚本不会连接或修改服务器。
+'@ | Set-Content -LiteralPath $deploymentGuidePath -Encoding utf8
 
     if (Test-Path -LiteralPath $resolvedZipPath -PathType Leaf) {
         Remove-Item -LiteralPath $resolvedZipPath -Force
@@ -253,7 +287,14 @@ try {
     finally {
         $zipArchive.Dispose()
     }
-    foreach ($requiredEntry in @('frontend/index.html', 'backend/ModernWMS.dll')) {
+    foreach ($requiredEntry in @(
+        'frontend/index.html',
+        'backend/ModernWMS.dll',
+        'backend/ModernWMS.runtimeconfig.json',
+        'backend/appsettings.Production.json',
+        'deploy/nginx/conf.d/wsm.nyamtn.conf',
+        '部署说明.txt'
+    )) {
         if ($zipEntries -notcontains $requiredEntry) {
             throw "ZIP 内容校验失败，缺少：$requiredEntry"
         }
@@ -294,4 +335,6 @@ Write-Host "发布完成。"
 Write-Host "ZIP 包：$zipPath"
 Write-Host "前端来源：$($normalizedFrontendOrigins -join ', ')"
 Write-Host "后端地址：$normalizedBackendBaseUrl"
+Write-Host "后端监听：$backendListenUrl"
 Write-Host "生产数据库：$productionDatabaseHost`:$productionDatabasePort（账号和密码沿用开发环境 User Secrets）"
+Write-Host '部署前提：目标 Linux 服务器已安装 .NET 10 ASP.NET Core Runtime 和 Nginx，数据库结构升级已单独完成。'

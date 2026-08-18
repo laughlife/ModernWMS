@@ -1,71 +1,77 @@
-# Windows 原生部署
+# Linux 生产部署
 
-本项目按 Windows 原生进程部署，不使用 Docker。
+生产发布包面向已经完成基础环境配置的 Linux 服务器，不使用 Docker。发布脚本只在本机生成 ZIP，不会连接服务器、重启服务或执行数据库迁移。
 
-## 1. 生成发布产物
+## 1. 一键生成发布包
 
 在仓库根目录执行：
 
 ```powershell
-dotnet publish backend/ModernWMS/ModernWMS.csproj --configuration Release --output artifacts/backend
-
-cd frontend
-npm ci
-npm run build
-cd ..
+& '.\scripts\一键压缩发布包.ps1'
 ```
 
-后端产物位于 `artifacts/backend`，前端静态文件位于 `frontend/dist`。
-
-## 2. 配置运行环境
-
-部署机安装 .NET 10 Runtime，或在后续发布策略中改为 self-contained。MySQL 8.4 需已创建 `ruoyi-vue-pro` 数据库并允许应用账号访问；WMS 表使用 `wms_` 前缀。
-
-不要把密码写入仓库文件。可为运行后端的 Windows 服务账号设置受保护的环境变量：
+脚本会在隔离的临时目录中执行前端 `npm ci` 和生产构建，并发布 `linux-x64`、framework-dependent 的 .NET 10 后端。最终只保留：
 
 ```text
-ASPNETCORE_ENVIRONMENT=Production
-ASPNETCORE_URLS=http://127.0.0.1:21011
-ConnectionStrings__MySqlConn=Server=127.0.0.1;Port=3306;Database=ruoyi-vue-pro;User ID=...;Password=...;Character Set=utf8mb4;
-TokenSettings__SigningKey=至少32个UTF-8字节的随机密钥
+artifacts/publish/wms.zip
 ```
 
-生产前端构建默认请求 `http://127.0.0.1:21011`。如果浏览器从其他机器访问，应在构建前调整 `frontend/.env.production`，或由 IIS/反向代理提供同源 API 路径。
+ZIP 一级目录为 `frontend`、`backend`、`deploy`，并包含 `部署说明.txt`。其中：
 
-如果前后端不同源，还必须在生产配置中通过 `Cors:AllowedOrigins` 明确列出前端来源；不要使用任意来源通配策略。
+- `frontend` 可直接替换 `/opt/modernwms/frontend`。
+- `backend` 可直接替换 `/opt/modernwms/backend`。
+- `deploy/nginx/conf.d/wsm.nyamtn.conf` 是生产 Nginx 配置参考。
+- 后端固定监听 `http://127.0.0.1:21011`，与 Nginx 的 `/api/` 代理一致。
 
-## 3. 更新结构并启动后端
+## 2. 发布包的配置和秘密
 
-Web Host 不注册 EF DbContext，也不执行数据库初始化。发布前应先通过单独评审和授权的 Flyway 发布流程完成结构升级；本仓库的 `scripts/Update-Database.ps1` 仅允许本机开发库，不能用于生产环境。
+目标服务器必须安装 .NET 10 ASP.NET Core Runtime 和 Nginx，并提前准备 `wms.nyamtn.com` 的 TLS 证书。
 
-启动发布产物时，工作目录必须是发布目录；`nlog.config`、`appsettings.json` 等文件按当前工作目录加载：
+脚本从本机 .NET User Secrets 读取 `ConnectionStrings:MySqlConn` 和 `TokenSettings:SigningKey`，把数据库主机、端口替换为脚本定义的生产值后写入发布包的 `backend/appsettings.Production.json`。因此 `wms.zip` 含生产可用的敏感配置：
 
-```powershell
-cd artifacts/backend
-dotnet ModernWMS.dll
+- 不得提交 `wms.zip`、解压后的生产配置或任何秘密到 Git。
+- 传输和保存发布包时必须使用受控权限。
+- 不得在控制台、日志、工单或聊天中输出连接字符串和签名密钥。
+
+仓库中的 `appsettings*.json` 仍不得保存真实密码或签名密钥。
+
+## 3. 数据库结构升级
+
+Web Host 不注册 EF DbContext，也不执行数据库初始化。生产结构升级必须在备份后，通过单独评审和授权的 Flyway 发布流程完成。
+
+仓库的 `scripts/Update-Database.ps1` 仅允许本机开发库，不能用于生产环境。发布脚本不会打包或自动执行数据库迁移，`--initialize-database-only` 也会被应用拒绝。
+
+## 4. 部署后端
+
+先按现有生产变更流程停止后端服务，再替换发布目录。后端服务的工作目录必须是 `/opt/modernwms/backend`，因为 `nlog.config`、`appsettings.json` 等文件按当前工作目录加载。
+
+等价的前台启动命令为：
+
+```bash
+cd /opt/modernwms/backend
+ASPNETCORE_ENVIRONMENT=Production dotnet ModernWMS.dll
 ```
 
-建议将后端注册为 Windows 服务，并把工作目录设置为 `artifacts/backend` 的实际部署路径。服务账号应拥有日志目录写权限和 MySQL 访问权限。
+生产环境应继续使用现有服务管理器启动，不要把前台命令当作长期守护方案。服务账号应拥有日志目录写权限和 MySQL 访问权限。
 
-## 4. 托管前端
+## 5. 部署前端和 Nginx
 
-将 `frontend/dist` 发布到 IIS 静态网站或组织现有的 Windows Web 服务器。单页应用需要把不存在的前端路由回退到 `index.html`，同时不要把 API 请求回退到前端页面。
+将 `frontend` 发布到 `/opt/modernwms/frontend`。把包内 Nginx 配置复制到服务器前，必须核对域名、证书路径和目录，并运行：
 
-开发或临时验收可以使用：
-
-```powershell
-cd frontend
-npm run preview -- --host 127.0.0.1
+```bash
+nginx -t
 ```
 
-`vite preview` 只用于验收构建产物，不作为长期生产 Web 服务器。
+配置已包含单页应用回退、静态资源缓存和 `/api/` 到 `127.0.0.1:21011` 的反向代理。只有在 `nginx -t` 成功后，才按现有生产流程重新加载 Nginx。
 
-## 5. 发布后检查
+## 6. 发布后检查
 
-```powershell
-Invoke-WebRequest http://127.0.0.1:21011/health -UseBasicParsing
+服务启动后执行：
+
+```bash
+curl --fail --show-error http://127.0.0.1:21011/health
 ```
 
-预期 HTTP 状态为 `200`，响应正文为 `Healthy`。随后检查 Swagger、登录、菜单、仓库、货主、SKU、入库、出库、库存、调整和打印功能，并确认日志中没有持续异常。
+预期 HTTP 状态为 `200`，响应正文为 `Healthy`。随后检查正式域名、登录、菜单、仓库、货主、SKU、入库、出库、库存、调整和打印功能，并确认日志中没有持续异常。
 
-发布新版本前备份 MySQL。升级时先停止后端服务，通过独立 Flyway 发布流程应用已评审的版本化 SQL，再替换发布目录、启动服务并完成健康检查。`--initialize-database-only` 已被禁用，传入该参数会直接拒绝启动。
+推荐发布顺序：备份 MySQL、停止后端、完成已评审的 Flyway 升级、替换前后端目录、启动后端、验证健康检查、核验并重新加载 Nginx、完成业务验收。
