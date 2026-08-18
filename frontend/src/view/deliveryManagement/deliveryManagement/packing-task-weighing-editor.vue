@@ -107,11 +107,11 @@
           <v-alert type="info" variant="tonal" density="compact" class="mb-4">
             将覆盖目标箱的重量、长宽高和装箱数量，目标箱编号保持不变。
           </v-alert>
-          <v-select v-model="copyDialog.targetIndex" :items="copyTargetOptions" label="选择目标箱" density="compact" hide-details />
+          <v-select v-model="copyDialog.targetIndexes" :items="copyTargetOptions" label="选择目标箱（可多选）" density="compact" multiple chips closable-chips hide-details />
         </v-card-text>
         <v-card-actions class="justify-end">
           <v-btn variant="text" @click="closeCopyDialog">取消</v-btn>
-          <v-btn color="primary" :disabled="copyDialog.targetIndex === null" @click="confirmCopyBox">确认复制</v-btn>
+          <v-btn color="primary" :disabled="copyDialog.targetIndexes.length === 0" @click="confirmCopyBox">确认复制</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -131,7 +131,7 @@ const props = defineProps<{ orderId: number; packingTaskId: number; frozen?: boo
 const emit = defineEmits<{ saved: []; completed: [] }>()
 const plan = ref<PackingPlan | null>(null)
 const loading = ref(false); const saving = ref(false); const completing = ref(false); const checking = ref(false)
-const copyDialog = reactive({ visible: false, sourceIndex: -1, targetIndex: null as number | null })
+const copyDialog = reactive({ visible: false, sourceIndex: -1, targetIndexes: [] as number[] })
 const errorMessage = ref('')
 const packingPlanStatus = computed(() => String(plan.value?.packing_plan_status ?? ''))
 const editable = computed(() => !props.frozen && (packingPlanStatus.value === 'DRAFT' || packingPlanStatus.value === 'PACKING_CONFIRMED'))
@@ -167,7 +167,7 @@ const addEmptyBox = () => {
   plan.value.boxes.push(box)
 }
 const removeBox = (index: number) => plan.value?.boxes.splice(index, 1)
-const closeCopyDialog = () => { copyDialog.visible = false; copyDialog.sourceIndex = -1; copyDialog.targetIndex = null }
+const closeCopyDialog = () => { copyDialog.visible = false; copyDialog.sourceIndex = -1; copyDialog.targetIndexes = [] }
 const openCopyBox = (box: PackingPlanBox, index: number) => {
   if (!plan.value) return
   if (plan.value.boxes.length === 1) {
@@ -176,22 +176,26 @@ const openCopyBox = (box: PackingPlanBox, index: number) => {
     return
   }
   copyDialog.sourceIndex = index
-  copyDialog.targetIndex = copyTargetOptions.value[0]?.value ?? null
+  copyDialog.targetIndexes = []
   copyDialog.visible = true
 }
 const confirmCopyBox = () => {
-  if (!plan.value || copyDialog.sourceIndex < 0 || copyDialog.targetIndex === null) return
+  if (!plan.value || copyDialog.sourceIndex < 0 || copyDialog.targetIndexes.length === 0) return
   const source = plan.value.boxes[copyDialog.sourceIndex]
-  const target = plan.value.boxes[copyDialog.targetIndex]
-  if (!source || !target || source === target) return
-  target.weight = source.weight
-  target.length = source.length
-  target.width = source.width
-  target.height = source.height
-  target.items = source.items.map((item) => ({ ...item }))
-  const targetSequence = copyDialog.targetIndex + 1
+  if (!source) return
+  const targetIndexes = [...copyDialog.targetIndexes]
+  targetIndexes.forEach((targetIndex) => {
+    const target = plan.value?.boxes[targetIndex]
+    if (!target || source === target) return
+    target.weight = source.weight
+    target.length = source.length
+    target.width = source.width
+    target.height = source.height
+    target.items = source.items.map((item) => ({ ...item }))
+  })
+  const targetSequences = targetIndexes.map((targetIndex) => `第 ${targetIndex + 1} 箱`).join('、')
   closeCopyDialog()
-  hookComponent.$message({ type: 'info', content: `已将当前箱数据复制到第 ${targetSequence} 箱，请确认后保存` })
+  hookComponent.$message({ type: 'info', content: `已将当前箱数据复制到${targetSequences}，请确认后保存` })
 }
 const clearBoxMeasurements = (box: PackingPlanBox, index: number) => {
   box.weight = null
