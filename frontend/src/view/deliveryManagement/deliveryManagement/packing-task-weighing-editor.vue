@@ -92,6 +92,9 @@
           <v-btn color="primary" :loading="completing" :disabled="!editable || packingPlanStatus === 'PACKING_CONFIRMED'" @click="completePacking">
             {{ packingPlanStatus === 'PACKING_CONFIRMED' ? '已确认装箱完成' : '确定装箱完成' }}
           </v-btn>
+          <v-btn color="success" :loading="checking" :disabled="!editable || packingPlanStatus !== 'PACKING_CONFIRMED'" @click="checkPacking">
+            检测装箱
+          </v-btn>
         </div>
       </div>
     </template>
@@ -100,16 +103,16 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { confirmDispatchPacking, getDispatchPackingPlan, saveDispatchPackingPlan } from '@/api/wms/dispatchWorkflow'
+import { completeDispatchOrderWeighing, completeDispatchTaskWeighing, confirmDispatchActualPacking, confirmDispatchPacking, getDispatchPackingPlan, saveDispatchPackingPlan } from '@/api/wms/dispatchWorkflow'
 import { hookComponent } from '@/components/system'
 import ProductImage from '@/components/system/product-image.vue'
 import type { PackingPlan, PackingPlanBox } from '@/types/DeliveryManagement/DispatchWorkflow'
 import { allocatedTaskQty, copyDraftBox, itemTaskLimit, newDraftBox, remainingTaskQty } from './packingPlanPolicy'
 
-const props = defineProps<{ orderId: number; packingTaskId: number; frozen?: boolean }>()
+const props = defineProps<{ orderId: number; packingTaskId: number; frozen?: boolean; autoCheck?: boolean }>()
 const emit = defineEmits<{ saved: []; completed: [] }>()
 const plan = ref<PackingPlan | null>(null)
-const loading = ref(false); const saving = ref(false); const completing = ref(false)
+const loading = ref(false); const saving = ref(false); const completing = ref(false); const checking = ref(false)
 const errorMessage = ref('')
 const packingPlanStatus = computed(() => String(plan.value?.packing_plan_status ?? ''))
 const editable = computed(() => !props.frozen && (packingPlanStatus.value === 'DRAFT' || packingPlanStatus.value === 'PACKING_CONFIRMED'))
@@ -152,7 +155,7 @@ const boxesForSave = () => plan.value?.boxes.map((box) => ({
   ...box,
   items: box.items.filter((item) => Number(item.task_qty) > 0)
 })) ?? []
-const load = async () => { loading.value = true; errorMessage.value = ''; try { const result = await getDispatchPackingPlan(props.orderId, props.packingTaskId, true); if (!result.isSuccess) throw new Error(result.errorMessage); fillBoxProductRows(result.data, true) } catch (error) { errorMessage.value = error instanceof Error ? error.message : String(error) } finally { loading.value = false } }
+const load = async () => { loading.value = true; errorMessage.value = ''; try { const result = await getDispatchPackingPlan(props.orderId, props.packingTaskId, true); if (!result.isSuccess) throw new Error(result.errorMessage); fillBoxProductRows(result.data, true); if (props.autoCheck) checkPacking() } catch (error) { errorMessage.value = error instanceof Error ? error.message : String(error) } finally { loading.value = false } }
 const addEmptyBox = () => {
   if (!plan.value) return
   const box = newDraftBox(plan.value.boxes.length + 1)
@@ -168,6 +171,47 @@ const copyBox = (box: PackingPlanBox, index: number) => {
 }
 const savePacking = async () => { if (!plan.value) return; saving.value = true; try { const result = await saveDispatchPackingPlan(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value.row_version, task_row_version: plan.value.task_row_version, boxes: boxesForSave() }); if (!result.isSuccess) throw new Error(result.errorMessage); fillBoxProductRows(result.data); hookComponent.$message({ type: 'success', content: '装箱信息已保存，可继续修改或删除' }); emit('saved') } catch (error) { hookComponent.$message({ type: 'error', content: error instanceof Error ? error.message : String(error) }) } finally { saving.value = false } }
 const completePacking = () => { if (!plan.value) return; hookComponent.$dialog({ content: '本次仅记录人工确认装箱完成，不执行最终业务校验，也不会进入下一步；确认后仍可继续修改和保存，是否继续？', handleConfirm: async () => { if (!plan.value) return; completing.value = true; try { const saved = await saveDispatchPackingPlan(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value.row_version, task_row_version: plan.value.task_row_version, boxes: boxesForSave() }); if (!saved.isSuccess) throw new Error(saved.errorMessage); fillBoxProductRows(saved.data); const confirmed = await confirmDispatchPacking(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value!.row_version, task_row_version: plan.value!.task_row_version }); if (!confirmed.isSuccess) throw new Error(confirmed.errorMessage); fillBoxProductRows(confirmed.data); hookComponent.$message({ type: 'success', content: '已确认装箱完成，当前仍可继续修改和保存；业务下一步尚未执行' }); emit('saved') } catch (error) { hookComponent.$message({ type: 'error', content: error instanceof Error ? error.message : String(error) }) } finally { completing.value = false } } }) }
+const advanceAfterPackingCheck = async () => {
+  if (!plan.value) return
+  checking.value = true
+  try {
+    const saved = await saveDispatchPackingPlan(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value.row_version, task_row_version: plan.value.task_row_version, boxes: boxesForSave() })
+    if (!saved.isSuccess) throw new Error(saved.errorMessage)
+    fillBoxProductRows(saved.data)
+    const confirmed = await confirmDispatchActualPacking(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value!.row_version, task_row_version: plan.value!.task_row_version })
+    if (!confirmed.isSuccess) throw new Error(confirmed.errorMessage)
+    fillBoxProductRows(confirmed.data)
+    const taskCompleted = await completeDispatchTaskWeighing(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value!.row_version })
+    if (!taskCompleted.isSuccess) throw new Error(taskCompleted.errorMessage)
+    const orderCompleted = await completeDispatchOrderWeighing(props.orderId, { request_id: requestId(), row_version: taskCompleted.data.row_version })
+    if (!orderCompleted.isSuccess) throw new Error(orderCompleted.errorMessage)
+    hookComponent.$message({ type: 'success', content: '装箱检测通过，已进入待出库' })
+    emit('completed')
+  } catch (error) {
+    hookComponent.$message({ type: 'error', content: error instanceof Error ? error.message : String(error) })
+  } finally {
+    checking.value = false
+  }
+}
+const checkPacking = () => {
+  if (!plan.value) return
+  if (packingPlanStatus.value !== 'PACKING_CONFIRMED') {
+    hookComponent.$message({ type: 'error', content: '请先确定装箱完成，再进行装箱检测' })
+    return
+  }
+  if (completionHint.value) {
+    hookComponent.$message({ type: 'error', content: `装箱检测未通过：${completionHint.value}` })
+    return
+  }
+  const unfinishedProducts = plan.value.items
+    .map((item) => ({ item, remaining: remainingTaskQty(plan.value!, item) }))
+    .filter(({ remaining }) => remaining > 0)
+    .map(({ item, remaining }) => `${item.commodity_name || item.commodity_sku || '未命名'}商品（剩余任务量${remaining}，剩余商品数量${remaining * item.variant_qty}）`)
+  const content = unfinishedProducts.length > 0
+    ? `任务中还有${unfinishedProducts.join('、')}没有完成装箱，是否确定完成？`
+    : '装箱数据检测通过，是否确定完成并进入待出库？'
+  hookComponent.$dialog({ content, handleConfirm: advanceAfterPackingCheck })
+}
 onMounted(load)
 </script>
 

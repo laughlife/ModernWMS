@@ -58,10 +58,11 @@
       <vxe-column field="creator" :title="$t('wms.deliveryManagement.creator')" width="140" />
       <vxe-column field="create_time" title="创建时间" width="180"><template #default="{ row }">{{ formatDateTime(row.create_time) }}</template></vxe-column>
       <vxe-column field="last_update_time" title="最后更新时间" width="180"><template #default="{ row }">{{ formatDateTime(row.last_update_time) }}</template></vxe-column>
-      <vxe-column :title="$t('system.page.operate')" width="230" fixed="right" :resizable="false">
+      <vxe-column :title="$t('system.page.operate')" width="330" fixed="right" :resizable="false">
         <template #default="{ row }">
           <div class="row-actions">
             <v-btn size="small" color="primary" variant="tonal" :disabled="row.source_change_pending" @click="method.openWeighing(row)">建立装箱并称重</v-btn>
+            <v-btn size="small" color="success" variant="tonal" :disabled="row.source_change_pending" @click="method.openWeighing(row, true)">检测装箱</v-btn>
             <TooltipBtn v-if="row.source_change_pending" :flat="true" icon="mdi-account-alert" tooltip-text="人工选择继续或取消发货"
               :disabled="!data.authorityList.includes('weighed-weigh')" @click="method.openDecision(row)" />
           </div>
@@ -90,6 +91,7 @@
           :order-id="weighingDialog.row.id"
           :packing-task-id="weighingDialog.task.id"
           :frozen="weighingDialog.row.source_change_pending"
+          :auto-check="weighingDialog.autoCheck"
           @saved="emit('statusChanged')"
           @completed="method.onTaskCompleted"
         />
@@ -144,7 +146,7 @@ type WeighingOrderRow = DispatchOrderSummary & { detail: DispatchOrderDetail | n
 const data = reactive({ keyword: '', group_id: null as number | null, member_id: null as number | null,
   loading: false, tableData: [] as WeighingOrderRow[], total: 0, pageIndex: 1, pageSize: DEFAULT_PAGE_SIZE,
   btnList: [] as btnGroupItem[], authorityList: getMenuAuthorityList() })
-const weighingDialog = reactive({ visible: false, loading: false, error: '', row: null as DispatchOrderSummary | null, task: null as DispatchPackingTask | null })
+const weighingDialog = reactive({ visible: false, loading: false, error: '', autoCheck: false, row: null as DispatchOrderSummary | null, task: null as DispatchPackingTask | null })
 const decisionDialog = reactive({ visible: false, submitting: false, reason: '', row: null as DispatchOrderSummary | null })
 const requestId = () => globalThis.crypto?.randomUUID?.() ?? `source-decision-${Date.now()}-${Math.random().toString(16).slice(2)}`
 const showError = (message: string) => hookComponent.$message({ type: 'error', content: message })
@@ -212,9 +214,9 @@ const method = reactive({
   },
   search: () => { data.pageIndex = 1; method.getWeighed() },
   handlePageChange: ref<VxePagerEvents.PageChange>(({ currentPage, pageSize }) => { data.pageIndex = currentPage; data.pageSize = pageSize; method.getWeighed() }),
-  openWeighing: async (row: DispatchOrderSummary) => {
+  openWeighing: async (row: DispatchOrderSummary, autoCheck = false) => {
     const generation = ++weighingDialogGeneration
-    weighingDialog.visible = true; weighingDialog.loading = true; weighingDialog.error = ''; weighingDialog.row = row; weighingDialog.task = null
+    weighingDialog.visible = true; weighingDialog.loading = true; weighingDialog.error = ''; weighingDialog.autoCheck = autoCheck; weighingDialog.row = row; weighingDialog.task = null
     try {
       const result = await getDispatchOrder(row.id, true)
       if (generation !== weighingDialogGeneration || !weighingDialog.visible) return
@@ -225,7 +227,7 @@ const method = reactive({
     } catch (error) { if (generation === weighingDialogGeneration) weighingDialog.error = error instanceof Error ? error.message : '加载装箱任务失败' }
     finally { if (generation === weighingDialogGeneration) weighingDialog.loading = false }
   },
-  closeWeighing: () => { weighingDialogGeneration++; weighingDialog.visible = false; weighingDialog.loading = false; weighingDialog.error = ''; weighingDialog.row = null; weighingDialog.task = null },
+  closeWeighing: () => { weighingDialogGeneration++; weighingDialog.visible = false; weighingDialog.loading = false; weighingDialog.error = ''; weighingDialog.autoCheck = false; weighingDialog.row = null; weighingDialog.task = null },
   onTaskCompleted: async () => { method.closeWeighing(); emit('statusChanged'); await method.getWeighed() },
   openDecision: (row: DispatchOrderSummary) => { decisionDialog.row = row; decisionDialog.reason = ''; decisionDialog.visible = true },
   closeDecision: () => { decisionDialog.visible = false; decisionDialog.row = null; decisionDialog.reason = '' },
