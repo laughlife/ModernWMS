@@ -223,7 +223,7 @@ public sealed class DispatchWorkflowController : BaseController
         catch (DispatchWorkflowCommandException exception)
         {
             return StatusCode(StatusCodes.Status409Conflict,
-                ResultModel<T>.Error(exception.ErrorCode, StatusCodes.Status409Conflict));
+                ResultModel<T>.Error(exception.Message, StatusCodes.Status409Conflict));
         }
         catch (InvalidOperationException exception)
         {
