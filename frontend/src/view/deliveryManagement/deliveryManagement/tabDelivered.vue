@@ -46,7 +46,7 @@
                   </div>
                   <v-table density="compact" class="box-measurement-table">
                     <thead><tr><th>重量(kg)</th><th>长(cm)</th><th>宽(cm)</th><th>高(cm)</th><th>容积(cm³)</th><th>容积比</th></tr></thead>
-                    <tbody><tr>
+                    <tbody><tr class="box-measurement-row">
                       <td>{{ formatNumber(box.weight) }}</td><td>{{ formatNumber(box.length) }}</td><td>{{ formatNumber(box.width) }}</td><td>{{ formatNumber(box.height) }}</td>
                       <td>{{ formatCubicCentimeters(boxVolume(box)) }}</td>
                       <td class="volume-ratios">
@@ -313,9 +313,11 @@ defineExpose({ getDelivery: method.getDelivery })
 .box-measurement-table, .box-product-table { border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
 .box-measurement-table :deep(.v-table__wrapper) { overflow: visible; }
 .box-measurement-table :deep(table) { width: 100%; table-layout: fixed; }
-.box-measurement-table :deep(th), .box-measurement-table :deep(td) { padding-top: 10px; padding-bottom: 10px; }
+.box-measurement-table :deep(th) { padding-top: 10px; padding-bottom: 10px; }
+.box-measurement-table :deep(.box-measurement-row) { height: 96px !important; }
+.box-measurement-table :deep(.box-measurement-row td) { height: 96px !important; padding-top: 16px; padding-bottom: 16px; vertical-align: middle; }
 .box-product-table { margin-top: 8px; }
-.volume-ratios { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 12px; line-height: 26px; white-space: normal; }
+.volume-ratios { min-height: 64px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: center; gap: 8px 12px; line-height: 28px; white-space: normal; }
 .empty-boxes { padding: 20px; text-align: center; opacity: 0.62; }
 .empty-cell { text-align: center !important; opacity: 0.62; }
 .snapshot-label { margin-bottom: 6px; font-weight: 600; }
