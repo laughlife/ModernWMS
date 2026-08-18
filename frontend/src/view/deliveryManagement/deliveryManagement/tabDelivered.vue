@@ -45,9 +45,10 @@
                     <v-chip :color="measurementStatusColor(box.measurement_status)" size="x-small" variant="tonal">{{ measurementStatusText(box.measurement_status) }}</v-chip>
                   </div>
                   <v-table density="compact" class="box-measurement-table">
-                    <thead><tr><th>重量(kg)</th><th>长(cm)</th><th>宽(cm)</th><th>高(cm)</th><th>容积(cm³)</th><th>容积比</th></tr></thead>
+                    <thead><tr><th>重量(kg)</th><th>尺寸(cm)</th><th>容积(cm³)</th><th>容积比</th></tr></thead>
                     <tbody><tr class="box-measurement-row">
-                      <td>{{ formatNumber(box.weight) }}</td><td>{{ formatNumber(box.length) }}</td><td>{{ formatNumber(box.width) }}</td><td>{{ formatNumber(box.height) }}</td>
+                      <td>{{ formatNumber(box.weight) }}</td>
+                      <td>{{ formatBoxSize(box) }}</td>
                       <td>{{ formatCubicCentimeters(boxVolume(box)) }}</td>
                       <td class="volume-ratios">
                         <span>/5000：{{ formatVolumeRatio(box, 5000) }}</span><span>/6000：{{ formatVolumeRatio(box, 6000) }}</span>
@@ -183,6 +184,10 @@ const boxVolume = (box: WeighingBox): number => {
   const length = Number(box.length); const width = Number(box.width); const height = Number(box.height)
   return length > 0 && width > 0 && height > 0 ? length * width * height : 0
 }
+const formatBoxSize = (box: WeighingBox): string => {
+  const length = Number(box.length); const width = Number(box.width); const height = Number(box.height)
+  return length > 0 && width > 0 && height > 0 ? `${formatNumber(length)} × ${formatNumber(width)} × ${formatNumber(height)}` : '-'
+}
 const formatCubicCentimeters = (value: number): string => value > 0 ? value.toLocaleString('zh-CN', { maximumFractionDigits: 2 }) : '-'
 const formatVolumeRatio = (box: WeighingBox, divisor: number): string => {
   const volume = boxVolume(box)
@@ -304,20 +309,20 @@ defineExpose({ getDelivery: method.getDelivery })
 .secondary-text { margin-top: 2px; color: rgba(var(--v-theme-on-surface), 0.62); }
 .task-no { line-height: 22px; }
 .row-actions { display: flex; align-items: center; justify-content: center; gap: 10px; }
-.order-detail { padding: 16px 68px; background: rgba(var(--v-theme-surface-variant), 0.18); }
+.order-detail { padding: 16px 68px; background: #fff; }
 .task-list { display: grid; gap: 14px; }
-.task-card { padding: 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; background: rgb(var(--v-theme-surface)); }
-.task-title { display: flex; align-items: center; justify-content: space-between; padding: 0 8px 8px; }
-.box-detail-card { margin-top: 12px; padding: 10px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 7px; }
-.box-detail-title { display: flex; align-items: center; justify-content: space-between; padding: 0 6px 8px; }
+.task-card { padding: 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; background: #fff; }
+.task-title { display: flex; align-items: center; justify-content: space-between; padding: 0 8px 8px; font-weight: 700; }
+.task-card :deep(th) { font-weight: 700; }
+.box-detail-card { margin-top: 12px; padding: 10px; border: 2px solid rgba(var(--v-theme-success), 0.6); border-radius: 7px; background: #fff; }
+.box-detail-title { display: flex; align-items: center; justify-content: space-between; padding: 0 6px 8px; font-weight: 700; }
 .box-measurement-table, .box-product-table { border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
 .box-measurement-table :deep(.v-table__wrapper) { overflow: visible; }
 .box-measurement-table :deep(table) { width: 100%; table-layout: fixed; }
 .box-measurement-table :deep(th) { padding-top: 10px; padding-bottom: 10px; }
-.box-measurement-table :deep(.box-measurement-row) { height: 96px !important; }
-.box-measurement-table :deep(.box-measurement-row td) { height: 96px !important; padding-top: 16px; padding-bottom: 16px; vertical-align: middle; }
+.box-measurement-table :deep(.box-measurement-row td) { padding-top: 12px; padding-bottom: 12px; vertical-align: middle; }
 .box-product-table { margin-top: 8px; }
-.volume-ratios { min-height: 64px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: center; gap: 8px 12px; line-height: 28px; white-space: normal; }
+.volume-ratios { display: flex; align-items: center; gap: 18px; white-space: nowrap; }
 .empty-boxes { padding: 20px; text-align: center; opacity: 0.62; }
 .empty-cell { text-align: center !important; opacity: 0.62; }
 .snapshot-label { margin-bottom: 6px; font-weight: 600; }
