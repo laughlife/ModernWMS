@@ -186,7 +186,7 @@ const boxVolume = (box: WeighingBox): number => {
 const formatCubicCentimeters = (value: number): string => value > 0 ? value.toLocaleString('zh-CN', { maximumFractionDigits: 2 }) : '-'
 const formatVolumeRatio = (box: WeighingBox, divisor: number): string => {
   const volume = boxVolume(box)
-  return volume > 0 ? `${(volume / divisor).toFixed(2)} kg` : '-'
+  return volume > 0 ? (volume / divisor).toFixed(2) : '-'
 }
 const measurementStatusTexts: Record<string, string> = { MEASURED: '已测量', UNMEASURED: '未测量', PENDING: '待测量' }
 const measurementStatusText = (status: string): string => measurementStatusTexts[status] ?? '未知状态'
@@ -311,8 +311,11 @@ defineExpose({ getDelivery: method.getDelivery })
 .box-detail-card { margin-top: 12px; padding: 10px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 7px; }
 .box-detail-title { display: flex; align-items: center; justify-content: space-between; padding: 0 6px 8px; }
 .box-measurement-table, .box-product-table { border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
+.box-measurement-table :deep(.v-table__wrapper) { overflow: visible; }
+.box-measurement-table :deep(table) { width: 100%; table-layout: fixed; }
+.box-measurement-table :deep(th), .box-measurement-table :deep(td) { padding-top: 10px; padding-bottom: 10px; }
 .box-product-table { margin-top: 8px; }
-.volume-ratios { display: grid; grid-template-columns: repeat(2, minmax(110px, 1fr)); gap: 2px 12px; white-space: nowrap; }
+.volume-ratios { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 12px; line-height: 26px; white-space: normal; }
 .empty-boxes { padding: 20px; text-align: center; opacity: 0.62; }
 .empty-cell { text-align: center !important; opacity: 0.62; }
 .snapshot-label { margin-bottom: 6px; font-weight: 600; }
