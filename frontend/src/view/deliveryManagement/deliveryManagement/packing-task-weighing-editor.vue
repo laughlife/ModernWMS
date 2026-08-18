@@ -23,6 +23,34 @@
       </v-table>
 
       <div class="box-toolbar"><v-btn size="small" color="primary" prepend-icon="mdi-package-variant" :disabled="!editable" @click="addEmptyBox">新增箱</v-btn></div>
+      <section class="packing-progress">
+        <div class="packing-progress-title">装箱进度</div>
+        <v-table density="compact">
+          <thead><tr><th>商品信息</th><th>已装箱信息</th><th>未装箱信息</th></tr></thead>
+          <tbody>
+            <tr v-for="item in plan.items" :key="`progress-${item.id}`">
+              <td>
+                <div class="progress-product">
+                  <ProductImage :src="item.main_image" :alt="item.commodity_name" :width="44" :height="44" :cover="false" />
+                  <div>
+                    <div>{{ item.commodity_name || '-' }}</div>
+                    <small>SKU：{{ item.commodity_sku || '-' }}</small>
+                    <small>总任务量：{{ itemTaskLimit(plan, item) }}　变体：{{ item.variant_qty }}</small>
+                  </div>
+                </div>
+              </td>
+              <td class="packed-summary">
+                <div>任务量：{{ allocatedTaskQty(plan, item.id) }}</div>
+                <small>商品数量：{{ allocatedTaskQty(plan, item.id) * item.variant_qty }}</small>
+              </td>
+              <td class="remaining-summary">
+                <div>剩余任务量：{{ remainingTaskQty(plan, item) }}</div>
+                <small>剩余商品数量：{{ remainingTaskQty(plan, item) * item.variant_qty }}</small>
+              </td>
+            </tr>
+          </tbody>
+        </v-table>
+      </section>
       <v-card v-for="(box, boxIndex) in plan.boxes" :key="box.client_key" variant="outlined" class="box-card">
         <v-card-title class="box-title"><span>第 {{ boxIndex + 1 }} 箱</span><v-btn icon="mdi-delete-outline" size="small" color="error" variant="text" :disabled="!editable" @click="removeBox(boxIndex)" /></v-card-title>
         <v-card-text>
@@ -119,6 +147,10 @@ onMounted(load)
 .packing-editor { padding: 4px; background: rgb(var(--v-theme-surface)); }
 .editor-heading,.box-title,.editor-actions,.box-toolbar,.add-product-row,.box-item-row { display: flex; align-items: center; gap: 12px; }
 .editor-heading,.box-title { justify-content: space-between; }.product-pool { margin-top: 10px; }.box-toolbar { margin: 14px 0; }
+.packing-progress { margin-bottom: 14px; overflow: hidden; border: 1px solid rgba(var(--v-border-color),var(--v-border-opacity)); border-radius: 6px; }
+.packing-progress-title { padding: 9px 12px; background: rgba(var(--v-theme-primary),.08); font-weight: 600; }
+.progress-product { display: flex; align-items: center; gap: 10px; }.progress-product small { display: block; }
+.packed-summary { color: rgb(var(--v-theme-success)); }.remaining-summary { color: rgb(var(--v-theme-warning)); }.packed-summary small,.remaining-summary small { display: block; }
 .box-card { background: rgb(var(--v-theme-surface)); }.box-card + .box-card { margin-top: 12px; }.measurement-grid { display: grid; grid-template-columns: repeat(4, minmax(120px,1fr)); gap: 10px; }
 .box-item-header,.box-item-row { display: grid; grid-template-columns: minmax(180px,2fr) minmax(100px,1fr) minmax(70px,.7fr) minmax(110px,1fr) 48px; align-items: center; gap: 12px; }
 .box-item-header { margin-top: 16px; padding: 8px 0; border-bottom: 1px solid rgba(var(--v-border-color),var(--v-border-opacity)); font-weight: 600; }
