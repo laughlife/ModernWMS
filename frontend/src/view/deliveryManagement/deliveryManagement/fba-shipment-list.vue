@@ -68,7 +68,7 @@
               <tbody>
                 <tr v-for="item in row.item_list" :key="item.stock_move_item_id">
                   <td class="detailImageCell">
-                    <ProductImage :src="item.main_image" :alt="item.commodity_name || item.stock_sku" :width="56" :height="56" />
+                    <ProductImage :src="item.main_image" :alt="item.commodity_name || item.stock_sku" :width="56" :height="56" :cover="false" />
                   </td>
                   <td class="detailProductCell">
                     <div class="primaryText">{{ item.commodity_name || '-' }}</div>
@@ -97,6 +97,7 @@
               :src="row.item_list[0]?.main_image"
               :alt="row.item_list[0]?.commodity_name || row.fba_no"
               :width="64" :height="64"
+              :cover="false"
             />
           </div>
         </template>

@@ -90,6 +90,7 @@
                           :alt="item.commodity_name || item.commodity_sku"
                           :width="56"
                           :height="56"
+                          :cover="false"
                         />
                       </td>
                       <td class="text-left">

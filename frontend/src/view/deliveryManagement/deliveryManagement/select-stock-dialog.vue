@@ -27,6 +27,7 @@
                   :alt="item?.commodity_name || item?.commodity_sku || ''"
                   :width="52"
                   :height="52"
+                  :cover="false"
                 />
               </td>
               <td>
@@ -105,7 +106,7 @@
           <vxe-column type="seq" width="56"></vxe-column>
           <vxe-column width="76">
             <template #default="{ row }">
-              <ProductImage :src="row.main_image" :alt="row.commodity_name || row.sku_code" :width="48" :height="48" />
+              <ProductImage :src="row.main_image" :alt="row.commodity_name || row.sku_code" :width="48" :height="48" :cover="false" />
             </template>
           </vxe-column>
           <vxe-column title="商品信息" min-width="200" align="left" header-align="left">
