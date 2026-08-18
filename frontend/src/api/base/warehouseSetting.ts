@@ -64,7 +64,8 @@ export const getOperatorGroupOptions = () => http({
 export const getOperatorMemberOptions = (keyword?: string) => http({
   url: '/warehousearea/operator-member-options',
   method: 'get',
-  params: { keyword }
+  params: { keyword },
+  hideLoading: true
 })
 
 // Excel Import
