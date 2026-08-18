@@ -19,29 +19,39 @@ export interface WorkflowCountSource {
   MANUAL_CANCELLED?: number
 }
 
+type WorkflowCountResponse = WorkflowCountSource | Record<string, number | undefined>
+
 const safeCount = (value: unknown): number => {
   const count = Number(value)
   return Number.isFinite(count) && count > 0 ? count : 0
 }
 
 export const mapWorkflowCountsToTabs = (
-  workflow: WorkflowCountSource,
+  workflow: WorkflowCountResponse,
   packingTaskCount: number
-): DeliveryStatusCounts => ({
-  tabFbaShipment: safeCount(packingTaskCount),
-  tabGoodsToBePicked: safeCount(workflow.PENDING_PICK),
-  tabPicked: safeCount(workflow.PICKED),
-  tabWeighed: safeCount(workflow.WEIGHING),
-  tabDelivered: safeCount(workflow.PENDING_OUTBOUND),
-  tabCompleted: safeCount(workflow.OUTBOUND)
-})
+): DeliveryStatusCounts => {
+  // Newtonsoft 的 CamelCasePropertyNamesContractResolver 会把字典键
+  // PENDING_PICK 序列化成 pendinG_PICK；在接口边界统一恢复状态契约。
+  const normalizedWorkflow = Object.fromEntries(
+    Object.entries(workflow).map(([status, count]) => [status.toUpperCase(), count])
+  ) as WorkflowCountSource
+
+  return {
+    tabFbaShipment: safeCount(packingTaskCount),
+    tabGoodsToBePicked: safeCount(normalizedWorkflow.PENDING_PICK),
+    tabPicked: safeCount(normalizedWorkflow.PICKED),
+    tabWeighed: safeCount(normalizedWorkflow.WEIGHING),
+    tabDelivered: safeCount(normalizedWorkflow.PENDING_OUTBOUND),
+    tabCompleted: safeCount(normalizedWorkflow.OUTBOUND)
+  }
+}
 
 export const loadDeliveryStatusCounts = async ({
   loadWorkflowCounts,
   loadPackingTaskCount,
   fallbackCounts = mapWorkflowCountsToTabs({}, 0)
 }: {
-  loadWorkflowCounts: () => Promise<WorkflowCountSource>
+  loadWorkflowCounts: () => Promise<WorkflowCountResponse>
   loadPackingTaskCount: () => Promise<number>
   fallbackCounts?: DeliveryStatusCounts
 }): Promise<DeliveryStatusCounts> => {
