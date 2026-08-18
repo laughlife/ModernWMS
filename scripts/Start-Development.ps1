@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
     [ValidateRange(1, 65535)]
     [int]$BackendPort = 21011,
@@ -343,6 +343,7 @@ try {
             '-File', $watcherScript,
             '-Project', $backendProject,
             '-Port', [string]$BackendPort,
+            '-FrontendPort', [string]$FrontendPort,
             '-StatePath', $statePath,
             '-LogDirectory', $logDirectory,
             '-IntervalSeconds', '60'
@@ -390,41 +391,9 @@ try {
     $backendEntry['portOwnershipConfirmed'] = $true
     Save-DevelopmentState -BackendEntry $backendEntry -FrontendEntry $null
 
-    Write-Host "[2/2] 启动前端：http://127.0.0.1:$FrontendPort"
-    $previousViteBasePath = [Environment]::GetEnvironmentVariable('VITE_BASE_PATH', 'Process')
-    $previousViteServerPort = [Environment]::GetEnvironmentVariable('VITE_SERVER_PORT', 'Process')
-    $previousViteCliPort = [Environment]::GetEnvironmentVariable('VITE_CLI_PORT', 'Process')
-    try {
-        $env:VITE_BASE_PATH = 'http://127.0.0.1'
-        $env:VITE_SERVER_PORT = [string]$BackendPort
-        $env:VITE_CLI_PORT = [string]$FrontendPort
-        $frontendProcess = Start-Process -FilePath $nodeCommand `
-            -ArgumentList @($viteCliPath, '--host', '0.0.0.0', '--port', [string]$FrontendPort, '--strictPort') `
-            -WorkingDirectory $frontendDirectory `
-            -RedirectStandardOutput (Join-Path $logDirectory 'frontend.stdout.log') `
-            -RedirectStandardError (Join-Path $logDirectory 'frontend.stderr.log') `
-            -WindowStyle Hidden `
-            -PassThru
-    }
-    finally {
-        [Environment]::SetEnvironmentVariable('VITE_BASE_PATH', $previousViteBasePath, 'Process')
-        [Environment]::SetEnvironmentVariable('VITE_SERVER_PORT', $previousViteServerPort, 'Process')
-        [Environment]::SetEnvironmentVariable('VITE_CLI_PORT', $previousViteCliPort, 'Process')
-    }
-
-    $frontendEntry = [ordered]@{
-        pid = $frontendProcess.Id
-        startTimeUtc = Get-ProcessStartTimeUtcString -Process $frontendProcess
-        port = $FrontendPort
-        portOwnershipConfirmed = $false
-    }
-    Save-DevelopmentState -BackendEntry $backendEntry -FrontendEntry $frontendEntry
-
+    Write-Host "[2/2] 等待前端就绪（前端由后端变更检测进程统一管理）：http://127.0.0.1:$FrontendPort"
     $frontendReady = $false
-    for ($attempt = 1; $attempt -le 30; $attempt++) {
-        if ($frontendProcess.HasExited) {
-            throw "前端启动失败（退出码 $($frontendProcess.ExitCode)）。日志：$logDirectory"
-        }
+    for ($attempt = 1; $attempt -le 60; $attempt++) {
         if (Get-PortOwner -Port $FrontendPort) {
             $frontendReady = $true
             break
@@ -432,15 +401,8 @@ try {
         Start-Sleep -Milliseconds 500
     }
     if (-not $frontendReady) {
-        throw "前端在 15 秒内未监听端口 $FrontendPort。日志：$logDirectory"
+        throw "前端在 30 秒内未监听端口 $FrontendPort。日志：$logDirectory"
     }
-    $frontendEntry['listener'] = New-PortListenerEntry `
-        -Port $FrontendPort `
-        -ExpectedProcessId $frontendProcess.Id `
-        -NotBeforeUtc $frontendProcess.StartTime.ToUniversalTime() `
-        -ExpectedProcessName 'node'
-    $frontendEntry['portOwnershipConfirmed'] = $true
-    Save-DevelopmentState -BackendEntry $backendEntry -FrontendEntry $frontendEntry
 
     Write-Host '[启动完成]'
     Write-Host "  前端：http://127.0.0.1:$FrontendPort"

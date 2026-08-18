@@ -1,9 +1,12 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
     [string]$Project,
 
     [ValidateRange(1, 65535)]
     [int]$Port = 21011,
+
+    [ValidateRange(1, 65535)]
+    [int]$FrontendPort = 80,
 
     [string]$StatePath,
 
@@ -39,8 +42,12 @@ if ([string]::IsNullOrWhiteSpace($StatePath) -or [string]::IsNullOrWhiteSpace($L
     }
 }
 $backendRoot = [System.IO.Path]::GetFullPath((Split-Path -Parent (Split-Path -Parent $Project)))
+$frontendDirectory = Join-Path $repositoryRoot 'frontend'
+$viteCliPath = Join-Path $frontendDirectory 'node_modules\vite\bin\vite.js'
 $appStdoutLog = Join-Path $LogDirectory 'backend.stdout.log'
 $appStderrLog = Join-Path $LogDirectory 'backend.stderr.log'
+$frontendStdoutLog = Join-Path $LogDirectory 'frontend.stdout.log'
+$frontendStderrLog = Join-Path $LogDirectory 'frontend.stderr.log'
 $healthUrl = "http://127.0.0.1:$Port/health"
 
 function Write-WatcherLog {
@@ -191,6 +198,45 @@ function Update-StateListener {
     }
 }
 
+function Update-StateFrontend {
+    if (-not (Test-Path -LiteralPath $StatePath)) {
+        return
+    }
+
+    $state = $null
+    try {
+        $state = Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json
+    }
+    catch {
+        Write-WatcherLog "读取状态文件失败，跳过前端条目更新：$($_.Exception.Message)"
+        return
+    }
+
+    $listener = Get-ListenerEntry -TargetPort $FrontendPort
+    if ($null -eq $listener) {
+        Write-WatcherLog "前端端口 $FrontendPort 未找到监听进程，跳过前端条目更新。"
+        return
+    }
+
+    $frontendEntry = [ordered]@{
+        pid = $frontendProcess.Id
+        startTimeUtc = $frontendProcess.StartTime.ToUniversalTime().ToString('O')
+        port = $FrontendPort
+        portOwnershipConfirmed = $true
+        listener = $listener
+    }
+    $state | Add-Member -NotePropertyName 'frontend' -NotePropertyValue ([pscustomobject]$frontendEntry) -Force
+    $tempPath = "$StatePath.tmp"
+    try {
+        $state | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $tempPath -Encoding UTF8
+        Move-Item -LiteralPath $tempPath -Destination $StatePath -Force
+        Write-WatcherLog "状态文件已更新：前端监听 PID $($listener.pid)。"
+    }
+    catch {
+        Write-WatcherLog "写入前端状态失败：$($_.Exception.Message)"
+    }
+}
+
 function Stop-AppProcess {
     param($Process)
 
@@ -219,6 +265,36 @@ function Start-AppProcess {
         -RedirectStandardError $appStderrLog `
         -WindowStyle Hidden `
         -PassThru
+}
+
+function Start-FrontendProcess {
+    param([Parameter(Mandatory = $true)][string]$NodePath)
+
+    if (-not (Test-Path -LiteralPath $viteCliPath)) {
+        Write-WatcherLog "前端依赖未安装（$viteCliPath 不存在），跳过前端启动。请先在 frontend 运行 npm ci。"
+        return $null
+    }
+
+    $previousViteBasePath = [Environment]::GetEnvironmentVariable('VITE_BASE_PATH', 'Process')
+    $previousViteServerPort = [Environment]::GetEnvironmentVariable('VITE_SERVER_PORT', 'Process')
+    $previousViteCliPort = [Environment]::GetEnvironmentVariable('VITE_CLI_PORT', 'Process')
+    try {
+        $env:VITE_BASE_PATH = 'http://127.0.0.1'
+        $env:VITE_SERVER_PORT = [string]$Port
+        $env:VITE_CLI_PORT = [string]$FrontendPort
+        return Start-Process -FilePath $NodePath `
+            -ArgumentList @($viteCliPath, '--host', '0.0.0.0', '--port', [string]$FrontendPort, '--strictPort') `
+            -WorkingDirectory $frontendDirectory `
+            -RedirectStandardOutput $frontendStdoutLog `
+            -RedirectStandardError $frontendStderrLog `
+            -WindowStyle Hidden `
+            -PassThru
+    }
+    finally {
+        [Environment]::SetEnvironmentVariable('VITE_BASE_PATH', $previousViteBasePath, 'Process')
+        [Environment]::SetEnvironmentVariable('VITE_SERVER_PORT', $previousViteServerPort, 'Process')
+        [Environment]::SetEnvironmentVariable('VITE_CLI_PORT', $previousViteCliPort, 'Process')
+    }
 }
 
 function Initialize-DevelopmentState {
@@ -291,15 +367,18 @@ function Initialize-DevelopmentState {
             port = $Port
             portOwnershipConfirmed = $false
         }
+        # 保留已有状态中的前端条目，避免单独运行本脚本时把前端跟踪信息覆盖丢失。
+        $frontendEntry = if ($null -ne $existing -and $null -ne $existing.frontend) { $existing.frontend } else { $null }
         $tempPath = "$StatePath.tmp"
         [ordered]@{
             repositoryRoot = $repositoryRoot
             createdAtUtc = [DateTime]::UtcNow.ToString('O')
             backend = $backendEntry
+            frontend = $frontendEntry
             logDirectory = $LogDirectory
         } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $tempPath -Encoding UTF8
         Move-Item -LiteralPath $tempPath -Destination $StatePath -Force
-        Write-WatcherLog "状态文件已初始化：控制进程 PID $PID，端口 $Port，日志 $LogDirectory。"
+        Write-WatcherLog "状态文件已初始化：控制进程 PID $PID，后端端口 $Port，前端端口 $FrontendPort，日志 $LogDirectory。"
     }
 }
 
@@ -307,7 +386,9 @@ Write-WatcherLog "后端变更检测已启动：项目 $Project，端口 $Port�
 Write-WatcherLog '重启规则：检测到源码变更后，等待源码连续 1 个检测周期无变化，且距上次重启满 1 个检测周期，才自动重启。'
 
 $dotnetCommand = (Get-Command 'dotnet' -ErrorAction Stop).Source
+$nodeCommand = (Get-Command 'node.exe' -ErrorAction Stop).Source
 $appProcess = $null
+$frontendProcess = $null
 $lastFingerprint = $null
 $pendingRestart = $false
 $stableSinceUtc = $null
@@ -368,6 +449,26 @@ try {
                     Write-WatcherLog '警告：健康检查未通过，将在下一轮重试。'
                 }
             }
+
+            # 确保前端 vite 始终运行：端口未监听则（重新）启动，避免重启后端后前端掉线。
+            $frontendListening = ($null -ne (Get-PortOwner -Port $FrontendPort))
+            if (-not $frontendListening) {
+                Write-WatcherLog "前端未监听端口 $FrontendPort，正在启动前端 vite..."
+                $frontendProcess = Start-FrontendProcess -NodePath $nodeCommand
+                if ($null -ne $frontendProcess) {
+                    $frontendDeadline = (Get-Date).AddSeconds(15)
+                    while ((Get-Date) -lt $frontendDeadline -and $null -eq (Get-PortOwner -Port $FrontendPort)) {
+                        Start-Sleep -Milliseconds 500
+                    }
+                    if ($null -ne (Get-PortOwner -Port $FrontendPort)) {
+                        Write-WatcherLog '前端已就绪。'
+                        Update-StateFrontend
+                    }
+                    else {
+                        Write-WatcherLog '警告：前端未在超时时间内监听，将在下一轮重试。'
+                    }
+                }
+            }
         }
         catch {
             Write-WatcherLog "本轮处理失败，继续运行：$($_.Exception.Message)"
@@ -377,7 +478,8 @@ try {
     }
 }
 finally {
-    Write-WatcherLog '变更检测已停止，正在清理后端进程...'
+    Write-WatcherLog '变更检测已停止，正在清理后端与前端进程...'
     Stop-AppProcess -Process $appProcess
+    Stop-AppProcess -Process $frontendProcess
     Write-WatcherLog '清理完成。'
 }
