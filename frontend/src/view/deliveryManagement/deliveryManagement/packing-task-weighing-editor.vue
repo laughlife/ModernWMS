@@ -103,11 +103,12 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { completeDispatchOrderWeighing, completeDispatchTaskWeighing, confirmDispatchActualPacking, confirmDispatchPacking, getDispatchPackingPlan, saveDispatchPackingPlan } from '@/api/wms/dispatchWorkflow'
+import { confirmDispatchPacking, getDispatchPackingPlan, saveDispatchPackingPlan } from '@/api/wms/dispatchWorkflow'
 import { hookComponent } from '@/components/system'
 import ProductImage from '@/components/system/product-image.vue'
 import type { PackingPlan, PackingPlanBox } from '@/types/DeliveryManagement/DispatchWorkflow'
 import { allocatedTaskQty, copyDraftBox, itemTaskLimit, newDraftBox, remainingTaskQty } from './packingPlanPolicy'
+import { advancePackingPlan, inspectPackingPlan } from './packingPlanCompletion'
 
 const props = defineProps<{ orderId: number; packingTaskId: number; frozen?: boolean; autoCheck?: boolean }>()
 const emit = defineEmits<{ saved: []; completed: [] }>()
@@ -116,25 +117,7 @@ const loading = ref(false); const saving = ref(false); const completing = ref(fa
 const errorMessage = ref('')
 const packingPlanStatus = computed(() => String(plan.value?.packing_plan_status ?? ''))
 const editable = computed(() => !props.frozen && (packingPlanStatus.value === 'DRAFT' || packingPlanStatus.value === 'PACKING_CONFIRMED'))
-const completionHint = computed(() => {
-  if (!plan.value) return ''
-  if (plan.value.boxes.length === 0) return '至少建立一个箱子'
-  const issues: string[] = []
-  plan.value.boxes.forEach((box, index) => {
-    const missing: string[] = []
-    if (Number(box.weight) <= 0) missing.push('重量')
-    if (Number(box.length) <= 0) missing.push('长')
-    if (Number(box.width) <= 0) missing.push('宽')
-    if (Number(box.height) <= 0) missing.push('高')
-    if (!box.items.some((item) => Number(item.task_qty) > 0)) missing.push('商品任务量')
-    if (box.items.some((item) => !Number.isInteger(Number(item.task_qty)) || Number(item.task_qty) < 0)) missing.push('有效整数任务量')
-    if (missing.length) issues.push(`第${index + 1}箱缺少${missing.join('、')}`)
-  })
-  plan.value.items.forEach((item) => {
-    if (allocatedTaskQty(plan.value!, item.id) > itemTaskLimit(plan.value!, item)) issues.push(`${item.commodity_name}任务量超限`)
-  })
-  return issues.join('；')
-})
+const completionHint = computed(() => plan.value ? inspectPackingPlan(plan.value).issues.join('；') : '')
 const requestId = () => globalThis.crypto?.randomUUID?.() ?? `packing-${Date.now()}-${Math.random().toString(16).slice(2)}`
 const product = (id: number) => plan.value?.items.find((item) => item.id === id)
 const fillBoxProductRows = (packingPlan: PackingPlan, initializeFirstBox = false) => {
@@ -175,16 +158,7 @@ const advanceAfterPackingCheck = async () => {
   if (!plan.value) return
   checking.value = true
   try {
-    const saved = await saveDispatchPackingPlan(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value.row_version, task_row_version: plan.value.task_row_version, boxes: boxesForSave() })
-    if (!saved.isSuccess) throw new Error(saved.errorMessage)
-    fillBoxProductRows(saved.data)
-    const confirmed = await confirmDispatchActualPacking(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value!.row_version, task_row_version: plan.value!.task_row_version })
-    if (!confirmed.isSuccess) throw new Error(confirmed.errorMessage)
-    fillBoxProductRows(confirmed.data)
-    const taskCompleted = await completeDispatchTaskWeighing(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value!.row_version })
-    if (!taskCompleted.isSuccess) throw new Error(taskCompleted.errorMessage)
-    const orderCompleted = await completeDispatchOrderWeighing(props.orderId, { request_id: requestId(), row_version: taskCompleted.data.row_version })
-    if (!orderCompleted.isSuccess) throw new Error(orderCompleted.errorMessage)
+    await advancePackingPlan(props.orderId, props.packingTaskId, plan.value)
     hookComponent.$message({ type: 'success', content: '装箱检测通过，已进入待出库' })
     emit('completed')
   } catch (error) {
@@ -203,10 +177,8 @@ const checkPacking = () => {
     hookComponent.$message({ type: 'error', content: `装箱检测未通过：${completionHint.value}` })
     return
   }
-  const unfinishedProducts = plan.value.items
-    .map((item) => ({ item, remaining: remainingTaskQty(plan.value!, item) }))
-    .filter(({ remaining }) => remaining > 0)
-    .map(({ item, remaining }) => `${item.commodity_name || item.commodity_sku || '未命名'}商品（剩余任务量${remaining}，剩余商品数量${remaining * item.variant_qty}）`)
+  const unfinishedProducts = inspectPackingPlan(plan.value).unfinishedProducts
+    .map((item) => `${item.name}商品（剩余任务量${item.remainingTaskQty}，剩余商品数量${item.remainingRequiredQty}）`)
   const content = unfinishedProducts.length > 0
     ? `任务中还有${unfinishedProducts.join('、')}没有完成装箱，是否确定完成？`
     : '装箱数据检测通过，是否确定完成并进入待出库？'
