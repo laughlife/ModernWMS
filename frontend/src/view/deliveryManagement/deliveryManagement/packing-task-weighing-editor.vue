@@ -55,7 +55,8 @@
         <v-card-title class="box-title">
           <span>第 {{ boxIndex + 1 }} 箱</span>
           <div class="box-actions">
-            <v-btn size="small" prepend-icon="mdi-content-copy" variant="tonal" :disabled="!editable" @click="copyBox(box, boxIndex)">复制</v-btn>
+            <v-btn size="small" prepend-icon="mdi-content-copy" variant="tonal" :disabled="!editable" @click="openCopyBox(box, boxIndex)">复制</v-btn>
+            <v-btn size="small" prepend-icon="mdi-broom" color="warning" variant="tonal" :disabled="!editable" @click="clearBoxMeasurements(box, boxIndex)">清空</v-btn>
             <v-btn icon="mdi-delete-outline" size="small" color="error" variant="text" :disabled="!editable" @click="removeBox(boxIndex)" />
           </div>
         </v-card-title>
@@ -98,11 +99,27 @@
         </div>
       </div>
     </template>
+
+    <v-dialog v-model="copyDialog.visible" max-width="520" persistent>
+      <v-card>
+        <v-card-title>复制第 {{ copyDialog.sourceIndex + 1 }} 箱</v-card-title>
+        <v-card-text>
+          <v-alert type="info" variant="tonal" density="compact" class="mb-4">
+            将覆盖目标箱的重量、长宽高和装箱数量，目标箱编号保持不变。
+          </v-alert>
+          <v-select v-model="copyDialog.targetIndex" :items="copyTargetOptions" label="选择目标箱" density="compact" hide-details />
+        </v-card-text>
+        <v-card-actions class="justify-end">
+          <v-btn variant="text" @click="closeCopyDialog">取消</v-btn>
+          <v-btn color="primary" :disabled="copyDialog.targetIndex === null" @click="confirmCopyBox">确认复制</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { confirmDispatchPacking, getDispatchPackingPlan, saveDispatchPackingPlan } from '@/api/wms/dispatchWorkflow'
 import { hookComponent } from '@/components/system'
 import ProductImage from '@/components/system/product-image.vue'
@@ -114,10 +131,14 @@ const props = defineProps<{ orderId: number; packingTaskId: number; frozen?: boo
 const emit = defineEmits<{ saved: []; completed: [] }>()
 const plan = ref<PackingPlan | null>(null)
 const loading = ref(false); const saving = ref(false); const completing = ref(false); const checking = ref(false)
+const copyDialog = reactive({ visible: false, sourceIndex: -1, targetIndex: null as number | null })
 const errorMessage = ref('')
 const packingPlanStatus = computed(() => String(plan.value?.packing_plan_status ?? ''))
 const editable = computed(() => !props.frozen && (packingPlanStatus.value === 'DRAFT' || packingPlanStatus.value === 'PACKING_CONFIRMED'))
 const completionHint = computed(() => plan.value ? inspectPackingPlan(plan.value).issues.join('；') : '')
+const copyTargetOptions = computed(() => plan.value?.boxes
+  .map((_, index) => ({ title: `第 ${index + 1} 箱`, value: index }))
+  .filter((option) => option.value !== copyDialog.sourceIndex) ?? [])
 const requestId = () => globalThis.crypto?.randomUUID?.() ?? `packing-${Date.now()}-${Math.random().toString(16).slice(2)}`
 const product = (id: number) => plan.value?.items.find((item) => item.id === id)
 const fillBoxProductRows = (packingPlan: PackingPlan, initializeFirstBox = false) => {
@@ -146,11 +167,38 @@ const addEmptyBox = () => {
   plan.value.boxes.push(box)
 }
 const removeBox = (index: number) => plan.value?.boxes.splice(index, 1)
-const copyBox = (box: PackingPlanBox, index: number) => {
+const closeCopyDialog = () => { copyDialog.visible = false; copyDialog.sourceIndex = -1; copyDialog.targetIndex = null }
+const openCopyBox = (box: PackingPlanBox, index: number) => {
   if (!plan.value) return
-  plan.value.boxes.splice(index + 1, 0, copyDraftBox(box, index + 2))
-  plan.value.boxes.forEach((entry, boxIndex) => { entry.box_sequence = boxIndex + 1 })
-  hookComponent.$message({ type: 'info', content: `已复制为第 ${index + 2} 箱，请按实际装箱数量调整后保存` })
+  if (plan.value.boxes.length === 1) {
+    plan.value.boxes.push(copyDraftBox(box, 2))
+    hookComponent.$message({ type: 'info', content: '当前没有其他箱，已新建第 2 箱并复制全部数据' })
+    return
+  }
+  copyDialog.sourceIndex = index
+  copyDialog.targetIndex = copyTargetOptions.value[0]?.value ?? null
+  copyDialog.visible = true
+}
+const confirmCopyBox = () => {
+  if (!plan.value || copyDialog.sourceIndex < 0 || copyDialog.targetIndex === null) return
+  const source = plan.value.boxes[copyDialog.sourceIndex]
+  const target = plan.value.boxes[copyDialog.targetIndex]
+  if (!source || !target || source === target) return
+  target.weight = source.weight
+  target.length = source.length
+  target.width = source.width
+  target.height = source.height
+  target.items = source.items.map((item) => ({ ...item }))
+  const targetSequence = copyDialog.targetIndex + 1
+  closeCopyDialog()
+  hookComponent.$message({ type: 'info', content: `已将当前箱数据复制到第 ${targetSequence} 箱，请确认后保存` })
+}
+const clearBoxMeasurements = (box: PackingPlanBox, index: number) => {
+  box.weight = null
+  box.length = null
+  box.width = null
+  box.height = null
+  hookComponent.$message({ type: 'info', content: `第 ${index + 1} 箱的重量和长宽高已清空，装箱数量保持不变` })
 }
 const savePacking = async () => { if (!plan.value) return; saving.value = true; try { const result = await saveDispatchPackingPlan(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value.row_version, task_row_version: plan.value.task_row_version, boxes: boxesForSave() }); if (!result.isSuccess) throw new Error(result.errorMessage); fillBoxProductRows(result.data); hookComponent.$message({ type: 'success', content: '装箱信息已保存，可继续修改或删除' }); emit('saved') } catch (error) { hookComponent.$message({ type: 'error', content: error instanceof Error ? error.message : String(error) }) } finally { saving.value = false } }
 const completePacking = () => { if (!plan.value) return; hookComponent.$dialog({ content: '本次仅记录人工确认装箱完成，不执行最终业务校验，也不会进入下一步；确认后仍可继续修改和保存，是否继续？', handleConfirm: async () => { if (!plan.value) return; completing.value = true; try { const saved = await saveDispatchPackingPlan(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value.row_version, task_row_version: plan.value.task_row_version, boxes: boxesForSave() }); if (!saved.isSuccess) throw new Error(saved.errorMessage); fillBoxProductRows(saved.data); const confirmed = await confirmDispatchPacking(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value!.row_version, task_row_version: plan.value!.task_row_version }); if (!confirmed.isSuccess) throw new Error(confirmed.errorMessage); fillBoxProductRows(confirmed.data); hookComponent.$message({ type: 'success', content: '已确认装箱完成，当前仍可继续修改和保存；业务下一步尚未执行' }); emit('saved') } catch (error) { hookComponent.$message({ type: 'error', content: error instanceof Error ? error.message : String(error) }) } finally { completing.value = false } } }) }
