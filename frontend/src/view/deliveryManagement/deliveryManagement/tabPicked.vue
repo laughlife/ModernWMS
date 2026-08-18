@@ -15,14 +15,13 @@
           批量去称重（{{ data.selectedOrderCount }}）
         </v-btn>
       </v-col>
-      <v-col cols="8" @keyup.enter="method.sureSearch">
-        <v-text-field
-          v-model="data.searchForm.keyword"
-          clearable hide-details density="comfortable" class="searchInput ml-5 mt-1"
-          label="装箱任务号、商品、SKU、FNSKU或MSKU"
-          variant="solo"
-        />
-      </v-col>
+      <DispatchSearchFilters
+        v-model:keyword="data.searchForm.keyword"
+        v-model:group-id="data.searchForm.group_id"
+        v-model:member-id="data.searchForm.member_id"
+        :cols="8"
+        @search="method.sureSearch"
+      />
     </v-row>
   </div>
 
@@ -176,10 +175,10 @@ import { decideDispatchSourceChange, getDispatchOrder, getDispatchOrderPage, sta
 import { hookComponent } from '@/components/system'
 import BtnGroup from '@/components/system/btnGroup.vue'
 import ProductImage from '@/components/system/product-image.vue'
+import DispatchSearchFilters from './dispatch-search-filters.vue'
 import TooltipBtn from '@/components/tooltip-btn.vue'
 import customPager from '@/components/custom-pager.vue'
 import { computedCardHeight, computedTableHeight } from '@/constant/style'
-import { DEBOUNCE_TIME } from '@/constant/system'
 import { DEFAULT_PAGE_SIZE, PAGE_LAYOUT, PAGE_SIZE } from '@/constant/vxeTable'
 import i18n from '@/languages/i18n'
 import type { DispatchOrderDetail, DispatchOrderSummary, DispatchPackingTask, DispatchSourceDecision } from '@/types/DeliveryManagement/DispatchWorkflow'
@@ -203,8 +202,7 @@ const xTable = ref()
 let pageRequestSequence = 0
 
 const data = reactive({
-  searchForm: { keyword: '' },
-  timer: null as ReturnType<typeof setTimeout> | null,
+  searchForm: { keyword: '', group_id: null as number | null, member_id: null as number | null },
   loading: false,
   weighingBatch: false,
   selectedOrderCount: 0,
@@ -295,11 +293,6 @@ const clearPageForRequest = (): void => {
   data.selectedOrderCount = 0
   resetDecisionDialog()
 }
-const invalidatePageRequest = (): void => {
-  pageRequestSequence++
-  clearPageForRequest()
-}
-
 const method = reactive({
   refresh: () => method.getPicked(),
   getPicked: async () => {
@@ -310,6 +303,7 @@ const method = reactive({
     try {
       const result = await getDispatchOrderPage({
         status: 'PICKED', warehouse_id: requestIdentity.warehouseId, keyword: requestIdentity.keyword,
+        group_id: data.searchForm.group_id, member_id: data.searchForm.member_id,
         pageIndex: requestIdentity.pageIndex, pageSize: requestIdentity.pageSize
       })
       if (!isCurrentPickedPageRequest(requestIdentity, currentPageRequestIdentity())) return
@@ -441,11 +435,6 @@ onMounted(() => {
 const cardHeight = computed(() => computedCardHeight({}))
 const tableHeight = computed(() => computedTableHeight({}))
 watch(() => props.warehouseId, () => { data.tablePage.pageIndex = 1; method.getPicked() }, { immediate: true })
-watch(() => data.searchForm.keyword, () => {
-  if (data.timer) clearTimeout(data.timer)
-  invalidatePageRequest()
-  data.timer = setTimeout(() => { data.timer = null; method.sureSearch() }, DEBOUNCE_TIME)
-})
 defineExpose({ getPicked: method.getPicked })
 </script>
 

@@ -35,22 +35,80 @@ public sealed class DispatchOrderQueryService : IDispatchOrderQueryService
         var keyword = request.keyword.Trim();
         var pageIndex = Math.Max(request.pageIndex, 1);
         var pageSize = Math.Clamp(request.pageSize, 1, 200);
-        var p = new { request.warehouse_id, tenantId = currentUser.tenant_id, status, keyword = $"%{EscapeLike(keyword)}%", hasKeyword = keyword.Length > 0,
-            pageSize, offset = (pageIndex - 1) * pageSize };
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        using var result = await connection.QueryMultipleAsync(new CommandDefinition("""
-            SELECT COUNT(*) FROM `wms_dispatch_order` o
-            WHERE o.`warehouse_id`=@warehouse_id AND o.`tenant_id`=@tenantId AND (@status IS NULL OR o.`status`=@status)
+        var parameters = new DynamicParameters();
+        parameters.Add("warehouse_id", request.warehouse_id);
+        parameters.Add("tenantId", currentUser.tenant_id);
+        parameters.Add("status", status);
+        parameters.Add("keyword", $"%{EscapeLike(keyword)}%");
+        parameters.Add("hasKeyword", keyword.Length > 0);
+        parameters.Add("pageSize", pageSize);
+        parameters.Add("offset", (pageIndex - 1) * pageSize);
+
+        var creatorWhere = string.Empty;
+        if (request.group_id is > 0)
+        {
+            var groupMemberNames = (await connection.QueryAsync<string>(new CommandDefinition("""
+                WITH RECURSIVE dept_tree AS (
+                    SELECT d.`id`, 0 AS depth FROM `system_dept` d
+                    WHERE d.`id`=@groupId AND d.`deleted`=0 AND d.`status`=0 AND d.`dept`='operator'
+                    UNION ALL
+                    SELECT c.`id`, t.depth + 1 FROM `system_dept` c
+                    JOIN dept_tree t ON c.`parent_id`=t.`id`
+                    WHERE c.`deleted`=0 AND c.`status`=0 AND t.depth < 20
+                )
+                SELECT DISTINCT u.`nickname` FROM `system_users` u
+                JOIN dept_tree t ON u.`dept_id`=t.`id`
+                WHERE u.`deleted`=0 AND u.`status`=0 AND u.`nickname` IS NOT NULL AND u.`nickname`<>'';
+                """, new { groupId = request.group_id.Value }, cancellationToken: cancellationToken))).AsList();
+            if (groupMemberNames.Count == 0) return new DispatchOrderPageResult([], 0);
+            parameters.Add("groupMemberNames", groupMemberNames);
+            creatorWhere += " AND source.`create_name` IN @groupMemberNames";
+        }
+
+        if (request.member_id is > 0)
+        {
+            var memberName = await connection.QuerySingleOrDefaultAsync<string>(new CommandDefinition("""
+                SELECT `nickname` FROM `system_users`
+                WHERE `id`=@memberId AND `deleted`=0 AND `status`=0 LIMIT 1;
+                """, new { memberId = request.member_id.Value }, cancellationToken: cancellationToken));
+            if (string.IsNullOrWhiteSpace(memberName)) return new DispatchOrderPageResult([], 0);
+            parameters.Add("memberName", memberName);
+            creatorWhere += " AND source.`create_name`=@memberName";
+        }
+
+        var creatorFilter = creatorWhere.Length == 0 ? string.Empty : $"""
+              AND EXISTS(
+                SELECT 1 FROM `wms_dispatch_packing_task` creator_task
+                JOIN `ruiyi_sellfox_packing_task` source
+                  ON source.`sellfox_task_id`=creator_task.`source_task_id`
+                WHERE creator_task.`dispatch_order_id`=o.`id` AND creator_task.`is_active`=1
+                  {creatorWhere})
+            """;
+        var orderWhere = $"""
+            FROM `wms_dispatch_order` o
+            WHERE o.`warehouse_id`=@warehouse_id AND o.`tenant_id`=@tenantId
+              AND (@status IS NULL OR o.`status`=@status)
               AND (@hasKeyword=0 OR o.`dispatch_no` LIKE @keyword ESCAPE '!'
-                OR EXISTS(SELECT 1 FROM `wms_dispatch_packing_task` t WHERE t.`dispatch_order_id`=o.`id`
-                  AND t.`is_active`=1 AND t.`source_task_no` LIKE @keyword ESCAPE '!'));
-            SELECT o.* FROM `wms_dispatch_order` o
-            WHERE o.`warehouse_id`=@warehouse_id AND o.`tenant_id`=@tenantId AND (@status IS NULL OR o.`status`=@status)
-              AND (@hasKeyword=0 OR o.`dispatch_no` LIKE @keyword ESCAPE '!'
-                OR EXISTS(SELECT 1 FROM `wms_dispatch_packing_task` t WHERE t.`dispatch_order_id`=o.`id`
-                  AND t.`is_active`=1 AND t.`source_task_no` LIKE @keyword ESCAPE '!'))
+                OR EXISTS(
+                  SELECT 1 FROM `wms_dispatch_packing_task` search_task
+                  LEFT JOIN `wms_dispatch_packing_task_item` search_item
+                    ON search_item.`packing_task_id`=search_task.`id` AND search_item.`is_active`=1
+                  WHERE search_task.`dispatch_order_id`=o.`id` AND search_task.`is_active`=1
+                    AND (search_task.`source_task_no` LIKE @keyword ESCAPE '!'
+                      OR search_item.`commodity_name` LIKE @keyword ESCAPE '!'
+                      OR search_item.`commodity_sku` LIKE @keyword ESCAPE '!'
+                      OR search_item.`fn_sku` LIKE @keyword ESCAPE '!'
+                      OR search_item.`msku` LIKE @keyword ESCAPE '!')))
+              {creatorFilter}
+            """;
+        using var result = await connection.QueryMultipleAsync(new CommandDefinition($"""
+            SELECT COUNT(*)
+            {orderWhere};
+            SELECT o.*
+            {orderWhere}
             ORDER BY o.`create_time` DESC,o.`id` DESC LIMIT @pageSize OFFSET @offset;
-            """, p, cancellationToken: cancellationToken));
+            """, parameters, cancellationToken: cancellationToken));
         var totals = await result.ReadSingleAsync<int>();
         var orders = (await result.ReadAsync<DispatchOrderEntity>()).AsList();
         if (orders.Count > 0)

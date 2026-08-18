@@ -74,6 +74,8 @@ export interface DispatchOrderPageRequest {
   status: VisibleDispatchOrderStatus
   warehouse_id: number
   keyword: string
+  group_id?: number | null
+  member_id?: number | null
   pageIndex: number
   pageSize: number
 }

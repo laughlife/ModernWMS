@@ -2,10 +2,13 @@
   <div class="operateArea">
     <v-row no-gutters>
       <v-col cols="4" class="col"><BtnGroup :authority-list="data.authorityList" :btn-list="data.btnList" /></v-col>
-      <v-col cols="8">
-        <v-text-field v-model="data.keyword" clearable hide-details density="comfortable" class="searchInput ml-5 mt-1"
-          label="WMS拣货单号或装箱任务号" variant="solo" @keyup.enter="method.search" />
-      </v-col>
+      <DispatchSearchFilters
+        v-model:keyword="data.keyword"
+        v-model:group-id="data.group_id"
+        v-model:member-id="data.member_id"
+        :cols="8"
+        @search="method.search"
+      />
     </v-row>
   </div>
 
@@ -114,9 +117,9 @@ import { confirmDispatchOutbound, decideDispatchSourceChange, getDispatchOrder, 
 import { hookComponent } from '@/components/system'
 import BtnGroup from '@/components/system/btnGroup.vue'
 import TooltipBtn from '@/components/tooltip-btn.vue'
+import DispatchSearchFilters from './dispatch-search-filters.vue'
 import customPager from '@/components/custom-pager.vue'
 import { computedCardHeight, computedTableHeight } from '@/constant/style'
-import { DEBOUNCE_TIME } from '@/constant/system'
 import { DEFAULT_PAGE_SIZE, PAGE_LAYOUT, PAGE_SIZE } from '@/constant/vxeTable'
 import i18n from '@/languages/i18n'
 import type { DispatchOrderDetail, DispatchOrderSummary, WeighingBox } from '@/types/DeliveryManagement/DispatchWorkflow'
@@ -133,9 +136,9 @@ interface PendingOutboundRow extends DispatchOrderSummary {
 
 const props = defineProps<{ warehouseId: number | null }>()
 const emit = defineEmits<{ goToCompleted: []; statusChanged: [] }>()
-let searchTimer: ReturnType<typeof setTimeout> | null = null
 const requestGuard = createLatestRequestGuard()
-const data = reactive({ keyword: '', tableData: [] as PendingOutboundRow[], total: 0, pageIndex: 1, pageSize: DEFAULT_PAGE_SIZE,
+const data = reactive({ keyword: '', group_id: null as number | null, member_id: null as number | null,
+  tableData: [] as PendingOutboundRow[], total: 0, pageIndex: 1, pageSize: DEFAULT_PAGE_SIZE,
   btnList: [] as btnGroupItem[], authorityList: getMenuAuthorityList() })
 const decisionDialog = reactive({ visible: false, submitting: false, reason: '', row: null as PendingOutboundRow | null })
 
@@ -203,7 +206,10 @@ const method = reactive({
     const sequence = beginPendingOutboundLoad(data, requestGuard)
     if (props.warehouseId === null) return
     try {
-      const result = await getDispatchOrderPage(buildPendingOutboundPageRequest(props.warehouseId, data.keyword, data.pageIndex, data.pageSize))
+      const request = buildPendingOutboundPageRequest(props.warehouseId, data.keyword, data.pageIndex, data.pageSize)
+      request.group_id = data.group_id
+      request.member_id = data.member_id
+      const result = await getDispatchOrderPage(request)
       if (!requestGuard.isCurrent(sequence)) return
       if (!result.isSuccess) { hookComponent.$message({ type: 'error', content: result.errorMessage }); return }
       const rows: PendingOutboundRow[] = result.data.rows.map(row => ({ ...row, detail: null, boxes_by_task: {}, detail_loading: false, detail_error: '' }))
@@ -239,10 +245,6 @@ onMounted(() => {
   void method.getDelivery()
 })
 watch(() => props.warehouseId, () => { data.pageIndex = 1; void method.getDelivery() })
-watch(() => data.keyword, () => {
-  if (searchTimer) clearTimeout(searchTimer)
-  searchTimer = setTimeout(() => { searchTimer = null; method.search() }, DEBOUNCE_TIME)
-})
 const cardHeight = computed(() => computedCardHeight({}))
 const tableHeight = computed(() => computedTableHeight({}))
 defineExpose({ getDelivery: method.getDelivery })

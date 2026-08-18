@@ -2,10 +2,13 @@
   <div class="operateArea">
     <v-row no-gutters>
       <v-col cols="4" class="col"><BtnGroup :authority-list="data.authorityList" :btn-list="data.btnList" /></v-col>
-      <v-col cols="8">
-        <v-text-field v-model="data.keyword" clearable hide-details density="comfortable" class="searchInput ml-5 mt-1"
-          label="WMS拣货单号或装箱任务号" variant="solo" @keyup.enter="method.search" />
-      </v-col>
+      <DispatchSearchFilters
+        v-model:keyword="data.keyword"
+        v-model:group-id="data.group_id"
+        v-model:member-id="data.member_id"
+        :cols="8"
+        @search="method.search"
+      />
     </v-row>
   </div>
 
@@ -123,10 +126,10 @@ import { decideDispatchSourceChange, getDispatchOrder, getDispatchOrderPage } fr
 import { hookComponent } from '@/components/system'
 import BtnGroup from '@/components/system/btnGroup.vue'
 import ProductImage from '@/components/system/product-image.vue'
+import DispatchSearchFilters from './dispatch-search-filters.vue'
 import TooltipBtn from '@/components/tooltip-btn.vue'
 import customPager from '@/components/custom-pager.vue'
 import { computedCardHeight, computedTableHeight } from '@/constant/style'
-import { DEBOUNCE_TIME } from '@/constant/system'
 import { DEFAULT_PAGE_SIZE, PAGE_LAYOUT, PAGE_SIZE } from '@/constant/vxeTable'
 import i18n from '@/languages/i18n'
 import type { DispatchOrderDetail, DispatchOrderSummary, DispatchSourceDecision } from '@/types/DeliveryManagement/DispatchWorkflow'
@@ -139,9 +142,9 @@ type WeighingOrderRow = DispatchOrderSummary & { detail: DispatchOrderDetail | n
 const props = defineProps<{ warehouseId: number | null }>()
 const emit = defineEmits<{ statusChanged: [] }>()
 const xTable = ref()
-let searchTimer: ReturnType<typeof setTimeout> | null = null
 let listRequestSequence = 0
-const data = reactive({ keyword: '', loading: false, tableData: [] as WeighingOrderRow[], total: 0, pageIndex: 1, pageSize: DEFAULT_PAGE_SIZE,
+const data = reactive({ keyword: '', group_id: null as number | null, member_id: null as number | null,
+  loading: false, tableData: [] as WeighingOrderRow[], total: 0, pageIndex: 1, pageSize: DEFAULT_PAGE_SIZE,
   btnList: [] as btnGroupItem[], authorityList: getMenuAuthorityList() })
 const decisionDialog = reactive({ visible: false, submitting: false, reason: '', row: null as DispatchOrderSummary | null })
 const requestId = () => globalThis.crypto?.randomUUID?.() ?? `source-decision-${Date.now()}-${Math.random().toString(16).slice(2)}`
@@ -188,7 +191,11 @@ const method = reactive({
     }
     data.loading = true; data.tableData = []; data.total = 0
     try {
-      const result = await getDispatchOrderPage({ status: 'WEIGHING', warehouse_id: request.warehouseId, keyword: request.keyword, pageIndex: request.pageIndex, pageSize: request.pageSize })
+      const result = await getDispatchOrderPage({
+        status: 'WEIGHING', warehouse_id: request.warehouseId, keyword: request.keyword,
+        group_id: data.group_id, member_id: data.member_id,
+        pageIndex: request.pageIndex, pageSize: request.pageSize
+      })
       if (!listRequestIsCurrent(request)) return
       if (!result.isSuccess) { showError(result.errorMessage); return }
       data.tableData = result.data.rows.map((row) => ({ ...row, detail: null, detailLoaded: false, detailLoading: false, detailError: '' }))
@@ -227,7 +234,6 @@ const method = reactive({
 
 onMounted(() => { data.btnList = [{ name: i18n.global.t('system.page.refresh'), icon: 'mdi-refresh', code: '', click: method.refresh }] })
 watch(() => props.warehouseId, () => { data.pageIndex = 1; method.getWeighed() }, { immediate: true })
-watch(() => data.keyword, () => { if (searchTimer) clearTimeout(searchTimer); searchTimer = setTimeout(() => { searchTimer = null; method.search() }, DEBOUNCE_TIME) })
 const cardHeight = computed(() => computedCardHeight({}))
 const tableHeight = computed(() => computedTableHeight({}))
 defineExpose({ getWeighed: method.getWeighed })

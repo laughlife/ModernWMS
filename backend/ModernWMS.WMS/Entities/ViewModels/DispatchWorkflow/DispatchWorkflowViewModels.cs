@@ -144,6 +144,8 @@ public sealed class DispatchOrderPageRequest
     public string status { get; set; } = string.Empty;
     public long warehouse_id { get; set; }
     public string keyword { get; set; } = string.Empty;
+    public long? group_id { get; set; }
+    public long? member_id { get; set; }
     public int pageIndex { get; set; } = 1;
     public int pageSize { get; set; } = 20;
 }

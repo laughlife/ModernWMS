@@ -26,17 +26,13 @@
           拣货完成（{{ data.selectedOrderCount }}）
         </v-btn>
       </v-col>
-      <v-col cols="6" @keyup.enter="method.sureSearch">
-        <v-text-field
-          v-model="data.searchForm.keyword"
-          clearable
-          hide-details
-          density="comfortable"
-          class="searchInput ml-5 mt-1"
-          :label="$t('wms.deliveryManagement.packingTaskKeyword')"
-          variant="solo"
-        />
-      </v-col>
+      <DispatchSearchFilters
+        v-model:keyword="data.searchForm.keyword"
+        v-model:group-id="data.searchForm.group_id"
+        v-model:member-id="data.searchForm.member_id"
+        :cols="6"
+        @search="method.sureSearch"
+      />
     </v-row>
   </div>
 
@@ -245,10 +241,10 @@ import {
 import { hookComponent } from '@/components/system'
 import BtnGroup from '@/components/system/btnGroup.vue'
 import ProductImage from '@/components/system/product-image.vue'
+import DispatchSearchFilters from './dispatch-search-filters.vue'
 import TooltipBtn from '@/components/tooltip-btn.vue'
 import customPager from '@/components/custom-pager.vue'
 import { computedCardHeight, computedTableHeight } from '@/constant/style'
-import { DEBOUNCE_TIME } from '@/constant/system'
 import { DEFAULT_PAGE_SIZE, PAGE_LAYOUT, PAGE_SIZE } from '@/constant/vxeTable'
 import i18n from '@/languages/i18n'
 import { useDispatchWarehouseStore } from '@/store/module/dispatchWarehouse'
@@ -279,8 +275,7 @@ const printButtonRef = ref<HTMLButtonElement>()
 const dispatchWarehouseStore = useDispatchWarehouseStore()
 
 const data = reactive({
-  searchForm: { keyword: '' },
-  timer: null as ReturnType<typeof setTimeout> | null,
+  searchForm: { keyword: '', group_id: null as number | null, member_id: null as number | null },
   tableData: [] as PendingPickTableRow[],
   printOrders: [] as DispatchOrderDetail[],
   printing: false,
@@ -403,12 +398,15 @@ const method = reactive({
     }
 
     try {
-      const result = await getDispatchOrderPage(buildPendingPickPageRequest(
+      const request = buildPendingPickPageRequest(
         requestedWarehouseId,
         requestedKeyword,
         requestedPageIndex,
         requestedPageSize
-      ))
+      )
+      request.group_id = data.searchForm.group_id
+      request.member_id = data.searchForm.member_id
+      const result = await getDispatchOrderPage(request)
       if (!isCurrentPageRequest(requestSeq, requestedWarehouseId)) return
       if (!result.isSuccess) {
         data.errorMessage = result.errorMessage
@@ -573,17 +571,6 @@ watch(
     method.getGoodsToBePicked()
   },
   { immediate: true }
-)
-
-watch(
-  () => data.searchForm.keyword,
-  () => {
-    if (data.timer) clearTimeout(data.timer)
-    data.timer = setTimeout(() => {
-      data.timer = null
-      method.sureSearch()
-    }, DEBOUNCE_TIME)
-  }
 )
 
 defineExpose({ getGoodsToBePicked: method.getGoodsToBePicked })

@@ -4,18 +4,13 @@
       <v-col cols="3" class="col">
         <BtnGroup :authority-list="state.authorityList" :btn-list="state.btnList" />
       </v-col>
-      <v-col cols="9">
-        <v-text-field
-          v-model="state.keyword"
-          clearable
-          hide-details
-          density="comfortable"
-          class="searchInput ml-5 mt-1"
-          label="WMS拣货单号或装箱任务号"
-          variant="solo"
-          @keyup.enter="search"
-        />
-      </v-col>
+      <DispatchSearchFilters
+        v-model:keyword="state.keyword"
+        v-model:group-id="state.group_id"
+        v-model:member-id="state.member_id"
+        :cols="9"
+        @search="search"
+      />
     </v-row>
   </div>
 
@@ -198,9 +193,9 @@ import {
 import { hookComponent } from '@/components/system'
 import BtnGroup from '@/components/system/btnGroup.vue'
 import TooltipBtn from '@/components/tooltip-btn.vue'
+import DispatchSearchFilters from './dispatch-search-filters.vue'
 import customPager from '@/components/custom-pager.vue'
 import { computedCardHeight, computedTableHeight } from '@/constant/style'
-import { DEBOUNCE_TIME } from '@/constant/system'
 import { DEFAULT_PAGE_SIZE, PAGE_LAYOUT, PAGE_SIZE } from '@/constant/vxeTable'
 import i18n from '@/languages/i18n'
 import type {
@@ -236,13 +231,14 @@ const emit = defineEmits<{ statusChanged: [] }>()
 const xTable = ref()
 const state = reactive({
   keyword: '',
+  group_id: null as number | null,
+  member_id: null as number | null,
   tableData: [] as CompletedTableRow[],
   total: 0,
   pageIndex: 1,
   pageSize: DEFAULT_PAGE_SIZE,
   loading: false,
   requestSeq: 0,
-  timer: null as ReturnType<typeof setTimeout> | null,
   btnList: [] as btnGroupItem[],
   authorityList: getMenuAuthorityList()
 })
@@ -333,9 +329,12 @@ const getCompleted = async (): Promise<void> => {
   const token = { sequence, warehouseId }
   state.loading = true
   try {
-    const result = await getDispatchOrderPage(buildCompletedPageRequest(
+    const request = buildCompletedPageRequest(
       warehouseId, state.keyword, state.pageIndex, state.pageSize
-    ))
+    )
+    request.group_id = state.group_id
+    request.member_id = state.member_id
+    const result = await getDispatchOrderPage(request)
     if (!isCompletedPageRequestCurrent(token, state.requestSeq, props.warehouseId)) return
     if (!result.isSuccess) {
       hookComponent.$message({ type: 'error', content: result.errorMessage })
@@ -475,14 +474,6 @@ watch(() => props.warehouseId, () => {
   state.pageIndex = 1
   void getCompleted()
 })
-watch(() => state.keyword, () => {
-  if (state.timer) clearTimeout(state.timer)
-  state.timer = setTimeout(() => {
-    state.timer = null
-    search()
-  }, DEBOUNCE_TIME)
-})
-
 defineExpose({ getCompleted })
 </script>
 
