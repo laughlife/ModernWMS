@@ -43,3 +43,18 @@ export const newDraftBox = (sequence: number, item?: PackingPlanItem, qty = 1): 
   row_version: 0,
   items: item ? [{ packing_task_item_id: item.id, task_qty: qty }] : []
 })
+
+export const copyDraftBox = (source: PackingPlanBox, sequence: number): PackingPlanBox => ({
+  id: null,
+  client_key: globalThis.crypto?.randomUUID?.() ?? `draft-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  box_sequence: sequence,
+  weight: source.weight,
+  length: source.length,
+  width: source.width,
+  height: source.height,
+  row_version: 0,
+  items: source.items.map((item) => ({
+    packing_task_item_id: item.packing_task_item_id,
+    task_qty: item.task_qty
+  }))
+})

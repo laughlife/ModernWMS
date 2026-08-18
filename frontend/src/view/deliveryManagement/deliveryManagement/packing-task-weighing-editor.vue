@@ -32,15 +32,23 @@
             <v-text-field v-model.number="box.width" type="number" min="0" label="宽(cm)" density="compact" hide-details :disabled="!editable" />
             <v-text-field v-model.number="box.height" type="number" min="0" label="高(cm)" density="compact" hide-details :disabled="!editable" />
           </div>
+          <div v-if="box.items.length" class="box-item-header">
+            <span>商品信息</span><span>任务量</span><span>变体</span><span>商品需求量</span><span>操作</span>
+          </div>
           <div v-for="(boxItem, itemIndex) in box.items" :key="boxItem.packing_task_item_id" class="box-item-row">
-            <span>{{ product(boxItem.packing_task_item_id)?.commodity_name }}（变体 {{ product(boxItem.packing_task_item_id)?.variant_qty }}）</span>
+            <span>
+              <span>{{ product(boxItem.packing_task_item_id)?.commodity_name || '-' }}</span>
+              <small>SKU：{{ product(boxItem.packing_task_item_id)?.commodity_sku || '-' }}</small>
+            </span>
             <v-text-field v-model.number="boxItem.task_qty" type="number" min="1" label="任务量" density="compact" hide-details :disabled="!editable" />
-            <span>商品件数：{{ Number(boxItem.task_qty || 0) * Number(product(boxItem.packing_task_item_id)?.variant_qty || 0) }}</span>
+            <span>{{ product(boxItem.packing_task_item_id)?.variant_qty || 0 }}</span>
+            <span>{{ Number(boxItem.task_qty || 0) * Number(product(boxItem.packing_task_item_id)?.variant_qty || 0) }}</span>
             <v-btn icon="mdi-close" size="x-small" variant="text" :disabled="!editable" @click="box.items.splice(itemIndex, 1)" />
           </div>
           <div class="add-product-row">
             <v-select v-model="selectedProduct[box.client_key]" :items="availableProducts(box)" item-title="commodity_name" item-value="id" label="添加同任务商品" density="compact" hide-details :disabled="!editable" />
             <v-btn size="small" :disabled="!editable || !selectedProduct[box.client_key]" @click="addProduct(box)">添加</v-btn>
+            <v-btn size="small" prepend-icon="mdi-content-copy" :disabled="!editable" @click="copyBox(box, boxIndex)">复制</v-btn>
           </div>
         </v-card-text>
       </v-card>
@@ -58,7 +66,7 @@ import { completeDispatchOrderWeighing, completeDispatchTaskWeighing, confirmDis
 import { hookComponent } from '@/components/system'
 import ProductImage from '@/components/system/product-image.vue'
 import type { PackingPlan, PackingPlanBox } from '@/types/DeliveryManagement/DispatchWorkflow'
-import { allocatedTaskQty, canConfirmPackingPlan, itemTaskLimit, newDraftBox, releasedRequiredQty, remainingTaskQty } from './packingPlanPolicy'
+import { allocatedTaskQty, canConfirmPackingPlan, copyDraftBox, itemTaskLimit, newDraftBox, releasedRequiredQty, remainingTaskQty } from './packingPlanPolicy'
 
 const props = defineProps<{ orderId: number; packingTaskId: number; frozen?: boolean }>()
 const emit = defineEmits<{ saved: []; completed: [] }>()
@@ -71,6 +79,12 @@ const product = (id: number) => plan.value?.items.find((item) => item.id === id)
 const load = async () => { loading.value = true; errorMessage.value = ''; try { const result = await getDispatchPackingPlan(props.orderId, props.packingTaskId); if (!result.isSuccess) throw new Error(result.errorMessage); plan.value = result.data } catch (error) { errorMessage.value = error instanceof Error ? error.message : String(error) } finally { loading.value = false } }
 const addEmptyBox = () => { if (plan.value) plan.value.boxes.push(newDraftBox(plan.value.boxes.length + 1)) }
 const removeBox = (index: number) => plan.value?.boxes.splice(index, 1)
+const copyBox = (box: PackingPlanBox, index: number) => {
+  if (!plan.value) return
+  plan.value.boxes.splice(index + 1, 0, copyDraftBox(box, index + 2))
+  plan.value.boxes.forEach((entry, boxIndex) => { entry.box_sequence = boxIndex + 1 })
+  hookComponent.$message({ type: 'info', content: `已复制为第 ${index + 2} 箱，请按实际装箱数量调整后保存` })
+}
 const availableProducts = (box: PackingPlanBox) => plan.value?.items.filter((item) => !box.items.some((entry) => entry.packing_task_item_id === item.id) && remainingTaskQty(plan.value!, item) > 0) ?? []
 const addProduct = (box: PackingPlanBox) => { const id = selectedProduct.value[box.client_key]; const item = id ? product(id) : undefined; if (!plan.value || !item) return; box.items.push({ packing_task_item_id: item.id, task_qty: remainingTaskQty(plan.value, item) }); selectedProduct.value[box.client_key] = null }
 const savePacking = async () => { if (!plan.value) return; saving.value = true; try { const result = await saveDispatchPackingPlan(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value.row_version, task_row_version: plan.value.task_row_version, boxes: plan.value.boxes }); if (!result.isSuccess) throw new Error(result.errorMessage); plan.value = result.data; hookComponent.$message({ type: 'success', content: '装箱信息已保存，确定装箱完成前可继续修改或删除' }); emit('saved') } catch (error) { hookComponent.$message({ type: 'error', content: error instanceof Error ? error.message : String(error) }) } finally { saving.value = false } }
@@ -83,6 +97,8 @@ onMounted(load)
 .editor-heading,.box-title,.editor-actions,.box-toolbar,.add-product-row,.box-item-row { display: flex; align-items: center; gap: 12px; }
 .editor-heading,.box-title { justify-content: space-between; }.product-pool { margin-top: 10px; }.box-toolbar { margin: 14px 0; }
 .box-card { background: rgb(var(--v-theme-surface)); }.box-card + .box-card { margin-top: 12px; }.measurement-grid { display: grid; grid-template-columns: repeat(4, minmax(120px,1fr)); gap: 10px; }
-.box-item-row { display: grid; grid-template-columns: 2fr 1fr 1fr auto; margin-top: 10px; }.add-product-row { margin-top: 12px; max-width: 520px; }.editor-actions { justify-content: flex-end; margin-top: 16px; }
+.box-item-header,.box-item-row { display: grid; grid-template-columns: minmax(180px,2fr) minmax(100px,1fr) minmax(70px,.7fr) minmax(110px,1fr) 48px; align-items: center; gap: 12px; }
+.box-item-header { margin-top: 16px; padding: 8px 0; border-bottom: 1px solid rgba(var(--v-border-color),var(--v-border-opacity)); font-weight: 600; }
+.box-item-row { margin-top: 10px; }.box-item-row small { display: block; }.add-product-row { margin-top: 12px; max-width: 650px; }.editor-actions { justify-content: flex-end; margin-top: 16px; }
 small { opacity: .65; }
 </style>
