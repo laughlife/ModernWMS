@@ -104,6 +104,10 @@ public class DispatchPackingTaskEntity : BaseModel
     public DispatchOrderStatus status { get; set; } = DispatchOrderStatus.PendingPick;
     public int measured_box_count { get; set; }
     public int expected_box_count { get; set; }
+    [MaxLength(24)] public string packing_plan_status { get; set; } = "DRAFT";
+    public DateTime? actual_confirmed_at { get; set; }
+    public int? actual_confirmed_by { get; set; }
+    [MaxLength(128)] public string actual_confirmed_by_name { get; set; } = string.Empty;
     [MaxLength(64)] public string source_version { get; set; } = string.Empty;
     public bool stable_box_identity_verified { get; set; }
     [MaxLength(500)] public string box_identity_validation_error { get; set; } = string.Empty;
@@ -147,6 +151,9 @@ public class DispatchPackingTaskItemEntity : BaseModel
     public int? required_qty { get; set; }
     public int? source_quantity_shipped { get; set; }
     public int? source_stock_available { get; set; }
+    public int? variant_qty { get; set; }
+    public int? actual_packed_task_qty { get; set; }
+    public int? actual_packed_required_qty { get; set; }
     [MaxLength(64)] public string source_version { get; set; } = string.Empty;
     public string source_snapshot { get; set; } = string.Empty;
     public bool is_active { get; set; } = true;
@@ -177,8 +184,7 @@ public class DispatchSourceChangeEventEntity : BaseModel
 }
 
 /// <summary>
-/// WMS measurements for a physical box proven to exist in source cartons_json.
-/// Array position is display-only and must never be used as source_box_identity.
+/// WMS-owned physical box and its measurements for one packing task.
 /// This new-flow table is intentionally separate from historical wms_dispatch_weighing_box,
 /// whose ERP FBA identities and measurements remain unchanged and are never migrated here.
 /// </summary>
@@ -205,6 +211,22 @@ public class WeighingBoxEntity : BaseModel
     public string source_snapshot { get; set; } = string.Empty;
     public bool is_invalidated { get; set; }
     public DateTime? invalidated_at { get; set; }
+    public DateTime create_time { get; set; }
+    public DateTime last_update_time { get; set; }
+    [ConcurrencyCheck] public long row_version { get; set; }
+    public List<WeighingBoxItemEntity> items { get; set; } = [];
+}
+
+[Table("weighing_box_item")]
+public class WeighingBoxItemEntity : BaseModel
+{
+    [ForeignKey(nameof(weighing_box_id))]
+    public WeighingBoxEntity weighing_box { get; set; } = null!;
+    public int weighing_box_id { get; set; }
+    [ForeignKey(nameof(packing_task_item_id))]
+    public DispatchPackingTaskItemEntity packing_task_item { get; set; } = null!;
+    public int packing_task_item_id { get; set; }
+    public int task_qty { get; set; }
     public DateTime create_time { get; set; }
     public DateTime last_update_time { get; set; }
     [ConcurrencyCheck] public long row_version { get; set; }
