@@ -41,10 +41,11 @@
                 </v-table>
                 <div v-for="box in row.boxes_by_task[task.id] || []" :key="box.id" class="box-detail-card">
                   <div class="box-detail-title">
-                    <strong>第 {{ box.box_sequence }} 箱：{{ box.source_box_identity }}</strong>
+                    <strong>第 {{ box.box_sequence }} 箱：{{ displayBoxIdentity(task, box) }}</strong>
                     <v-chip :color="measurementStatusColor(box.measurement_status)" size="x-small" variant="tonal">{{ measurementStatusText(box.measurement_status) }}</v-chip>
                   </div>
                   <v-table density="compact" class="box-measurement-table">
+                    <colgroup><col class="weight-column" /><col class="size-column" /><col class="volume-column" /><col class="ratio-column" /></colgroup>
                     <thead><tr><th>重量(kg)</th><th>尺寸(cm)</th><th>容积(cm³)</th><th>容积比</th></tr></thead>
                     <tbody><tr class="box-measurement-row">
                       <td>{{ formatNumber(box.weight) }}</td>
@@ -188,6 +189,7 @@ const formatBoxSize = (box: WeighingBox): string => {
   const length = Number(box.length); const width = Number(box.width); const height = Number(box.height)
   return length > 0 && width > 0 && height > 0 ? `${formatNumber(length)} × ${formatNumber(width)} × ${formatNumber(height)}` : '-'
 }
+const displayBoxIdentity = (task: DispatchPackingTask, box: WeighingBox): string => `${task.source_task_no}-箱${box.box_sequence}`
 const formatCubicCentimeters = (value: number): string => value > 0 ? value.toLocaleString('zh-CN', { maximumFractionDigits: 2 }) : '-'
 const formatVolumeRatio = (box: WeighingBox, divisor: number): string => {
   const volume = boxVolume(box)
@@ -319,6 +321,10 @@ defineExpose({ getDelivery: method.getDelivery })
 .box-measurement-table, .box-product-table { border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
 .box-measurement-table :deep(.v-table__wrapper) { overflow: visible; }
 .box-measurement-table :deep(table) { width: 100%; table-layout: fixed; }
+.box-measurement-table :deep(.weight-column) { width: 14%; }
+.box-measurement-table :deep(.size-column) { width: 22%; }
+.box-measurement-table :deep(.volume-column) { width: 18%; }
+.box-measurement-table :deep(.ratio-column) { width: 46%; }
 .box-measurement-table :deep(th) { padding-top: 10px; padding-bottom: 10px; }
 .box-measurement-table :deep(.box-measurement-row td) { padding-top: 12px; padding-bottom: 12px; vertical-align: middle; }
 .box-product-table { margin-top: 8px; }
