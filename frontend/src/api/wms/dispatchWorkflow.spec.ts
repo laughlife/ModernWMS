@@ -9,16 +9,19 @@ import {
   copyDispatchWeighingBox,
   createDispatchOrder,
   decideDispatchSourceChange,
+  deletePackingTaskStockSelection,
   getDispatchOrder,
   getDispatchOrderPage,
   getDispatchOrderPrint,
   getDispatchStatusCounts,
   getDispatchTaskBoxes,
   getDispatchWarehouseAccess,
+  getPackingTaskSelectableStock,
   getWorkflowPackingTaskPage,
   reconcileDispatchOrder,
   rollbackPendingPick,
   saveDispatchWeighingBox,
+  selectPackingTaskStock,
   signDispatchOrder,
   startDispatchWeighing
 } from './dispatchWorkflow'
@@ -153,6 +156,23 @@ describe('dispatch workflow api contract', () => {
     const orderCompletePayload = { request_id: 'order-complete-1', row_version: 12 }
     completeDispatchOrderWeighing(12, orderCompletePayload)
     expectLastRequest({ url: '/dispatch-workflow/12/complete-weighing', method: 'post', data: orderCompletePayload })
+  })
+
+  it('locks packing-task stock selection routes to the task, item and stock identities', () => {
+    const pagePayload = {
+      sellfox_task_id: 20526, sellfox_item_id: 94691, page_index: 1, page_size: 20
+    }
+    getPackingTaskSelectableStock(pagePayload)
+    expectLastRequest({ url: '/packing-task-query/selectable-stock', method: 'post', data: pagePayload })
+
+    const selectPayload = {
+      sellfox_task_id: 20526, sellfox_item_id: 94691, stock_id: 12, qty: 500
+    }
+    selectPackingTaskStock(selectPayload)
+    expectLastRequest({ url: '/packing-task-query/select-stock', method: 'post', data: selectPayload })
+
+    deletePackingTaskStockSelection({ ...selectPayload, qty: 0 })
+    expectLastRequest({ url: '/packing-task-query/delete-selection', method: 'post', data: { ...selectPayload, qty: 0 } })
   })
 
   it('locks source decision, outbound, cancellation and signing command payloads', () => {

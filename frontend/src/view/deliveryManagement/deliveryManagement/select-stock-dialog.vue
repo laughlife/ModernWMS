@@ -57,6 +57,7 @@
           ref="xTable"
           :data="stockRows"
           :column-config="{ minWidth: '110px' }"
+          :row-class-name="rowClassName"
           :loading="loading"
           align="center"
           height="400"
@@ -82,17 +83,29 @@
               <v-chip v-else size="small" variant="tonal">其它</v-chip>
             </template>
           </vxe-column>
-          <vxe-column title="操作" width="110" fixed="right">
+          <vxe-column title="操作" width="130" fixed="right">
             <template #default="{ row }">
               <v-btn
+                v-if="row.selected"
+                size="small"
+                color="error"
+                variant="tonal"
+                :disabled="loading"
+                :loading="selectingStockId === row.stock_id"
+                @click="method.unselectStock(row)"
+              >
+                取消选择
+              </v-btn>
+              <v-btn
+                v-else
                 size="small"
                 color="primary"
                 variant="tonal"
-                :disabled="row.selected || row.available_qty <= 0"
+                :disabled="row.available_qty <= 0"
                 :loading="selectingStockId === row.stock_id"
                 @click="method.selectStock(row)"
               >
-                {{ row.selected ? '已选择' : '选择' }}
+                选择
               </v-btn>
             </template>
           </vxe-column>
@@ -119,7 +132,7 @@
 
 <script lang="ts" setup>
 import { computed, reactive, ref } from 'vue'
-import { getPackingTaskSelectableStock, selectPackingTaskStock } from '@/api/wms/dispatchWorkflow'
+import { getPackingTaskSelectableStock, selectPackingTaskStock, deletePackingTaskStockSelection } from '@/api/wms/dispatchWorkflow'
 import { hookComponent } from '@/components/system'
 import ProductImage from '@/components/system/product-image.vue'
 import type { PackingTaskItemVO, PackingTaskVO, SelectableStockVO } from '@/types/DeliveryManagement/PackingTask'
@@ -143,6 +156,9 @@ const searching = ref(false)
 const footerText = computed(() => searching.value
   ? `搜索其他库存，共 ${total.value} 条匹配记录`
   : `当前展示创建人（${task.value?.create_name || '-'}）的库存，共 ${total.value} 条；搜索可查看其他库存`)
+
+// 已选择的库存行显示绿色背景。
+const rowClassName = ({ row }: { row: SelectableStockVO }): string => row.selected ? 'selected-row' : ''
 
 const method = reactive({
   loadPage: async () => {
@@ -235,6 +251,32 @@ const method = reactive({
     } finally {
       selectingStockId.value = null
     }
+  },
+  unselectStock: async (row: SelectableStockVO) => {
+    if (!item.value || !task.value) return
+    selectingStockId.value = row.stock_id
+    try {
+      const result = await deletePackingTaskStockSelection({
+        sellfox_task_id: task.value.sellfox_task_id,
+        sellfox_item_id: item.value.sellfox_item_id,
+        stock_id: row.stock_id,
+        qty: 0
+      })
+      if (!result.isSuccess) {
+        hookComponent.$message({ type: 'error', content: result.errorMessage })
+        return
+      }
+      hookComponent.$message({ type: 'success', content: '已取消选择，锁定库存已释放' })
+      selectedRows.value = selectedRows.value.filter((t) => t.stock_id !== row.stock_id)
+      // 重新加载列表恢复该行的可用量与选择状态，并通知父页面刷新锁定量。
+      pageIndex.value = 1
+      await method.loadPage()
+      emit('changed', [...selectedRows.value])
+    } catch (error) {
+      hookComponent.$message({ type: 'error', content: error instanceof Error ? error.message : String(error) })
+    } finally {
+      selectingStockId.value = null
+    }
   }
 })
 
@@ -308,5 +350,9 @@ defineExpose({ openDialog })
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.selected-row {
+  background-color: rgba(76, 175, 80, 0.14) !important;
 }
 </style>

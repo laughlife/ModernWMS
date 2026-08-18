@@ -66,4 +66,16 @@ public class PackingTaskQueryController : BaseController
             ? ResultModel<bool>.Success(true, message)
             : ResultModel<bool>.Error(message);
     }
+
+    /// <summary>
+    /// 取消装箱任务明细行对某个库存行的选择，释放锁定的库存。
+    /// </summary>
+    [HttpPost("delete-selection")]
+    public async Task<ResultModel<bool>> DeleteStockSelectionAsync(PackingTaskStockSelectRequest request)
+    {
+        var (flag, message) = await _packingTaskQueryService.DeleteStockSelectionAsync(request, CurrentUser);
+        return flag
+            ? ResultModel<bool>.Success(true, message)
+            : ResultModel<bool>.Error(message);
+    }
 }

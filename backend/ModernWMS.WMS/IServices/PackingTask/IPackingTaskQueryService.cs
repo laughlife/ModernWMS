@@ -20,6 +20,10 @@ public interface IPackingTaskQueryService : IDependency
     Task<(bool flag, string message)> SelectStockAsync(
         PackingTaskStockSelectRequest request,
         CurrentUser currentUser);
+
+    Task<(bool flag, string message)> DeleteStockSelectionAsync(
+        PackingTaskStockSelectRequest request,
+        CurrentUser currentUser);
 }
 
 public record PackingTaskQueryResult(

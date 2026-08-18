@@ -45,6 +45,10 @@ internal interface IPackingTaskQueryDataSource
     Task<PackingTaskStockSaveResult> SaveSelectionAsync(
         PackingTaskStockSelectRequest request,
         CurrentUser currentUser);
+
+    Task<PackingTaskStockSaveResult> DeleteSelectionAsync(
+        PackingTaskStockSelectRequest request,
+        CurrentUser currentUser);
 }
 
 /// <summary>Reads formal packing-task snapshots without creating dispatch business facts.</summary>
@@ -167,6 +171,14 @@ public class PackingTaskQueryService : IPackingTaskQueryService
         }
 
         var result = await _dataSource.SaveSelectionAsync(request, currentUser);
+        return (result.IsSuccess, result.Message);
+    }
+
+    public async Task<(bool flag, string message)> DeleteStockSelectionAsync(
+        PackingTaskStockSelectRequest request,
+        CurrentUser currentUser)
+    {
+        var result = await _dataSource.DeleteSelectionAsync(request, currentUser);
         return (result.IsSuccess, result.Message);
     }
 
@@ -603,6 +615,38 @@ public class PackingTaskQueryService : IPackingTaskQueryService
 
                 await transaction.CommitAsync();
                 return new PackingTaskStockSaveResult(true, "库存选择成功");
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
+        public async Task<PackingTaskStockSaveResult> DeleteSelectionAsync(
+            PackingTaskStockSelectRequest request,
+            CurrentUser currentUser)
+        {
+            await using var connection = await _connectionFactory.OpenConnectionAsync();
+            await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted);
+            try
+            {
+                // 删除选择即释放该库存行的锁定（可用量重算时不再扣除本次选择）。
+                var affected = await connection.ExecuteAsync("""
+                    DELETE FROM `wms_packing_task_stock_selection`
+                    WHERE tenant_id = @TenantId AND sellfox_task_id = @TaskId
+                      AND sellfox_item_id = @ItemId AND stock_id = @StockId
+                    """, new
+                {
+                    TenantId = currentUser.tenant_id,
+                    TaskId = request.sellfox_task_id,
+                    ItemId = request.sellfox_item_id,
+                    StockId = request.stock_id
+                }, transaction);
+                await transaction.CommitAsync();
+                return affected > 0
+                    ? new PackingTaskStockSaveResult(true, "已取消选择，锁定库存已释放")
+                    : new PackingTaskStockSaveResult(true, "该库存未在选择中");
             }
             catch
             {

@@ -209,6 +209,26 @@ public class PackingTaskQueryServiceTests
         Assert.Equal(200, request.PageSize);
     }
 
+    [Fact]
+    public async Task DeleteStockSelectionAsync_releases_the_locked_selection()
+    {
+        var source = new InMemoryPackingTaskQueryDataSource();
+        var service = CreateService(source);
+
+        var (flag, message) = await service.DeleteStockSelectionAsync(
+            new PackingTaskStockSelectRequest
+            {
+                sellfox_task_id = 101,
+                sellfox_item_id = 1001,
+                stock_id = 12,
+                qty = 0
+            },
+            CurrentTenant());
+
+        Assert.True(flag);
+        Assert.Equal("已取消选择，锁定库存已释放", message);
+    }
+
     private static PackingTaskQueryService CreateService(
         IPackingTaskQueryDataSource source,
         bool enabled = true,
@@ -284,5 +304,9 @@ public class PackingTaskQueryServiceTests
         public Task<PackingTaskStockSaveResult> SaveSelectionAsync(
             PackingTaskStockSelectRequest request, CurrentUser currentUser) =>
             System.Threading.Tasks.Task.FromResult(new PackingTaskStockSaveResult(false, "not used"));
+
+        public Task<PackingTaskStockSaveResult> DeleteSelectionAsync(
+            PackingTaskStockSelectRequest request, CurrentUser currentUser) =>
+            System.Threading.Tasks.Task.FromResult(new PackingTaskStockSaveResult(true, "已取消选择，锁定库存已释放"));
     }
 }
