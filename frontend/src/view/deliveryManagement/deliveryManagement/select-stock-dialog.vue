@@ -87,19 +87,22 @@
           </vxe-column>
           <vxe-column field="qty" title="库存量" width="90"></vxe-column>
           <vxe-column field="available_qty" title="可用量" width="90"></vxe-column>
-          <vxe-column title="变体" width="110">
+          <vxe-column title="变体" width="130">
             <template #default="{ row }">
-              <v-text-field
-                v-model.number="row.variant"
-                type="number"
-                min="1"
-                step="1"
-                density="compact"
-                variant="outlined"
-                hide-details
-                :disabled="row.selected"
-                class="variant-input"
-              />
+              <div class="variant-cell">
+                <v-text-field
+                  v-model.number="row.variant"
+                  type="number"
+                  min="1"
+                  step="1"
+                  density="compact"
+                  variant="outlined"
+                  hide-details
+                  :disabled="row.selected"
+                  class="variant-input"
+                />
+                <div class="variant-lock">锁定 {{ taskQty * row.variant }}</div>
+              </div>
             </template>
           </vxe-column>
           <vxe-column title="状态" width="100">
@@ -182,11 +185,14 @@ const selectingStockId = ref<number | null>(null)
 const searchForm = reactive({ keyword: '', location: '', owner: '' })
 const searching = ref(false)
 
-// 列表行附带可手动维护的变体数：1 变体占用 1 个库存，2 变体占用 2 个库存。
-// 已选择的行回显已维护的变体数（selected_qty），未选择的行默认 1。
+// 装箱任务量（箱数），锁定数量 = 装箱任务量 × 变体数量。
+const taskQty = computed(() => item.value?.task_num ?? 1)
+
+// 列表行附带可手动维护的变体数。已选择的行按“已锁定数量 ÷ 任务量”回显变体数，
+// 未选择的行默认 1 变体。
 const toRow = (r: SelectableStockVO): StockRow => ({
   ...r,
-  variant: r.selected ? (r.selected_qty ?? 1) : 1
+  variant: r.selected ? Math.max(1, Math.round((r.selected_qty ?? 0) / taskQty.value)) : 1
 })
 
 const footerText = computed(() => searching.value
@@ -263,20 +269,22 @@ const method = reactive({
       hookComponent.$message({ type: 'warning', content: '请输入大于0的变体数量' })
       return
     }
+    // 锁定数量 = 装箱任务量 × 变体数量。
+    const lockedQty = taskQty.value * variant
     selectingStockId.value = row.stock_id
     try {
       const result = await selectPackingTaskStock({
         sellfox_task_id: task.value.sellfox_task_id,
         sellfox_item_id: item.value.sellfox_item_id,
         stock_id: row.stock_id,
-        qty: variant
+        qty: lockedQty
       })
       if (!result.isSuccess) {
         hookComponent.$message({ type: 'error', content: result.errorMessage })
         return
       }
       hookComponent.$message({ type: 'success', content: '库存选择成功' })
-      const selected = { ...row, selected: true, selected_qty: variant, available_qty: 0 }
+      const selected = { ...row, selected: true, selected_qty: lockedQty, available_qty: 0 }
       stockRows.value = stockRows.value.map((t) =>
         t.stock_id === row.stock_id ? selected : t
       )
@@ -412,6 +420,19 @@ defineExpose({ openDialog })
 .variant-input {
   max-width: 80px;
   margin: 0 auto;
+}
+
+.variant-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.variant-lock {
+  color: rgba(var(--v-theme-on-surface), 0.55);
+  font-size: 11px;
+  line-height: 1.2;
 }
 
 .selected-row,
