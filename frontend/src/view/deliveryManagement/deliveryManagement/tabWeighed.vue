@@ -30,49 +30,13 @@
                     {{ task.measured_box_count }}/{{ task.expected_box_count }} 箱已测量
                   </v-chip>
                 </div>
-                <v-table density="compact">
-                  <thead>
-                    <tr>
-                      <th>图片</th>
-                      <th>商品信息</th>
-                      <th>FNSKU / MSKU</th>
-                      <th>任务量</th>
-                      <th>商品需求量</th>
-                      <th>可用量快照</th>
-                      <th>操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="item in task.items" :key="item.id">
-                      <td class="detail-image-cell">
-                        <ProductImage
-                          :src="item.main_image"
-                          :alt="item.commodity_name || item.commodity_sku"
-                          :width="56"
-                          :height="56"
-                          :cover="false"
-                        />
-                      </td>
-                      <td class="text-left">
-                        <div>{{ displayValue(item.commodity_name) }}</div>
-                        <div class="secondary-text">SKU：{{ displayValue(item.commodity_sku) }}</div>
-                      </td>
-                      <td>
-                        <div>{{ displayValue(item.fn_sku) }}</div>
-                        <div class="secondary-text">{{ displayValue(item.msku) }}</div>
-                      </td>
-                      <td>{{ displayValue(item.task_qty) }}</td>
-                      <td>{{ displayValue(item.required_qty) }}</td>
-                      <td>{{ displayValue(item.source_stock_available) }}</td>
-                      <td>
-                        <v-btn size="small" color="primary" variant="tonal" @click="method.showPackingPlanPending">
-                          建立装箱并称重
-                        </v-btn>
-                      </td>
-                    </tr>
-                    <tr v-if="task.items.length === 0"><td colspan="7" class="detail-empty">{{ $t('system.page.noData') }}</td></tr>
-                  </tbody>
-                </v-table>
+                <PackingTaskWeighingEditor
+                  :order-id="row.id"
+                  :packing-task-id="task.id"
+                  :frozen="row.source_change_pending"
+                  @saved="emit('statusChanged')"
+                  @completed="method.onTaskCompleted"
+                />
               </section>
             </template>
           </div>
@@ -125,8 +89,8 @@ import type { VxePagerEvents } from 'vxe-table'
 import { decideDispatchSourceChange, getDispatchOrder, getDispatchOrderPage } from '@/api/wms/dispatchWorkflow'
 import { hookComponent } from '@/components/system'
 import BtnGroup from '@/components/system/btnGroup.vue'
-import ProductImage from '@/components/system/product-image.vue'
 import DispatchSearchFilters from './dispatch-search-filters.vue'
+import PackingTaskWeighingEditor from './packing-task-weighing-editor.vue'
 import TooltipBtn from '@/components/tooltip-btn.vue'
 import customPager from '@/components/custom-pager.vue'
 import { computedCardHeight, computedTableHeight } from '@/constant/style'
@@ -149,8 +113,6 @@ const data = reactive({ keyword: '', group_id: null as number | null, member_id:
 const decisionDialog = reactive({ visible: false, submitting: false, reason: '', row: null as DispatchOrderSummary | null })
 const requestId = () => globalThis.crypto?.randomUUID?.() ?? `source-decision-${Date.now()}-${Math.random().toString(16).slice(2)}`
 const showError = (message: string) => hookComponent.$message({ type: 'error', content: message })
-const displayValue = (value: unknown): string | number =>
-  value === null || value === undefined || value === '' ? '-' : value as string | number
 const currentListIdentity = (): WeighingListRequestIdentity | null => props.warehouseId === null ? null : ({
   sequence: listRequestSequence,
   warehouseId: props.warehouseId,
@@ -211,9 +173,7 @@ const method = reactive({
   },
   search: () => { data.pageIndex = 1; method.getWeighed() },
   handlePageChange: ref<VxePagerEvents.PageChange>(({ currentPage, pageSize }) => { data.pageIndex = currentPage; data.pageSize = pageSize; method.getWeighed() }),
-  showPackingPlanPending: () => {
-    hookComponent.$message({ type: 'info', content: '装箱及混装规则待确认，本次仅完成一级页面展示' })
-  },
+  onTaskCompleted: async () => { emit('statusChanged'); await method.getWeighed() },
   openDecision: (row: DispatchOrderSummary) => { decisionDialog.row = row; decisionDialog.reason = ''; decisionDialog.visible = true },
   closeDecision: () => { decisionDialog.visible = false; decisionDialog.row = null; decisionDialog.reason = '' },
   submitDecision: async (decision: DispatchSourceDecision) => {

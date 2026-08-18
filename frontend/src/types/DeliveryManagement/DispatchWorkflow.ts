@@ -179,6 +179,61 @@ export interface SaveWeighingBoxRequest extends VersionedCommandRequest {
   height: number
 }
 
+export interface PackingPlanItem {
+  id: number
+  commodity_sku: string
+  commodity_name: string
+  fn_sku: string
+  msku: string
+  main_image: string
+  task_qty: number
+  variant_qty: number
+  required_qty: number
+  actual_packed_task_qty: number | null
+  actual_packed_required_qty: number | null
+}
+
+export interface PackingPlanBoxItem {
+  packing_task_item_id: number
+  task_qty: number
+}
+
+export interface PackingPlanBox {
+  id?: number | null
+  client_key: string
+  box_sequence: number
+  weight: number | null
+  length: number | null
+  width: number | null
+  height: number | null
+  row_version: number
+  items: PackingPlanBoxItem[]
+}
+
+export interface PackingPlan {
+  order_id: number
+  packing_task_id: number
+  packing_task_no: string
+  packing_plan_status: 'DRAFT' | 'ACTUAL_CONFIRMED' | 'COMPLETED'
+  row_version: number
+  task_row_version: number
+  items: PackingPlanItem[]
+  boxes: PackingPlanBox[]
+}
+
+export interface SavePackingPlanRequest {
+  request_id: string
+  row_version: number
+  task_row_version: number
+  boxes: PackingPlanBox[]
+}
+
+export interface ConfirmActualPackingRequest {
+  request_id: string
+  row_version: number
+  task_row_version: number
+}
+
 export interface CopyWeighingBoxRequest extends VersionedCommandRequest {
   source_box_id: number
   target_box_row_version: number

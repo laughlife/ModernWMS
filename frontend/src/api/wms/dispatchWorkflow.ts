@@ -13,6 +13,9 @@ import type {
   DispatchStatusCounts,
   OutboundCommandRequest,
   OutboundCommandResult,
+  PackingPlan,
+  SavePackingPlanRequest,
+  ConfirmActualPackingRequest,
   PackingTaskPage,
   PackingTaskPageRequest,
   PageData,
@@ -93,6 +96,16 @@ export const startDispatchWeighing = (orderId: number, data: WeighingOrderComman
 export const getDispatchTaskBoxes = (orderId: number, packingTaskId: number) => request<WeighingBox[]>({
   url: `/dispatch-workflow/${orderId}/packing-tasks/${packingTaskId}/boxes`, method: 'get'
 })
+
+export const getDispatchPackingPlan = (orderId: number, packingTaskId: number) => request<PackingPlan>({
+  url: `/dispatch-workflow/${orderId}/packing-tasks/${packingTaskId}/packing-plan`, method: 'get'
+})
+
+export const saveDispatchPackingPlan = (orderId: number, packingTaskId: number, data: SavePackingPlanRequest) =>
+  request<PackingPlan>({ url: `/dispatch-workflow/${orderId}/packing-tasks/${packingTaskId}/packing-plan`, method: 'put', data })
+
+export const confirmDispatchActualPacking = (orderId: number, packingTaskId: number, data: ConfirmActualPackingRequest) =>
+  request<PackingPlan>({ url: `/dispatch-workflow/${orderId}/packing-tasks/${packingTaskId}/confirm-actual`, method: 'post', data })
 
 export const saveDispatchWeighingBox = (orderId: number, boxId: number, data: SaveWeighingBoxRequest) =>
   request<WeighingCommandResult>({ url: `/dispatch-workflow/${orderId}/boxes/${boxId}`, method: 'put', data })
