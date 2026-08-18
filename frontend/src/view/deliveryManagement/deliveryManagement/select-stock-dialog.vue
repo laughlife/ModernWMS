@@ -8,13 +8,52 @@
       </v-toolbar>
       <v-divider></v-divider>
       <v-card-text>
-        <div class="stock-dialog-summary">
-          <span>装箱任务号：{{ task?.packing_task_sn || '-' }}</span>
-          <span>创建人：{{ task?.create_name || '-' }}</span>
-          <span>商品：{{ item?.commodity_name || '-' }}</span>
-          <span>SKU：{{ item?.commodity_sku || item?.sku || '-' }}</span>
-          <span>仓库：{{ task?.warehouse_name || '-' }}</span>
-        </div>
+        <v-table density="compact" class="task-summary-table">
+          <thead>
+            <tr>
+              <th class="summary-image-column">图片</th>
+              <th>商品信息</th>
+              <th>FNSKU / MSKU</th>
+              <th>装箱信息</th>
+              <th>任务量</th>
+              <th>仓库</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="summary-image-cell">
+                <ProductImage
+                  :src="item?.main_image || ''"
+                  :alt="item?.commodity_name || item?.commodity_sku || ''"
+                  :width="52"
+                  :height="52"
+                />
+              </td>
+              <td>
+                <div class="merged-cell">
+                  <div class="merged-primary">{{ item?.commodity_name || '-' }}</div>
+                  <div class="merged-secondary">SKU：{{ item?.commodity_sku || item?.sku || '-' }}</div>
+                </div>
+              </td>
+              <td>
+                <div class="merged-cell">
+                  <div class="merged-primary">{{ item?.fn_sku || '-' }}</div>
+                  <div class="merged-secondary">{{ item?.msku || '-' }}</div>
+                </div>
+              </td>
+              <td>
+                <div class="merged-cell">
+                  <div class="merged-primary">装箱任务号：{{ task?.packing_task_sn || '-' }}</div>
+                  <div class="merged-secondary">
+                    店铺：{{ task?.shop_name || '-' }}　站点：{{ task?.marketplace_name || '-' }}　创建人：{{ task?.create_name || '-' }}
+                  </div>
+                </div>
+              </td>
+              <td>{{ taskQty }}</td>
+              <td>{{ task?.warehouse_name || '-' }}</td>
+            </tr>
+          </tbody>
+        </v-table>
 
         <div class="stock-search-bar">
           <v-text-field
@@ -360,15 +399,32 @@ defineExpose({ openDialog })
 </script>
 
 <style lang="less" scoped>
-.stock-dialog-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
+.task-summary-table {
   margin-bottom: 12px;
-  padding: 10px 14px;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
   border-radius: 6px;
+  overflow: hidden;
+}
+
+.task-summary-table :deep(th) {
+  height: 40px !important;
   background: rgba(var(--v-theme-primary), 0.06);
-  font-weight: 500;
+  color: rgba(var(--v-theme-on-surface), 0.7);
+  font-weight: 600 !important;
+  white-space: nowrap;
+}
+
+.task-summary-table :deep(td) {
+  height: 72px !important;
+  vertical-align: middle;
+}
+
+.summary-image-column {
+  width: 78px;
+}
+
+.summary-image-cell {
+  width: 78px;
 }
 
 .stock-search-bar {
