@@ -262,7 +262,7 @@ const method = reactive({
   clearPage: () => {
     resetPackingTaskPageState(data)
   },
-  getPage: async () => {
+  getPage: async (hideLoading = false) => {
     const requestId = ++pageRequestId
     const request = buildPackingTaskPageRequest(
       props.warehouseId,
@@ -276,7 +276,7 @@ const method = reactive({
       return
     }
     try {
-      const res = await getWorkflowPackingTaskPage(request)
+      const res = await getWorkflowPackingTaskPage(request, hideLoading)
       if (requestId !== pageRequestId) return
       if (!res.isSuccess) {
         method.clearPage()
@@ -293,7 +293,8 @@ const method = reactive({
       data.errorMessage = error instanceof Error ? error.message : String(error)
     }
   },
-  refresh: () => method.getPage(),
+  // 库存选择完成后的数据回刷属于后台同步，不应再次占用全局阻塞式加载遮罩。
+  refresh: () => method.getPage(true),
   handlePageChange: ({ currentPage, pageSize }: { currentPage: number; pageSize: number }) => {
     data.tablePage.pageIndex = currentPage
     data.tablePage.pageSize = pageSize

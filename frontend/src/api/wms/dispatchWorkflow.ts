@@ -49,8 +49,9 @@ export const getDispatchWarehouseAccess = () => request<WarehouseAccess>({
   url: '/warehouse/access-options', method: 'get'
 })
 
-export const getWorkflowPackingTaskPage = (data: PackingTaskPageRequest) => request<PackingTaskPage>({
-  url: '/packing-task-query/page', method: 'post', data
+export const getWorkflowPackingTaskPage = (data: PackingTaskPageRequest, hideLoading = false) => request<PackingTaskPage>({
+  url: '/packing-task-query/page', method: 'post', data,
+  ...(hideLoading ? { hideLoading: true } : {})
 })
 
 export const createDispatchOrder = (data: CreateDispatchOrderRequest) => request<DispatchOrderDetail>({
