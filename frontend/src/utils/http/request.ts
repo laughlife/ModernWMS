@@ -17,22 +17,29 @@ const http = axios.create({
   timeout: 10000
 })
 
-// The interface array request failed
-let subscribesArr: Array<any> = []
+type RefreshSubscriber = {
+  resolve: (token: string) => void
+  reject: () => void
+}
+
+// Requests suspended while the access token is being refreshed.
+let subscribesArr: RefreshSubscriber[] = []
 
 // The count of current request
 let acitveAxios = 0
 
-function pushSubscribeInterface(cb: any) {
-  subscribesArr.push(cb)
+function pushSubscribeInterface(subscriber: RefreshSubscriber) {
+  subscribesArr.push(subscriber)
 }
 
 function reloadSubscribesWithNewToken(token: string) {
-  subscribesArr.map((cb) => cb(token))
+  const subscribers = subscribesArr.splice(0)
+  subscribers.forEach((subscriber) => subscriber.resolve(token))
 }
 
-function resetSubscribes() {
-  subscribesArr = []
+function rejectSubscribes() {
+  const subscribers = subscribesArr.splice(0)
+  subscribers.forEach((subscriber) => subscriber.reject())
 }
 
 /**
@@ -63,16 +70,20 @@ function rediretToLogin() {
   router.push('/login')
 }
 
-const showLoading = () => {
+const showLoading = (config: any) => {
+  if (config.hideLoading || config.loadingTracked) return
+  config.loadingTracked = true
   acitveAxios++
-  if (acitveAxios > 0) {
+  if (acitveAxios === 1) {
     emitter.emit('showLoading')
   }
 }
 
-const closeLoading = () => {
-  acitveAxios--
-  if (acitveAxios <= 0) {
+const closeLoading = (config?: any) => {
+  if (!config?.loadingTracked) return
+  config.loadingTracked = false
+  acitveAxios = Math.max(0, acitveAxios - 1)
+  if (acitveAxios === 0) {
     emitter.emit('closeLoading')
   }
 }
@@ -93,7 +104,7 @@ const handleRefreshToken = (token: string) => {
     })
     .then(({ data: res }) => {
       if (!isRefreshResponseCurrent(userStore.token, userStore.refreshToken, token, refreshToken)) {
-        resetSubscribes()
+        rejectSubscribes()
         return
       }
       if (res.isSuccess) {
@@ -110,7 +121,7 @@ const handleRefreshToken = (token: string) => {
       }
     })
     .catch(() => {
-      resetSubscribes()
+      rejectSubscribes()
       rediretToLogin()
     })
     .finally(() => {
@@ -126,9 +137,7 @@ http.interceptors.request.use(
 
     config.params ? (config.params.culture = 'zh-cn') : (config.params = { culture: 'zh-cn' })
 
-    if (!config.hideLoading) {
-      showLoading()
-    }
+    showLoading(config)
 
     // It don't need token to request with some apis.
     if (donNeedTokenApi.includes(config.url)) {
@@ -163,17 +172,26 @@ http.interceptors.request.use(
     }
 
     // 4.Put the fail requests up and initiate them after refresh token
-    const retry = new Promise((resolve) => {
-      pushSubscribeInterface((newToken: string) => {
-        config.headers.Authorization = `Bearer ${ newToken }`
-        resolve(config)
+    const retry = new Promise((resolve, reject) => {
+      pushSubscribeInterface({
+        resolve: (newToken: string) => {
+          config.headers.Authorization = `Bearer ${ newToken }`
+          resolve(config)
+        },
+        reject: () => {
+          const error = Object.assign(new Error('登录状态已失效'), {
+            config,
+            refreshCancelled: true
+          })
+          reject(error)
+        }
       })
     })
     return retry
   },
   (error) => {
-    closeLoading()
-    return error
+    closeLoading(error?.config)
+    return Promise.reject(error)
   }
 )
 
@@ -181,7 +199,7 @@ http.interceptors.request.use(
 // 新增 API 不得在组件中猜测包装层；需要 ResultModel 时统一通过 apiResult.ts 解包并声明返回类型。
 http.interceptors.response.use(
   (response) => {
-    closeLoading()
+    closeLoading(response.config)
     if (response.data.code === 0 || response.headers.success === 'true') {
       if (response.headers.msg) {
         response.data.msg = decodeURI(response.headers.msg)
@@ -191,7 +209,10 @@ http.interceptors.response.use(
     return response.data.msg ? response.data : response
   },
   (error) => {
-    closeLoading()
+    closeLoading(error?.config)
+    if (error?.refreshCancelled) {
+      return Promise.reject(error)
+    }
     // 1.There isn't 'error.response' object when request timeout
     if (!error.response) {
       hookComponent.$message({
