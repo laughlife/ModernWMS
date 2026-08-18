@@ -17,6 +17,7 @@ public partial class DispatchWorkflowService
             throw new ArgumentException("source_task_ids must contain only positive task identities", nameof(request));
         var taskIds = request.source_task_ids.Distinct().OrderBy(x => x).ToArray();
         if (request.warehouse_id <= 0 || taskIds.Length == 0) throw new ArgumentException("warehouse_id and source_task_ids are required");
+        if (taskIds.Length != 1) throw new ArgumentException("每个拣货单只能包含一个装箱任务", nameof(request));
         await _warehouseAccessService.EnsureAllowedAsync(request.warehouse_id, currentUser);
         var capability = await _sourceReader.VerifyCapabilityAsync(cancellationToken);
         if (!capability.IsSupported) throw new InvalidOperationException(capability.Error);

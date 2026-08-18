@@ -311,24 +311,38 @@ const method = reactive({
     const warehouseId = props.warehouseId
     if (warehouseId === null) return
     data.creating = true
+    const createdTaskIds: number[] = []
+    const failedTasks: string[] = []
     try {
-      const idempotencyKey = await createTaskSetIdempotencyKey(sourceTaskIds)
-      const res = await createDispatchOrder({
-        warehouse_id: warehouseId,
-        source_task_ids: sourceTaskIds,
-        idempotency_key: idempotencyKey
-      })
-      if (!res.isSuccess) {
-        hookComponent.$message({ type: 'error', content: res.errorMessage })
-        await method.getPage()
-        return
+      // 批量操作只负责连续创建；每个请求仅生成一个独立拣货单。
+      for (const sourceTaskId of sourceTaskIds) {
+        try {
+          const idempotencyKey = await createTaskSetIdempotencyKey([sourceTaskId])
+          const res = await createDispatchOrder({
+            warehouse_id: warehouseId,
+            source_task_ids: [sourceTaskId],
+            idempotency_key: idempotencyKey
+          })
+          if (res.isSuccess) {
+            createdTaskIds.push(sourceTaskId)
+          } else {
+            failedTasks.push(`${sourceTaskId}：${res.errorMessage}`)
+          }
+        } catch (error) {
+          failedTasks.push(`${sourceTaskId}：${error instanceof Error ? error.message : String(error)}`)
+        }
       }
 
-      data.tableData = removeCreatedPackingTasks(data.tableData, sourceTaskIds)
-      data.tablePage.total = Math.max(0, data.tablePage.total - sourceTaskIds.length)
+      data.tableData = removeCreatedPackingTasks(data.tableData, createdTaskIds)
+      data.tablePage.total = Math.max(0, data.tablePage.total - createdTaskIds.length)
       method.clearSelection()
-      hookComponent.$message({ type: 'success', content: 'WMS待拣货单已生成' })
-      emit('statusChanged')
+      if (createdTaskIds.length > 0) {
+        hookComponent.$message({ type: 'success', content: `已生成 ${createdTaskIds.length} 个独立拣货单` })
+        emit('statusChanged')
+      }
+      if (failedTasks.length > 0) {
+        hookComponent.$message({ type: 'error', content: `以下装箱任务生成失败：${failedTasks.join('；')}` })
+      }
       await method.getPage()
     } catch (error) {
       hookComponent.$message({

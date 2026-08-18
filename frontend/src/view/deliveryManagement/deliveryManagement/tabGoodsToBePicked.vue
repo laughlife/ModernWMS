@@ -34,13 +34,13 @@
       ref="xTable"
       :column-config="{ minWidth: '120px' }"
       :row-config="{ keyField: 'id' }"
+      :expand-config="{ expandAll: true, trigger: 'manual' }"
       :data="data.tableData"
       :height="tableHeight"
       :loading="data.loading"
       align="center"
       @checkbox-change="method.handleSelectionChange"
       @checkbox-all="method.handleSelectionChange"
-      @toggle-row-expand="handleToggleRowExpand"
     >
       <template #empty>{{ data.errorMessage || i18n.global.t('system.page.noData') }}</template>
       <vxe-column type="checkbox" width="52" fixed="left" />
@@ -64,7 +64,6 @@
                   <thead>
                     <tr>
                       <th>图片</th>
-                      <th>SKU</th>
                       <th>{{ $t('wms.deliveryManagement.productInfo') }}</th>
                       <th>FNSKU / MSKU</th>
                       <th>{{ $t('wms.deliveryManagement.packingTaskQty') }}</th>
@@ -81,8 +80,10 @@
                           :height="56"
                         />
                       </td>
-                      <td>{{ displayValue(item.commodity_sku) }}</td>
-                      <td class="text-left">{{ displayValue(item.commodity_name) }}</td>
+                      <td class="text-left">
+                        <div>{{ displayValue(item.commodity_name) }}</div>
+                        <div class="secondary-text">SKU：{{ displayValue(item.commodity_sku) }}</div>
+                      </td>
                       <td>
                         <div>{{ displayValue(item.fn_sku) }}</div>
                         <div class="secondary-text">{{ displayValue(item.msku) }}</div>
@@ -147,7 +148,7 @@
             <TooltipBtn
               :flat="true"
               icon="mdi-undo"
-              tooltip-text="回退"
+              tooltip-text="退回"
               :disabled="data.loading || data.printing"
               @click="method.rollbackRow(row)"
             />
@@ -180,7 +181,6 @@
           <thead>
             <tr>
               <th>图片</th>
-              <th>SKU</th>
               <th>{{ $t('wms.deliveryManagement.productInfo') }}</th>
               <th>FNSKU</th>
               <th>MSKU</th>
@@ -198,8 +198,10 @@
                 />
                 <span v-else>-</span>
               </td>
-              <td>{{ displayValue(item.commodity_sku) }}</td>
-              <td>{{ displayValue(item.commodity_name) }}</td>
+              <td>
+                <div>{{ displayValue(item.commodity_name) }}</div>
+                <div>SKU：{{ displayValue(item.commodity_sku) }}</div>
+              </td>
               <td>{{ displayValue(item.fn_sku) }}</td>
               <td>{{ displayValue(item.msku) }}</td>
               <td>{{ displayValue(item.required_qty) }}</td>
@@ -213,7 +215,7 @@
 
 <script lang="ts" setup>
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
-import type { VxePagerEvents, VxeTableEvents } from 'vxe-table'
+import type { VxePagerEvents } from 'vxe-table'
 import {
   completeDispatchPicking,
   getDispatchOrder,
@@ -360,10 +362,6 @@ const refreshAfterFailure = async (orderId: number): Promise<void> => {
   }
 }
 
-const handleToggleRowExpand: VxeTableEvents.ToggleRowExpand<PendingPickTableRow> = async ({ row, expanded }) => {
-  if (expanded) await loadDetail(row)
-}
-
 const method = reactive({
   refresh: () => method.getGoodsToBePicked(),
   getGoodsToBePicked: async () => {
@@ -395,6 +393,9 @@ const method = reactive({
       }
       data.tableData = toPendingPickRows(result.data.rows).map(toTableRow)
       data.tablePage.total = result.data.totals
+      await nextTick()
+      await xTable.value?.setAllRowExpand?.(true)
+      data.tableData.forEach((row) => { void loadDetail(row) })
     } catch (error) {
       if (!isCurrentPageRequest(requestSeq, requestedWarehouseId)) return
       const message = error instanceof Error ? error.message : String(error)
