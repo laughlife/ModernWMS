@@ -47,6 +47,9 @@ public interface IDispatchWorkflowService : IDependency
     Task<PackingPlanViewModel> SavePackingPlanAsync(int orderId, int packingTaskId,
         SavePackingPlanRequest request, CurrentUser currentUser, CancellationToken cancellationToken = default);
 
+    Task<PackingPlanViewModel> ConfirmPackingAsync(int orderId, int packingTaskId,
+        ConfirmActualPackingRequest request, CurrentUser currentUser, CancellationToken cancellationToken = default);
+
     Task<PackingPlanViewModel> ConfirmActualPackingAsync(int orderId, int packingTaskId,
         ConfirmActualPackingRequest request, CurrentUser currentUser, CancellationToken cancellationToken = default);
 

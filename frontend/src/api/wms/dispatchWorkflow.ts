@@ -106,6 +106,9 @@ export const getDispatchPackingPlan = (orderId: number, packingTaskId: number, h
 export const saveDispatchPackingPlan = (orderId: number, packingTaskId: number, data: SavePackingPlanRequest) =>
   request<PackingPlan>({ url: `/dispatch-workflow/${orderId}/packing-tasks/${packingTaskId}/packing-plan`, method: 'put', data })
 
+export const confirmDispatchPacking = (orderId: number, packingTaskId: number, data: ConfirmActualPackingRequest) =>
+  request<PackingPlan>({ url: `/dispatch-workflow/${orderId}/packing-tasks/${packingTaskId}/confirm-packing`, method: 'post', data })
+
 export const confirmDispatchActualPacking = (orderId: number, packingTaskId: number, data: ConfirmActualPackingRequest) =>
   request<PackingPlan>({ url: `/dispatch-workflow/${orderId}/packing-tasks/${packingTaskId}/confirm-actual`, method: 'post', data })
 

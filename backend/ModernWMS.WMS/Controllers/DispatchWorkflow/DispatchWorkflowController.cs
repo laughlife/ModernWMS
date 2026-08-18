@@ -108,6 +108,12 @@ public sealed class DispatchWorkflowController : BaseController
         ExecuteAsync(() => _workflowService.SavePackingPlanAsync(id, packingTaskId, request, CurrentUser, cancellationToken));
 
     [Authorize]
+    [HttpPost("{id:int}/packing-tasks/{packingTaskId:int}/confirm-packing")]
+    public Task<ActionResult<ResultModel<PackingPlanViewModel>>> ConfirmPackingAsync(
+        int id, int packingTaskId, ConfirmActualPackingRequest request, CancellationToken cancellationToken) =>
+        ExecuteAsync(() => _workflowService.ConfirmPackingAsync(id, packingTaskId, request, CurrentUser, cancellationToken));
+
+    [Authorize]
     [HttpPost("{id:int}/packing-tasks/{packingTaskId:int}/confirm-actual")]
     public Task<ActionResult<ResultModel<PackingPlanViewModel>>> ConfirmActualPackingAsync(
         int id, int packingTaskId, ConfirmActualPackingRequest request, CancellationToken cancellationToken) =>

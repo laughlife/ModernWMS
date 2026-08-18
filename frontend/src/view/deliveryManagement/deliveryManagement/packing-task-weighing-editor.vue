@@ -5,8 +5,8 @@
     <template v-else-if="plan">
       <div class="editor-heading">
         <strong>装箱任务：{{ plan.packing_task_no }}</strong>
-        <v-chip size="small" :color="plan.packing_plan_status === 'DRAFT' ? 'warning' : 'success'" variant="tonal">
-          {{ plan.packing_plan_status === 'DRAFT' ? '装箱中' : '装箱完成' }}
+        <v-chip size="small" :color="packingPlanStatus === 'DRAFT' ? 'warning' : 'success'" variant="tonal">
+          {{ packingPlanStatus === 'DRAFT' ? '装箱中' : packingPlanStatus === 'PACKING_CONFIRMED' ? '已确认装箱完成' : '业务已确认' }}
         </v-chip>
       </div>
       <v-table density="compact" class="product-pool">
@@ -84,12 +84,14 @@
       <div class="editor-footer">
         <div class="completion-status">
           <strong>装箱信息可随时保存</strong>
-          <small v-if="completionHint" :title="completionHint">装箱完成还需：{{ completionHint }}</small>
-          <small v-else>信息已填写完整，可以确定装箱完成</small>
+          <small v-if="completionHint" :title="completionHint">业务下一步还需：{{ completionHint }}</small>
+          <small v-else>信息已填写完整，已具备业务下一步校验条件</small>
         </div>
         <div class="editor-actions">
           <v-btn :loading="saving" :disabled="!editable" @click="savePacking">保存</v-btn>
-          <v-btn color="primary" :loading="completing" :disabled="!editable || !canConfirmPackingPlan(plan)" @click="completePacking">确定装箱完成</v-btn>
+          <v-btn color="primary" :loading="completing" :disabled="!editable || packingPlanStatus === 'PACKING_CONFIRMED'" @click="completePacking">
+            {{ packingPlanStatus === 'PACKING_CONFIRMED' ? '已确认装箱完成' : '确定装箱完成' }}
+          </v-btn>
         </div>
       </div>
     </template>
@@ -98,18 +100,19 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { completeDispatchOrderWeighing, completeDispatchTaskWeighing, confirmDispatchActualPacking, getDispatchPackingPlan, saveDispatchPackingPlan } from '@/api/wms/dispatchWorkflow'
+import { confirmDispatchPacking, getDispatchPackingPlan, saveDispatchPackingPlan } from '@/api/wms/dispatchWorkflow'
 import { hookComponent } from '@/components/system'
 import ProductImage from '@/components/system/product-image.vue'
 import type { PackingPlan, PackingPlanBox } from '@/types/DeliveryManagement/DispatchWorkflow'
-import { allocatedTaskQty, canConfirmPackingPlan, copyDraftBox, itemTaskLimit, newDraftBox, releasedRequiredQty, remainingTaskQty } from './packingPlanPolicy'
+import { allocatedTaskQty, copyDraftBox, itemTaskLimit, newDraftBox, remainingTaskQty } from './packingPlanPolicy'
 
 const props = defineProps<{ orderId: number; packingTaskId: number; frozen?: boolean }>()
 const emit = defineEmits<{ saved: []; completed: [] }>()
 const plan = ref<PackingPlan | null>(null)
 const loading = ref(false); const saving = ref(false); const completing = ref(false)
 const errorMessage = ref('')
-const editable = computed(() => !props.frozen && plan.value?.packing_plan_status === 'DRAFT')
+const packingPlanStatus = computed(() => String(plan.value?.packing_plan_status ?? ''))
+const editable = computed(() => !props.frozen && (packingPlanStatus.value === 'DRAFT' || packingPlanStatus.value === 'PACKING_CONFIRMED'))
 const completionHint = computed(() => {
   if (!plan.value) return ''
   if (plan.value.boxes.length === 0) return '至少建立一个箱子'
@@ -132,7 +135,7 @@ const completionHint = computed(() => {
 const requestId = () => globalThis.crypto?.randomUUID?.() ?? `packing-${Date.now()}-${Math.random().toString(16).slice(2)}`
 const product = (id: number) => plan.value?.items.find((item) => item.id === id)
 const fillBoxProductRows = (packingPlan: PackingPlan, initializeFirstBox = false) => {
-  if (initializeFirstBox && packingPlan.packing_plan_status === 'DRAFT' && packingPlan.boxes.length === 0) {
+  if (initializeFirstBox && (packingPlan.packing_plan_status === 'DRAFT' || String(packingPlan.packing_plan_status) === 'PACKING_CONFIRMED') && packingPlan.boxes.length === 0) {
     packingPlan.boxes.push(newDraftBox(1))
   }
   const fillFirstBox = initializeFirstBox && packingPlan.boxes.length === 1 && packingPlan.boxes[0].items.length === 0
@@ -163,8 +166,8 @@ const copyBox = (box: PackingPlanBox, index: number) => {
   plan.value.boxes.forEach((entry, boxIndex) => { entry.box_sequence = boxIndex + 1 })
   hookComponent.$message({ type: 'info', content: `已复制为第 ${index + 2} 箱，请按实际装箱数量调整后保存` })
 }
-const savePacking = async () => { if (!plan.value) return; saving.value = true; try { const result = await saveDispatchPackingPlan(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value.row_version, task_row_version: plan.value.task_row_version, boxes: boxesForSave() }); if (!result.isSuccess) throw new Error(result.errorMessage); fillBoxProductRows(result.data); hookComponent.$message({ type: 'success', content: '装箱信息已保存，确定装箱完成前可继续修改或删除' }); emit('saved') } catch (error) { hookComponent.$message({ type: 'error', content: error instanceof Error ? error.message : String(error) }) } finally { saving.value = false } }
-const completePacking = () => { if (!plan.value) return; const leftovers = plan.value.items.filter((item) => remainingTaskQty(plan.value!, item) > 0).map((item) => `${item.commodity_name}：未装任务量 ${remainingTaskQty(plan.value!, item)}，释放库存 ${releasedRequiredQty(plan.value!, item)} 件`); hookComponent.$dialog({ content: leftovers.length ? `确定装箱完成后将不能再修改或删除。以下余量会解除锁定：${leftovers.join('；')}` : '确定装箱完成后将不能再修改或删除，是否继续？', handleConfirm: async () => { if (!plan.value) return; completing.value = true; try { const saved = await saveDispatchPackingPlan(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value.row_version, task_row_version: plan.value.task_row_version, boxes: boxesForSave() }); if (!saved.isSuccess) throw new Error(saved.errorMessage); fillBoxProductRows(saved.data); const confirmed = await confirmDispatchActualPacking(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value!.row_version, task_row_version: plan.value!.task_row_version }); if (!confirmed.isSuccess) throw new Error(confirmed.errorMessage); plan.value = confirmed.data; const taskResult = await completeDispatchTaskWeighing(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value.row_version }); if (!taskResult.isSuccess) throw new Error(taskResult.errorMessage); const orderResult = await completeDispatchOrderWeighing(props.orderId, { request_id: requestId(), row_version: taskResult.data.row_version }); hookComponent.$message({ type: 'success', content: orderResult.isSuccess ? '装箱及称重已完成，已进入待出库' : '当前装箱任务已完成，其他装箱任务完成后进入待出库' }); emit('completed') } catch (error) { hookComponent.$message({ type: 'error', content: error instanceof Error ? error.message : String(error) }) } finally { completing.value = false } } }) }
+const savePacking = async () => { if (!plan.value) return; saving.value = true; try { const result = await saveDispatchPackingPlan(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value.row_version, task_row_version: plan.value.task_row_version, boxes: boxesForSave() }); if (!result.isSuccess) throw new Error(result.errorMessage); fillBoxProductRows(result.data); hookComponent.$message({ type: 'success', content: '装箱信息已保存，可继续修改或删除' }); emit('saved') } catch (error) { hookComponent.$message({ type: 'error', content: error instanceof Error ? error.message : String(error) }) } finally { saving.value = false } }
+const completePacking = () => { if (!plan.value) return; hookComponent.$dialog({ content: '本次仅记录人工确认装箱完成，不执行最终业务校验，也不会进入下一步；确认后仍可继续修改和保存，是否继续？', handleConfirm: async () => { if (!plan.value) return; completing.value = true; try { const saved = await saveDispatchPackingPlan(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value.row_version, task_row_version: plan.value.task_row_version, boxes: boxesForSave() }); if (!saved.isSuccess) throw new Error(saved.errorMessage); fillBoxProductRows(saved.data); const confirmed = await confirmDispatchPacking(props.orderId, props.packingTaskId, { request_id: requestId(), row_version: plan.value!.row_version, task_row_version: plan.value!.task_row_version }); if (!confirmed.isSuccess) throw new Error(confirmed.errorMessage); fillBoxProductRows(confirmed.data); hookComponent.$message({ type: 'success', content: '已确认装箱完成，当前仍可继续修改和保存；业务下一步尚未执行' }); emit('saved') } catch (error) { hookComponent.$message({ type: 'error', content: error instanceof Error ? error.message : String(error) }) } finally { completing.value = false } } }) }
 onMounted(load)
 </script>
 
