@@ -23,6 +23,15 @@ export const canCompletePackingPlan = (plan: PackingPlan): boolean =>
   && plan.boxes.every((box) => box.items.length > 0 && isMeasuredBox(box))
   && plan.items.every((item) => allocatedTaskQty(plan, item.id) === itemTaskLimit(plan, item))
 
+export const canConfirmPackingPlan = (plan: PackingPlan): boolean =>
+  plan.packing_plan_status === 'DRAFT'
+  && plan.boxes.length > 0
+  && plan.boxes.every((box) => box.items.length > 0
+    && isMeasuredBox(box)
+    && box.items.every((item) => Number.isInteger(Number(item.task_qty)) && Number(item.task_qty) > 0))
+  && plan.boxes.some((box) => box.items.some((item) => Number(item.task_qty) > 0))
+  && plan.items.every((item) => allocatedTaskQty(plan, item.id) <= Number(item.task_qty))
+
 export const newDraftBox = (sequence: number, item?: PackingPlanItem, qty = 1): PackingPlanBox => ({
   id: null,
   client_key: globalThis.crypto?.randomUUID?.() ?? `draft-${Date.now()}-${Math.random().toString(16).slice(2)}`,
