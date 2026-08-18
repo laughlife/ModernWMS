@@ -62,6 +62,11 @@ public class SelectableStockViewModel
     public bool selected { get; set; }
 
     /// <summary>
+    /// 该库存行已选择的锁定数量（即已维护的变体数）。未选择时为 0。
+    /// </summary>
+    public int selected_qty { get; set; }
+
+    /// <summary>
     /// 是否属于装箱任务创建人自己的库存（所属人名称包含创建人名称）。
     /// 创建人库存选择时不弹确认框；他人库存选择时前端弹确认框且后端记录日志。
     /// </summary>

@@ -69,12 +69,39 @@
               <ProductImage :src="row.main_image" :alt="row.commodity_name || row.sku_code" :width="48" :height="48" />
             </template>
           </vxe-column>
-          <vxe-column field="sku_code" title="SKU" min-width="140"></vxe-column>
-          <vxe-column field="commodity_name" title="商品名称" min-width="180"></vxe-column>
-          <vxe-column field="location_name" title="库位" min-width="130"></vxe-column>
-          <vxe-column field="goods_owner_name" title="所属人" min-width="130"></vxe-column>
+          <vxe-column title="商品信息" min-width="200" align="left" header-align="left">
+            <template #default="{ row }">
+              <div class="merged-cell">
+                <div class="merged-primary">{{ row.commodity_name || '-' }}</div>
+                <div class="merged-secondary">SKU：{{ row.sku_code || '-' }}</div>
+              </div>
+            </template>
+          </vxe-column>
+          <vxe-column title="库位/所属人" min-width="160" align="left" header-align="left">
+            <template #default="{ row }">
+              <div class="merged-cell">
+                <div class="merged-primary">{{ row.location_name || '-' }}</div>
+                <div class="merged-secondary">{{ row.goods_owner_name || '-' }}</div>
+              </div>
+            </template>
+          </vxe-column>
           <vxe-column field="qty" title="库存量" width="90"></vxe-column>
           <vxe-column field="available_qty" title="可用量" width="90"></vxe-column>
+          <vxe-column title="变体" width="110">
+            <template #default="{ row }">
+              <v-text-field
+                v-model.number="row.variant"
+                type="number"
+                min="1"
+                step="1"
+                density="compact"
+                variant="outlined"
+                hide-details
+                :disabled="row.selected"
+                class="variant-input"
+              />
+            </template>
+          </vxe-column>
           <vxe-column title="状态" width="100">
             <template #default="{ row }">
               <v-chip v-if="row.selected" size="small" color="success" variant="tonal">已选择</v-chip>
@@ -139,26 +166,35 @@ import type { PackingTaskItemVO, PackingTaskVO, SelectableStockVO } from '@/type
 
 const PAGE_SIZE = 20
 
+type StockRow = SelectableStockVO & { variant: number }
+
 const emit = defineEmits<{ changed: [selected: SelectableStockVO[]] }>()
 
 const visible = ref(false)
 const loading = ref(false)
 const task = ref<PackingTaskVO | null>(null)
 const item = ref<PackingTaskItemVO | null>(null)
-const stockRows = ref<SelectableStockVO[]>([])
-const selectedRows = ref<SelectableStockVO[]>([])
+const stockRows = ref<StockRow[]>([])
+const selectedRows = ref<StockRow[]>([])
 const total = ref(0)
 const pageIndex = ref(1)
 const selectingStockId = ref<number | null>(null)
 const searchForm = reactive({ keyword: '', location: '', owner: '' })
 const searching = ref(false)
 
+// 列表行附带可手动维护的变体数：1 变体占用 1 个库存，2 变体占用 2 个库存。
+// 已选择的行回显已维护的变体数（selected_qty），未选择的行默认 1。
+const toRow = (r: SelectableStockVO): StockRow => ({
+  ...r,
+  variant: r.selected ? (r.selected_qty ?? 1) : 1
+})
+
 const footerText = computed(() => searching.value
   ? `搜索其他库存，共 ${total.value} 条匹配记录`
   : `当前展示创建人（${task.value?.create_name || '-'}）的库存，共 ${total.value} 条；搜索可查看其他库存`)
 
 // 已选择的库存行显示绿色背景。
-const rowClassName = ({ row }: { row: SelectableStockVO }): string => row.selected ? 'selected-row' : ''
+const rowClassName = ({ row }: { row: StockRow }): string => row.selected ? 'selected-row' : ''
 
 const method = reactive({
   loadPage: async () => {
@@ -180,9 +216,9 @@ const method = reactive({
         return
       }
       if (pageIndex.value === 1) {
-        stockRows.value = result.data.rows
+        stockRows.value = result.data.rows.map(toRow)
       } else {
-        stockRows.value = [...stockRows.value, ...result.data.rows]
+        stockRows.value = [...stockRows.value, ...result.data.rows.map(toRow)]
       }
       total.value = result.data.totals
     } catch (error) {
@@ -208,7 +244,7 @@ const method = reactive({
     pageIndex.value += 1
     method.loadPage()
   },
-  selectStock: (row: SelectableStockVO) => {
+  selectStock: (row: StockRow) => {
     if (row.is_creator_stock) {
       method.confirmSelectStock(row)
       return
@@ -220,22 +256,27 @@ const method = reactive({
       handleConfirm: () => method.confirmSelectStock(row)
     })
   },
-  confirmSelectStock: async (row: SelectableStockVO) => {
+  confirmSelectStock: async (row: StockRow) => {
     if (!item.value || !task.value) return
+    const variant = row.variant
+    if (!Number.isInteger(variant) || variant <= 0) {
+      hookComponent.$message({ type: 'warning', content: '请输入大于0的变体数量' })
+      return
+    }
     selectingStockId.value = row.stock_id
     try {
       const result = await selectPackingTaskStock({
         sellfox_task_id: task.value.sellfox_task_id,
         sellfox_item_id: item.value.sellfox_item_id,
         stock_id: row.stock_id,
-        qty: row.available_qty
+        qty: variant
       })
       if (!result.isSuccess) {
         hookComponent.$message({ type: 'error', content: result.errorMessage })
         return
       }
       hookComponent.$message({ type: 'success', content: '库存选择成功' })
-      const selected = { ...row, selected: true, available_qty: 0 }
+      const selected = { ...row, selected: true, selected_qty: variant, available_qty: 0 }
       stockRows.value = stockRows.value.map((t) =>
         t.stock_id === row.stock_id ? selected : t
       )
@@ -252,7 +293,7 @@ const method = reactive({
       selectingStockId.value = null
     }
   },
-  unselectStock: async (row: SelectableStockVO) => {
+  unselectStock: async (row: StockRow) => {
     if (!item.value || !task.value) return
     selectingStockId.value = row.stock_id
     try {
@@ -350,6 +391,27 @@ defineExpose({ openDialog })
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.merged-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.4;
+}
+
+.merged-primary {
+  color: rgba(var(--v-theme-on-surface), 0.87);
+}
+
+.merged-secondary {
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  font-size: 12px;
+}
+
+.variant-input {
+  max-width: 80px;
+  margin: 0 auto;
 }
 
 .selected-row,

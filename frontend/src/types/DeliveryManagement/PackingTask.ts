@@ -51,6 +51,7 @@ export interface SelectableStockVO {
   expiry_date?: string | null
   matched: boolean
   selected: boolean
+  selected_qty?: number
   is_creator_stock: boolean
 }
 

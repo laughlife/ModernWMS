@@ -449,6 +449,7 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                                 && string.Equals(StripVariantSuffix(row.sku_code), baseSkuCode,
                                     StringComparison.OrdinalIgnoreCase))),
                     selected = selected,
+                    selected_qty = row.selected_qty,
                     is_creator_stock = createName.Length > 0
                         && row.goods_owner_name.Contains(createName, StringComparison.OrdinalIgnoreCase)
                 });
@@ -547,7 +548,16 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                 {
                     return await RollbackResultAsync(transaction, "该库存可用量不足，不能选择");
                 }
-                var lockedQty = availableQty;
+                // 锁定数量即变体数：1 变体占用 1 个库存，2 变体占用 2 个库存，不得超过可用量。
+                var lockedQty = request.qty;
+                if (lockedQty <= 0)
+                {
+                    return await RollbackResultAsync(transaction, "变体数量必须大于0");
+                }
+                if (lockedQty > availableQty)
+                {
+                    return await RollbackResultAsync(transaction, $"该库存可用量不足：当前可用 {availableQty}，需锁定 {lockedQty}");
+                }
 
                 var createName = (taskContext.create_name ?? string.Empty).Trim();
                 var isCreatorStock = createName.Length > 0
