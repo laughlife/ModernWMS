@@ -3,7 +3,7 @@
     <v-card>
       <v-toolbar color="white" density="compact" title="选择库存">
         <template #append>
-          <v-btn icon="mdi-close" variant="text" aria-label="关闭" @click="closeDialog"></v-btn>
+          <v-btn icon="mdi-close" variant="text" aria-label="关闭" @click="cancelDialog"></v-btn>
         </template>
       </v-toolbar>
       <v-divider></v-divider>
@@ -99,14 +99,18 @@
         </vxe-table>
         <div class="stock-dialog-footer">
           <span>{{ footerText }}</span>
-          <v-btn
-            size="small"
-            variant="text"
-            :disabled="loading || stockRows.length >= total"
-            @click="method.loadMore"
-          >
-            查看更多
-          </v-btn>
+          <div class="footer-actions">
+            <v-btn
+              size="small"
+              variant="text"
+              :disabled="loading || stockRows.length >= total"
+              @click="method.loadMore"
+            >
+              查看更多
+            </v-btn>
+            <v-btn variant="text" :disabled="loading" @click="cancelDialog">取消</v-btn>
+            <v-btn color="primary" variant="tonal" :disabled="loading" @click="confirmDialog">确定</v-btn>
+          </div>
         </div>
       </v-card-text>
     </v-card>
@@ -122,13 +126,14 @@ import type { PackingTaskItemVO, PackingTaskVO, SelectableStockVO } from '@/type
 
 const PAGE_SIZE = 20
 
-const emit = defineEmits<{ changed: [] }>()
+const emit = defineEmits<{ changed: [selected: SelectableStockVO[]] }>()
 
 const visible = ref(false)
 const loading = ref(false)
 const task = ref<PackingTaskVO | null>(null)
 const item = ref<PackingTaskItemVO | null>(null)
 const stockRows = ref<SelectableStockVO[]>([])
+const selectedRows = ref<SelectableStockVO[]>([])
 const total = ref(0)
 const pageIndex = ref(1)
 const selectingStockId = ref<number | null>(null)
@@ -214,10 +219,17 @@ const method = reactive({
         return
       }
       hookComponent.$message({ type: 'success', content: '库存选择成功' })
+      const selected = { ...row, selected: true, available_qty: 0 }
       stockRows.value = stockRows.value.map((t) =>
-        t.stock_id === row.stock_id ? { ...t, selected: true, available_qty: 0 } : t
+        t.stock_id === row.stock_id ? selected : t
       )
-      emit('changed')
+      selectedRows.value = [
+        ...selectedRows.value.filter((t) => t.stock_id !== row.stock_id),
+        selected
+      ]
+      // 选择成功后自动关闭，并把所选库存回传给父页面刷新数据。
+      emit('changed', [...selectedRows.value])
+      visible.value = false
     } catch (error) {
       hookComponent.$message({ type: 'error', content: error instanceof Error ? error.message : String(error) })
     } finally {
@@ -230,6 +242,7 @@ const openDialog = (taskRow: PackingTaskVO, itemRow: PackingTaskItemVO): void =>
   task.value = taskRow
   item.value = itemRow
   stockRows.value = []
+  selectedRows.value = []
   total.value = 0
   pageIndex.value = 1
   selectingStockId.value = null
@@ -241,7 +254,14 @@ const openDialog = (taskRow: PackingTaskVO, itemRow: PackingTaskItemVO): void =>
   method.loadPage()
 }
 
-const closeDialog = (): void => {
+// 确定：把本次已选择的库存回传给父页面并关闭。
+const confirmDialog = (): void => {
+  emit('changed', [...selectedRows.value])
+  visible.value = false
+}
+
+// 取消：仅关闭，不触发刷新。
+const cancelDialog = (): void => {
   visible.value = false
 }
 
@@ -282,5 +302,11 @@ defineExpose({ openDialog })
   margin-top: 10px;
   color: rgba(var(--v-theme-on-surface), 0.6);
   font-size: 12px;
+}
+
+.footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 </style>
