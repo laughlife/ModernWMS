@@ -25,7 +25,7 @@ export default {
               resetMsgTop()
             }, 200)
           },
-          options.shutDelay ? options.shutDelay - 200 : 1300
+          options.shutDelay ? options.shutDelay - 200 : 4800
         )
       }
     }).use(vuetify)
