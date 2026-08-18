@@ -40,24 +40,43 @@
               </v-alert>
               <section v-for="task in row.packing_tasks" :key="task.id" class="task-block">
                 <div class="task-heading">
-                  <strong>{{ $t('wms.deliveryManagement.packingTaskNo') }}：{{ task.source_task_no }}</strong>
-                  <span>{{ task.measured_box_count }} / {{ task.expected_box_count }}</span>
+                  <strong>装箱任务号：{{ task.source_task_no }}</strong>
+                  <span>状态：已拣货</span>
                 </div>
                 <v-table density="compact">
-                  <thead><tr>
-                    <th>{{ $t('wms.deliveryManagement.productInfo') }}</th>
-                    <th>SKU</th>
-                    <th>{{ $t('wms.deliveryManagement.fnSku') }} / MSKU</th>
-                    <th>{{ $t('wms.deliveryManagement.quantityLabel') }}</th>
-                  </tr></thead>
+                  <thead>
+                    <tr>
+                      <th>图片</th>
+                      <th>商品信息</th>
+                      <th>FNSKU / MSKU</th>
+                      <th>任务量</th>
+                      <th>商品需求量</th>
+                      <th>可用量快照</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     <tr v-for="item in task.items" :key="item.id">
-                      <td>{{ item.commodity_name || '-' }}</td>
-                      <td>{{ item.commodity_sku || '-' }}</td>
-                      <td>{{ item.fn_sku || '-' }} / {{ item.msku || '-' }}</td>
-                      <td>{{ item.required_qty ?? '-' }}</td>
+                      <td class="detail-image-cell">
+                        <ProductImage
+                          :src="item.main_image"
+                          :alt="item.commodity_name || item.commodity_sku"
+                          :width="56"
+                          :height="56"
+                        />
+                      </td>
+                      <td class="text-left">
+                        <div>{{ displayValue(item.commodity_name) }}</div>
+                        <div class="secondary-text">SKU：{{ displayValue(item.commodity_sku) }}</div>
+                      </td>
+                      <td>
+                        <div>{{ displayValue(item.fn_sku) }}</div>
+                        <div class="secondary-text">{{ displayValue(item.msku) }}</div>
+                      </td>
+                      <td>{{ displayValue(item.task_qty) }}</td>
+                      <td>{{ displayValue(item.required_qty) }}</td>
+                      <td>{{ displayValue(item.source_stock_available) }}</td>
                     </tr>
-                    <tr v-if="task.items.length === 0"><td colspan="4" class="detail-empty">{{ $t('system.page.noData') }}</td></tr>
+                    <tr v-if="task.items.length === 0"><td colspan="6" class="detail-empty">{{ $t('system.page.noData') }}</td></tr>
                   </tbody>
                 </v-table>
               </section>
@@ -145,6 +164,7 @@ import type { VxePagerEvents, VxeTableEvents } from 'vxe-table'
 import { decideDispatchSourceChange, getDispatchOrder, getDispatchOrderPage, startDispatchWeighing } from '@/api/wms/dispatchWorkflow'
 import { hookComponent } from '@/components/system'
 import BtnGroup from '@/components/system/btnGroup.vue'
+import ProductImage from '@/components/system/product-image.vue'
 import TooltipBtn from '@/components/tooltip-btn.vue'
 import customPager from '@/components/custom-pager.vue'
 import { computedCardHeight, computedTableHeight } from '@/constant/style'
@@ -192,6 +212,8 @@ const createRequestId = (prefix: string): string => {
 const toTableRow = (row: DispatchOrderSummary): PickedOrderRow => ({
   ...row, packing_tasks: [], detail_loaded: false, detail_loading: false
 })
+const displayValue = (value: unknown): string | number =>
+  value === null || value === undefined || value === '' ? '-' : value as string | number
 const applyDetail = (row: PickedOrderRow, detail: DispatchOrderDetail): void => {
   Object.assign(row, detail, {
     packing_tasks: detail.packing_tasks,
@@ -381,6 +403,8 @@ defineExpose({ getPicked: method.getPicked })
 .detail-loading { min-height: 100px; display: flex; align-items: center; justify-content: center; }
 .task-block { margin-bottom: 14px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 6px; overflow: hidden; background: rgb(var(--v-theme-surface)); }
 .task-heading { display: flex; justify-content: space-between; gap: 20px; padding: 10px 16px; background: rgba(var(--v-theme-primary), 0.08); }
+.secondary-text { margin-top: 3px; color: rgba(var(--v-theme-on-surface), 0.62); font-size: 12px; }
+.detail-image-cell { width: 72px; }
 .detail-empty { padding: 24px !important; text-align: center !important; opacity: 0.62; }
 .source-diff { margin: 10px 0 0; padding: 10px; max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; border-radius: 6px; background: rgba(var(--v-theme-surface), 0.75); font-size: 12px; }
 .dialog-diff { margin: 0 0 16px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
