@@ -1,4 +1,5 @@
 using System.Data;
+using System.Text.Json;
 using Dapper;
 using ModernWMS.Core.JWT;
 using ModernWMS.WMS.Entities.Models;
@@ -64,8 +65,8 @@ public partial class DispatchWorkflowService
             var now=DateTime.Now;
             foreach(var task in order.packing_tasks.Where(x=>x.is_active).OrderBy(x=>x.id))
             {
-                var parsed=SellFoxCartonParser.Parse(task.source_cartons_json);if(!parsed.IsSupported)throw DispatchWorkflowCommandException.SourceBoxIdentityUnsupported($"packing task {task.source_task_no}: {parsed.Error}");
-                foreach(var b in parsed.Boxes.OrderBy(x=>x.Sequence))await c.ExecuteAsync(new CommandDefinition("""
+                var boxes=ResolveWeighingBoxes(task);
+                foreach(var b in boxes.OrderBy(x=>x.Sequence))await c.ExecuteAsync(new CommandDefinition("""
                     INSERT INTO `wms_weighing_box` (`packing_task_id`,`box_identity`,`source_box_identity`,`box_sequence`,`measurement_status`,`measured_by_name`,`source_snapshot`,`is_invalidated`,`create_time`,`last_update_time`,`row_version`)
                     VALUES (@taskId,@identity,@sourceIdentity,@sequence,'UNMEASURED','',@snapshot,0,@now,@now,0);
                     """,new{taskId=task.id,identity=HashText($"{task.source_task_id}:{b.SourceBoxIdentity.Trim()}"),sourceIdentity=b.SourceBoxIdentity.Trim(),sequence=b.Sequence,snapshot=b.SourceSnapshot,now},tx,cancellationToken:ct));
@@ -73,7 +74,7 @@ public partial class DispatchWorkflowService
                     UPDATE `wms_dispatch_packing_task` SET `status`=@status,`expected_box_count`=@count,`measured_box_count`=0,
                       `stable_box_identity_verified`=1,`box_identity_validation_error`='',`last_update_time`=@now,`row_version`=`row_version`+1
                     WHERE `id`=@id AND `row_version`=@expected;
-                    """,new{status=DispatchOrderStatus.Weighing,count=parsed.Boxes.Count,now,id=task.id,expected=task.row_version},tx,cancellationToken:ct));
+                    """,new{status=DispatchOrderStatus.Weighing,count=boxes.Count,now,id=task.id,expected=task.row_version},tx,cancellationToken:ct));
                 if(changed!=1)throw DispatchWorkflowCommandException.ConcurrencyConflict();
             }
             var version=order.row_version+1;await UpdateWeighOrderAsync(c,tx,orderId,r.row_version,DispatchOrderStatus.Weighing,now,ct);await InsertOperationAsync(c,tx,orderId,DispatchWorkflowOperation.StartWeighing,r.request_id,DispatchOrderStatus.Weighing,version,u,now,ct);await tx.CommitAsync(ct);
@@ -117,6 +118,26 @@ public partial class DispatchWorkflowService
         await UpdateWeighOrderAsync(c,tx,o.id,expected,o.status,now,ct);
     }
     private static async Task UpdateWeighOrderAsync(System.Data.IDbConnection c,IDbTransaction tx,int id,long expected,DispatchOrderStatus status,DateTime now,CancellationToken ct){var n=await c.ExecuteAsync(new CommandDefinition("UPDATE `wms_dispatch_order` SET `status`=@status,`last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id`=@id AND `row_version`=@expected;",new{id,expected,status,now},tx,cancellationToken:ct));if(n!=1)throw DispatchWorkflowCommandException.ConcurrencyConflict();}
+
+    private static IReadOnlyList<SellFoxSourceBox> ResolveWeighingBoxes(DispatchPackingTaskEntity task)
+    {
+        var parsed=SellFoxCartonParser.Parse(task.source_cartons_json,allowEmpty:true);
+        if(!parsed.IsSupported)throw DispatchWorkflowCommandException.SourceBoxIdentityUnsupported($"packing task {task.source_task_no}: {parsed.Error}");
+        if(parsed.Boxes.Count>0)return parsed.Boxes;
+
+        // The packing-task list can legitimately have no SellFox/FBA carton payload.
+        // In that case the WMS workflow owns one initial weighing box whose identity
+        // is derived from the immutable packing-task id, so retrying is idempotent.
+        var identity=$"PACKING_TASK:{task.source_task_id}";
+        var snapshot=JsonSerializer.Serialize(new
+        {
+            identityOrigin="WMS_PACKING_TASK",
+            sourceTaskId=task.source_task_id,
+            sourceTaskNo=task.source_task_no,
+            sequence=1
+        });
+        return [new SellFoxSourceBox(identity,1,snapshot)];
+    }
 
     private static void ValidateOrderCommand(int id,string requestId,long version){if(id<=0||string.IsNullOrWhiteSpace(requestId)||requestId.Length>64||requestId!=requestId.Trim()||version<0)throw new ArgumentException("order id, request_id and row_version are required");}
     private static WeighingBoxEntity FindAvailableBox(DispatchOrderEntity o,int id)=>o.packing_tasks.Where(x=>x.is_active).SelectMany(x=>x.boxes).SingleOrDefault(x=>x.id==id&&!x.is_invalidated)??throw DispatchWorkflowCommandException.BoxNotAvailable("box does not belong to the active packing tasks of this order");

@@ -4,7 +4,18 @@
       <v-col cols="2" class="col">
         <BtnGroup :authority-list="data.authorityList" :btn-list="data.btnList" />
       </v-col>
-      <v-col cols="10" @keyup.enter="method.sureSearch">
+      <v-col cols="2" class="col">
+        <v-btn
+          color="primary"
+          prepend-icon="mdi-scale-balance"
+          :loading="data.weighingBatch"
+          :disabled="data.loading || data.weighingBatch || data.selectedOrderCount === 0 || !data.authorityList.includes('weighed-weigh')"
+          @click="method.startSelectedWeighing"
+        >
+          批量去称重（{{ data.selectedOrderCount }}）
+        </v-btn>
+      </v-col>
+      <v-col cols="8" @keyup.enter="method.sureSearch">
         <v-text-field
           v-model="data.searchForm.keyword"
           clearable hide-details density="comfortable" class="searchInput ml-5 mt-1"
@@ -20,6 +31,8 @@
       ref="xTable" :column-config="{ minWidth: '120px' }" :row-config="{ keyField: 'id' }"
       :expand-config="{ expandAll: true, trigger: 'manual' }"
       :data="data.tableData" :height="tableHeight" :loading="data.loading" align="center"
+      @checkbox-change="method.handleSelectionChange"
+      @checkbox-all="method.handleSelectionChange"
     >
       <template #empty>{{ i18n.global.t('system.page.noData') }}</template>
       <vxe-column type="checkbox" width="52" fixed="left" />
@@ -192,6 +205,8 @@ const data = reactive({
   searchForm: { keyword: '' },
   timer: null as ReturnType<typeof setTimeout> | null,
   loading: false,
+  weighingBatch: false,
+  selectedOrderCount: 0,
   tableData: [] as PickedOrderRow[],
   tablePage: { total: 0, pageIndex: 1, pageSize: DEFAULT_PAGE_SIZE },
   btnList: [] as btnGroupItem[],
@@ -275,6 +290,8 @@ const clearPageForRequest = (): void => {
   data.tablePage.total = 0
   data.loading = false
   xTable.value?.clearRowExpand?.()
+  xTable.value?.clearCheckboxRow?.()
+  data.selectedOrderCount = 0
   resetDecisionDialog()
 }
 const invalidatePageRequest = (): void => {
@@ -318,6 +335,9 @@ const method = reactive({
     method.getPicked()
   }),
   sureSearch: () => { data.tablePage.pageIndex = 1; method.getPicked() },
+  handleSelectionChange: () => {
+    data.selectedOrderCount = (xTable.value?.getCheckboxRecords?.() ?? []).length
+  },
   openSourceDecision: (row: PickedOrderRow) => openDecisionDialog(row),
   startWeighingRow: (row: PickedOrderRow) => {
     if (!canStartPickedOrderWeighing(row)) { openDecisionDialog(row); return }
@@ -341,6 +361,42 @@ const method = reactive({
           hookComponent.$message({ type: 'error', content: result.errorMessage })
         } catch (error) {
           hookComponent.$message({ type: 'error', content: error instanceof Error ? error.message : String(error) })
+        }
+      }
+    })
+  },
+  startSelectedWeighing: () => {
+    const rows = (xTable.value?.getCheckboxRecords?.() ?? []) as PickedOrderRow[]
+    if (rows.length === 0 || data.weighingBatch) return
+    hookComponent.$dialog({
+      content: `确认将选中的 ${rows.length} 张拣货单批量转入称重？`,
+      handleConfirm: async () => {
+        data.weighingBatch = true
+        const succeeded: PickedOrderRow[] = []
+        const failed: string[] = []
+        try {
+          for (const row of rows) {
+            if (!canStartPickedOrderWeighing(row)) {
+              failed.push(`${row.dispatch_no}：当前状态不可进入称重`)
+              continue
+            }
+            try {
+              const result = await startDispatchWeighing(row.id, buildStartWeighingRequest(row, createRequestId('batch-start-weighing')))
+              if (resolveStartWeighingOutcome(result) === 'go-weighing') succeeded.push(row)
+              else failed.push(`${row.dispatch_no}：${result.errorMessage || '转入称重失败'}`)
+            } catch (error) {
+              failed.push(`${row.dispatch_no}：${error instanceof Error ? error.message : String(error)}`)
+            }
+          }
+          if (succeeded.length > 0) {
+            hookComponent.$message({ type: 'success', content: `已将 ${succeeded.length} 张拣货单转入称重` })
+            emit('statusChanged')
+          }
+          if (failed.length > 0) hookComponent.$message({ type: 'error', content: `以下拣货单处理失败：${failed.join('；')}` })
+          await method.getPicked()
+          if (succeeded.length > 0) emit('goToWeighing')
+        } finally {
+          data.weighingBatch = false
         }
       }
     })
