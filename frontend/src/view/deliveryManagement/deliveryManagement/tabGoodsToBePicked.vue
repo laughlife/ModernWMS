@@ -1,18 +1,29 @@
 <template>
   <div class="operateArea">
     <v-row no-gutters>
-      <v-col cols="3" class="col">
+      <v-col cols="2" class="col">
         <BtnGroup :authority-list="data.authorityList" :btn-list="data.btnList" />
       </v-col>
-      <v-col cols="3" class="col">
+      <v-col cols="2" class="col">
         <v-btn
           color="primary"
           prepend-icon="mdi-printer"
           :loading="data.printing"
-          :disabled="data.loading || data.printing || data.selectedOrderCount === 0"
+          :disabled="data.loading || data.printing || data.completing || data.selectedOrderCount === 0"
           @click="method.printSelected"
         >
           批量打印（{{ data.selectedOrderCount }}）
+        </v-btn>
+      </v-col>
+      <v-col cols="2" class="col">
+        <v-btn
+          color="primary"
+          prepend-icon="mdi-check-all"
+          :loading="data.completing"
+          :disabled="data.loading || data.printing || data.completing || data.selectedOrderCount === 0 || !data.authorityList.includes('picked-confirm')"
+          @click="method.completeSelected"
+        >
+          拣货完成（{{ data.selectedOrderCount }}）
         </v-btn>
       </v-col>
       <v-col cols="6" @keyup.enter="method.sureSearch">
@@ -58,7 +69,7 @@
               <section v-for="task in row.detail.packing_tasks" :key="task.id" class="task-section">
                 <div class="task-heading">
                   <strong>{{ $t('wms.deliveryManagement.packingTaskNo') }}：{{ task.source_task_no }}</strong>
-                  <span>{{ task.status }}</span>
+                  <span>状态：待拣货</span>
                 </div>
                 <v-table density="compact">
                   <thead>
@@ -66,8 +77,9 @@
                       <th>图片</th>
                       <th>{{ $t('wms.deliveryManagement.productInfo') }}</th>
                       <th>FNSKU / MSKU</th>
-                      <th>{{ $t('wms.deliveryManagement.packingTaskQty') }}</th>
-                      <th>{{ $t('wms.deliveryManagement.availableQty') }}</th>
+                      <th>任务量</th>
+                      <th>商品需求量</th>
+                      <th>可用量快照</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -88,6 +100,7 @@
                         <div>{{ displayValue(item.fn_sku) }}</div>
                         <div class="secondary-text">{{ displayValue(item.msku) }}</div>
                       </td>
+                      <td>{{ displayValue(item.task_qty) }}</td>
                       <td>{{ displayValue(item.required_qty) }}</td>
                       <td>{{ displayValue(item.source_stock_available) }}</td>
                     </tr>
@@ -111,14 +124,9 @@
           </div>
         </template>
       </vxe-column>
-      <vxe-column :title="$t('wms.deliveryManagement.inventoryStatus')" width="150">
-        <template #default="{ row }">
-          <v-chip v-if="row.source_change_pending" size="small" color="error" variant="tonal">
-            {{ $t('wms.deliveryManagement.sourceChangePending') }}
-          </v-chip>
-          <v-chip v-else size="small" color="warning" variant="tonal">
-            {{ $t('wms.deliveryManagement.inventoryCheck') }}
-          </v-chip>
+      <vxe-column title="状态" width="120">
+        <template #default>
+          <v-chip size="small" color="primary" variant="tonal">待拣货</v-chip>
         </template>
       </vxe-column>
       <vxe-column field="creator" :title="$t('wms.deliveryManagement.creator')" width="140" />
@@ -135,21 +143,21 @@
               :flat="true"
               icon="mdi-printer"
               :tooltip-text="$t('system.page.print')"
-              :disabled="data.loading || data.printing"
+              :disabled="data.loading || data.printing || data.completing"
               @click="method.printRow(row)"
             />
             <TooltipBtn
               :flat="true"
               icon="mdi-check-all"
               :tooltip-text="$t('wms.deliveryManagement.completePicking')"
-              :disabled="data.loading || !data.authorityList.includes('picked-confirm')"
+              :disabled="data.loading || data.printing || data.completing || !data.authorityList.includes('picked-confirm')"
               @click="method.completeRow(row)"
             />
             <TooltipBtn
               :flat="true"
               icon="mdi-undo"
               tooltip-text="退回"
-              :disabled="data.loading || data.printing"
+              :disabled="data.loading || data.printing || data.completing"
               @click="method.rollbackRow(row)"
             />
           </div>
@@ -171,23 +179,28 @@
   <div id="pickingPrintArea" class="print-area">
     <article v-for="order in data.printOrders" :key="order.id" class="print-order">
       <h2>{{ $t('wms.deliveryManagement.pickingList') }}</h2>
-      <div class="print-order-meta">
-        <span>{{ $t('wms.deliveryManagement.wmsOrderNo') }}：{{ order.dispatch_no }}</span>
-        <span>{{ $t('wms.deliveryManagement.warehouseName') }} ID：{{ order.warehouse_id }}</span>
-      </div>
-      <section v-for="task in order.packing_tasks" :key="task.id" class="print-task">
-        <h3>{{ $t('wms.deliveryManagement.packingTaskNo') }}：{{ task.source_task_no }}</h3>
-        <table>
-          <thead>
-            <tr>
-              <th>图片</th>
-              <th>{{ $t('wms.deliveryManagement.productInfo') }}</th>
-              <th>FNSKU</th>
-              <th>MSKU</th>
-              <th>{{ $t('wms.deliveryManagement.packingTaskQty') }}</th>
-            </tr>
-          </thead>
-          <tbody>
+      <table class="print-meta-table">
+        <tbody>
+          <tr>
+            <td>拣货单号：{{ order.dispatch_no }}</td>
+            <td>装箱任务号：{{ order.packing_task_nos.join('、') || '-' }}</td>
+            <td>仓库名称：{{ warehouseName(order.warehouse_id) }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <table class="print-product-table">
+        <thead>
+          <tr>
+            <th>图片</th>
+            <th>{{ $t('wms.deliveryManagement.productInfo') }}</th>
+            <th>FNSKU / MSKU</th>
+            <th>任务量</th>
+            <th>商品需求量</th>
+            <th>可用量快照</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template v-for="task in order.packing_tasks" :key="task.id">
             <tr v-for="item in task.items" :key="item.id">
               <td class="print-image-cell">
                 <img
@@ -202,13 +215,17 @@
                 <div>{{ displayValue(item.commodity_name) }}</div>
                 <div>SKU：{{ displayValue(item.commodity_sku) }}</div>
               </td>
-              <td>{{ displayValue(item.fn_sku) }}</td>
-              <td>{{ displayValue(item.msku) }}</td>
+              <td>
+                <div>{{ displayValue(item.fn_sku) }}</div>
+                <div>{{ displayValue(item.msku) }}</div>
+              </td>
+              <td>{{ displayValue(item.task_qty) }}</td>
               <td>{{ displayValue(item.required_qty) }}</td>
+              <td>{{ displayValue(item.source_stock_available) }}</td>
             </tr>
-          </tbody>
-        </table>
-      </section>
+          </template>
+        </tbody>
+      </table>
     </article>
   </div>
 </template>
@@ -233,6 +250,7 @@ import { computedCardHeight, computedTableHeight } from '@/constant/style'
 import { DEBOUNCE_TIME } from '@/constant/system'
 import { DEFAULT_PAGE_SIZE, PAGE_LAYOUT, PAGE_SIZE } from '@/constant/vxeTable'
 import i18n from '@/languages/i18n'
+import { useDispatchWarehouseStore } from '@/store/module/dispatchWarehouse'
 import type { DispatchOrderDetail, DispatchOrderSummary } from '@/types/DeliveryManagement/DispatchWorkflow'
 import type { btnGroupItem } from '@/types/System/Form'
 import { getMenuAuthorityList } from '@/utils/common'
@@ -257,6 +275,7 @@ const props = defineProps<{ warehouseId: number | null }>()
 const emit = defineEmits<{ statusChanged: [] }>()
 const xTable = ref()
 const printButtonRef = ref<HTMLButtonElement>()
+const dispatchWarehouseStore = useDispatchWarehouseStore()
 
 const data = reactive({
   searchForm: { keyword: '' },
@@ -264,6 +283,7 @@ const data = reactive({
   tableData: [] as PendingPickTableRow[],
   printOrders: [] as DispatchOrderDetail[],
   printing: false,
+  completing: false,
   selectedOrderCount: 0,
   errorMessage: '',
   loading: false,
@@ -291,6 +311,9 @@ const formatDateTime = (value?: string): string => {
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false })
 }
+
+const warehouseName = (warehouseId: number): string =>
+  dispatchWarehouseStore.warehouseOptions.find((warehouse) => warehouse.id === warehouseId)?.name || '-'
 
 const createRequestId = (): string => {
   if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID()
@@ -467,26 +490,50 @@ const method = reactive({
   printSelected: () => method.printRows(
     (xTable.value?.getCheckboxRecords?.() ?? []) as PendingPickTableRow[]
   ),
-  completeRow: (row: PendingPickTableRow) => {
-    hookComponent.$dialog({
-      content: i18n.global.t('wms.deliveryManagement.completePickingConfirm'),
-      handleConfirm: async () => {
-        const result = await completeDispatchPicking(row.id, buildCompletePickingPayload(row, createRequestId()))
-        if (!result.isSuccess) {
+  completeRows: async (rows: PendingPickTableRow[]) => {
+    if (rows.length === 0 || data.completing) return
+    data.completing = true
+    let completedCount = 0
+    const failedMessages: string[] = []
+    try {
+      for (const row of rows) {
+        try {
+          const result = await completeDispatchPicking(row.id, buildCompletePickingPayload(row, createRequestId()))
+          if (result.isSuccess) {
+            completedCount += 1
+            continue
+          }
           const outcome = getPendingPickFailureOutcome(result.errorMessage)
-          hookComponent.$message({
-            type: 'error',
-            content: `${outcome.message ?? i18n.global.t(outcome.messageKey)}（${result.errorMessage}）`
-          })
-          await refreshAfterFailure(row.id)
-          return
+          failedMessages.push(`${row.dispatch_no}：${outcome.message ?? i18n.global.t(outcome.messageKey)}`)
+        } catch (error) {
+          failedMessages.push(`${row.dispatch_no}：${error instanceof Error ? error.message : String(error)}`)
         }
-        hookComponent.$message({ type: 'success', content: i18n.global.t('wms.deliveryManagement.picked') })
-        await method.getGoodsToBePicked()
+      }
+      if (completedCount > 0) {
+        hookComponent.$message({ type: 'success', content: `已完成 ${completedCount} 张拣货单` })
         emit('statusChanged')
       }
+      if (failedMessages.length > 0) {
+        hookComponent.$message({ type: 'error', content: failedMessages.join('；') })
+      }
+      await method.getGoodsToBePicked()
+    } finally {
+      data.completing = false
+    }
+  },
+  confirmCompleteRows: (rows: PendingPickTableRow[]) => {
+    if (rows.length === 0) return
+    hookComponent.$dialog({
+      content: rows.length === 1
+        ? i18n.global.t('wms.deliveryManagement.completePickingConfirm')
+        : `确认将选中的 ${rows.length} 张拣货单批量标记为拣货完成？`,
+      handleConfirm: () => method.completeRows(rows)
     })
   },
+  completeRow: (row: PendingPickTableRow) => method.confirmCompleteRows([row]),
+  completeSelected: () => method.confirmCompleteRows(
+    (xTable.value?.getCheckboxRecords?.() ?? []) as PendingPickTableRow[]
+  ),
   rollbackRow: (row: PendingPickTableRow) => {
     hookComponent.$dialog({
       content: '确认回退该拣货单？回退后装箱任务将回到装箱任务列表，可重新选择建单。',
@@ -555,17 +602,17 @@ defineExpose({ getGoodsToBePicked: method.getGoodsToBePicked })
 .print-trigger { position: fixed; left: -10000px; width: 1px; height: 1px; opacity: 0; }
 .print-area { position: fixed; left: -10000px; top: 0; width: 1000px; padding: 20px; background: white; color: #000; }
 .print-order h2 { margin: 0 0 14px; text-align: center; }
-.print-order-meta { display: flex; justify-content: space-between; margin-bottom: 14px; }
-.print-task + .print-task { margin-top: 18px; }
-.print-task h3 { margin: 0 0 8px; }
+.print-order + .print-order { margin-top: 24px; }
+.print-meta-table { margin-bottom: 12px; }
+.print-meta-table td { width: 33.333%; text-align: left; font-weight: 600; }
 .print-area table { width: 100%; border-collapse: collapse; }
 .print-area th, .print-area td { padding: 7px; border: 1px solid #333; text-align: center; }
 .print-image-cell { width: 76px; }
 .print-image-cell img { display: block; width: 64px; height: 64px; margin: 0 auto; object-fit: contain; }
-.print-order + .print-order { break-before: page; page-break-before: always; }
 
 @media print {
   .print-area { position: static; left: auto; top: auto; width: 100%; padding: 0; }
-  .print-task { break-inside: avoid; }
+  .print-order { break-inside: auto; page-break-inside: auto; }
+  .print-product-table tr { break-inside: avoid; page-break-inside: avoid; }
 }
 </style>

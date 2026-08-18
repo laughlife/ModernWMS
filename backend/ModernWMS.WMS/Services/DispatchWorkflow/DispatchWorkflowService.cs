@@ -102,6 +102,7 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
                         main_image = SourceMainImage(i.source_snapshot),
                         fn_sku = i.fn_sku,
                         msku = i.msku,
+                        task_qty = i.source_quantity_shipped,
                         required_qty = i.required_qty,
                         source_stock_available = i.source_stock_available
                     }).ToList()

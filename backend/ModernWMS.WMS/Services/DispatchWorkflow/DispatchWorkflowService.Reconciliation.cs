@@ -35,6 +35,12 @@ public partial class DispatchWorkflowService
             if(snapshots.Count!=tasks.Count) throw new InvalidOperationException("one or more packing tasks are missing during reconciliation");
             if(snapshots.Where(x=>!x.IsCancelled).Any(x=>x.WarehouseId!=order.warehouse_id))
                 throw new InvalidOperationException("packing task warehouse changed; order reconciliation rejected");
+            // 兼容本功能上线前已生成的待拣货单：选择记录仍在时补齐可用量快照。
+            var legacyBindings=await LoadCreationBindingRowsAsync(connection,tx,order.tenant_id,
+                tasks.Select(x=>x.source_task_id).ToArray(),cancellationToken);
+            var legacyRequiredQty=legacyBindings.GroupBy(x=>(x.TaskId,x.ItemId))
+                .ToDictionary(x=>x.Key,x=>x.Sum(row=>row.LockedQty));
+            var legacyAvailableSnapshots=BuildAvailableSnapshots(snapshots,legacyBindings);
             var now=DateTime.Now;
             var changed=false;
             foreach(var task in tasks)
@@ -51,6 +57,28 @@ public partial class DispatchWorkflowService
                     UPDATE `wms_dispatch_packing_task_item` SET `wms_sku_id`=NULL,`last_update_time`=@now,`row_version`=`row_version`+1
                     WHERE `packing_task_id`=@taskId AND `is_active`=1 AND `wms_sku_id` IS NOT NULL;
                     """,new {now,taskId=task.id},tx,cancellationToken:cancellationToken));
+            }
+            foreach(var task in tasks.Where(x=>x.is_active))
+            {
+                var snapshot=snapshots.Single(x=>x.SourceTaskId==task.source_task_id);
+                if(snapshot.IsCancelled) continue;
+                foreach(var item in snapshot.Items)
+                {
+                    if(!legacyRequiredQty.TryGetValue((snapshot.SourceTaskId,item.SourceItemId),out var requiredQty)) continue;
+                    if(!legacyAvailableSnapshots.TryGetValue((snapshot.SourceTaskId,item.SourceItemId),out var available)) continue;
+                    var backfilled=await connection.ExecuteAsync(new CommandDefinition("""
+                        UPDATE `wms_dispatch_packing_task_item`
+                        SET `required_qty`=@requiredQty,`source_quantity_shipped`=@Quantity,
+                            `source_stock_available`=COALESCE(`source_stock_available`,@available),
+                            `last_update_time`=@now,`row_version`=`row_version`+1
+                        WHERE `packing_task_id`=@taskId AND `source_item_id`=@SourceItemId
+                          AND `is_active`=1
+                          AND (`required_qty`<>@requiredQty OR `source_quantity_shipped`<>@Quantity
+                               OR `source_stock_available` IS NULL);
+                        """,new{item.Quantity,requiredQty,available,now,taskId=task.id,item.SourceItemId},tx,
+                        cancellationToken:cancellationToken));
+                    changed=changed||backfilled>0;
+                }
             }
             // 仅在确有变化时推进订单版本：待拣货页每次加载与角标刷新都会对全部待拣货订单执行
             // reconcile，若每次都无条件 row_version+1，前端缓存版本会迅速过期，导致回退/拣货

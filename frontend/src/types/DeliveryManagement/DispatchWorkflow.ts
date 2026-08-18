@@ -112,6 +112,7 @@ export interface DispatchPackingTaskItem {
   main_image: string
   fn_sku: string
   msku: string
+  task_qty?: number | null
   required_qty: number | null
   source_stock_available: number | null
 }

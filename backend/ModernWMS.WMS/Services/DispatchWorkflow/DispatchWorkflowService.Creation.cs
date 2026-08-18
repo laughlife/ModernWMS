@@ -60,6 +60,16 @@ public partial class DispatchWorkflowService
             }
             var occupied = await FindOccupiedTaskIdsAsync(connection, transaction, taskIds, cancellationToken);
             if (occupied.Count > 0) throw new InvalidOperationException($"packing tasks already belong to an active order: {string.Join(',', occupied.Order())}");
+            var bindingRows = await LoadCreationBindingRowsAsync(connection,transaction,
+                currentUser.tenant_id,taskIds,cancellationToken);
+            var bindingQty = bindingRows.GroupBy(x => (x.TaskId, x.ItemId))
+                .ToDictionary(x => x.Key, x => x.Sum(row => row.LockedQty));
+            foreach (var snapshot in snapshots)
+            foreach (var item in snapshot.Items)
+                if (!bindingQty.TryGetValue((snapshot.SourceTaskId, item.SourceItemId), out var lockedQty)
+                    || lockedQty < item.Quantity)
+                    throw new InvalidOperationException($"装箱任务{snapshot.TaskNo}存在未绑定库存的商品，不能生成拣货单");
+            var availableSnapshots = BuildAvailableSnapshots(snapshots, bindingRows);
             var now = DateTime.Now;
             var order = new DispatchOrderEntity
             {
@@ -79,7 +89,8 @@ public partial class DispatchWorkflowService
                 SELECT LAST_INSERT_ID();
                 """, order, transaction, cancellationToken: cancellationToken));
             foreach (var snapshot in snapshots.OrderBy(x => x.SourceTaskId))
-                await InsertTaskAsync(connection, transaction, order.id, CreateTask(snapshot, null, now), cancellationToken);
+                await InsertTaskAsync(connection, transaction, order.id,
+                    CreateTask(snapshot, null, now, bindingQty, availableSnapshots), cancellationToken);
             await EnsureCreationSourceUnchangedAsync(taskIds, snapshots, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return await LoadDetailAsync(order.id, cancellationToken);
@@ -95,6 +106,33 @@ public partial class DispatchWorkflowService
             throw new InvalidOperationException("dispatch order creation conflicted with another concurrent request", exception);
         }
     }
+
+    private static async Task<List<CreationBindingRow>> LoadCreationBindingRowsAsync(
+        System.Data.IDbConnection connection,IDbTransaction transaction,long tenantId,
+        IReadOnlyCollection<long> taskIds,CancellationToken cancellationToken) =>
+        (await connection.QueryAsync<CreationBindingRow>(new CommandDefinition("""
+                SELECT selection.`sellfox_task_id` AS TaskId,selection.`sellfox_item_id` AS ItemId,
+                       selection.`stock_id` AS StockId,selection.`qty` AS LockedQty,
+                       GREATEST(0,CASE WHEN stock.`is_freeze`=1 THEN 0 ELSE stock.`qty`
+                         -COALESCE((SELECT SUM(pick.`pick_qty`) FROM `wms_dispatchpicklist` pick
+                           JOIN `wms_dispatchlist` detail ON detail.`id`=pick.`dispatchlist_id`
+                           WHERE detail.`dispatch_status`>1 AND detail.`dispatch_status`<6 AND pick.`stock_id`=stock.`id`),0)
+                         -COALESCE((SELECT SUM(process.`qty`) FROM `wms_stockprocessdetail` process
+                           WHERE process.`is_update_stock`=0 AND process.`sku_id`=stock.`sku_id`
+                             AND process.`goods_location_id`=stock.`goods_location_id` AND process.`goods_owner_id`=stock.`goods_owner_id`),0)
+                         -COALESCE((SELECT SUM(move.`qty`) FROM `wms_stockmove` move
+                           WHERE move.`move_status`=0 AND move.`sku_id`=stock.`sku_id`
+                             AND move.`orig_goods_location_id`=stock.`goods_location_id` AND move.`goods_owner_id`=stock.`goods_owner_id`),0)
+                         -COALESCE((SELECT SUM(other_selection.`qty`) FROM `wms_packing_task_stock_selection` other_selection
+                           WHERE other_selection.`tenant_id`=@tenantId AND other_selection.`stock_id`=stock.`id`),0)
+                         +COALESCE((SELECT SUM(task_selection.`qty`) FROM `wms_packing_task_stock_selection` task_selection
+                           WHERE task_selection.`tenant_id`=@tenantId AND task_selection.`stock_id`=stock.`id`
+                             AND task_selection.`sellfox_task_id` IN @taskIds),0) END) AS AvailableBeforeTask
+                FROM `wms_packing_task_stock_selection` selection
+                JOIN `wms_stock` stock ON stock.`id`=selection.`stock_id` AND stock.`tenant_id`=selection.`tenant_id`
+                WHERE selection.`tenant_id`=@tenantId AND selection.`sellfox_task_id` IN @taskIds
+                ORDER BY selection.`stock_id`,selection.`sellfox_item_id`,selection.`id` FOR UPDATE;
+                """,new{tenantId,taskIds},transaction,cancellationToken:cancellationToken))).AsList();
 
     private static async Task<List<long>> FindOccupiedTaskIdsAsync(System.Data.IDbConnection connection, IDbTransaction? transaction,
         IReadOnlyCollection<long> taskIds, CancellationToken cancellationToken) =>
@@ -120,7 +158,9 @@ public partial class DispatchWorkflowService
     }
 
     private static DispatchPackingTaskEntity CreateTask(PackingTaskSourceSnapshot snapshot,
-        IReadOnlyDictionary<long,int>? mappings, DateTime now)
+        IReadOnlyDictionary<long,int>? mappings, DateTime now,
+        IReadOnlyDictionary<(long TaskId,long ItemId),int>? bindingQty = null,
+        IReadOnlyDictionary<(long TaskId,long ItemId),int>? availableSnapshots = null)
     {
         var task = new DispatchPackingTaskEntity
         {
@@ -128,19 +168,53 @@ public partial class DispatchWorkflowService
             source_cartons_json=snapshot.CartonsJson,status=DispatchOrderStatus.PendingPick,expected_box_count=snapshot.Boxes.Count,
             source_version=snapshot.SourceVersion,stable_box_identity_verified=snapshot.Boxes.Count>0&&snapshot.Boxes.All(x=>!string.IsNullOrWhiteSpace(x.SourceBoxIdentity)),
             box_identity_validation_error=snapshot.Boxes.Count==0?"来源尚未提供物理箱，进入称重前必须同步并验证稳定箱ID":"",
-            create_time=now,last_update_time=now,items=snapshot.Items.Select(x=>CreateItem(x,snapshot.SourceVersion,mappings,now)).ToList()
+            create_time=now,last_update_time=now,items=snapshot.Items.Select(x=>CreateItem(
+                x,snapshot.SourceVersion,mappings,now,
+                bindingQty?.GetValueOrDefault((snapshot.SourceTaskId,x.SourceItemId)),
+                availableSnapshots?.GetValueOrDefault((snapshot.SourceTaskId,x.SourceItemId)))).ToList()
         };
         task.SetActiveState(true); return task;
     }
 
     private static DispatchPackingTaskItemEntity CreateItem(PackingTaskSourceItem item,string version,
-        IReadOnlyDictionary<long,int>? mappings,DateTime now) => new()
+        IReadOnlyDictionary<long,int>? mappings,DateTime now,int? requiredQty = null,int? availableQty = null) => new()
     {
         source_item_id=item.SourceItemId,source_commodity_id=item.CommodityId,wms_sku_id=mappings==null?null:MappedSkuId(item,mappings),
         commodity_sku=item.CommoditySku,commodity_name=item.CommodityName,fn_sku=item.FnSku,msku=item.Msku,
-        required_qty=item.Quantity,source_quantity_shipped=item.Quantity,source_version=version,source_snapshot=item.SourceSnapshot,
+        required_qty=requiredQty ?? item.Quantity,source_quantity_shipped=item.Quantity,source_stock_available=availableQty,
+        source_version=version,source_snapshot=item.SourceSnapshot,
         is_active=true,create_time=now,last_update_time=now
     };
+
+    private static IReadOnlyDictionary<(long TaskId,long ItemId),int> BuildAvailableSnapshots(
+        IReadOnlyList<PackingTaskSourceSnapshot> snapshots,IReadOnlyList<CreationBindingRow> bindings)
+    {
+        var remainingByStock = bindings.GroupBy(x => x.StockId)
+            .ToDictionary(x => x.Key, x => x.First().AvailableBeforeTask);
+        var result = new Dictionary<(long TaskId,long ItemId),int>();
+        foreach (var snapshot in snapshots.OrderBy(x => x.SourceTaskId))
+        foreach (var item in snapshot.Items.OrderBy(x => x.SourceItemId))
+        {
+            var itemBindings = bindings
+                .Where(x => x.TaskId == snapshot.SourceTaskId && x.ItemId == item.SourceItemId)
+                .ToList();
+            foreach (var binding in itemBindings)
+                remainingByStock[binding.StockId] = Math.Max(0,
+                    remainingByStock.GetValueOrDefault(binding.StockId) - binding.LockedQty);
+            result[(snapshot.SourceTaskId,item.SourceItemId)] = itemBindings
+                .Select(x => x.StockId).Distinct().Sum(stockId => remainingByStock.GetValueOrDefault(stockId));
+        }
+        return result;
+    }
+
+    private sealed class CreationBindingRow
+    {
+        public long TaskId { get; init; }
+        public long ItemId { get; init; }
+        public int StockId { get; init; }
+        public int LockedQty { get; init; }
+        public int AvailableBeforeTask { get; init; }
+    }
 
     private static async Task InsertTaskAsync(System.Data.IDbConnection c, IDbTransaction tx, int orderId,
         DispatchPackingTaskEntity task, CancellationToken ct)

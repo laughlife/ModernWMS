@@ -202,6 +202,7 @@ public sealed class DispatchPackingTaskItemViewModel
     public string main_image { get; set; } = string.Empty;
     public string fn_sku { get; set; } = string.Empty;
     public string msku { get; set; } = string.Empty;
+    public int? task_qty { get; set; }
     public int? required_qty { get; set; }
     public int? source_stock_available { get; set; }
 }
