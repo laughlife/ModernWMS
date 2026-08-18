@@ -102,11 +102,20 @@
 
     <v-dialog v-model="copyDialog.visible" max-width="520" persistent>
       <v-card>
-        <v-card-title>复制第 {{ copyDialog.sourceIndex + 1 }} 箱</v-card-title>
+        <v-card-title>复制箱数据</v-card-title>
         <v-card-text>
           <v-alert type="info" variant="tonal" density="compact" class="mb-4">
             将覆盖目标箱的重量、长宽高和装箱数量，目标箱编号保持不变。
           </v-alert>
+          <v-select
+            v-model="copyDialog.sourceIndex"
+            :items="copySourceOptions"
+            label="选择来源箱"
+            density="compact"
+            class="mb-3"
+            hide-details
+            @update:model-value="changeCopySource"
+          />
           <v-select v-model="copyDialog.targetIndexes" :items="copyTargetOptions" label="选择目标箱（可多选）" density="compact" multiple chips closable-chips hide-details />
         </v-card-text>
         <v-card-actions class="justify-end">
@@ -136,6 +145,8 @@ const errorMessage = ref('')
 const packingPlanStatus = computed(() => String(plan.value?.packing_plan_status ?? ''))
 const editable = computed(() => !props.frozen && (packingPlanStatus.value === 'DRAFT' || packingPlanStatus.value === 'PACKING_CONFIRMED'))
 const completionHint = computed(() => plan.value ? inspectPackingPlan(plan.value).issues.join('；') : '')
+const copySourceOptions = computed(() => plan.value?.boxes
+  .map((_, index) => ({ title: `第 ${index + 1} 箱`, value: index })) ?? [])
 const copyTargetOptions = computed(() => plan.value?.boxes
   .map((_, index) => ({ title: `第 ${index + 1} 箱`, value: index }))
   .filter((option) => option.value !== copyDialog.sourceIndex) ?? [])
@@ -168,6 +179,9 @@ const addEmptyBox = () => {
 }
 const removeBox = (index: number) => plan.value?.boxes.splice(index, 1)
 const closeCopyDialog = () => { copyDialog.visible = false; copyDialog.sourceIndex = -1; copyDialog.targetIndexes = [] }
+const changeCopySource = (sourceIndex: number) => {
+  copyDialog.targetIndexes = copyDialog.targetIndexes.filter((targetIndex) => targetIndex !== sourceIndex)
+}
 const openCopyBox = (box: PackingPlanBox, index: number) => {
   if (!plan.value) return
   if (plan.value.boxes.length === 1) {
