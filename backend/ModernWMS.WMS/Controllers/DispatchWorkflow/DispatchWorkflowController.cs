@@ -159,6 +159,19 @@ public sealed class DispatchWorkflowController : BaseController
             id, request, CurrentUser, cancellationToken));
 
     [Authorize]
+    [HttpGet("carrier-options")]
+    public Task<ActionResult<ResultModel<List<DispatchCarrierOptionViewModel>>>> GetCarrierOptionsAsync(
+        CancellationToken cancellationToken) =>
+        ExecuteAsync(() => _workflowService.GetCarrierOptionsAsync(CurrentUser, cancellationToken));
+
+    [Authorize]
+    [HttpPut("carrier")]
+    public Task<ActionResult<ResultModel<SetDispatchCarrierResult>>> SetCarrierAsync(
+        SetDispatchCarrierRequest request,
+        CancellationToken cancellationToken) =>
+        ExecuteAsync(() => _workflowService.SetCarrierAsync(request, CurrentUser, cancellationToken));
+
+    [Authorize]
     [HttpPost("{id:int}/confirm-outbound")]
     public Task<ActionResult<ResultModel<OutboundCommandResult>>> ConfirmOutboundAsync(
         int id,

@@ -86,6 +86,15 @@ public interface IDispatchWorkflowService : IDependency
         CurrentUser currentUser,
         CancellationToken cancellationToken = default);
 
+    Task<List<DispatchCarrierOptionViewModel>> GetCarrierOptionsAsync(
+        CurrentUser currentUser,
+        CancellationToken cancellationToken = default);
+
+    Task<SetDispatchCarrierResult> SetCarrierAsync(
+        SetDispatchCarrierRequest request,
+        CurrentUser currentUser,
+        CancellationToken cancellationToken = default);
+
     Task<OutboundCommandResult> CancelOutboundAsync(
         int orderId,
         OutboundCommandRequest request,

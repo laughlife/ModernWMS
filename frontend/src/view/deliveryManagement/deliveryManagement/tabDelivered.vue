@@ -1,7 +1,14 @@
 <template>
   <div class="operateArea">
     <v-row no-gutters>
-      <v-col cols="4" class="col"><BtnGroup :authority-list="data.authorityList" :btn-list="data.btnList" /></v-col>
+      <v-col cols="2" class="col"><BtnGroup :authority-list="data.authorityList" :btn-list="data.btnList" /></v-col>
+      <v-col cols="2" class="col">
+        <v-btn color="primary" prepend-icon="mdi-truck-fast-outline"
+          :disabled="data.selectedOrderCount === 0 || !data.authorityList.includes('delivered-setCarrier')"
+          @click="method.openBatchCarrier">
+          批量设置承运信息（{{ data.selectedOrderCount }}）
+        </v-btn>
+      </v-col>
       <DispatchSearchFilters
         v-model:keyword="data.keyword"
         v-model:group-id="data.group_id"
@@ -14,8 +21,11 @@
 
   <v-alert v-if="props.warehouseId === null" type="info" variant="tonal" class="mt-4">请先选择仓库。</v-alert>
   <div v-else class="mt-5" :style="{ height: cardHeight }">
-    <vxe-table :column-config="{ minWidth: '110px' }" :data="data.tableData" :height="tableHeight" align="center" row-id="id">
+    <vxe-table ref="xTable" :column-config="{ minWidth: '110px' }" :row-config="{ keyField: 'id' }"
+      :data="data.tableData" :height="tableHeight" align="center" row-id="id"
+      @checkbox-change="method.handleSelectionChange" @checkbox-all="method.handleSelectionChange">
       <template #empty>{{ i18n.global.t('system.page.noData') }}</template>
+      <vxe-column type="checkbox" width="52" fixed="left" />
       <vxe-column type="seq" width="60" />
       <vxe-column type="expand" width="54">
         <template #content="{ row }">
@@ -93,7 +103,12 @@
           <template v-if="row.detail"><div>{{ metrics(row).measuredBoxCount }}/{{ metrics(row).expectedBoxCount }} 箱</div><div class="secondary-text">{{ formatNumber(metrics(row).totalWeight) }} kg / {{ formatVolume(metrics(row).totalVolumeCubicMeters) }}</div></template><span v-else>-</span>
         </template>
       </vxe-column>
-      <vxe-column title="承运信息" min-width="180"><template #default><span class="secondary-text">-（当前流程接口未提供）</span></template></vxe-column>
+      <vxe-column title="承运信息" min-width="180">
+        <template #default="{ row }">
+          <span v-if="row.carrier_unit" class="primary-text">{{ row.carrier_unit }}</span>
+          <span v-else class="carrier-missing">未设置</span>
+        </template>
+      </vxe-column>
       <vxe-column title="状态" min-width="170">
         <template #default="{ row }">
           <v-chip v-if="row.source_change_pending" color="error" size="small" variant="tonal">来源变更待裁决</v-chip>
@@ -102,13 +117,15 @@
         </template>
       </vxe-column>
       <vxe-column field="creator" :title="$t('wms.deliveryManagement.creator')" width="130" />
-      <vxe-column field="operate" :title="$t('system.page.operate')" width="160" fixed="right" :resizable="false">
+      <vxe-column field="operate" :title="$t('system.page.operate')" width="190" fixed="right" :resizable="false">
         <template #default="{ row }">
           <div class="row-actions">
             <TooltipBtn v-if="row.source_change_pending" :flat="true" icon="mdi-alert-decagram-outline" tooltip-text="处理来源变更"
               :disabled="!row.detail || !data.authorityList.includes('delivered-delivery')" @click="openDecision(row)" />
-            <TooltipBtn :flat="true" icon="mdi-send-outline" tooltip-text="整单确认出库"
-              :disabled="!row.detail || !isPendingOutboundReady(row.detail) || !data.authorityList.includes('delivered-delivery')" @click="method.confirmOutbound(row)" />
+            <TooltipBtn :flat="true" icon="mdi-truck-fast-outline" tooltip-text="设置承运信息"
+              :disabled="!data.authorityList.includes('delivered-setCarrier')" @click="method.openCarrier(row)" />
+            <TooltipBtn :flat="true" icon="mdi-send-outline" :tooltip-text="method.outboundTooltip(row)"
+              :disabled="!row.detail || !isPendingOutboundReady(row.detail) || !method.hasCarrier(row) || !data.authorityList.includes('delivered-delivery')" @click="method.confirmOutbound(row)" />
           </div>
         </template>
       </vxe-column>
@@ -116,6 +133,8 @@
     <custom-pager :current-page="data.pageIndex" :page-size="data.pageSize" perfect :total="data.total"
       :page-sizes="PAGE_SIZE" :layouts="PAGE_LAYOUT" @page-change="method.handlePageChange" />
   </div>
+
+  <DispatchCarrierDialog ref="carrierDialog" @saved="method.onCarrierSaved" />
 
   <v-dialog v-model="decisionDialog.visible" max-width="560" persistent>
     <v-card>
@@ -135,7 +154,7 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, onMounted, reactive, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import type { VxePagerEvents } from 'vxe-table'
 import { confirmDispatchOutbound, decideDispatchSourceChange, getDispatchOrder, getDispatchOrderPage, getDispatchTaskBoxes } from '@/api/wms/dispatchWorkflow'
 import { hookComponent } from '@/components/system'
@@ -143,6 +162,7 @@ import BtnGroup from '@/components/system/btnGroup.vue'
 import ProductImage from '@/components/system/product-image.vue'
 import TooltipBtn from '@/components/tooltip-btn.vue'
 import DispatchSearchFilters from './dispatch-search-filters.vue'
+import DispatchCarrierDialog from './dispatch-carrier-dialog.vue'
 import customPager from '@/components/custom-pager.vue'
 import { computedCardHeight, computedTableHeight } from '@/constant/style'
 import { DEFAULT_PAGE_SIZE, PAGE_LAYOUT, PAGE_SIZE } from '@/constant/vxeTable'
@@ -153,6 +173,8 @@ import { getMenuAuthorityList } from '@/utils/common'
 import { beginPendingOutboundLoad, buildConfirmOutboundCommand, buildPendingOutboundPageRequest, buildSourceDecisionCommand, createLatestRequestGuard, getPendingOutboundMetrics, isPendingOutboundReady, shouldOpenCompleted } from './pendingOutboundPolicy'
 
 interface PendingOutboundRow extends DispatchOrderSummary {
+  carrier_warehouse_id: number | null
+  carrier_unit: string
   detail: DispatchOrderDetail | null
   boxes_by_task: Record<number, WeighingBoxWithItems[]>
   detail_loading: boolean
@@ -165,10 +187,12 @@ interface WeighingBoxWithItems extends WeighingBox {
 
 const props = defineProps<{ warehouseId: number | null }>()
 const emit = defineEmits<{ goToCompleted: []; statusChanged: [] }>()
+const xTable = ref()
+const carrierDialog = ref<InstanceType<typeof DispatchCarrierDialog>>()
 const requestGuard = createLatestRequestGuard()
 const data = reactive({ keyword: '', group_id: null as number | null, member_id: null as number | null,
   tableData: [] as PendingOutboundRow[], total: 0, pageIndex: 1, pageSize: DEFAULT_PAGE_SIZE,
-  btnList: [] as btnGroupItem[], authorityList: getMenuAuthorityList() })
+  selectedOrderCount: 0, btnList: [] as btnGroupItem[], authorityList: getMenuAuthorityList() })
 const decisionDialog = reactive({ visible: false, submitting: false, reason: '', row: null as PendingOutboundRow | null })
 
 const requestId = (): string => globalThis.crypto?.randomUUID?.() ?? `dispatch-${Date.now()}-${Math.random().toString(16).slice(2)}`
@@ -266,9 +290,13 @@ const method = reactive({
       const result = await getDispatchOrderPage(request)
       if (!requestGuard.isCurrent(sequence)) return
       if (!result.isSuccess) { hookComponent.$message({ type: 'error', content: result.errorMessage }); return }
-      const rows: PendingOutboundRow[] = result.data.rows.map(row => ({ ...row, detail: null, boxes_by_task: {}, detail_loading: false, detail_error: '' }))
+      const rows: PendingOutboundRow[] = result.data.rows.map(row => {
+        const carrierRow = row as DispatchOrderSummary & { carrier_warehouse_id?: number | null; carrier_unit?: string }
+        return { ...row, carrier_warehouse_id: carrierRow.carrier_warehouse_id ?? null, carrier_unit: carrierRow.carrier_unit ?? '', detail: null, boxes_by_task: {}, detail_loading: false, detail_error: '' }
+      })
       data.tableData = rows
       data.total = result.data.totals
+      data.selectedOrderCount = 0
       await Promise.all(rows.map(row => loadRowDetail(row, sequence)))
     } catch (error) {
       if (requestGuard.isCurrent(sequence)) {
@@ -279,8 +307,21 @@ const method = reactive({
   refresh: (): void => { void method.getDelivery() },
   search: (): void => { data.pageIndex = 1; void method.getDelivery() },
   handlePageChange: (({ currentPage, pageSize }) => { data.pageIndex = currentPage; data.pageSize = pageSize; void method.getDelivery() }) as VxePagerEvents.PageChange,
+  handleSelectionChange: (): void => { data.selectedOrderCount = (xTable.value?.getCheckboxRecords?.() ?? []).length },
+  hasCarrier: (row: PendingOutboundRow): boolean => Boolean(row.carrier_warehouse_id && row.carrier_unit.trim()),
+  outboundTooltip: (row: PendingOutboundRow): string => method.hasCarrier(row) ? '整单确认出库' : '请先设置承运信息',
+  openCarrier: (row: PendingOutboundRow): void => {
+    void carrierDialog.value?.openDialog([row.id], row.carrier_warehouse_id)
+  },
+  openBatchCarrier: (): void => {
+    const rows = (xTable.value?.getCheckboxRecords?.() ?? []) as PendingOutboundRow[]
+    if (rows.length === 0) { hookComponent.$message({ type: 'error', content: '请先选择待出库拣货单' }); return }
+    void carrierDialog.value?.openDialog(rows.map((row) => row.id))
+  },
+  onCarrierSaved: (): void => { xTable.value?.clearCheckboxRow?.(); data.selectedOrderCount = 0; void method.getDelivery() },
   confirmOutbound: (row: PendingOutboundRow): void => {
     if (!row.detail || !isPendingOutboundReady(row.detail)) return
+    if (!method.hasCarrier(row)) { hookComponent.$message({ type: 'error', content: '请先设置承运信息再确认出库' }); return }
     hookComponent.$dialog({
       content: `确认将 WMS 拣货单 ${row.dispatch_no} 整单出库吗？该操作不可撤销。`,
       handleConfirm: async () => {
@@ -309,6 +350,7 @@ defineExpose({ getDelivery: method.getDelivery })
 .col { display: flex; align-items: center; }
 .primary-text { font-weight: 600; color: rgba(var(--v-theme-on-surface), 0.9); }
 .secondary-text { margin-top: 2px; color: rgba(var(--v-theme-on-surface), 0.62); }
+.carrier-missing { color: rgb(var(--v-theme-error)); font-weight: 600; }
 .task-no { line-height: 22px; }
 .row-actions { display: flex; align-items: center; justify-content: center; gap: 10px; }
 .order-detail { padding: 16px 68px; background: #fff; }

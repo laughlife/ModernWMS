@@ -63,6 +63,25 @@ public class OutboundCommandResult
     public long row_version { get; set; }
 }
 
+public sealed class DispatchCarrierOptionViewModel
+{
+    public long id { get; set; }
+    public string name { get; set; } = string.Empty;
+}
+
+public sealed class SetDispatchCarrierRequest
+{
+    public List<int> order_ids { get; set; } = [];
+    public long carrier_warehouse_id { get; set; }
+}
+
+public sealed class SetDispatchCarrierResult
+{
+    public int updated_order_count { get; set; }
+    public long carrier_warehouse_id { get; set; }
+    public string carrier_unit { get; set; } = string.Empty;
+}
+
 public sealed class SignDispatchOrderRequest
 {
     public string request_id { get; set; } = string.Empty;
@@ -234,6 +253,8 @@ public class DispatchOrderSummaryViewModel
     public string notification_last_error { get; set; } = string.Empty;
     public bool outbound_source_anomaly { get; set; }
     public string outbound_source_anomaly_snapshot { get; set; } = string.Empty;
+    public long? carrier_warehouse_id { get; set; }
+    public string carrier_unit { get; set; } = string.Empty;
     public long row_version { get; set; }
 }
 

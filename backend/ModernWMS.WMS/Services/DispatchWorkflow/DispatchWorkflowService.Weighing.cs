@@ -119,6 +119,18 @@ public partial class DispatchWorkflowService
               `measured_by`=@measured_by,`measured_by_name`=@measured_by_name,`measured_at`=@measured_at,`copied_from_box_id`=@copied_from_box_id,
               `last_update_time`=@last_update_time,`row_version`=@row_version WHERE `id`=@id AND `row_version`=@expected;
             """,new{b.weight,b.length,b.width,b.height,b.measurement_status,b.measured_by,b.measured_by_name,b.measured_at,b.copied_from_box_id,b.last_update_time,b.row_version,b.id,expected=boxVersions[b.id]},tx,cancellationToken:ct));if(n!=1)throw DispatchWorkflowCommandException.ConcurrencyConflict();}
+        if(o.status==DispatchOrderStatus.PendingOutbound)
+        {
+            var valid=await c.ExecuteScalarAsync<bool>(new CommandDefinition("""
+                SELECT EXISTS(SELECT 1 FROM `wms_dispatchlist` WHERE `dispatch_order_id`=@orderId)
+                  AND NOT EXISTS(SELECT 1 FROM `wms_dispatchlist` WHERE `dispatch_order_id`=@orderId AND `dispatch_status` NOT IN (3,4,5));
+                """,new{orderId=o.id},tx,cancellationToken:ct));
+            if(!valid)throw DispatchWorkflowCommandException.StockConflict("dispatch detail status is not ready for pending outbound");
+            await c.ExecuteAsync(new CommandDefinition("""
+                UPDATE `wms_dispatchlist` SET `dispatch_status`=5,`last_update_time`=@now
+                WHERE `dispatch_order_id`=@orderId AND `dispatch_status` IN (3,4,5);
+                """,new{orderId=o.id,now},tx,cancellationToken:ct));
+        }
         await UpdateWeighOrderAsync(c,tx,o.id,expected,o.status,now,ct);
     }
     private static async Task UpdateWeighOrderAsync(System.Data.IDbConnection c,IDbTransaction tx,int id,long expected,DispatchOrderStatus status,DateTime now,CancellationToken ct){var n=await c.ExecuteAsync(new CommandDefinition("UPDATE `wms_dispatch_order` SET `status`=@status,`last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id`=@id AND `row_version`=@expected;",new{id,expected,status,now},tx,cancellationToken:ct));if(n!=1)throw DispatchWorkflowCommandException.ConcurrencyConflict();}

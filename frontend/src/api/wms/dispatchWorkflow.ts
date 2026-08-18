@@ -48,6 +48,22 @@ const request = <T>(config: AxiosRequestConfig): Promise<ApiResult<T>> =>
     }
   })
 
+export interface DispatchCarrierOption {
+  id: number
+  name: string
+}
+
+export interface SetDispatchCarrierRequest {
+  order_ids: number[]
+  carrier_warehouse_id: number
+}
+
+export interface SetDispatchCarrierResult {
+  updated_order_count: number
+  carrier_warehouse_id: number
+  carrier_unit: string
+}
+
 export const getDispatchWarehouseAccess = () => request<WarehouseAccess>({
   url: '/warehouse/access-options', method: 'get'
 })
@@ -134,6 +150,14 @@ export const decideDispatchSourceChange = (orderId: number, data: SourceDecision
 
 export const confirmDispatchOutbound = (orderId: number, data: OutboundCommandRequest) =>
   request<OutboundCommandResult>({ url: `/dispatch-workflow/${orderId}/confirm-outbound`, method: 'post', data })
+
+export const getDispatchCarrierOptions = () => request<DispatchCarrierOption[]>({
+  url: '/dispatch-workflow/carrier-options', method: 'get', hideLoading: true
+})
+
+export const setDispatchCarrier = (data: SetDispatchCarrierRequest) => request<SetDispatchCarrierResult>({
+  url: '/dispatch-workflow/carrier', method: 'put', data, hideLoading: true
+})
 
 export const cancelDispatchOutbound = (orderId: number, data: OutboundCommandRequest) =>
   request<OutboundCommandResult>({ url: `/dispatch-workflow/${orderId}/cancel-outbound`, method: 'post', data })

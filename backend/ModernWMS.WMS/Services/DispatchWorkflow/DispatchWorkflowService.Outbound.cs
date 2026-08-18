@@ -222,6 +222,7 @@ public partial class DispatchWorkflowService
                 SELECT * FROM `wms_dispatchlist` WHERE `dispatch_order_id`=@orderId ORDER BY `id` FOR UPDATE;
                 """, new { orderId }, transaction, cancellationToken: cancellationToken))).AsList();
             if (details.Count == 0) throw DispatchWorkflowCommandException.StockConflict("dispatch order has no stock detail");
+            if (deduct) EnsureCarrierConfigured(details);
             var detailIds = details.Select(x => x.id).ToArray();
             var allocations = (await connection.QueryAsync<DispatchpicklistEntity>(new CommandDefinition("""
                 SELECT * FROM `wms_dispatchpicklist` WHERE `dispatchlist_id` IN @detailIds ORDER BY `stock_id`,`id` FOR UPDATE;
@@ -335,6 +336,18 @@ public partial class DispatchWorkflowService
 
     private static bool HasCompleteOutboundMeasurement(WeighingBoxEntity box) =>
         box.measurement_status == "MEASURED" && box.weight > 0 && box.length > 0 && box.width > 0 && box.height > 0;
+
+    private static void EnsureCarrierConfigured(IReadOnlyCollection<DispatchlistEntity> details)
+    {
+        var carrierIds = details.Where(x => x.carrier_warehouse_id is > 0)
+            .Select(x => x.carrier_warehouse_id!.Value).Distinct().ToList();
+        var carrierNames = details.Where(x => !string.IsNullOrWhiteSpace(x.carrier_unit))
+            .Select(x => x.carrier_unit.Trim()).Distinct(StringComparer.Ordinal).ToList();
+        if (carrierIds.Count != 1 || carrierNames.Count != 1
+            || details.Any(x => x.carrier_warehouse_id != carrierIds[0]
+                || !string.Equals(x.carrier_unit?.Trim(), carrierNames[0], StringComparison.Ordinal)))
+            throw DispatchWorkflowCommandException.CarrierRequired();
+    }
 
     private static void ValidateAllocationState(IReadOnlyCollection<DispatchpicklistEntity> allocations, bool deduct)
     {

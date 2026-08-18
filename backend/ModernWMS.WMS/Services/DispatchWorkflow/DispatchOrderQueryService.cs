@@ -111,6 +111,7 @@ public sealed class DispatchOrderQueryService : IDispatchOrderQueryService
             """, parameters, cancellationToken: cancellationToken));
         var totals = await result.ReadSingleAsync<int>();
         var orders = (await result.ReadAsync<DispatchOrderEntity>()).AsList();
+        var carrierByOrder = new Dictionary<int, CarrierSummaryRow>();
         if (orders.Count > 0)
         {
             var ids = orders.Select(x => x.id).ToArray();
@@ -120,13 +121,21 @@ public sealed class DispatchOrderQueryService : IDispatchOrderQueryService
             var events = (await connection.QueryAsync<DispatchSourceChangeEventEntity>(new CommandDefinition("""
                 SELECT * FROM `wms_dispatch_source_change_event` WHERE `dispatch_order_id` IN @ids AND `decision`=@anomaly;
                 """, new { ids, anomaly = DispatchSourceChangeDecision.OutboundAnomaly }, cancellationToken: cancellationToken))).AsList();
+            carrierByOrder = (await connection.QueryAsync<CarrierSummaryRow>(new CommandDefinition("""
+                SELECT `dispatch_order_id`,COUNT(*) `row_count`,
+                  SUM(CASE WHEN `carrier_warehouse_id` IS NULL OR `carrier_warehouse_id`=0 OR COALESCE(`carrier_unit`,'')='' THEN 1 ELSE 0 END) `missing_count`,
+                  COUNT(DISTINCT `carrier_warehouse_id`) `carrier_count`,MAX(`carrier_warehouse_id`) `carrier_warehouse_id`,
+                  COUNT(DISTINCT NULLIF(`carrier_unit`,'')) `carrier_name_count`,MAX(`carrier_unit`) `carrier_unit`
+                FROM `wms_dispatchlist` WHERE `dispatch_order_id` IN @ids GROUP BY `dispatch_order_id`;
+                """, new { ids }, cancellationToken: cancellationToken))).ToDictionary(x => x.dispatch_order_id);
             foreach (var order in orders)
             {
                 order.packing_tasks = tasks.Where(x => x.dispatch_order_id == order.id).ToList();
                 order.source_change_events = events.Where(x => x.dispatch_order_id == order.id).ToList();
             }
         }
-        return new DispatchOrderPageResult(orders.Select(ToSummary).ToList(), totals);
+        return new DispatchOrderPageResult(orders.Select(order => ToSummary(
+            order, carrierByOrder.GetValueOrDefault(order.id))).ToList(), totals);
     }
 
     public async Task<DispatchOrderStatusCounts> CountsAsync(long warehouseId, CurrentUser currentUser,
@@ -165,9 +174,10 @@ public sealed class DispatchOrderQueryService : IDispatchOrderQueryService
         foreach (var id in ids) await _workflowService.ReconcileAsync(id, currentUser, cancellationToken);
     }
 
-    private static DispatchOrderSummaryViewModel ToSummary(DispatchOrderEntity order)
+    private static DispatchOrderSummaryViewModel ToSummary(DispatchOrderEntity order, CarrierSummaryRow? carrier = null)
     {
         var anomaly = DispatchWorkflowService.LatestOutboundAnomaly(order);
+        var hasOneCarrier = carrier is { row_count: > 0, missing_count: 0, carrier_count: 1, carrier_name_count: 1 };
         return new DispatchOrderSummaryViewModel
         {
             id=order.id,dispatch_no=order.dispatch_no,warehouse_id=order.warehouse_id,status=DispatchWorkflowService.ToApiStatus(order.status),
@@ -177,10 +187,22 @@ public sealed class DispatchOrderQueryService : IDispatchOrderQueryService
             source_change_snapshot=order.source_change_snapshot,accepted_source_version=order.accepted_source_version,
             signed_qty=order.signed_qty,damaged_qty=order.damaged_qty,signed_at=order.signed_at,signed_by_name=order.signed_by_name,
             notification_status=order.notification_status.ToString().ToUpperInvariant(),notification_last_error=order.notification_last_error,
-            outbound_source_anomaly=anomaly!=null,outbound_source_anomaly_snapshot=anomaly?.diff_snapshot??"",row_version=order.row_version
+            outbound_source_anomaly=anomaly!=null,outbound_source_anomaly_snapshot=anomaly?.diff_snapshot??"",
+            carrier_warehouse_id=hasOneCarrier?carrier!.carrier_warehouse_id:null,carrier_unit=hasOneCarrier?carrier!.carrier_unit:string.Empty,
+            row_version=order.row_version
         };
     }
 
     private static string EscapeLike(string value) => value.Replace("!","!!").Replace("%","!%").Replace("_","!_");
     private sealed class StatusCountRow { public DispatchOrderStatus status { get; set; } public int count { get; set; } }
+    private sealed class CarrierSummaryRow
+    {
+        public int dispatch_order_id { get; set; }
+        public int row_count { get; set; }
+        public int missing_count { get; set; }
+        public int carrier_count { get; set; }
+        public long? carrier_warehouse_id { get; set; }
+        public int carrier_name_count { get; set; }
+        public string carrier_unit { get; set; } = string.Empty;
+    }
 }
