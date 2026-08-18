@@ -109,7 +109,7 @@ public partial class DispatchWorkflowService
             foreach(var item in a.Items)
             {
                 if(item.variant_qty is null or <=0||item.source_quantity_shipped is null or <=0)throw DispatchWorkflowCommandException.WeighingIncomplete($"商品 {item.commodity_sku} 变体数据无效");
-                var packed=a.BoxItems.Where(x=>x.packing_task_item_id==item.id).Sum(x=>x.task_qty);if(packed<0||packed>item.source_quantity_shipped)throw DispatchWorkflowCommandException.WeighingIncomplete($"商品 {item.commodity_sku} 装箱任务量超限");
+                var packed=a.BoxItems.Where(x=>x.packing_task_item_id==item.id).Sum(x=>x.task_qty);if(packed<0||packed>item.source_quantity_shipped)throw DispatchWorkflowCommandException.WeighingIncomplete($"{item.commodity_name}（sku：{item.commodity_sku}）总任务量{item.source_quantity_shipped}，实际任务量{packed}");
                 var actual=checked(packed*item.variant_qty.Value);var detail=await c.QuerySingleOrDefaultAsync<DispatchlistEntity>(new CommandDefinition("SELECT * FROM `wms_dispatchlist` WHERE `packing_task_item_id`=@id FOR UPDATE;",new{item.id},tx,cancellationToken:ct));
                 if(detail==null)throw DispatchWorkflowCommandException.StockConflict("商品拣货分配不存在");var allocations=(await c.QueryAsync<DispatchpicklistEntity>(new CommandDefinition("SELECT * FROM `wms_dispatchpicklist` WHERE `dispatchlist_id`=@id ORDER BY `id` DESC FOR UPDATE;",new{detail.id},tx,cancellationToken:ct))).AsList();
                 var release=allocations.Sum(x=>x.picked_qty)-actual;if(release<0)throw DispatchWorkflowCommandException.StockConflict("实际装箱数量超过已拣库存");

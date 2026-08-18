@@ -35,7 +35,11 @@ export const inspectPackingPlan = (plan: PackingPlan): PackingPlanInspection => 
     if (missing.length > 0) issues.push(`第${index + 1}箱缺少${missing.join('、')}`)
   })
   plan.items.forEach((item) => {
-    if (allocatedTaskQty(plan, item.id) > itemTaskLimit(plan, item)) issues.push(`${item.commodity_name || item.commodity_sku}任务量超限`)
+    const totalTaskQty = itemTaskLimit(plan, item)
+    const actualTaskQty = allocatedTaskQty(plan, item.id)
+    if (actualTaskQty > totalTaskQty) {
+      issues.push(`${item.commodity_name || item.commodity_sku || '未命名商品'}（sku：${item.commodity_sku || '-'}）总任务量${totalTaskQty}，实际任务量${actualTaskQty}`)
+    }
   })
   const unfinishedProducts = plan.items
     .map((item) => ({ item, remaining: remainingTaskQty(plan, item) }))
