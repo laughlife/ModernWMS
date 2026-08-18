@@ -4,6 +4,7 @@ using Dapper;
 using ModernWMS.Core.JWT;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels.DispatchWorkflow;
+using ModernWMS.WMS.Entities.ViewModels.PackingTask;
 using ModernWMS.WMS.Services.PackingTask;
 
 namespace ModernWMS.WMS.Services.DispatchWorkflow;
