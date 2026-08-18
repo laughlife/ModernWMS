@@ -29,25 +29,47 @@
                   <span>箱数 {{ task.measured_box_count }}/{{ task.expected_box_count }}</span>
                 </div>
                 <v-table density="compact">
-                  <thead><tr><th>商品</th><th>SKU</th><th>FNSKU / MSKU</th><th>任务量</th></tr></thead>
+                  <thead><tr><th>图片</th><th>商品信息</th><th>FNSKU / MSKU</th><th>变体</th><th>任务量</th><th>商品需求量</th></tr></thead>
                   <tbody>
                     <tr v-for="item in task.items" :key="item.id">
-                      <td>{{ item.commodity_name || '-' }}</td><td>{{ item.commodity_sku || '-' }}</td>
-                      <td>{{ item.fn_sku || '-' }} / {{ item.msku || '-' }}</td><td>{{ item.required_qty ?? '-' }}</td>
+                      <td><ProductImage :src="item.main_image" :alt="item.commodity_name" :width="48" :height="48" :cover="false" /></td>
+                      <td><div>{{ item.commodity_name || '-' }}</div><small>SKU：{{ item.commodity_sku || '-' }}</small></td>
+                      <td><div>{{ item.fn_sku || '-' }}</div><small>{{ item.msku || '-' }}</small></td>
+                      <td>{{ variantQty(item) || '-' }}</td><td>{{ item.task_qty ?? '-' }}</td><td>{{ item.required_qty ?? '-' }}</td>
                     </tr>
                   </tbody>
                 </v-table>
-                <v-table density="compact" class="box-table">
-                  <thead><tr><th>箱号</th><th>重量(kg)</th><th>长(cm)</th><th>宽(cm)</th><th>高(cm)</th><th>测量状态</th></tr></thead>
-                  <tbody>
-                    <tr v-for="box in row.boxes_by_task[task.id] || []" :key="box.id">
-                      <td>{{ box.source_box_identity }}</td><td>{{ formatNumber(box.weight) }}</td>
-                      <td>{{ formatNumber(box.length) }}</td><td>{{ formatNumber(box.width) }}</td>
-                      <td>{{ formatNumber(box.height) }}</td><td>{{ box.measurement_status || '-' }}</td>
-                    </tr>
-                    <tr v-if="!(row.boxes_by_task[task.id] || []).length"><td colspan="6" class="empty-cell">暂无箱测量明细</td></tr>
-                  </tbody>
-                </v-table>
+                <div v-for="box in row.boxes_by_task[task.id] || []" :key="box.id" class="box-detail-card">
+                  <div class="box-detail-title">
+                    <strong>第 {{ box.box_sequence }} 箱：{{ box.source_box_identity }}</strong>
+                    <v-chip :color="measurementStatusColor(box.measurement_status)" size="x-small" variant="tonal">{{ measurementStatusText(box.measurement_status) }}</v-chip>
+                  </div>
+                  <v-table density="compact" class="box-measurement-table">
+                    <thead><tr><th>重量(kg)</th><th>长(cm)</th><th>宽(cm)</th><th>高(cm)</th><th>容积(cm³)</th><th>容积比</th></tr></thead>
+                    <tbody><tr>
+                      <td>{{ formatNumber(box.weight) }}</td><td>{{ formatNumber(box.length) }}</td><td>{{ formatNumber(box.width) }}</td><td>{{ formatNumber(box.height) }}</td>
+                      <td>{{ formatCubicCentimeters(boxVolume(box)) }}</td>
+                      <td class="volume-ratios">
+                        <span>/5000：{{ formatVolumeRatio(box, 5000) }}</span><span>/6000：{{ formatVolumeRatio(box, 6000) }}</span>
+                        <span>/7000：{{ formatVolumeRatio(box, 7000) }}</span><span>/8000：{{ formatVolumeRatio(box, 8000) }}</span>
+                      </td>
+                    </tr></tbody>
+                  </v-table>
+                  <v-table density="compact" class="box-product-table">
+                    <thead><tr><th>图片</th><th>箱内商品信息</th><th>FNSKU / MSKU</th><th>变体</th><th>箱内任务量</th><th>箱内商品数量</th></tr></thead>
+                    <tbody>
+                      <tr v-for="boxItem in box.items" :key="`${box.id}-${boxItem.packing_task_item_id}`">
+                        <td><ProductImage :src="taskItem(task, boxItem.packing_task_item_id)?.main_image" :alt="taskItem(task, boxItem.packing_task_item_id)?.commodity_name" :width="44" :height="44" :cover="false" /></td>
+                        <td><div>{{ taskItem(task, boxItem.packing_task_item_id)?.commodity_name || '-' }}</div><small>SKU：{{ taskItem(task, boxItem.packing_task_item_id)?.commodity_sku || '-' }}</small></td>
+                        <td><div>{{ taskItem(task, boxItem.packing_task_item_id)?.fn_sku || '-' }}</div><small>{{ taskItem(task, boxItem.packing_task_item_id)?.msku || '-' }}</small></td>
+                        <td>{{ variantQty(taskItem(task, boxItem.packing_task_item_id)) || '-' }}</td>
+                        <td>{{ boxItem.task_qty }}</td><td>{{ boxProductQuantity(task, boxItem) }}</td>
+                      </tr>
+                      <tr v-if="box.items.length === 0"><td colspan="6" class="empty-cell">该箱暂无商品明细</td></tr>
+                    </tbody>
+                  </v-table>
+                </div>
+                <div v-if="!(row.boxes_by_task[task.id] || []).length" class="empty-boxes">暂无箱测量明细</div>
               </section>
             </div>
           </div>
@@ -116,22 +138,27 @@ import type { VxePagerEvents } from 'vxe-table'
 import { confirmDispatchOutbound, decideDispatchSourceChange, getDispatchOrder, getDispatchOrderPage, getDispatchTaskBoxes } from '@/api/wms/dispatchWorkflow'
 import { hookComponent } from '@/components/system'
 import BtnGroup from '@/components/system/btnGroup.vue'
+import ProductImage from '@/components/system/product-image.vue'
 import TooltipBtn from '@/components/tooltip-btn.vue'
 import DispatchSearchFilters from './dispatch-search-filters.vue'
 import customPager from '@/components/custom-pager.vue'
 import { computedCardHeight, computedTableHeight } from '@/constant/style'
 import { DEFAULT_PAGE_SIZE, PAGE_LAYOUT, PAGE_SIZE } from '@/constant/vxeTable'
 import i18n from '@/languages/i18n'
-import type { DispatchOrderDetail, DispatchOrderSummary, WeighingBox } from '@/types/DeliveryManagement/DispatchWorkflow'
+import type { DispatchOrderDetail, DispatchOrderSummary, DispatchPackingTask, DispatchPackingTaskItem, PackingPlanBoxItem, WeighingBox } from '@/types/DeliveryManagement/DispatchWorkflow'
 import type { btnGroupItem } from '@/types/System/Form'
 import { getMenuAuthorityList } from '@/utils/common'
 import { beginPendingOutboundLoad, buildConfirmOutboundCommand, buildPendingOutboundPageRequest, buildSourceDecisionCommand, createLatestRequestGuard, getPendingOutboundMetrics, isPendingOutboundReady, shouldOpenCompleted } from './pendingOutboundPolicy'
 
 interface PendingOutboundRow extends DispatchOrderSummary {
   detail: DispatchOrderDetail | null
-  boxes_by_task: Record<number, WeighingBox[]>
+  boxes_by_task: Record<number, WeighingBoxWithItems[]>
   detail_loading: boolean
   detail_error: string
+}
+
+interface WeighingBoxWithItems extends WeighingBox {
+  items: PackingPlanBoxItem[]
 }
 
 const props = defineProps<{ warehouseId: number | null }>()
@@ -145,6 +172,25 @@ const decisionDialog = reactive({ visible: false, submitting: false, reason: '',
 const requestId = (): string => globalThis.crypto?.randomUUID?.() ?? `dispatch-${Date.now()}-${Math.random().toString(16).slice(2)}`
 const formatNumber = (value: number | null | undefined): string => Number(value) > 0 ? String(Number(value)) : '-'
 const formatVolume = (value: number): string => value > 0 ? `${value.toFixed(3)} m³` : '-'
+const variantQty = (item: DispatchPackingTaskItem | undefined): number => {
+  const taskQty = Number(item?.task_qty)
+  const requiredQty = Number(item?.required_qty)
+  return taskQty > 0 && requiredQty > 0 ? requiredQty / taskQty : 0
+}
+const taskItem = (task: DispatchPackingTask, itemId: number): DispatchPackingTaskItem | undefined => task.items.find((item) => item.id === itemId)
+const boxProductQuantity = (task: DispatchPackingTask, boxItem: PackingPlanBoxItem): number => boxItem.task_qty * variantQty(taskItem(task, boxItem.packing_task_item_id))
+const boxVolume = (box: WeighingBox): number => {
+  const length = Number(box.length); const width = Number(box.width); const height = Number(box.height)
+  return length > 0 && width > 0 && height > 0 ? length * width * height : 0
+}
+const formatCubicCentimeters = (value: number): string => value > 0 ? value.toLocaleString('zh-CN', { maximumFractionDigits: 2 }) : '-'
+const formatVolumeRatio = (box: WeighingBox, divisor: number): string => {
+  const volume = boxVolume(box)
+  return volume > 0 ? `${(volume / divisor).toFixed(2)} kg` : '-'
+}
+const measurementStatusTexts: Record<string, string> = { MEASURED: '已测量', UNMEASURED: '未测量', PENDING: '待测量' }
+const measurementStatusText = (status: string): string => measurementStatusTexts[status] ?? '未知状态'
+const measurementStatusColor = (status: string): string => status === 'MEASURED' ? 'success' : 'warning'
 const metrics = (row: PendingOutboundRow) => getPendingOutboundMetrics(row.detail!, row.boxes_by_task)
 
 const loadRowDetail = async (row: PendingOutboundRow, sequence: number): Promise<void> => {
@@ -157,7 +203,8 @@ const loadRowDetail = async (row: PendingOutboundRow, sequence: number): Promise
     const boxEntries = await Promise.all(detail.packing_tasks.map(async task => {
       const boxResult = await getDispatchTaskBoxes(detail.id, task.id)
       if (!boxResult.isSuccess) throw new Error(boxResult.errorMessage)
-      return [task.id, boxResult.data] as const
+      const boxes: WeighingBoxWithItems[] = boxResult.data.map((box) => ({ ...box, items: (box as WeighingBoxWithItems).items ?? [] }))
+      return [task.id, boxes] as const
     }))
     if (!requestGuard.isCurrent(sequence)) return
     row.detail = detail
@@ -261,7 +308,12 @@ defineExpose({ getDelivery: method.getDelivery })
 .task-list { display: grid; gap: 14px; }
 .task-card { padding: 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; background: rgb(var(--v-theme-surface)); }
 .task-title { display: flex; align-items: center; justify-content: space-between; padding: 0 8px 8px; }
-.box-table { margin-top: 10px; }
+.box-detail-card { margin-top: 12px; padding: 10px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 7px; }
+.box-detail-title { display: flex; align-items: center; justify-content: space-between; padding: 0 6px 8px; }
+.box-measurement-table, .box-product-table { border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
+.box-product-table { margin-top: 8px; }
+.volume-ratios { display: grid; grid-template-columns: repeat(2, minmax(110px, 1fr)); gap: 2px 12px; white-space: nowrap; }
+.empty-boxes { padding: 20px; text-align: center; opacity: 0.62; }
 .empty-cell { text-align: center !important; opacity: 0.62; }
 .snapshot-label { margin-bottom: 6px; font-weight: 600; }
 .source-change-snapshot { max-height: 220px; margin: 0 0 16px; padding: 12px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; border-radius: 6px; background: rgba(var(--v-theme-surface-variant), 0.4); font: inherit; }

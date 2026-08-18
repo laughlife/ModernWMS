@@ -18,10 +18,19 @@ public partial class DispatchWorkflowService
         var order=await c.QuerySingleOrDefaultAsync<DispatchOrderEntity>(new CommandDefinition("SELECT * FROM `wms_dispatch_order` WHERE `id`=@orderId;",new{orderId},cancellationToken:ct))??throw new KeyNotFoundException($"dispatch order not found: {orderId}");
         await _warehouseAccessService.EnsureAllowedAsync(order.warehouse_id,user);
         if(!await c.ExecuteScalarAsync<bool>(new CommandDefinition("SELECT EXISTS(SELECT 1 FROM `wms_dispatch_packing_task` WHERE `id`=@taskId AND `dispatch_order_id`=@orderId AND `is_active`=1);",new{taskId,orderId},cancellationToken:ct)))throw new KeyNotFoundException($"packing task not found in dispatch order: {taskId}");
-        return (await c.QueryAsync<WeighingBoxViewModel>(new CommandDefinition("""
+        var boxes=(await c.QueryAsync<WeighingBoxViewModel>(new CommandDefinition("""
             SELECT `id`,`packing_task_id`,`source_box_identity`,`box_sequence`,`weight`,`length`,`width`,`height`,`measurement_status`,`copied_from_box_id`,`row_version`
             FROM `wms_weighing_box` WHERE `packing_task_id`=@taskId AND `is_invalidated`=0 ORDER BY `box_sequence`,`id`;
             """,new{taskId},cancellationToken:ct))).AsList();
+        var boxIds=boxes.Select(x=>x.id).ToArray();
+        if(boxIds.Length==0)return boxes;
+        var boxItems=(await c.QueryAsync<WeighingBoxItemEntity>(new CommandDefinition("""
+            SELECT `weighing_box_id`,`packing_task_item_id`,`task_qty`
+            FROM `wms_weighing_box_item` WHERE `weighing_box_id` IN @boxIds ORDER BY `weighing_box_id`,`id`;
+            """,new{boxIds},cancellationToken:ct))).AsList();
+        foreach(var box in boxes)box.items=boxItems.Where(x=>x.weighing_box_id==box.id)
+            .Select(x=>new PackingPlanBoxItemViewModel{packing_task_item_id=x.packing_task_item_id,task_qty=x.task_qty}).ToList();
+        return boxes;
     }
 
     public Task<WeighingCommandResult> SaveWeighingBoxAsync(int orderId,int boxId,SaveWeighingBoxRequest r,CurrentUser u,CancellationToken ct=default)

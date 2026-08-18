@@ -109,6 +109,7 @@ public sealed class WeighingBoxViewModel
     public string measurement_status { get; set; } = string.Empty;
     public int? copied_from_box_id { get; set; }
     public long row_version { get; set; }
+    public List<PackingPlanBoxItemViewModel> items { get; set; } = [];
 }
 
 public sealed class PackingPlanItemViewModel
