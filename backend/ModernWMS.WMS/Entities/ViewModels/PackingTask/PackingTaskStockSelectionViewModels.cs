@@ -2,6 +2,7 @@ namespace ModernWMS.WMS.Entities.ViewModels.PackingTask;
 
 /// <summary>
 /// 查询装箱任务明细可选择的库存列表。
+/// 默认只返回创建人自己的库存；search_others=true 时按条件搜索其他人的库存。
 /// </summary>
 public class PackingTaskStockPageRequest
 {
@@ -9,6 +10,20 @@ public class PackingTaskStockPageRequest
     public long sellfox_item_id { get; set; }
     public int page_index { get; set; } = 1;
     public int page_size { get; set; } = 20;
+
+    /// <summary>
+    /// 是否搜索其他人的库存；false（默认）只返回创建人自己的库存。
+    /// </summary>
+    public bool search_others { get; set; }
+
+    /// <summary>搜索条件：SKU/商品名称（模糊匹配）。</summary>
+    public string keyword { get; set; } = string.Empty;
+
+    /// <summary>搜索条件：库位（模糊匹配）。</summary>
+    public string location { get; set; } = string.Empty;
+
+    /// <summary>搜索条件：所属人（模糊匹配）。</summary>
+    public string owner { get; set; } = string.Empty;
 }
 
 /// <summary>
@@ -45,4 +60,10 @@ public class SelectableStockViewModel
     public DateTime? expiry_date { get; set; }
     public bool matched { get; set; }
     public bool selected { get; set; }
+
+    /// <summary>
+    /// 是否属于装箱任务创建人自己的库存（所属人名称包含创建人名称）。
+    /// 创建人库存选择时不弹确认框；他人库存选择时前端弹确认框且后端记录日志。
+    /// </summary>
+    public bool is_creator_stock { get; set; }
 }

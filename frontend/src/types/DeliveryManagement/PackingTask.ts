@@ -13,6 +13,7 @@ export interface PackingTaskItemVO {
   stock_available?: number | null
   stock_sku_code?: string | null
   stock_available_qty?: number | null
+  locked_qty?: number | null
 }
 
 export interface PackingTaskVO {
@@ -50,6 +51,7 @@ export interface SelectableStockVO {
   expiry_date?: string | null
   matched: boolean
   selected: boolean
+  is_creator_stock: boolean
 }
 
 export interface PackingTaskStockPageRequest {
@@ -57,6 +59,10 @@ export interface PackingTaskStockPageRequest {
   sellfox_item_id: number
   page_index: number
   page_size: number
+  search_others?: boolean
+  keyword?: string
+  location?: string
+  owner?: string
 }
 
 export interface PackingTaskStockSelectRequest {

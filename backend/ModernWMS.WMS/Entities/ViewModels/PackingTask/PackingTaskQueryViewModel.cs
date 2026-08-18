@@ -48,4 +48,9 @@ public class PackingTaskQueryItemViewModel
     /// 匹配到 WMS 基础 SKU 的可用库存合计（同一 SPU 下所有变体的非冻结库存之和）。
     /// </summary>
     public int? stock_available_qty { get; set; }
+
+    /// <summary>
+    /// 该明细已选择锁定的库存数量（wms_packing_task_stock_selection 合计）。
+    /// </summary>
+    public int? locked_qty { get; set; }
 }

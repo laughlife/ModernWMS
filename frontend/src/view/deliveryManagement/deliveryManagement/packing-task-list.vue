@@ -109,7 +109,10 @@
               <td>{{ method.displayValue(item.task_num) }}</td>
               <td>
                 <div class="availableCell">
-                  <span>{{ method.displayStockAvailable(item) }}</span>
+                  <div class="stockInfoLines">
+                    <div class="stockInfoLine">可用量：{{ method.displayStockAvailable(item) }}</div>
+                    <div class="stockInfoLine secondaryText">锁定量：{{ item.locked_qty ?? 0 }}</div>
+                  </div>
                   <v-btn
                     size="x-small"
                     color="primary"
@@ -141,7 +144,7 @@
     @page-change="method.handlePageChange"
   ></custom-pager>
 
-  <SelectStockDialog ref="selectStockDialogRef" />
+  <SelectStockDialog ref="selectStockDialogRef" @changed="method.refresh" />
 </template>
 
 <script lang="ts" setup>
@@ -202,7 +205,9 @@ const method = reactive({
   },
   displayStockAvailable: (item: PackingTaskItemVO): string => {
     if (!item.stock_sku_code) return '-'
-    return `库存${item.stock_sku_code}:数量${item.stock_available_qty ?? 0}`
+    const locked = item.locked_qty ?? 0
+    const available = Math.max(0, (item.stock_available_qty ?? 0) - locked)
+    return `库存${item.stock_sku_code}:${available}`
   },
   copyText: async (text: string | number | null | undefined, successMessage: string) => {
     const value = String(text ?? '').trim()
@@ -493,6 +498,18 @@ defineExpose({ getPackingTask: method.getPage })
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.stockInfoLines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.4;
+  text-align: left;
+}
+
+.stockInfoLine {
+  white-space: nowrap;
 }
 
 .emptyState {

@@ -180,6 +180,24 @@ public class PackingTaskQueryServiceTests
     }
 
     [Fact]
+    public async Task PageAsync_exposes_locked_quantity_from_stock_selection()
+    {
+        var source = new InMemoryPackingTaskQueryDataSource();
+        source.Tasks.Add(Task(1, 101, "PACK-101", 320118, DateTime.UtcNow));
+        source.Items.Add(new ErpPackingTaskItemEntity
+        {
+            id = 11, sellfox_item_id = 1001, sellfox_task_id = 101, commodity_id = 501
+        });
+        source.AvailabilityByItemId[11] = new PackingTaskStockAvailability("SKU-BASE", 100, 30);
+
+        var result = await CreateService(source).PageAsync(new PageSearch(), CurrentTenant());
+
+        var item = Assert.Single(Assert.Single(result.Data).item_list);
+        Assert.Equal(100, item.stock_available_qty);
+        Assert.Equal(30, item.locked_qty);
+    }
+
+    [Fact]
     public async Task PageAsync_clamps_page_values_before_querying_data_source()
     {
         var source = new InMemoryPackingTaskQueryDataSource();
