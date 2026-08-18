@@ -168,7 +168,7 @@ const listRequestIsCurrent = (request: WeighingListRequestIdentity): boolean => 
 const loadOrderDetail = async (row: WeighingOrderRow): Promise<void> => {
   row.detail_loading = true; row.detail_error = ''
   try {
-    const result = await getDispatchOrder(row.id)
+    const result = await getDispatchOrder(row.id, true)
     if (!result.isSuccess) { row.detail_error = result.errorMessage; return }
     row.detail = result.data
   } catch (error) { row.detail_error = error instanceof Error ? error.message : '加载拣货单详情失败' }
@@ -216,7 +216,7 @@ const method = reactive({
     const generation = ++weighingDialogGeneration
     weighingDialog.visible = true; weighingDialog.loading = true; weighingDialog.error = ''; weighingDialog.row = row; weighingDialog.task = null
     try {
-      const result = await getDispatchOrder(row.id)
+      const result = await getDispatchOrder(row.id, true)
       if (generation !== weighingDialogGeneration || !weighingDialog.visible) return
       if (!result.isSuccess) throw new Error(result.errorMessage)
       const task = result.data.packing_tasks.find((item) => item.status === 'WEIGHING') ?? result.data.packing_tasks[0]

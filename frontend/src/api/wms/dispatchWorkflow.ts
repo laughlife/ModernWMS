@@ -69,8 +69,9 @@ export const getDispatchStatusCounts = (warehouseId: number) => request<Dispatch
   url: '/dispatch-workflow/counts', method: 'get', params: { warehouse_id: warehouseId }
 })
 
-export const getDispatchOrder = (orderId: number) => request<DispatchOrderDetail>({
-  url: `/dispatch-workflow/${orderId}`, method: 'get'
+export const getDispatchOrder = (orderId: number, hideLoading = false) => request<DispatchOrderDetail>({
+  url: `/dispatch-workflow/${orderId}`, method: 'get',
+  ...(hideLoading ? { hideLoading: true } : {})
 })
 
 export const reconcileDispatchOrder = (orderId: number) => request<DispatchOrderDetail>({
@@ -97,8 +98,9 @@ export const getDispatchTaskBoxes = (orderId: number, packingTaskId: number) => 
   url: `/dispatch-workflow/${orderId}/packing-tasks/${packingTaskId}/boxes`, method: 'get'
 })
 
-export const getDispatchPackingPlan = (orderId: number, packingTaskId: number) => request<PackingPlan>({
-  url: `/dispatch-workflow/${orderId}/packing-tasks/${packingTaskId}/packing-plan`, method: 'get'
+export const getDispatchPackingPlan = (orderId: number, packingTaskId: number, hideLoading = false) => request<PackingPlan>({
+  url: `/dispatch-workflow/${orderId}/packing-tasks/${packingTaskId}/packing-plan`, method: 'get',
+  ...(hideLoading ? { hideLoading: true } : {})
 })
 
 export const saveDispatchPackingPlan = (orderId: number, packingTaskId: number, data: SavePackingPlanRequest) =>

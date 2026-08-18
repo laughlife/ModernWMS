@@ -76,7 +76,7 @@ const errorMessage = ref(''); const selectedProduct = ref<Record<string, number 
 const editable = computed(() => !props.frozen && plan.value?.packing_plan_status === 'DRAFT')
 const requestId = () => globalThis.crypto?.randomUUID?.() ?? `packing-${Date.now()}-${Math.random().toString(16).slice(2)}`
 const product = (id: number) => plan.value?.items.find((item) => item.id === id)
-const load = async () => { loading.value = true; errorMessage.value = ''; try { const result = await getDispatchPackingPlan(props.orderId, props.packingTaskId); if (!result.isSuccess) throw new Error(result.errorMessage); plan.value = result.data } catch (error) { errorMessage.value = error instanceof Error ? error.message : String(error) } finally { loading.value = false } }
+const load = async () => { loading.value = true; errorMessage.value = ''; try { const result = await getDispatchPackingPlan(props.orderId, props.packingTaskId, true); if (!result.isSuccess) throw new Error(result.errorMessage); plan.value = result.data } catch (error) { errorMessage.value = error instanceof Error ? error.message : String(error) } finally { loading.value = false } }
 const addEmptyBox = () => { if (plan.value) plan.value.boxes.push(newDraftBox(plan.value.boxes.length + 1)) }
 const removeBox = (index: number) => plan.value?.boxes.splice(index, 1)
 const copyBox = (box: PackingPlanBox, index: number) => {
