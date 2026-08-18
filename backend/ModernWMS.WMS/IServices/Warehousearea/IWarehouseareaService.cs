@@ -28,6 +28,10 @@
          /// </summary>
          Task<List<OperatorGroupOptionViewModel>> GetOperatorGroupOptionsAsync();
          /// <summary>
+         /// Get operator-group members (including sub-department members) for the member filter.
+         /// </summary>
+         Task<List<OperatorGroupMemberOptionViewModel>> GetOperatorGroupMemberOptionsAsync(string? keyword);
+         /// <summary>
          /// Get all records
          /// </summary>
          /// <returns></returns>

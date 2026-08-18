@@ -46,17 +46,83 @@ public class WarehouseareaService : BaseService<WarehouseareaEntity>, IWarehouse
             """)).AsList();
     }
 
+    public async Task<List<OperatorGroupMemberOptionViewModel>> GetOperatorGroupMemberOptionsAsync(string? keyword)
+    {
+        var normalized = (keyword ?? string.Empty).Trim();
+        var hasKeyword = normalized.Length > 0;
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        return (await connection.QueryAsync<OperatorGroupMemberOptionViewModel>($"""
+            WITH RECURSIVE dept_tree AS (
+                SELECT d.`id`, d.`id` AS group_id, COALESCE(d.`name`,'') AS group_name, 0 AS depth
+                FROM `system_dept` d
+                WHERE d.`deleted`=0 AND d.`status`=0 AND d.`dept`='operator'
+                UNION ALL
+                SELECT c.`id`, t.group_id, t.group_name, t.depth + 1
+                FROM `system_dept` c
+                JOIN dept_tree t ON c.`parent_id` = t.`id`
+                WHERE c.`deleted`=0 AND c.`status`=0 AND t.depth < 20
+            )
+            SELECT DISTINCT u.`id` AS user_id, COALESCE(u.`nickname`,'') AS member_name,
+                   t.group_id, t.group_name
+            FROM `system_users` u
+            JOIN dept_tree t ON u.`dept_id` = t.`id`
+            WHERE u.`deleted`=0 AND u.`status`=0
+              {(hasKeyword ? "AND (t.group_name LIKE @like OR u.`nickname` LIKE @like)" : string.Empty)}
+            ORDER BY group_name, member_name
+            LIMIT 200;
+            """, new { like = $"%{normalized}%" })).AsList();
+    }
+
     public async Task<(List<WarehouseareaViewModel> data, int totals)> PageAsync(PageSearch pageSearch, CurrentUser currentUser)
     {
-        var filter = DapperSearchBuilder.Build(pageSearch.searchObjects, SearchColumns);
+        var memberFilter = pageSearch.searchObjects
+            .FirstOrDefault(t => string.Equals(t.Name, "member_id", StringComparison.OrdinalIgnoreCase));
+        var columnFilters = pageSearch.searchObjects
+            .Where(t => !string.Equals(t.Name, "member_id", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var filter = DapperSearchBuilder.Build(columnFilters, SearchColumns);
         var clauses = new List<string> { "wa.`tenant_id`=@tenant_id" };
         if (pageSearch.sqlTitle == "select") clauses.Add("wa.`is_valid`=1");
         if (!string.IsNullOrWhiteSpace(filter.Sql)) clauses.Add(filter.Sql);
+
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+
+        if (memberFilter != null && long.TryParse(memberFilter.Text, out var memberId) && memberId > 0)
+        {
+            var groupIds = (await connection.QueryAsync<long>("""
+                WITH RECURSIVE ancestors AS (
+                    SELECT d.`id`, d.`parent_id`, d.`dept`, 0 AS depth
+                    FROM `system_dept` d
+                    JOIN `system_users` u ON u.`dept_id` = d.`id`
+                    WHERE u.`id`=@member_id AND u.`deleted`=0
+                    UNION ALL
+                    SELECT p.`id`, p.`parent_id`, p.`dept`, a.depth + 1
+                    FROM `system_dept` p
+                    JOIN ancestors a ON p.`id` = a.`parent_id`
+                    WHERE p.`deleted`=0 AND a.`parent_id`<>0 AND a.depth < 20
+                )
+                SELECT DISTINCT `id` FROM ancestors WHERE `dept`='operator';
+                """, new { member_id = memberId })).AsList();
+            if (groupIds.Count > 0)
+            {
+                filter.Parameters.Add("groupIds", groupIds);
+                clauses.Add("""
+                    wa.`id` IN (
+                        SELECT b.`warehouse_area_id` FROM `wms_warehousearea_operator_group` b
+                        WHERE b.`tenant_id`=@tenant_id AND b.`dept_id` IN @groupIds
+                    )
+                    """);
+            }
+            else
+            {
+                clauses.Add("1=0");
+            }
+        }
+
         filter.Parameters.Add("tenant_id", currentUser.tenant_id);
         filter.Parameters.Add("offset", (pageSearch.pageIndex - 1) * pageSearch.pageSize);
         filter.Parameters.Add("page_size", pageSearch.pageSize);
         var where = string.Join(" AND ", clauses);
-        await using var connection = await _connectionFactory.OpenConnectionAsync();
         using var result = await connection.QueryMultipleAsync($"""
             SELECT COUNT(*) FROM `wms_warehousearea` wa JOIN `wms_warehouse` w ON w.`id`=wa.`warehouse_id` WHERE {where};
             SELECT {Projection} FROM `wms_warehousearea` wa JOIN `wms_warehouse` w ON w.`id`=wa.`warehouse_id`

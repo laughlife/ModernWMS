@@ -70,6 +70,16 @@ namespace ModernWMS.WMS.Controllers
         }
 
         /// <summary>
+        /// get operator-group members (including sub-department members) for the member filter
+        /// </summary>
+        [HttpGet("operator-member-options")]
+        public async Task<ResultModel<List<OperatorGroupMemberOptionViewModel>>> GetOperatorGroupMemberOptionsAsync(string? keyword)
+        {
+            var data = await _warehouseareaService.GetOperatorGroupMemberOptionsAsync(keyword);
+            return ResultModel<List<OperatorGroupMemberOptionViewModel>>.Success(data);
+        }
+
+        /// <summary>
         /// page search
         /// </summary>
         /// <param name="pageSearch">args</param>

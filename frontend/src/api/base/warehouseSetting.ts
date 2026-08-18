@@ -60,6 +60,13 @@ export const getOperatorGroupOptions = () => http({
   method: 'get'
 })
 
+// Get operator-group members (including sub-department members) for the member filter
+export const getOperatorMemberOptions = (keyword?: string) => http({
+  url: '/warehousearea/operator-member-options',
+  method: 'get',
+  params: { keyword }
+})
+
 // Excel Import
 export const excelImport = (data: Array<WarehouseVO>) => http({
   url: '/warehouse/excel',

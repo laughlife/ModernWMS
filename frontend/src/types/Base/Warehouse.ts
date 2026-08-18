@@ -66,3 +66,10 @@ export interface OperatorGroupOptionVO {
   name: string
   sort: number
 }
+
+export interface OperatorGroupMemberOptionVO {
+  user_id: number
+  member_name: string
+  group_id: number
+  group_name: string
+}

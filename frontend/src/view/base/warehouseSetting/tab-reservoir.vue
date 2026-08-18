@@ -13,7 +13,6 @@
       <!-- Search Input -->
       <v-col cols="9">
         <v-row no-gutters @keyup.enter="method.sureSearch">
-          <v-col cols="4"></v-col>
           <v-col cols="4">
             <v-text-field
               v-model="data.searchForm.warehouse_name"
@@ -37,6 +36,23 @@
               variant="solo"
             >
             </v-text-field>
+          </v-col>
+          <v-col cols="4">
+            <v-autocomplete
+              v-model="data.searchForm.member_id"
+              :items="data.memberOptions"
+              :item-title="memberOptionTitle"
+              item-value="user_id"
+              clearable
+              hide-details
+              density="comfortable"
+              class="searchInput ml-5 mt-1"
+              label="组员筛选"
+              variant="solo"
+              :loading="data.memberOptionsLoading"
+              @update:search="method.searchMembers"
+            >
+            </v-autocomplete>
           </v-col>
         </v-row>
       </v-col>
@@ -114,10 +130,10 @@
 import { computed, ref, reactive, watch, onMounted } from 'vue'
 import { VxePagerEvents } from 'vxe-table'
 import { computedCardHeight, computedTableHeight, errorColor } from '@/constant/style'
-import { WarehouseAreaVO, AreaProperty } from '@/types/Base/Warehouse'
+import { WarehouseAreaVO, AreaProperty, OperatorGroupMemberOptionVO } from '@/types/Base/Warehouse'
 import { PAGE_SIZE, PAGE_LAYOUT, DEFAULT_PAGE_SIZE } from '@/constant/vxeTable'
 import { hookComponent } from '@/components/system'
-import { deleteWarehouseArea, getWarehouseAreaList } from '@/api/base/warehouseSetting'
+import { deleteWarehouseArea, getWarehouseAreaList, getOperatorMemberOptions } from '@/api/base/warehouseSetting'
 import tooltipBtn from '@/components/tooltip-btn.vue'
 import addOrUpdateDialog from './add-or-update-reservoir.vue'
 import i18n from '@/languages/i18n'
@@ -147,8 +163,11 @@ const data = reactive({
   }),
   searchForm: {
     warehouse_name: '',
-    area_name: ''
+    area_name: '',
+    member_id: null as number | null
   },
+  memberOptions: ref<OperatorGroupMemberOptionVO[]>([]),
+  memberOptionsLoading: false,
   activeTab: null,
   tableData: ref<WarehouseAreaVO[]>([]),
   tablePage: reactive({
@@ -162,6 +181,9 @@ const data = reactive({
   // Menu operation permissions
   authorityList: getMenuAuthorityList() as string[]
 })
+
+const memberOptionTitle = (item: OperatorGroupMemberOptionVO): string =>
+  item ? `${item.group_name}/${item.member_name}` : ''
 
 const method = reactive({
   // Open a dialog to add
@@ -191,6 +213,19 @@ const method = reactive({
   // Refresh data
   refresh: () => {
     method.getWarehouseAreaList()
+  },
+  searchMembers: async (keyword: string) => {
+    data.memberOptionsLoading = true
+    try {
+      const { data: res } = await getOperatorMemberOptions(keyword)
+      if (res.isSuccess) {
+        data.memberOptions = res.data
+      }
+    } catch {
+      data.memberOptions = []
+    } finally {
+      data.memberOptionsLoading = false
+    }
   },
   getWarehouseAreaList: async () => {
     const { data: res } = await getWarehouseAreaList(data.tablePage)
@@ -254,6 +289,7 @@ const method = reactive({
 })
 
 onMounted(() => {
+  method.searchMembers('')
   data.btnList = [
     {
       name: i18n.global.t('system.page.add'),
