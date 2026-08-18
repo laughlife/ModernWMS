@@ -10,7 +10,7 @@
         </v-chip>
       </div>
       <v-table density="compact" class="product-pool">
-        <thead><tr><th>图片</th><th>商品信息</th><th>FNSKU / MSKU</th><th>变体</th><th>任务量</th><th>商品需求量</th><th>已分配/剩余</th><th>操作</th></tr></thead>
+        <thead><tr><th>图片</th><th>商品信息</th><th>FNSKU / MSKU</th><th>变体</th><th>任务量</th><th>商品需求量</th><th>已分配/剩余</th></tr></thead>
         <tbody>
           <tr v-for="item in plan.items" :key="item.id">
             <td><ProductImage :src="item.main_image" :alt="item.commodity_name" :width="48" :height="48" :cover="false" /></td>
@@ -18,12 +18,11 @@
             <td><div>{{ item.fn_sku || '-' }}</div><small>{{ item.msku || '-' }}</small></td>
             <td>{{ item.variant_qty }}</td><td>{{ itemTaskLimit(plan, item) }}</td><td>{{ itemTaskLimit(plan, item) * item.variant_qty }}</td>
             <td>{{ allocatedTaskQty(plan, item.id) }} / {{ remainingTaskQty(plan, item) }}</td>
-            <td><v-btn size="x-small" color="primary" variant="tonal" :disabled="!editable || remainingTaskQty(plan, item) <= 0" @click="createBoxForItem(item)">建立装箱并称重</v-btn></td>
           </tr>
         </tbody>
       </v-table>
 
-      <div class="box-toolbar"><v-btn size="small" prepend-icon="mdi-package-variant" :disabled="!editable" @click="addEmptyBox">新增空箱</v-btn></div>
+      <div class="box-toolbar"><v-btn size="small" color="primary" prepend-icon="mdi-package-variant" :disabled="!editable" @click="addEmptyBox">新增箱</v-btn></div>
       <v-card v-for="(box, boxIndex) in plan.boxes" :key="box.client_key" variant="outlined" class="box-card">
         <v-card-title class="box-title"><span>第 {{ boxIndex + 1 }} 箱</span><v-btn icon="mdi-delete-outline" size="small" color="error" variant="text" :disabled="!editable" @click="removeBox(boxIndex)" /></v-card-title>
         <v-card-text>
@@ -58,7 +57,7 @@ import { computed, onMounted, ref } from 'vue'
 import { completeDispatchOrderWeighing, completeDispatchTaskWeighing, confirmDispatchActualPacking, getDispatchPackingPlan, saveDispatchPackingPlan } from '@/api/wms/dispatchWorkflow'
 import { hookComponent } from '@/components/system'
 import ProductImage from '@/components/system/product-image.vue'
-import type { PackingPlan, PackingPlanBox, PackingPlanItem } from '@/types/DeliveryManagement/DispatchWorkflow'
+import type { PackingPlan, PackingPlanBox } from '@/types/DeliveryManagement/DispatchWorkflow'
 import { allocatedTaskQty, canConfirmPackingPlan, itemTaskLimit, newDraftBox, releasedRequiredQty, remainingTaskQty } from './packingPlanPolicy'
 
 const props = defineProps<{ orderId: number; packingTaskId: number; frozen?: boolean }>()
@@ -71,7 +70,6 @@ const requestId = () => globalThis.crypto?.randomUUID?.() ?? `packing-${Date.now
 const product = (id: number) => plan.value?.items.find((item) => item.id === id)
 const load = async () => { loading.value = true; errorMessage.value = ''; try { const result = await getDispatchPackingPlan(props.orderId, props.packingTaskId); if (!result.isSuccess) throw new Error(result.errorMessage); plan.value = result.data } catch (error) { errorMessage.value = error instanceof Error ? error.message : String(error) } finally { loading.value = false } }
 const addEmptyBox = () => { if (plan.value) plan.value.boxes.push(newDraftBox(plan.value.boxes.length + 1)) }
-const createBoxForItem = (item: PackingPlanItem) => { if (plan.value) plan.value.boxes.push(newDraftBox(plan.value.boxes.length + 1, item, remainingTaskQty(plan.value, item))) }
 const removeBox = (index: number) => plan.value?.boxes.splice(index, 1)
 const availableProducts = (box: PackingPlanBox) => plan.value?.items.filter((item) => !box.items.some((entry) => entry.packing_task_item_id === item.id) && remainingTaskQty(plan.value!, item) > 0) ?? []
 const addProduct = (box: PackingPlanBox) => { const id = selectedProduct.value[box.client_key]; const item = id ? product(id) : undefined; if (!plan.value || !item) return; box.items.push({ packing_task_item_id: item.id, task_qty: remainingTaskQty(plan.value, item) }); selectedProduct.value[box.client_key] = null }
@@ -81,10 +79,10 @@ onMounted(load)
 </script>
 
 <style scoped lang="less">
-.packing-editor { padding: 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
+.packing-editor { padding: 4px; background: rgb(var(--v-theme-surface)); }
 .editor-heading,.box-title,.editor-actions,.box-toolbar,.add-product-row,.box-item-row { display: flex; align-items: center; gap: 12px; }
 .editor-heading,.box-title { justify-content: space-between; }.product-pool { margin-top: 10px; }.box-toolbar { margin: 14px 0; }
-.box-card + .box-card { margin-top: 12px; }.measurement-grid { display: grid; grid-template-columns: repeat(4, minmax(120px,1fr)); gap: 10px; }
+.box-card { background: rgb(var(--v-theme-surface)); }.box-card + .box-card { margin-top: 12px; }.measurement-grid { display: grid; grid-template-columns: repeat(4, minmax(120px,1fr)); gap: 10px; }
 .box-item-row { display: grid; grid-template-columns: 2fr 1fr 1fr auto; margin-top: 10px; }.add-product-row { margin-top: 12px; max-width: 520px; }.editor-actions { justify-content: flex-end; margin-top: 16px; }
 small { opacity: .65; }
 </style>
