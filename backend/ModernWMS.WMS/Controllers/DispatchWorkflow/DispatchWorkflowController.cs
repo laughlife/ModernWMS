@@ -96,6 +96,23 @@ public sealed class DispatchWorkflowController : BaseController
         ExecuteAsync(() => _workflowService.GetTaskBoxesAsync(
             id, packingTaskId, CurrentUser, cancellationToken));
 
+    [HttpGet("{id:int}/packing-tasks/{packingTaskId:int}/packing-plan")]
+    public Task<ActionResult<ResultModel<PackingPlanViewModel>>> GetPackingPlanAsync(
+        int id, int packingTaskId, CancellationToken cancellationToken) =>
+        ExecuteAsync(() => _workflowService.GetPackingPlanAsync(id, packingTaskId, CurrentUser, cancellationToken));
+
+    [Authorize]
+    [HttpPut("{id:int}/packing-tasks/{packingTaskId:int}/packing-plan")]
+    public Task<ActionResult<ResultModel<PackingPlanViewModel>>> SavePackingPlanAsync(
+        int id, int packingTaskId, SavePackingPlanRequest request, CancellationToken cancellationToken) =>
+        ExecuteAsync(() => _workflowService.SavePackingPlanAsync(id, packingTaskId, request, CurrentUser, cancellationToken));
+
+    [Authorize]
+    [HttpPost("{id:int}/packing-tasks/{packingTaskId:int}/confirm-actual")]
+    public Task<ActionResult<ResultModel<PackingPlanViewModel>>> ConfirmActualPackingAsync(
+        int id, int packingTaskId, ConfirmActualPackingRequest request, CancellationToken cancellationToken) =>
+        ExecuteAsync(() => _workflowService.ConfirmActualPackingAsync(id, packingTaskId, request, CurrentUser, cancellationToken));
+
     [Authorize]
     [HttpPut("{id:int}/boxes/{boxId:int}")]
     public Task<ActionResult<ResultModel<WeighingCommandResult>>> SaveWeighingBoxAsync(

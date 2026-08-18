@@ -111,6 +111,67 @@ public sealed class WeighingBoxViewModel
     public long row_version { get; set; }
 }
 
+public sealed class PackingPlanItemViewModel
+{
+    public int id { get; set; }
+    public string commodity_sku { get; set; } = string.Empty;
+    public string commodity_name { get; set; } = string.Empty;
+    public string fn_sku { get; set; } = string.Empty;
+    public string msku { get; set; } = string.Empty;
+    public string main_image { get; set; } = string.Empty;
+    public int task_qty { get; set; }
+    public int variant_qty { get; set; }
+    public int required_qty { get; set; }
+    public int? actual_packed_task_qty { get; set; }
+    public int? actual_packed_required_qty { get; set; }
+}
+
+public sealed class PackingPlanBoxItemViewModel
+{
+    public int packing_task_item_id { get; set; }
+    public int task_qty { get; set; }
+}
+
+public sealed class PackingPlanBoxViewModel
+{
+    public int? id { get; set; }
+    public string client_key { get; set; } = string.Empty;
+    public int box_sequence { get; set; }
+    public decimal? weight { get; set; }
+    public decimal? length { get; set; }
+    public decimal? width { get; set; }
+    public decimal? height { get; set; }
+    public long row_version { get; set; }
+    public List<PackingPlanBoxItemViewModel> items { get; set; } = [];
+}
+
+public sealed class PackingPlanViewModel
+{
+    public int order_id { get; set; }
+    public int packing_task_id { get; set; }
+    public string packing_task_no { get; set; } = string.Empty;
+    public string packing_plan_status { get; set; } = "DRAFT";
+    public long row_version { get; set; }
+    public long task_row_version { get; set; }
+    public List<PackingPlanItemViewModel> items { get; set; } = [];
+    public List<PackingPlanBoxViewModel> boxes { get; set; } = [];
+}
+
+public sealed class SavePackingPlanRequest
+{
+    public string request_id { get; set; } = string.Empty;
+    public long row_version { get; set; }
+    public long task_row_version { get; set; }
+    public List<PackingPlanBoxViewModel> boxes { get; set; } = [];
+}
+
+public sealed class ConfirmActualPackingRequest
+{
+    public string request_id { get; set; } = string.Empty;
+    public long row_version { get; set; }
+    public long task_row_version { get; set; }
+}
+
 public sealed class SourceDecisionRequest
 {
     public string decision { get; set; } = string.Empty;

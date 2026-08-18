@@ -177,14 +177,20 @@ public partial class DispatchWorkflowService
     }
 
     private static DispatchPackingTaskItemEntity CreateItem(PackingTaskSourceItem item,string version,
-        IReadOnlyDictionary<long,int>? mappings,DateTime now,int? requiredQty = null,int? availableQty = null) => new()
+        IReadOnlyDictionary<long,int>? mappings,DateTime now,int? requiredQty = null,int? availableQty = null)
     {
+        var lockedQty = requiredQty ?? item.Quantity;
+        if (item.Quantity <= 0 || lockedQty <= 0 || lockedQty % item.Quantity != 0)
+            throw new InvalidOperationException($"商品 {item.CommoditySku} 的任务量与变体数据不一致");
+        return new()
+        {
         source_item_id=item.SourceItemId,source_commodity_id=item.CommodityId,wms_sku_id=mappings==null?null:MappedSkuId(item,mappings),
         commodity_sku=item.CommoditySku,commodity_name=item.CommodityName,fn_sku=item.FnSku,msku=item.Msku,
-        required_qty=requiredQty ?? item.Quantity,source_quantity_shipped=item.Quantity,source_stock_available=availableQty,
+        required_qty=lockedQty,source_quantity_shipped=item.Quantity,source_stock_available=availableQty,variant_qty=lockedQty/item.Quantity,
         source_version=version,source_snapshot=item.SourceSnapshot,
         is_active=true,create_time=now,last_update_time=now
-    };
+        };
+    }
 
     private static IReadOnlyDictionary<(long TaskId,long ItemId),int> BuildAvailableSnapshots(
         IReadOnlyList<PackingTaskSourceSnapshot> snapshots,IReadOnlyList<CreationBindingRow> bindings)

@@ -42,7 +42,7 @@ public partial class DispatchWorkflowService
     {
         if(taskId<=0)throw new ArgumentException("packing task id is required",nameof(taskId));
         return ExecuteWeighingMutationAsync(orderId,r.request_id,ScopedRequestId("COMPLETE_TASK_WEIGHING",taskId.ToString(),r.request_id),r.row_version,DispatchWorkflowOperation.CompleteTaskWeighing,[DispatchOrderStatus.Weighing],u,(o,now,_)=>
-        {var t=o.packing_tasks.SingleOrDefault(x=>x.id==taskId&&x.is_active)??throw new KeyNotFoundException($"packing task not found in dispatch order: {taskId}");var boxes=t.boxes.Where(x=>!x.is_invalidated).ToList();if(boxes.Count==0||boxes.Count!=t.expected_box_count||boxes.Any(x=>!HasCompleteMeasurement(x)))throw DispatchWorkflowCommandException.WeighingIncomplete("every current physical box in the task must be measured");t.measured_box_count=boxes.Count;t.status=DispatchOrderStatus.PendingOutbound;t.last_update_time=now;t.row_version++;return Task.CompletedTask;},ct);
+        {var t=o.packing_tasks.SingleOrDefault(x=>x.id==taskId&&x.is_active)??throw new KeyNotFoundException($"packing task not found in dispatch order: {taskId}");ValidateCompletedPackingTask(t);var boxes=t.boxes.Where(x=>!x.is_invalidated).ToList();t.measured_box_count=boxes.Count;t.expected_box_count=boxes.Count;t.packing_plan_status="COMPLETED";t.status=DispatchOrderStatus.PendingOutbound;t.last_update_time=now;t.row_version++;return Task.CompletedTask;},ct);
     }
 
     public Task<WeighingCommandResult> CompleteOrderWeighingAsync(int orderId,WeighingOrderCommandRequest r,CurrentUser u,CancellationToken ct=default)=>
@@ -59,23 +59,17 @@ public partial class DispatchWorkflowService
         if(guard.source_change_pending){await tx.CommitAsync(ct);throw DispatchWorkflowCommandException.SourceChangePending();}
         try
         {
-            var capability=await _sourceReader.VerifyCapabilityAsync(ct);if(!capability.IsSupported)throw DispatchWorkflowCommandException.SourceBoxIdentityUnsupported(capability.Error);
             var previous=await FindOperationAsync(c,tx,orderId,DispatchWorkflowOperation.StartWeighing,r.request_id,ct);if(previous!=null){await tx.CommitAsync(ct);return WeighingResultFromLedger(previous,r.request_id);}
             var order=await LoadWeighOrderAsync(c,tx,orderId,ct);await _warehouseAccessService.EnsureAllowedAsync(order.warehouse_id,u);
             if(order.status!=DispatchOrderStatus.Picked)throw DispatchWorkflowCommandException.StatusNotAllowedForWeighing();if(order.row_version!=r.row_version)throw DispatchWorkflowCommandException.ConcurrencyConflict();
             var now=DateTime.Now;
             foreach(var task in order.packing_tasks.Where(x=>x.is_active).OrderBy(x=>x.id))
             {
-                var boxes=ResolveWeighingBoxes(task);
-                foreach(var b in boxes.OrderBy(x=>x.Sequence))await c.ExecuteAsync(new CommandDefinition("""
-                    INSERT INTO `wms_weighing_box` (`packing_task_id`,`box_identity`,`source_box_identity`,`box_sequence`,`measurement_status`,`measured_by_name`,`source_snapshot`,`is_invalidated`,`create_time`,`last_update_time`,`row_version`)
-                    VALUES (@taskId,@identity,@sourceIdentity,@sequence,'UNMEASURED','',@snapshot,0,@now,@now,0);
-                    """,new{taskId=task.id,identity=HashText($"{task.source_task_id}:{b.SourceBoxIdentity.Trim()}"),sourceIdentity=b.SourceBoxIdentity.Trim(),sequence=b.Sequence,snapshot=b.SourceSnapshot,now},tx,cancellationToken:ct));
                 var changed=await c.ExecuteAsync(new CommandDefinition("""
                     UPDATE `wms_dispatch_packing_task` SET `status`=@status,`expected_box_count`=@count,`measured_box_count`=0,
-                      `stable_box_identity_verified`=1,`box_identity_validation_error`='',`last_update_time`=@now,`row_version`=`row_version`+1
+                      `packing_plan_status`='DRAFT',`stable_box_identity_verified`=1,`box_identity_validation_error`='',`last_update_time`=@now,`row_version`=`row_version`+1
                     WHERE `id`=@id AND `row_version`=@expected;
-                    """,new{status=DispatchOrderStatus.Weighing,count=boxes.Count,now,id=task.id,expected=task.row_version},tx,cancellationToken:ct));
+                    """,new{status=DispatchOrderStatus.Weighing,count=0,now,id=task.id,expected=task.row_version},tx,cancellationToken:ct));
                 if(changed!=1)throw DispatchWorkflowCommandException.ConcurrencyConflict();
             }
             var version=order.row_version+1;await UpdateWeighOrderAsync(c,tx,orderId,r.row_version,DispatchOrderStatus.Weighing,now,ct);await InsertOperationAsync(c,tx,orderId,DispatchWorkflowOperation.StartWeighing,r.request_id,DispatchOrderStatus.Weighing,version,u,now,ct);await tx.CommitAsync(ct);
@@ -105,12 +99,12 @@ public partial class DispatchWorkflowService
     }
 
     private static async Task<DispatchOrderEntity> LoadWeighOrderAsync(System.Data.IDbConnection c,IDbTransaction tx,int id,CancellationToken ct)
-    {using var r=await c.QueryMultipleAsync(new CommandDefinition("SELECT * FROM `wms_dispatch_order` WHERE `id`=@id FOR UPDATE;SELECT * FROM `wms_dispatch_packing_task` WHERE `dispatch_order_id`=@id AND `is_active`=1 FOR UPDATE;SELECT b.* FROM `wms_weighing_box` b JOIN `wms_dispatch_packing_task` t ON t.`id`=b.`packing_task_id` WHERE t.`dispatch_order_id`=@id FOR UPDATE;",new{id},tx,cancellationToken:ct));var o=await r.ReadSingleOrDefaultAsync<DispatchOrderEntity>()??throw new KeyNotFoundException($"dispatch order not found: {id}");o.packing_tasks=(await r.ReadAsync<DispatchPackingTaskEntity>()).AsList();var boxes=(await r.ReadAsync<WeighingBoxEntity>()).AsList();foreach(var t in o.packing_tasks)t.boxes=boxes.Where(x=>x.packing_task_id==t.id).ToList();return o;}
+    {using var r=await c.QueryMultipleAsync(new CommandDefinition("SELECT * FROM `wms_dispatch_order` WHERE `id`=@id FOR UPDATE;SELECT * FROM `wms_dispatch_packing_task` WHERE `dispatch_order_id`=@id AND `is_active`=1 FOR UPDATE;SELECT i.* FROM `wms_dispatch_packing_task_item` i JOIN `wms_dispatch_packing_task` t ON t.`id`=i.`packing_task_id` WHERE t.`dispatch_order_id`=@id AND i.`is_active`=1 FOR UPDATE;SELECT b.* FROM `wms_weighing_box` b JOIN `wms_dispatch_packing_task` t ON t.`id`=b.`packing_task_id` WHERE t.`dispatch_order_id`=@id FOR UPDATE;SELECT bi.* FROM `wms_weighing_box_item` bi JOIN `wms_weighing_box` b ON b.`id`=bi.`weighing_box_id` JOIN `wms_dispatch_packing_task` t ON t.`id`=b.`packing_task_id` WHERE t.`dispatch_order_id`=@id FOR UPDATE;",new{id},tx,cancellationToken:ct));var o=await r.ReadSingleOrDefaultAsync<DispatchOrderEntity>()??throw new KeyNotFoundException($"dispatch order not found: {id}");o.packing_tasks=(await r.ReadAsync<DispatchPackingTaskEntity>()).AsList();var items=(await r.ReadAsync<DispatchPackingTaskItemEntity>()).AsList();var boxes=(await r.ReadAsync<WeighingBoxEntity>()).AsList();var boxItems=(await r.ReadAsync<WeighingBoxItemEntity>()).AsList();foreach(var t in o.packing_tasks){t.items=items.Where(x=>x.packing_task_id==t.id).ToList();t.boxes=boxes.Where(x=>x.packing_task_id==t.id).ToList();foreach(var b in t.boxes)b.items=boxItems.Where(x=>x.weighing_box_id==b.id).ToList();}return o;}
 
     private static async Task PersistWeighAggregateAsync(System.Data.IDbConnection c,IDbTransaction tx,DispatchOrderEntity o,long expected,
         IReadOnlyDictionary<int,long> taskVersions,IReadOnlyDictionary<int,long> boxVersions,DateTime now,CancellationToken ct)
     {
-        foreach(var t in o.packing_tasks){var n=await c.ExecuteAsync(new CommandDefinition("UPDATE `wms_dispatch_packing_task` SET `status`=@status,`measured_box_count`=@measured_box_count,`last_update_time`=@last_update_time,`row_version`=@row_version WHERE `id`=@id AND `row_version`=@expected;",new{t.status,t.measured_box_count,t.last_update_time,t.row_version,t.id,expected=taskVersions[t.id]},tx,cancellationToken:ct));if(n!=1)throw DispatchWorkflowCommandException.ConcurrencyConflict();}
+        foreach(var t in o.packing_tasks){var n=await c.ExecuteAsync(new CommandDefinition("UPDATE `wms_dispatch_packing_task` SET `status`=@status,`packing_plan_status`=@packing_plan_status,`expected_box_count`=@expected_box_count,`measured_box_count`=@measured_box_count,`last_update_time`=@last_update_time,`row_version`=@row_version WHERE `id`=@id AND `row_version`=@expected;",new{t.status,t.packing_plan_status,t.expected_box_count,t.measured_box_count,t.last_update_time,t.row_version,t.id,expected=taskVersions[t.id]},tx,cancellationToken:ct));if(n!=1)throw DispatchWorkflowCommandException.ConcurrencyConflict();}
         foreach(var b in o.packing_tasks.SelectMany(x=>x.boxes)){var n=await c.ExecuteAsync(new CommandDefinition("""
             UPDATE `wms_weighing_box` SET `weight`=@weight,`length`=@length,`width`=@width,`height`=@height,`measurement_status`=@measurement_status,
               `measured_by`=@measured_by,`measured_by_name`=@measured_by_name,`measured_at`=@measured_at,`copied_from_box_id`=@copied_from_box_id,
@@ -143,6 +137,7 @@ public partial class DispatchWorkflowService
     private static void ValidateOrderCommand(int id,string requestId,long version){if(id<=0||string.IsNullOrWhiteSpace(requestId)||requestId.Length>64||requestId!=requestId.Trim()||version<0)throw new ArgumentException("order id, request_id and row_version are required");}
     private static WeighingBoxEntity FindAvailableBox(DispatchOrderEntity o,int id)=>o.packing_tasks.Where(x=>x.is_active).SelectMany(x=>x.boxes).SingleOrDefault(x=>x.id==id&&!x.is_invalidated)??throw DispatchWorkflowCommandException.BoxNotAvailable("box does not belong to the active packing tasks of this order");
     private static bool HasCompleteMeasurement(WeighingBoxEntity b)=>b.measurement_status=="MEASURED"&&b.weight>0&&b.length>0&&b.width>0&&b.height>0;
+    private static void ValidateCompletedPackingTask(DispatchPackingTaskEntity t){var boxes=t.boxes.Where(x=>!x.is_invalidated).ToList();if(boxes.Count==0||boxes.Any(x=>!HasCompleteMeasurement(x)||x.items.Count==0))throw DispatchWorkflowCommandException.WeighingIncomplete("每个箱必须有商品且重量和箱规完整");foreach(var item in t.items){var packed=boxes.SelectMany(x=>x.items).Where(x=>x.packing_task_item_id==item.id).Sum(x=>x.task_qty);var expected=item.actual_packed_task_qty??item.source_quantity_shipped;if(expected is null or <=0||packed!=expected)throw DispatchWorkflowCommandException.WeighingIncomplete($"商品 {item.commodity_sku} 尚未分配完成");}}
     private static void ApplyMeasurement(WeighingBoxEntity b,decimal weight,decimal length,decimal width,decimal height,int? copied,CurrentUser u,DateTime now){b.weight=weight;b.length=length;b.width=width;b.height=height;b.measurement_status="MEASURED";b.measured_by=u.user_id;b.measured_by_name=u.user_name;b.measured_at=now;b.copied_from_box_id=copied;b.last_update_time=now;b.row_version++;}
     private static void UpdateTaskMeasuredCount(DispatchOrderEntity o,int id,DateTime now){var t=o.packing_tasks.Single(x=>x.id==id);t.measured_box_count=t.boxes.Count(x=>!x.is_invalidated&&HasCompleteMeasurement(x));t.last_update_time=now;t.row_version++;}
     private static WeighingCommandResult WeighingResultFromLedger(DispatchWorkflowOperationEntity x,string clientId){if(x.result_order_status==null||x.result_row_version==null)throw DispatchWorkflowCommandException.ConcurrencyConflict();return new(){order_id=x.dispatch_order_id,request_id=clientId,status=ToApiStatus(x.result_order_status.Value),row_version=x.result_row_version.Value};}
