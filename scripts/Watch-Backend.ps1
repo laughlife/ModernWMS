@@ -1,16 +1,12 @@
 ﻿[CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
     [string]$Project,
 
-    [Parameter(Mandatory = $true)]
     [ValidateRange(1, 65535)]
-    [int]$Port,
+    [int]$Port = 21011,
 
-    [Parameter(Mandatory = $true)]
     [string]$StatePath,
 
-    [Parameter(Mandatory = $true)]
     [string]$LogDirectory,
 
     [ValidateRange(10, 3600)]
@@ -21,6 +17,27 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+if ([string]::IsNullOrWhiteSpace($Project)) {
+    $Project = Join-Path $repositoryRoot 'backend\ModernWMS\ModernWMS.csproj'
+}
+if ([string]::IsNullOrWhiteSpace($StatePath) -or [string]::IsNullOrWhiteSpace($LogDirectory)) {
+    $stateKeyBytes = [System.Text.Encoding]::UTF8.GetBytes($repositoryRoot.ToLowerInvariant())
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $stateKeyHash = $sha256.ComputeHash($stateKeyBytes)
+    }
+    finally {
+        $sha256.Dispose()
+    }
+    $stateKey = ([System.BitConverter]::ToString($stateKeyHash) -replace '-', '').Substring(0, 12).ToLowerInvariant()
+    $runtimeDirectory = Join-Path ([System.IO.Path]::GetTempPath()) "ModernWMS-development-$stateKey"
+    if ([string]::IsNullOrWhiteSpace($StatePath)) {
+        $StatePath = Join-Path $runtimeDirectory 'processes.json'
+    }
+    if ([string]::IsNullOrWhiteSpace($LogDirectory)) {
+        $LogDirectory = Join-Path $runtimeDirectory 'logs'
+    }
+}
 $backendRoot = [System.IO.Path]::GetFullPath((Split-Path -Parent (Split-Path -Parent $Project)))
 $appStdoutLog = Join-Path $LogDirectory 'backend.stdout.log'
 $appStderrLog = Join-Path $LogDirectory 'backend.stderr.log'
@@ -204,6 +221,88 @@ function Start-AppProcess {
         -PassThru
 }
 
+function Initialize-DevelopmentState {
+    $existing = $null
+    $stateExists = Test-Path -LiteralPath $StatePath
+    if ($stateExists) {
+        try {
+            $existing = Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json
+        }
+        catch {
+            Write-WatcherLog "警告：状态文件损坏，将覆盖：$StatePath"
+            $existing = $null
+        }
+    }
+
+    $selfManaged = $false
+    if ($null -ne $existing -and $null -ne $existing.backend) {
+        try {
+            $selfManaged = ([int]$existing.backend.pid -eq $PID)
+        }
+        catch {
+            $selfManaged = $false
+        }
+    }
+
+    if (-not $selfManaged) {
+        $conflictPid = 0
+        if ($null -ne $existing -and $null -ne $existing.backend) {
+            try {
+                $backendPid = [int]$existing.backend.pid
+            }
+            catch {
+                $backendPid = 0
+            }
+            if ($backendPid -gt 0 -and $backendPid -ne $PID) {
+                $proc = Get-Process -Id $backendPid -ErrorAction SilentlyContinue
+                if ($null -ne $proc) {
+                    $startTimeMatch = $false
+                    try {
+                        $startTimeMatch = [string]::Equals(
+                            $proc.StartTime.ToUniversalTime().ToString('O'),
+                            [string]$existing.backend.startTimeUtc,
+                            [System.StringComparison]::OrdinalIgnoreCase)
+                    }
+                    catch {
+                        $startTimeMatch = $false
+                    }
+                    if ($startTimeMatch) {
+                        $conflictPid = $backendPid
+                    }
+                }
+            }
+        }
+        if ($conflictPid -gt 0) {
+            throw "检测到已有后端控制进程（PID $conflictPid）在运行。请先运行 scripts\Stop-Development.ps1 或从 Rider 停止后再启动。"
+        }
+
+        $owner = Get-PortOwner -Port $Port
+        if ($null -ne $owner) {
+            throw "后端端口 $Port 已被占用：PID $($owner.ProcessId) ($($owner.ProcessName))。请先停止占用进程。"
+        }
+    }
+
+    New-Item -ItemType Directory -Path $LogDirectory -Force | Out-Null
+
+    if (-not $selfManaged) {
+        $backendEntry = [ordered]@{
+            pid = $PID
+            startTimeUtc = (Get-Process -Id $PID).StartTime.ToUniversalTime().ToString('O')
+            port = $Port
+            portOwnershipConfirmed = $false
+        }
+        $tempPath = "$StatePath.tmp"
+        [ordered]@{
+            repositoryRoot = $repositoryRoot
+            createdAtUtc = [DateTime]::UtcNow.ToString('O')
+            backend = $backendEntry
+            logDirectory = $LogDirectory
+        } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $tempPath -Encoding UTF8
+        Move-Item -LiteralPath $tempPath -Destination $StatePath -Force
+        Write-WatcherLog "状态文件已初始化：控制进程 PID $PID，端口 $Port，日志 $LogDirectory。"
+    }
+}
+
 Write-WatcherLog "后端变更检测已启动：项目 $Project，端口 $Port，检测间隔 $IntervalSeconds 秒。"
 Write-WatcherLog '重启规则：检测到源码变更后，等待源码连续 1 个检测周期无变化，且距上次重启满 1 个检测周期，才自动重启。'
 
@@ -214,62 +313,71 @@ $pendingRestart = $false
 $stableSinceUtc = $null
 $lastRestartUtc = $null
 
-while ($true) {
-    try {
-        $fingerprint = Get-SourceFingerprint -Root $backendRoot
+Initialize-DevelopmentState
 
-        if ($null -ne $lastFingerprint -and $fingerprint -ne $lastFingerprint) {
-            $pendingRestart = $true
-            $stableSinceUtc = Get-Date
-            Write-WatcherLog '检测到源码变更，等待源码稳定后自动重启。'
-        }
-        $lastFingerprint = $fingerprint
+try {
+    while ($true) {
+        try {
+            $fingerprint = Get-SourceFingerprint -Root $backendRoot
 
-        $appAlive = ($null -ne $appProcess) -and (-not $appProcess.HasExited)
-        $now = Get-Date
-        $rateLimited = ($null -ne $lastRestartUtc) -and (($now - $lastRestartUtc).TotalSeconds -lt $IntervalSeconds)
-        $quietPeriodOk = (-not $pendingRestart) -or
-            (($null -ne $stableSinceUtc) -and (($now - $stableSinceUtc).TotalSeconds -ge $IntervalSeconds))
+            if ($null -ne $lastFingerprint -and $fingerprint -ne $lastFingerprint) {
+                $pendingRestart = $true
+                $stableSinceUtc = Get-Date
+                Write-WatcherLog '检测到源码变更，等待源码稳定后自动重启。'
+            }
+            $lastFingerprint = $fingerprint
 
-        $shouldStart = $false
-        $reason = ''
-        if ($null -eq $appProcess) {
-            $shouldStart = $true
-            $reason = '初始启动'
-        }
-        elseif (-not $appAlive) {
-            if (-not $rateLimited) {
+            $appAlive = ($null -ne $appProcess) -and (-not $appProcess.HasExited)
+            $now = Get-Date
+            $rateLimited = ($null -ne $lastRestartUtc) -and (($now - $lastRestartUtc).TotalSeconds -lt $IntervalSeconds)
+            $quietPeriodOk = (-not $pendingRestart) -or
+                (($null -ne $stableSinceUtc) -and (($now - $stableSinceUtc).TotalSeconds -ge $IntervalSeconds))
+
+            $shouldStart = $false
+            $reason = ''
+            if ($null -eq $appProcess) {
                 $shouldStart = $true
-                $reason = '进程已退出，自动恢复'
+                $reason = '初始启动'
+            }
+            elseif (-not $appAlive) {
+                if (-not $rateLimited) {
+                    $shouldStart = $true
+                    $reason = '进程已退出，自动恢复'
+                }
+            }
+            elseif ($pendingRestart -and $quietPeriodOk -and (-not $rateLimited)) {
+                $shouldStart = $true
+                $reason = '源码已稳定且限频间隔已满，自动重启'
+            }
+
+            if ($shouldStart) {
+                Write-WatcherLog "触发重启：$reason"
+                Stop-AppProcess -Process $appProcess
+                if (-not (Wait-PortReleased -TargetPort $Port)) {
+                    Write-WatcherLog "警告：端口 $Port 未在超时时间内释放，仍尝试启动。"
+                }
+                $appProcess = Start-AppProcess -DotnetPath $dotnetCommand
+                $pendingRestart = $false
+                $stableSinceUtc = $null
+                $lastRestartUtc = Get-Date
+                if (Test-BackendHealthy) {
+                    Write-WatcherLog '健康检查通过，后端已就绪。'
+                    Update-StateListener
+                }
+                else {
+                    Write-WatcherLog '警告：健康检查未通过，将在下一轮重试。'
+                }
             }
         }
-        elseif ($pendingRestart -and $quietPeriodOk -and (-not $rateLimited)) {
-            $shouldStart = $true
-            $reason = '源码已稳定且限频间隔已满，自动重启'
+        catch {
+            Write-WatcherLog "本轮处理失败，继续运行：$($_.Exception.Message)"
         }
 
-        if ($shouldStart) {
-            Write-WatcherLog "触发重启：$reason"
-            Stop-AppProcess -Process $appProcess
-            if (-not (Wait-PortReleased -TargetPort $Port)) {
-                Write-WatcherLog "警告：端口 $Port 未在超时时间内释放，仍尝试启动。"
-            }
-            $appProcess = Start-AppProcess -DotnetPath $dotnetCommand
-            $pendingRestart = $false
-            $stableSinceUtc = $null
-            $lastRestartUtc = Get-Date
-            if (Test-BackendHealthy) {
-                Write-WatcherLog '健康检查通过，后端已就绪。'
-                Update-StateListener
-            }
-            else {
-                Write-WatcherLog '警告：健康检查未通过，将在下一轮重试。'
-            }
-        }
+        Start-Sleep -Seconds $IntervalSeconds
     }
-    catch {
-        Write-WatcherLog "本轮处理失败，继续运行：$($_.Exception.Message)"
-    }
-
-    Start-Sleep -Seconds $IntervalSeconds
+}
+finally {
+    Write-WatcherLog '变更检测已停止，正在清理后端进程...'
+    Stop-AppProcess -Process $appProcess
+    Write-WatcherLog '清理完成。'
 }

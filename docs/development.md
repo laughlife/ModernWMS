@@ -57,6 +57,14 @@ powershell -ExecutionPolicy Bypass -File scripts\Stop-Development.ps1
 
 停止脚本只会按状态文件中的 PID 和进程启动时间双重验证后，分别终止控制进程和实际监听进程，不会按进程名批量杀进程。不要同时使用 Rider 组合启动和统一启动器；如果端口已被 Rider 或其他程序占用，先在对应工具中正常停止。
 
+如果只想启动后端、不启动前端（例如已在 Rider 或独立终端运行 Vite），可以直接运行后端变更检测脚本，它会自动发现 `backend\ModernWMS\ModernWMS.csproj` 并复用统一的临时状态目录：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\Watch-Backend.ps1
+```
+
+可选参数：`-Project <csproj 路径>`、`-Port <端口>`（默认 21011）、`-IntervalSeconds <秒>`（默认 60，最小 10）。脚本会先检查端口占用和后端控制进程冲突，确认无误后启动后端并进入每分钟检测循环；按 `Ctrl+C` 退出时会自动清理后端子进程。停止该脚本启动的后端同样使用 `scripts\Stop-Development.ps1`。
+
 ## 4. 显式检查或更新数据库
 
 ```powershell
