@@ -1,31 +1,28 @@
 <template>
   <div class="operateArea">
     <v-row no-gutters>
-      <v-col cols="4" class="col">
+      <v-col cols="2" class="col">
         <BtnGroup :authority-list="data.authorityList" :btn-list="data.btnList" />
       </v-col>
-      <v-col cols="8">
-        <v-row no-gutters @keyup.enter="method.sureSearch">
-          <v-col cols="8">
-            <v-text-field
-              v-model="data.searchForm.keyword"
-              clearable hide-details density="comfortable" class="searchInput ml-5 mt-1"
-              :label="$t('wms.deliveryManagement.wmsOrder') + ' / ' + $t('wms.deliveryManagement.packingTaskNos')"
-              variant="solo"
-            />
-          </v-col>
-        </v-row>
+      <v-col cols="10" @keyup.enter="method.sureSearch">
+        <v-text-field
+          v-model="data.searchForm.keyword"
+          clearable hide-details density="comfortable" class="searchInput ml-5 mt-1"
+          label="装箱任务号、商品、SKU、FNSKU或MSKU"
+          variant="solo"
+        />
       </v-col>
     </v-row>
   </div>
 
   <div class="mt-5" :style="{ height: cardHeight }">
     <vxe-table
-      ref="xTable" :column-config="{ minWidth: '110px' }" :row-config="{ keyField: 'id' }"
+      ref="xTable" :column-config="{ minWidth: '120px' }" :row-config="{ keyField: 'id' }"
+      :expand-config="{ expandAll: true, trigger: 'manual' }"
       :data="data.tableData" :height="tableHeight" :loading="data.loading" align="center"
-      @toggle-row-expand="handleToggleRowExpand"
     >
       <template #empty>{{ i18n.global.t('system.page.noData') }}</template>
+      <vxe-column type="checkbox" width="52" fixed="left" />
       <vxe-column type="seq" width="60" />
       <vxe-column type="expand" width="54">
         <template #content="{ row }">
@@ -38,7 +35,7 @@
                 <div class="font-weight-bold">{{ $t('wms.deliveryManagement.sourceChangePending') }}</div>
                 <pre v-if="row.source_change_snapshot" class="source-diff">{{ formatSourceDiff(row.source_change_snapshot) }}</pre>
               </v-alert>
-              <section v-for="task in row.packing_tasks" :key="task.id" class="task-block">
+              <section v-for="task in row.packing_tasks" :key="task.id" class="task-section">
                 <div class="task-heading">
                   <strong>装箱任务号：{{ task.source_task_no }}</strong>
                   <span>状态：已拣货</span>
@@ -85,27 +82,27 @@
           </div>
         </template>
       </vxe-column>
-      <vxe-column field="dispatch_no" :title="$t('wms.deliveryManagement.wmsOrderNo')" min-width="180" />
-      <vxe-column field="packing_task_nos" :title="$t('wms.deliveryManagement.packingTaskNos')" min-width="260" align="left" header-align="left">
+      <vxe-column field="dispatch_no" :title="$t('wms.deliveryManagement.wmsOrderNo')" min-width="190" />
+      <vxe-column field="packing_task_nos" :title="$t('wms.deliveryManagement.packingTaskNos')" min-width="230" align="left" header-align="left">
         <template #default="{ row }">
           <div class="task-number-list">
-            <v-chip v-for="taskNo in row.packing_task_nos" :key="taskNo" size="small" variant="tonal">{{ taskNo }}</v-chip>
+            <v-chip v-for="taskNo in row.packing_task_nos" :key="taskNo" size="small" color="primary" variant="tonal">{{ taskNo }}</v-chip>
           </div>
         </template>
       </vxe-column>
-      <vxe-column :title="$t('wms.deliveryManagement.state')" width="190">
-        <template #default="{ row }">
-          <v-chip v-if="row.source_change_pending" color="warning" size="small" variant="tonal" prepend-icon="mdi-lock-alert">
-            {{ $t('wms.deliveryManagement.sourceChangePending') }}
-          </v-chip>
-          <v-chip v-else color="success" size="small" variant="tonal">{{ $t('wms.deliveryManagement.picked') }}</v-chip>
+      <vxe-column title="状态" width="120">
+        <template #default>
+          <v-chip color="success" size="small" variant="tonal">已拣货</v-chip>
         </template>
       </vxe-column>
-      <vxe-column field="creator" :title="$t('wms.deliveryManagement.creator')" min-width="130" />
-      <vxe-column field="create_time" :title="$t('wms.deliveryManagement.create_time')" width="175">
+      <vxe-column field="creator" :title="$t('wms.deliveryManagement.creator')" width="140" />
+      <vxe-column field="create_time" :title="$t('wms.deliveryManagement.create_time')" width="180">
         <template #default="{ row }">{{ formatDateTime(row.create_time) }}</template>
       </vxe-column>
-      <vxe-column field="operate" :title="$t('system.page.operate')" width="150" fixed="right" :resizable="false">
+      <vxe-column field="last_update_time" title="最后更新时间" width="180">
+        <template #default="{ row }">{{ formatDateTime(row.last_update_time) }}</template>
+      </vxe-column>
+      <vxe-column field="operate" :title="$t('system.page.operate')" width="200" fixed="right" :resizable="false">
         <template #default="{ row }">
           <div class="row-actions">
             <TooltipBtn
@@ -159,8 +156,8 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
-import type { VxePagerEvents, VxeTableEvents } from 'vxe-table'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import type { VxePagerEvents } from 'vxe-table'
 import { decideDispatchSourceChange, getDispatchOrder, getDispatchOrderPage, startDispatchWeighing } from '@/api/wms/dispatchWorkflow'
 import { hookComponent } from '@/components/system'
 import BtnGroup from '@/components/system/btnGroup.vue'
@@ -238,9 +235,6 @@ const loadOrderDetail = async (row: PickedOrderRow): Promise<boolean> => {
     row.detail_loading = false
   }
 }
-const handleToggleRowExpand: VxeTableEvents.ToggleRowExpand<PickedOrderRow> = async ({ row, expanded }) => {
-  if (expanded && !row.detail_loaded && !row.detail_loading) await loadOrderDetail(row)
-}
 const resetDecisionDialog = (): void => {
   decision.visible = false
   decision.order = null
@@ -280,6 +274,7 @@ const clearPageForRequest = (): void => {
   data.tableData = []
   data.tablePage.total = 0
   data.loading = false
+  xTable.value?.clearRowExpand?.()
   resetDecisionDialog()
 }
 const invalidatePageRequest = (): void => {
@@ -306,6 +301,9 @@ const method = reactive({
       }
       data.tableData = result.data.rows.map(toTableRow)
       data.tablePage.total = result.data.totals
+      await nextTick()
+      await xTable.value?.setAllRowExpand?.(true)
+      data.tableData.forEach((row) => { void loadOrderDetail(row) })
     } catch (error) {
       if (isCurrentPickedPageRequest(requestIdentity, currentPageRequestIdentity())) {
         hookComponent.$message({ type: 'error', content: error instanceof Error ? error.message : String(error) })
@@ -397,15 +395,14 @@ defineExpose({ getPicked: method.getPicked })
 <style lang="less" scoped>
 .operateArea { width: 100%; min-width: 760px; display: flex; align-items: center; border-radius: 10px; padding: 0 10px; }
 .col { display: flex; align-items: center; }
-.row-actions { display: flex; justify-content: center; gap: 8px; }
-.task-number-list { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 0; }
-.order-detail { padding: 16px 72px; background: rgba(var(--v-theme-surface-variant), 0.18); }
-.detail-loading { min-height: 100px; display: flex; align-items: center; justify-content: center; }
-.task-block { margin-bottom: 14px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 6px; overflow: hidden; background: rgb(var(--v-theme-surface)); }
-.task-heading { display: flex; justify-content: space-between; gap: 20px; padding: 10px 16px; background: rgba(var(--v-theme-primary), 0.08); }
+.task-number-list { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 6px 0; }
+.order-detail { padding: 14px 72px; }
+.detail-loading, .detail-empty { display: flex; justify-content: center; padding: 24px; }
+.task-section + .task-section { margin-top: 16px; }
+.task-heading { display: flex; justify-content: space-between; padding: 8px 12px; background: rgba(var(--v-theme-primary), 0.07); }
 .secondary-text { margin-top: 3px; color: rgba(var(--v-theme-on-surface), 0.62); font-size: 12px; }
 .detail-image-cell { width: 72px; }
-.detail-empty { padding: 24px !important; text-align: center !important; opacity: 0.62; }
+.row-actions { display: flex; justify-content: center; gap: 10px; }
 .source-diff { margin: 10px 0 0; padding: 10px; max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; border-radius: 6px; background: rgba(var(--v-theme-surface), 0.75); font-size: 12px; }
 .dialog-diff { margin: 0 0 16px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
 </style>

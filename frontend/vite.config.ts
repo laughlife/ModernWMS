@@ -15,7 +15,13 @@ export default defineConfig({
     // 使用 80 端口，浏览器直接访问，无需输入端口号
     port: 80,
     // 端口被占用时直接报错，不自动回退到其他端口
-    strictPort: true
+    strictPort: true,
+    watch: {
+      // Windows 下原生文件事件可能因编辑器的原子替换而漏报；
+      // 轮询能让 Vite 在不重启进程的情况下稳定触发 HMR。
+      usePolling: true,
+      interval: 500
+    }
   },
   resolve: {
     alias: {
