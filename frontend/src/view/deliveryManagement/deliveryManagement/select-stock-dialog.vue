@@ -352,7 +352,14 @@ defineExpose({ openDialog })
   gap: 8px;
 }
 
-.selected-row {
-  background-color: rgba(76, 175, 80, 0.14) !important;
+.selected-row,
+.selected-row > td,
+:deep(.selected-row),
+:deep(.selected-row > td),
+:deep(.vxe-table--fixed-left-wrapper .selected-row),
+:deep(.vxe-table--fixed-left-wrapper .selected-row > td),
+:deep(.vxe-table--fixed-right-wrapper .selected-row),
+:deep(.vxe-table--fixed-right-wrapper .selected-row > td) {
+  background-color: #e8f5e9 !important;
 }
 </style>
