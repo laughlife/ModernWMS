@@ -170,7 +170,10 @@ import {
 import SelectStockDialog from './select-stock-dialog.vue'
 
 const props = defineProps<{ warehouseId: number | null }>()
-const emit = defineEmits<{ statusChanged: [] }>()
+const emit = defineEmits<{
+  ordersCreated: [count: number]
+  statusChanged: []
+}>()
 
 const selectStockDialogRef = ref<InstanceType<typeof SelectStockDialog>>()
 
@@ -325,6 +328,8 @@ const method = reactive({
           })
           if (res.isSuccess) {
             createdTaskIds.push(sourceTaskId)
+            // 每个装箱任务对应一个独立拣货单，成功一单就立即推进顶部角标。
+            emit('ordersCreated', 1)
           } else {
             failedTasks.push(`${sourceTaskId}：${res.errorMessage}`)
           }

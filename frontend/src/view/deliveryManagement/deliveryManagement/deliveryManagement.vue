@@ -52,7 +52,12 @@
         <v-window v-model="activeTab">
           <!-- Shared page contract: every Task10-15 page receives the same backend-authorized warehouse id. -->
           <v-window-item value="tabFbaShipment">
-            <PackingTaskList ref="packingTaskRef" :warehouse-id="selectedWarehouseId" @status-changed="refreshStatusCounts" />
+            <PackingTaskList
+              ref="packingTaskRef"
+              :warehouse-id="selectedWarehouseId"
+              @orders-created="handleOrdersCreated"
+              @status-changed="refreshStatusCounts"
+            />
           </v-window-item>
           <v-window-item value="tabGoodsToBePicked">
             <TabGoodsToBePicked ref="goodsToBePickedRef" :warehouse-id="selectedWarehouseId" @status-changed="refreshStatusCounts" />
@@ -138,6 +143,15 @@ const refreshStatusCounts = async (): Promise<void> => {
   } catch {
     // Keep the last successful counters when one source is temporarily unavailable.
   }
+}
+
+const handleOrdersCreated = (count: number): void => {
+  const createdCount = Number.isFinite(count) ? Math.max(0, Math.trunc(count)) : 0
+  if (createdCount === 0) return
+  // 使建单前发出的旧计数请求失效，避免其返回后覆盖逐单更新的角标。
+  statusCountRequestId++
+  statusCounts.tabFbaShipment = Math.max(0, statusCounts.tabFbaShipment - createdCount)
+  statusCounts.tabGoodsToBePicked += createdCount
 }
 
 onMounted(() => {

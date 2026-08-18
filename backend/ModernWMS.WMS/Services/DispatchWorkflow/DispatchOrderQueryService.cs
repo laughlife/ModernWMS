@@ -35,17 +35,17 @@ public sealed class DispatchOrderQueryService : IDispatchOrderQueryService
         var keyword = request.keyword.Trim();
         var pageIndex = Math.Max(request.pageIndex, 1);
         var pageSize = Math.Clamp(request.pageSize, 1, 200);
-        var p = new { request.warehouse_id, status, keyword = $"%{EscapeLike(keyword)}%", hasKeyword = keyword.Length > 0,
+        var p = new { request.warehouse_id, tenantId = currentUser.tenant_id, status, keyword = $"%{EscapeLike(keyword)}%", hasKeyword = keyword.Length > 0,
             pageSize, offset = (pageIndex - 1) * pageSize };
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         using var result = await connection.QueryMultipleAsync(new CommandDefinition("""
             SELECT COUNT(*) FROM `wms_dispatch_order` o
-            WHERE o.`warehouse_id`=@warehouse_id AND (@status IS NULL OR o.`status`=@status)
+            WHERE o.`warehouse_id`=@warehouse_id AND o.`tenant_id`=@tenantId AND (@status IS NULL OR o.`status`=@status)
               AND (@hasKeyword=0 OR o.`dispatch_no` LIKE @keyword ESCAPE '!'
                 OR EXISTS(SELECT 1 FROM `wms_dispatch_packing_task` t WHERE t.`dispatch_order_id`=o.`id`
                   AND t.`is_active`=1 AND t.`source_task_no` LIKE @keyword ESCAPE '!'));
             SELECT o.* FROM `wms_dispatch_order` o
-            WHERE o.`warehouse_id`=@warehouse_id AND (@status IS NULL OR o.`status`=@status)
+            WHERE o.`warehouse_id`=@warehouse_id AND o.`tenant_id`=@tenantId AND (@status IS NULL OR o.`status`=@status)
               AND (@hasKeyword=0 OR o.`dispatch_no` LIKE @keyword ESCAPE '!'
                 OR EXISTS(SELECT 1 FROM `wms_dispatch_packing_task` t WHERE t.`dispatch_order_id`=o.`id`
                   AND t.`is_active`=1 AND t.`source_task_no` LIKE @keyword ESCAPE '!'))
@@ -78,8 +78,9 @@ public sealed class DispatchOrderQueryService : IDispatchOrderQueryService
         await ReconcilePendingOrdersAsync(warehouseId, currentUser, cancellationToken);
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var raw = await connection.QueryAsync<StatusCountRow>(new CommandDefinition("""
-            SELECT `status`,COUNT(*) `count` FROM `wms_dispatch_order` WHERE `warehouse_id`=@warehouseId GROUP BY `status`;
-            """, new { warehouseId }, cancellationToken: cancellationToken));
+            SELECT `status`,COUNT(*) `count` FROM `wms_dispatch_order`
+            WHERE `warehouse_id`=@warehouseId AND `tenant_id`=@tenantId GROUP BY `status`;
+            """, new { warehouseId, tenantId = currentUser.tenant_id }, cancellationToken: cancellationToken));
         var counts = Enum.GetValues<DispatchOrderStatus>().ToDictionary(DispatchWorkflowService.ToApiStatus, _ => 0);
         foreach (var item in raw) counts[DispatchWorkflowService.ToApiStatus(item.status)] = item.count;
         return new DispatchOrderStatusCounts(counts);
@@ -100,8 +101,9 @@ public sealed class DispatchOrderQueryService : IDispatchOrderQueryService
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var ids = await connection.QueryAsync<int>(new CommandDefinition("""
-            SELECT `id` FROM `wms_dispatch_order` WHERE `warehouse_id`=@warehouseId AND `status`=@status ORDER BY `id`;
-            """, new { warehouseId, status = DispatchOrderStatus.PendingPick }, cancellationToken: cancellationToken));
+            SELECT `id` FROM `wms_dispatch_order`
+            WHERE `warehouse_id`=@warehouseId AND `tenant_id`=@tenantId AND `status`=@status ORDER BY `id`;
+            """, new { warehouseId, tenantId = currentUser.tenant_id, status = DispatchOrderStatus.PendingPick }, cancellationToken: cancellationToken));
         foreach (var id in ids) await _workflowService.ReconcileAsync(id, currentUser, cancellationToken);
     }
 
