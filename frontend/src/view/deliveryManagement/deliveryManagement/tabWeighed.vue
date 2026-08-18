@@ -10,8 +10,8 @@
   </div>
 
   <div class="mt-5" :style="{ height: cardHeight }">
-    <vxe-table ref="xTable" :loading="data.loading" :column-config="{ minWidth: '120px' }" :data="data.tableData" :height="tableHeight"
-      align="center" @toggle-row-expand="handleToggleRowExpand">
+    <vxe-table ref="xTable" :loading="data.loading" :column-config="{ minWidth: '120px' }" :row-config="{ keyField: 'id' }"
+      :expand-config="{ expandAll: true, trigger: 'manual' }" :data="data.tableData" :height="tableHeight" align="center">
       <template #empty>{{ i18n.global.t('system.page.noData') }}</template>
       <vxe-column type="seq" width="60" />
       <vxe-column type="expand" width="54">
@@ -28,12 +28,46 @@
                   </v-chip>
                 </div>
                 <v-table density="compact">
-                  <thead><tr><th>商品</th><th>SKU</th><th>FNSKU / MSKU</th><th>任务量</th></tr></thead>
+                  <thead>
+                    <tr>
+                      <th>图片</th>
+                      <th>商品信息</th>
+                      <th>FNSKU / MSKU</th>
+                      <th>任务量</th>
+                      <th>商品需求量</th>
+                      <th>可用量快照</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     <tr v-for="item in task.items" :key="item.id">
-                      <td>{{ item.commodity_name || '-' }}</td><td>{{ item.commodity_sku || '-' }}</td>
-                      <td>{{ item.fn_sku || '-' }} / {{ item.msku || '-' }}</td><td>{{ item.required_qty ?? '-' }}</td>
+                      <td class="detail-image-cell">
+                        <ProductImage
+                          :src="item.main_image"
+                          :alt="item.commodity_name || item.commodity_sku"
+                          :width="56"
+                          :height="56"
+                          :cover="false"
+                        />
+                      </td>
+                      <td class="text-left">
+                        <div>{{ displayValue(item.commodity_name) }}</div>
+                        <div class="secondary-text">SKU：{{ displayValue(item.commodity_sku) }}</div>
+                      </td>
+                      <td>
+                        <div>{{ displayValue(item.fn_sku) }}</div>
+                        <div class="secondary-text">{{ displayValue(item.msku) }}</div>
+                      </td>
+                      <td>{{ displayValue(item.task_qty) }}</td>
+                      <td>{{ displayValue(item.required_qty) }}</td>
+                      <td>{{ displayValue(item.source_stock_available) }}</td>
+                      <td>
+                        <v-btn size="small" color="primary" variant="tonal" @click="method.showPackingPlanPending">
+                          建立装箱并称重
+                        </v-btn>
+                      </td>
                     </tr>
+                    <tr v-if="task.items.length === 0"><td colspan="7" class="detail-empty">{{ $t('system.page.noData') }}</td></tr>
                   </tbody>
                 </v-table>
               </section>
@@ -54,8 +88,6 @@
       <vxe-column :title="$t('system.page.operate')" width="130" fixed="right" :resizable="false">
         <template #default="{ row }">
           <div class="row-actions">
-            <TooltipBtn :flat="true" icon="mdi-scale-balance" :tooltip-text="row.source_change_pending ? '来源已变更，需先人工裁决' : '逐箱称重测量'"
-              :disabled="row.source_change_pending || !data.authorityList.includes('weighed-weigh')" @click="method.weighRow(row)" />
             <TooltipBtn v-if="row.source_change_pending" :flat="true" icon="mdi-account-alert" tooltip-text="人工选择继续或取消发货"
               :disabled="!data.authorityList.includes('weighed-weigh')" @click="method.openDecision(row)" />
           </div>
@@ -64,7 +96,6 @@
     </vxe-table>
     <custom-pager :current-page="data.pageIndex" :page-size="data.pageSize" perfect :total="data.total"
       :page-sizes="PAGE_SIZE" :layouts="PAGE_LAYOUT" @page-change="method.handlePageChange" />
-    <ShipmentBoxWeighDialog ref="boxDialogRef" @saved="method.refresh" @completed="method.handleCompleted" />
   </div>
 
   <v-dialog v-model="decisionDialog.visible" max-width="720" persistent>
@@ -86,11 +117,12 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
-import type { VxePagerEvents, VxeTableEvents } from 'vxe-table'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import type { VxePagerEvents } from 'vxe-table'
 import { decideDispatchSourceChange, getDispatchOrder, getDispatchOrderPage } from '@/api/wms/dispatchWorkflow'
 import { hookComponent } from '@/components/system'
 import BtnGroup from '@/components/system/btnGroup.vue'
+import ProductImage from '@/components/system/product-image.vue'
 import TooltipBtn from '@/components/tooltip-btn.vue'
 import customPager from '@/components/custom-pager.vue'
 import { computedCardHeight, computedTableHeight } from '@/constant/style'
@@ -100,16 +132,13 @@ import i18n from '@/languages/i18n'
 import type { DispatchOrderDetail, DispatchOrderSummary, DispatchSourceDecision } from '@/types/DeliveryManagement/DispatchWorkflow'
 import type { btnGroupItem } from '@/types/System/Form'
 import { getMenuAuthorityList } from '@/utils/common'
-import type { DeliveryFlowTab } from './deliveryFlow'
 import { buildWeighingSourceDecisionCommand, isCurrentWeighingListRequest } from './dispatchBoxMeasurement'
 import type { WeighingListRequestIdentity } from './dispatchBoxMeasurement'
-import ShipmentBoxWeighDialog from './shipment-box-weigh-dialog.vue'
 
 type WeighingOrderRow = DispatchOrderSummary & { detail: DispatchOrderDetail | null; detailLoaded: boolean; detailLoading: boolean; detailError: string }
 const props = defineProps<{ warehouseId: number | null }>()
-const emit = defineEmits<{ goToDelivery: [tab: DeliveryFlowTab]; statusChanged: [] }>()
+const emit = defineEmits<{ statusChanged: [] }>()
 const xTable = ref()
-const boxDialogRef = ref<InstanceType<typeof ShipmentBoxWeighDialog>>()
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 let listRequestSequence = 0
 const data = reactive({ keyword: '', loading: false, tableData: [] as WeighingOrderRow[], total: 0, pageIndex: 1, pageSize: DEFAULT_PAGE_SIZE,
@@ -117,6 +146,8 @@ const data = reactive({ keyword: '', loading: false, tableData: [] as WeighingOr
 const decisionDialog = reactive({ visible: false, submitting: false, reason: '', row: null as DispatchOrderSummary | null })
 const requestId = () => globalThis.crypto?.randomUUID?.() ?? `source-decision-${Date.now()}-${Math.random().toString(16).slice(2)}`
 const showError = (message: string) => hookComponent.$message({ type: 'error', content: message })
+const displayValue = (value: unknown): string | number =>
+  value === null || value === undefined || value === '' ? '-' : value as string | number
 const currentListIdentity = (): WeighingListRequestIdentity | null => props.warehouseId === null ? null : ({
   sequence: listRequestSequence,
   warehouseId: props.warehouseId,
@@ -129,8 +160,8 @@ const listRequestIsCurrent = (request: WeighingListRequestIdentity): boolean => 
   return current !== null && isCurrentWeighingListRequest(request, current)
 }
 
-const handleToggleRowExpand: VxeTableEvents.ToggleRowExpand<WeighingOrderRow> = async ({ row, expanded }) => {
-  if (!expanded || row.detailLoaded || row.detailLoading) return
+const loadOrderDetail = async (row: WeighingOrderRow): Promise<void> => {
+  if (row.detailLoaded || row.detailLoading) return
   row.detailLoading = true; row.detailError = ''
   try {
     const result = await getDispatchOrder(row.id)
@@ -162,6 +193,9 @@ const method = reactive({
       if (!result.isSuccess) { showError(result.errorMessage); return }
       data.tableData = result.data.rows.map((row) => ({ ...row, detail: null, detailLoaded: false, detailLoading: false, detailError: '' }))
       data.total = result.data.totals
+      await nextTick()
+      await xTable.value?.setAllRowExpand?.(true)
+      data.tableData.forEach((row) => { void loadOrderDetail(row) })
     } catch (error) {
       if (listRequestIsCurrent(request)) showError(error instanceof Error ? error.message : '加载称重列表失败')
     } finally {
@@ -170,7 +204,9 @@ const method = reactive({
   },
   search: () => { data.pageIndex = 1; method.getWeighed() },
   handlePageChange: ref<VxePagerEvents.PageChange>(({ currentPage, pageSize }) => { data.pageIndex = currentPage; data.pageSize = pageSize; method.getWeighed() }),
-  weighRow: (row: DispatchOrderSummary) => boxDialogRef.value?.openDialog(row),
+  showPackingPlanPending: () => {
+    hookComponent.$message({ type: 'info', content: '装箱及混装规则待确认，本次仅完成一级页面展示' })
+  },
   openDecision: (row: DispatchOrderSummary) => { decisionDialog.row = row; decisionDialog.reason = ''; decisionDialog.visible = true },
   closeDecision: () => { decisionDialog.visible = false; decisionDialog.row = null; decisionDialog.reason = '' },
   submitDecision: async (decision: DispatchSourceDecision) => {
@@ -186,8 +222,7 @@ const method = reactive({
       method.closeDecision(); await method.getWeighed(); emit('statusChanged')
     } catch (error) { showError(error instanceof Error ? error.message : '来源变更裁决失败') }
     finally { decisionDialog.submitting = false }
-  },
-  handleCompleted: async () => { await method.getWeighed(); emit('statusChanged'); emit('goToDelivery', 'tabDelivered') }
+  }
 })
 
 onMounted(() => { data.btnList = [{ name: i18n.global.t('system.page.refresh'), icon: 'mdi-refresh', code: '', click: method.refresh }] })
@@ -206,6 +241,9 @@ defineExpose({ getWeighed: method.getWeighed })
 .detail-loading { min-height: 88px; display: flex; align-items: center; justify-content: center; }
 .task-section + .task-section { margin-top: 16px; }
 .task-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; text-align: left; }
+.detail-image-cell { width: 72px; }
+.detail-empty { padding: 24px !important; text-align: center !important; }
+.secondary-text { margin-top: 3px; color: rgba(var(--v-theme-on-surface), 0.62); font-size: 12px; }
 .row-actions { display: flex; justify-content: center; gap: 8px; }
 .snapshot-title { margin-bottom: 6px; font-weight: 600; }
 .source-change-snapshot { max-height: 220px; margin: 0 0 16px; padding: 12px; overflow: auto; white-space: pre-wrap; word-break: break-word; border-radius: 6px; background: rgba(var(--v-theme-surface-variant), 0.45); font-family: inherit; }
