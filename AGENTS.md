@@ -1,6 +1,13 @@
 # ModernWMS 仓库协作说明
 
-本文件补充 `/mnt/d/ai-dev/AGENTS.md`。跨仓库工作以顶层规则和顶层 `doc/` 知识库为准。
+本文件补充 `/mnt/d/ai-dev/AGENTS.md`。跨项目协作统一使用 `agentic_tools` MCP Memory 总线。
+
+## MCP Memory 联调总线
+
+- 每次开始跨项目任务前，必须先使用 `agentic_tools` 检索相关 Memory，`workingDirectory` 固定为 `D:\ai-dev\workspace`；用户提供 Memory ID 时必须使用 `get_memory` 精确读取。
+- ERP、前端、XXL-JOB 或其它项目交接统一写入 MCP Memory；除非用户明确要求形成仓库文档，禁止仅为传递任务新建或更新 Markdown。
+- 写入 Memory 至少包含：目标项目、背景、接口路径或影响范围、字段/参数定义、期望行为、验收标准、优先级及关联 Memory ID（如有）。
+- 完成共享数据库、API 或跨仓契约变更后必须写入 Memory，并向用户报告 Memory ID、标题和用途。
 
 ## 范围与架构
 
@@ -34,8 +41,7 @@
 ## 文档与变更纪律
 
 - 仓库技术细节可保留在 `docs/`；根目录业务说明在明确整理前仍是有效参考。
-- 跨仓库理解和当前状态写入 `/mnt/d/ai-dev/doc/`，并链接到具体代码或仓库文档。
-- 不把 agentic-tools Memory 作为强制消息总线；即使辅助使用，Markdown 仍是长期事实记录。
+- 跨仓库理解和任务交接统一写入 MCP Memory；只有用户明确要求或确有长期维护价值时才写入 `/mnt/d/ai-dev/doc/`。
 - 保护当前已有的大量工作区改动，避免大范围格式化或换行符变化。
 - 遵循顶层自动提交规则：完成修改和适用验证后，只暂存当前任务文件，并立即使用建议的中文说明提交。
 
