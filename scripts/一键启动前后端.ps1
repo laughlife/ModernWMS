@@ -301,7 +301,7 @@ try {
         if (Test-TrackedService -Entry $existingState.backend) { $activeNames += "后端 PID $($existingState.backend.pid)" }
         if (Test-TrackedService -Entry $existingState.frontend) { $activeNames += "前端 PID $($existingState.frontend.pid)" }
         if ($activeNames.Count -gt 0) {
-            throw "本仓库已有启动器管理的进程正在运行：$($activeNames -join '，')。请先运行 scripts\Stop-Development.ps1。"
+            throw "本仓库已有启动器管理的进程正在运行：$($activeNames -join '，')。请先运行 scripts\一键停止前后端.ps1。"
         }
 
         if (-not $CheckOnly) {
@@ -407,7 +407,7 @@ try {
     Write-Host "  后端：http://127.0.0.1:$BackendPort"
     Write-Host '  实时日志：当前控制台'
     Write-Host "  运行状态：$statePath"
-    Write-Host '  停止：powershell -ExecutionPolicy Bypass -File scripts\Stop-Development.ps1'
+    Write-Host '  停止：powershell -ExecutionPolicy Bypass -File scripts\一键停止前后端.ps1'
     Write-Host '[日志输出中] 启动器将保持运行；请从另一个控制台执行停止脚本。'
 
     $backendProcess.WaitForExit()
@@ -431,7 +431,7 @@ catch {
                 Remove-Item -LiteralPath $statePath -Force
             }
             else {
-                [Console]::Error.WriteLine("[清理未完成] 状态文件已保留：$statePath。请运行 scripts\Stop-Development.ps1 重试，勿按进程名批量结束进程。")
+                [Console]::Error.WriteLine("[清理未完成] 状态文件已保留：$statePath。请运行 scripts\一键停止前后端.ps1 重试，勿按进程名批量结束进程。")
             }
         }
     }

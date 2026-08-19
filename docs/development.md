@@ -41,7 +41,7 @@ powershell -ExecutionPolicy Bypass -File scripts\Start-Development.ps1
 3. 启动后端变更检测进程 `scripts\Watch-Backend.ps1`：每 60 秒检测一次后端源码变更；检测到变更后，等待源码连续 60 秒无新变化、且距上次自动重启满 60 秒，才重新编译并重启后端。这样可以避免 AI 批量修改多个文件时后端反复重启、甚至上一次重启还没完成就再次触发。检测与重启的事件都会写入日志目录下的 `backend.watcher.log`，后端运行日志仍为 `backend.stdout.log` / `backend.stderr.log`。
 4. 后端健康检查通过后，由 `Watch-Backend.ps1` 启动前端 Vite（端口 80）并把日志保存到输出中显示的临时目录；变更检测进程会持续确保前后端都在运行（后端变更自动重启、前端掉线自动拉起）。统一启动器会给前端进程覆盖本机 API 地址为 `http://127.0.0.1:21011`；手工执行 `npm run dev` 时仍使用前端环境文件中的地址。
 
-数据库迁移与常驻进程完全分离，不会影响代码自动更新：后端由 `scripts\Watch-Backend.ps1` 每分钟检测源码变更，在源码稳定满 60 秒且距上次重启满 60 秒后才自动重启（限制重启频率）；前端仍由 Vite 开发服务器提供文件监听和 HMR。需要立即应用最新后端代码时，运行 `scripts\Stop-Development.ps1` 后重新执行启动器即可。
+数据库迁移与常驻进程完全分离，不会影响代码自动更新：后端由 `scripts\Watch-Backend.ps1` 每分钟检测源码变更，在源码稳定满 60 秒且距上次重启满 60 秒后才自动重启（限制重启频率）；前端仍由 Vite 开发服务器提供文件监听和 HMR。需要立即应用最新后端代码时，运行 `scripts\一键停止前后端.ps1` 后重新执行启动器即可。
 
 只做环境和端口检查，不初始化数据库或启动进程：
 
@@ -52,7 +52,7 @@ powershell -ExecutionPolicy Bypass -File scripts\Start-Development.ps1 -CheckOnl
 停止本启动器启动的前后端：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\Stop-Development.ps1
+powershell -ExecutionPolicy Bypass -File scripts\一键停止前后端.ps1
 ```
 
 停止脚本只会按状态文件中的 PID 和进程启动时间双重验证后，分别终止控制进程和实际监听进程，不会按进程名批量杀进程。不要同时使用 Rider 组合启动和统一启动器；如果端口已被 Rider 或其他程序占用，先在对应工具中正常停止。
@@ -63,7 +63,7 @@ powershell -ExecutionPolicy Bypass -File scripts\Stop-Development.ps1
 powershell -ExecutionPolicy Bypass -File scripts\Watch-Backend.ps1
 ```
 
-可选参数：`-Project <csproj 路径>`、`-Port <后端端口>`（默认 21011）、`-FrontendPort <前端端口>`（默认 80）、`-IntervalSeconds <秒>`（默认 60，最小 10）。脚本会先检查端口占用和后端控制进程冲突，确认无误后启动后端并进入每分钟检测循环；检测循环里同时确保前端 Vite 运行（端口空闲则自动启动），后端源码稳定后自动重启后端。按 `Ctrl+C` 退出时会自动清理后端与前端进程。停止该脚本启动的进程同样使用 `scripts\Stop-Development.ps1`。
+可选参数：`-Project <csproj 路径>`、`-Port <后端端口>`（默认 21011）、`-FrontendPort <前端端口>`（默认 80）、`-IntervalSeconds <秒>`（默认 60，最小 10）。脚本会先检查端口占用和后端控制进程冲突，确认无误后启动后端并进入每分钟检测循环；检测循环里同时确保前端 Vite 运行（端口空闲则自动启动），后端源码稳定后自动重启后端。按 `Ctrl+C` 退出时会自动清理后端与前端进程。停止该脚本启动的进程同样使用 `scripts\一键停止前后端.ps1`。
 
 ## 4. 显式检查或更新数据库
 

@@ -341,7 +341,7 @@ function Initialize-DevelopmentState {
             }
         }
         if ($conflictPid -gt 0) {
-            throw "检测到已有后端控制进程（PID $conflictPid）在运行。请先运行 scripts\Stop-Development.ps1 或从 Rider 停止后再启动。"
+            throw "检测到已有后端控制进程（PID $conflictPid）在运行。请先运行 scripts\一键停止前后端.ps1 或从 Rider 停止后再启动。"
         }
 
         $owner = Get-PortOwner -Port $Port
