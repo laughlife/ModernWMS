@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { DispatchOrderSummary, WeighingBox } from '@/types/DeliveryManagement/DispatchWorkflow'
+import * as completedPolicy from './completedOutboundPolicy'
 import {
   buildCancelOutboundCommand,
   buildCompletedPageRequest,
@@ -73,6 +74,46 @@ describe('completed outbound policy', () => {
     expect(detail[0].source_task_no).toBe('CW2608150043')
     expect(detail[0].items[0].commodity_sku).toBe('SKU-A')
     expect(detail[0].boxes[0]).toMatchObject({ source_box_identity: 'box-A', readonly: true })
+  })
+
+  it('formats completed box identity, size and measurement status for Chinese display', () => {
+    const box: WeighingBox = {
+      id: 91, packing_task_id: 31, source_box_identity: 'PACKING_TASK:20441', box_sequence: 1,
+      weight: 12, length: 15, width: 20, height: 20,
+      measurement_status: 'MEASURED', copied_from_box_id: null, row_version: 3
+    }
+    const policy = completedPolicy as unknown as Record<string, ((...args: any[]) => unknown) | undefined>
+
+    expect(policy.completedBoxIdentity?.(box)).toBe('箱1')
+    expect(policy.completedBoxSize?.(box)).toBe('15 × 20 × 20')
+    expect(policy.completedMeasurementStatusText?.('MEASURED')).toBe('已测量')
+    expect(policy.completedMeasurementStatusText?.('UNMEASURED')).toBe('未测量')
+  })
+
+  it('resolves each physical-box item to its product image, name and SKU', () => {
+    const task = {
+      id: 31, source_task_id: 301, source_task_no: 'CW2608150043', status: 'OUTBOUND',
+      source_version: 't1', expected_box_count: 1, measured_box_count: 1,
+      items: [{
+        id: 41, source_item_id: 401, source_commodity_id: 501, wms_sku_id: 601,
+        commodity_sku: 'SKU-A', commodity_name: '商品A', main_image: 'https://img/a.jpg',
+        fn_sku: 'FN-A', msku: 'MSKU-A', required_qty: 8, source_stock_available: 20
+      }]
+    }
+    const box = {
+      id: 91, packing_task_id: 31, source_box_identity: 'PACKING_TASK:20441', box_sequence: 1,
+      weight: 12, length: 15, width: 20, height: 20, measurement_status: 'MEASURED',
+      copied_from_box_id: null, row_version: 3,
+      items: [{ packing_task_item_id: 41, task_qty: 8 }]
+    }
+    const policy = completedPolicy as unknown as Record<string, ((...args: any[]) => unknown) | undefined>
+
+    expect(policy.completedBoxProducts?.(task, box)).toEqual([{
+      packingTaskItemId: 41,
+      mainImage: 'https://img/a.jpg',
+      commodityName: '商品A',
+      commoditySku: 'SKU-A'
+    }])
   })
 
   it('builds whole-order reversal and signing commands with id and concurrency version', () => {

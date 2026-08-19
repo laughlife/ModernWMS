@@ -2,8 +2,10 @@ import type {
   DispatchOrderDetail,
   DispatchOrderPageRequest,
   DispatchOrderSummary,
+  DispatchPackingTask,
   DispatchSignNotificationStatus,
   OutboundCommandRequest,
+  PackingPlanBoxItem,
   SignDispatchOrderRequest,
   WeighingBox
 } from '@/types/DeliveryManagement/DispatchWorkflow'
@@ -41,10 +43,20 @@ export const emptyCompletedPage = (): { rows: CompletedOrderRow[]; total: number
   total: 0
 })
 
-export type ReadonlyWeighingBox = Readonly<WeighingBox> & { readonly: true }
+export type CompletedWeighingBox = Readonly<WeighingBox> & {
+  readonly: true
+  items: PackingPlanBoxItem[]
+}
 
 export type CompletedTaskDetail = DispatchOrderDetail['packing_tasks'][number] & {
-  boxes: ReadonlyWeighingBox[]
+  boxes: CompletedWeighingBox[]
+}
+
+export interface CompletedBoxProduct {
+  packingTaskItemId: number
+  mainImage: string
+  commodityName: string
+  commoditySku: string
 }
 
 export const buildCompletedPageRequest = (
@@ -68,8 +80,44 @@ export const groupCompletedOrderDetails = (
   boxesByTaskId: ReadonlyMap<number, WeighingBox[]>
 ): CompletedTaskDetail[] => detail.packing_tasks.map(task => ({
   ...task,
-  boxes: (boxesByTaskId.get(task.id) ?? []).map(box => ({ ...box, readonly: true as const }))
+  boxes: (boxesByTaskId.get(task.id) ?? []).map(box => {
+    const boxWithItems = box as WeighingBox & { items?: PackingPlanBoxItem[] }
+    return { ...box, items: boxWithItems.items?.map(item => ({ ...item })) ?? [], readonly: true as const }
+  })
 }))
+
+export const completedBoxIdentity = (box: Pick<WeighingBox, 'box_sequence'>): string => `箱${box.box_sequence}`
+
+export const completedBoxSize = (box: Pick<WeighingBox, 'length' | 'width' | 'height'>): string =>
+  box.length === null || box.width === null || box.height === null
+    ? '-'
+    : `${Number(box.length)} × ${Number(box.width)} × ${Number(box.height)}`
+
+const completedMeasurementStatusTexts: Record<string, string> = {
+  MEASURED: '已测量',
+  UNMEASURED: '未测量',
+  PENDING: '待测量',
+  COMPLETED: '已完成'
+}
+
+export const completedMeasurementStatusText = (status: string): string =>
+  completedMeasurementStatusTexts[status] ?? '未知状态'
+
+export const completedBoxProducts = (
+  task: Pick<DispatchPackingTask, 'items'>,
+  box: Pick<CompletedWeighingBox, 'items'>
+): CompletedBoxProduct[] => {
+  const productsById = new Map(task.items.map(item => [item.id, item]))
+  return box.items.map(boxItem => {
+    const product = productsById.get(boxItem.packing_task_item_id)
+    return {
+      packingTaskItemId: boxItem.packing_task_item_id,
+      mainImage: product?.main_image ?? '',
+      commodityName: product?.commodity_name ?? '-',
+      commoditySku: product?.commodity_sku ?? '-'
+    }
+  })
+}
 
 export const buildCancelOutboundCommand = (
   order: DispatchOrderSummary,

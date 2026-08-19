@@ -25,6 +25,7 @@
       :data="state.tableData"
       :height="tableHeight"
       :loading="state.loading"
+      :expand-config="{ expandAll: true, trigger: 'manual' }"
       row-id="id"
       align="center"
       @toggle-row-expand="handleToggleRowExpand"
@@ -63,17 +64,38 @@
                 </v-table>
                 <v-table density="compact" class="detail-table box-table">
                   <thead>
-                    <tr><th>物理箱</th><th>箱序</th><th>重量(kg)</th><th>长(cm)</th><th>宽(cm)</th><th>高(cm)</th><th>测量状态</th></tr>
+                    <tr><th>物理箱</th><th>箱序</th><th>图片</th><th>商品信息</th><th>重量(kg)</th><th>尺寸(cm)</th><th>测量状态</th></tr>
                   </thead>
                   <tbody>
                     <tr v-for="box in task.boxes" :key="box.id">
-                      <td>{{ box.source_box_identity }}</td>
+                      <td>{{ completedBoxIdentity(box) }}</td>
                       <td>{{ box.box_sequence }}</td>
+                      <td class="box-product-images">
+                        <ProductImage
+                          v-for="(product, productIndex) in completedBoxProducts(task, box)"
+                          :key="`${box.id}-image-${product.packingTaskItemId}-${productIndex}`"
+                          :src="product.mainImage"
+                          :alt="product.commodityName"
+                          :width="44"
+                          :height="44"
+                          :cover="false"
+                        />
+                        <span v-if="completedBoxProducts(task, box).length === 0">-</span>
+                      </td>
+                      <td class="box-product-information">
+                        <div
+                          v-for="(product, productIndex) in completedBoxProducts(task, box)"
+                          :key="`${box.id}-product-${product.packingTaskItemId}-${productIndex}`"
+                          class="box-product-line"
+                        >
+                          <div>{{ product.commodityName }}</div>
+                          <small>SKU：{{ product.commoditySku }}</small>
+                        </div>
+                        <span v-if="completedBoxProducts(task, box).length === 0">-</span>
+                      </td>
                       <td>{{ displayNumber(box.weight) }}</td>
-                      <td>{{ displayNumber(box.length) }}</td>
-                      <td>{{ displayNumber(box.width) }}</td>
-                      <td>{{ displayNumber(box.height) }}</td>
-                      <td><v-chip size="x-small" color="success" variant="tonal">{{ box.measurement_status }}</v-chip></td>
+                      <td>{{ completedBoxSize(box) }}</td>
+                      <td><v-chip size="x-small" :color="box.measurement_status === 'MEASURED' ? 'success' : 'warning'" variant="tonal">{{ completedMeasurementStatusText(box.measurement_status) }}</v-chip></td>
                     </tr>
                     <tr v-if="task.boxes.length === 0"><td colspan="7" class="empty-cell">暂无箱测量数据</td></tr>
                   </tbody>
@@ -181,7 +203,7 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import type { VxePagerEvents, VxeTableEvents } from 'vxe-table'
 import {
   cancelDispatchOutbound,
@@ -192,6 +214,7 @@ import {
 } from '@/api/wms/dispatchWorkflow'
 import { hookComponent } from '@/components/system'
 import BtnGroup from '@/components/system/btnGroup.vue'
+import ProductImage from '@/components/system/product-image.vue'
 import TooltipBtn from '@/components/tooltip-btn.vue'
 import DispatchSearchFilters from './dispatch-search-filters.vue'
 import customPager from '@/components/custom-pager.vue'
@@ -210,6 +233,10 @@ import {
   buildCompletedPageRequest,
   buildSignCommand,
   canCancelOutbound,
+  completedBoxIdentity,
+  completedBoxProducts,
+  completedBoxSize,
+  completedMeasurementStatusText,
   emptyCompletedPage,
   groupCompletedOrderDetails,
   isCompletedPageRequestCurrent,
@@ -348,6 +375,10 @@ const getCompleted = async (): Promise<void> => {
       detail_error: ''
     }))
     state.total = result.data.totals
+    await nextTick()
+    if (!isCompletedPageRequestCurrent(token, state.requestSeq, props.warehouseId)) return
+    await xTable.value?.setAllRowExpand?.(true)
+    state.tableData.forEach(row => { void loadDetail(row) })
   } catch (error) {
     if (!isCompletedPageRequestCurrent(token, state.requestSeq, props.warehouseId)) return
     hookComponent.$message({ type: 'error', content: error instanceof Error ? error.message : '已出库主单加载失败' })
@@ -486,12 +517,18 @@ defineExpose({ getCompleted })
 .source-snapshot { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.78; }
 .muted-text { opacity: 0.62; }
 .notification-error { margin-top: 4px; color: rgb(var(--v-theme-error)); font-size: 12px; }
-.order-detail { padding: 16px 60px; background: rgba(var(--v-theme-surface-variant), 0.16); text-align: left; }
+.order-detail { padding: 16px 60px; background: #fff; text-align: left; }
 .detail-loading { min-height: 100px; display: flex; align-items: center; justify-content: center; }
 .task-section + .task-section { margin-top: 18px; padding-top: 18px; border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
 .task-title { display: flex; justify-content: space-between; gap: 24px; margin-bottom: 8px; }
-.detail-table { margin-top: 8px; }
+.detail-table { margin-top: 8px; background: #fff; }
 .detail-table th { white-space: nowrap; font-weight: 600; }
-.box-table { background: rgba(var(--v-theme-primary), 0.025); }
+.box-table { background: #fff; }
+.box-product-images { min-width: 72px; }
+.box-product-images :deep(.productImageRoot) { display: block; margin: 2px auto; }
+.box-product-information { min-width: 180px; }
+.box-product-line { min-height: 48px; display: flex; flex-direction: column; justify-content: center; }
+.box-product-line + .box-product-line { margin-top: 4px; padding-top: 4px; border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
+.box-product-line small { opacity: 0.7; }
 .empty-cell, .empty-detail { padding: 20px !important; text-align: center !important; opacity: 0.62; }
 </style>
