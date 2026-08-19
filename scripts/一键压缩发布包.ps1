@@ -1,26 +1,12 @@
 [CmdletBinding()]
-param()
+param(
+    [Parameter()]
+    [ValidatePattern('^[0-9A-Za-z][0-9A-Za-z._-]*$')]
+    [string]$Version = '1.0.0'
+)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-
-function Get-AbsoluteHttpUri {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Value,
-
-        [Parameter(Mandatory = $true)]
-        [string]$ParameterName
-    )
-
-    $uri = $null
-    if (-not [Uri]::TryCreate($Value, [UriKind]::Absolute, [ref]$uri) -or
-        ($uri.Scheme -ne 'http' -and $uri.Scheme -ne 'https')) {
-        throw "$ParameterName 必须是完整的 HTTP 或 HTTPS 地址，当前值：$Value"
-    }
-
-    return $uri
-}
 
 function Invoke-CheckedCommand {
     param(
@@ -37,73 +23,118 @@ function Invoke-CheckedCommand {
     }
 }
 
-function Get-DotEnvValue {
+function Set-ProcessEnvironmentValue {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$Content,
+        [string]$Name,
 
         [Parameter(Mandatory = $true)]
-        [string]$Name
+        [AllowEmptyString()]
+        [string]$Value
     )
 
-    $escapedName = [Regex]::Escape($Name)
-    $match = [Regex]::Match($Content, "(?m)^[ \t]*$escapedName[ \t]*=[ \t]*(.*?)[ \t]*$")
-    if (-not $match.Success) {
-        throw "生产环境配置缺少 $Name。"
-    }
-
-    return $match.Groups[1].Value.Trim().Trim("'", '"')
+    [Environment]::SetEnvironmentVariable($Name, $Value, 'Process')
 }
 
-function Get-UserSecretValue {
+function Clear-PackagedSecrets {
     param(
         [Parameter(Mandatory = $true)]
-        [string[]]$SecretLines,
+        [string]$ConfigPath,
 
-        [Parameter(Mandatory = $true)]
-        [string]$Name
+        [Parameter()]
+        [switch]$SetListener
     )
 
-    $prefix = "$Name = "
-    $line = $SecretLines | Where-Object { $_.StartsWith($prefix, [StringComparison]::Ordinal) } | Select-Object -First 1
-    if ([string]::IsNullOrWhiteSpace($line)) {
-        throw "开发环境 User Secrets 缺少 $Name，无法生成生产发布包。"
+    $config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
+    if ($null -ne $config.ConnectionStrings) {
+        foreach ($property in @($config.ConnectionStrings.PSObject.Properties)) {
+            $property.Value = ''
+        }
     }
-
-    return $line.Substring($prefix.Length)
+    if ($null -ne $config.TokenSettings -and
+        $null -ne $config.TokenSettings.PSObject.Properties['SigningKey']) {
+        $config.TokenSettings.SigningKey = ''
+    }
+    if ($SetListener) {
+        $config | Add-Member -NotePropertyName 'Urls' -NotePropertyValue 'http://127.0.0.1:21011' -Force
+    }
+    $config | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $ConfigPath -Encoding utf8
 }
 
-function Set-ConnectionStringValue {
+function Assert-NoPackagedSecrets {
     param(
         [Parameter(Mandatory = $true)]
-        [System.Data.Common.DbConnectionStringBuilder]$Builder,
-
-        [Parameter(Mandatory = $true)]
-        [string[]]$CandidateKeys,
-
-        [Parameter(Mandatory = $true)]
-        [string]$DefaultKey,
-
-        [Parameter(Mandatory = $true)]
-        [object]$Value
+        [string]$ConfigPath
     )
 
-    $existingKey = @($Builder.Keys) |
-        Where-Object { $candidate = $_; $CandidateKeys | Where-Object { $_.Equals($candidate, [StringComparison]::OrdinalIgnoreCase) } } |
-        Select-Object -First 1
-    $targetKey = if ($null -ne $existingKey) { [string]$existingKey } else { $DefaultKey }
-    $Builder[$targetKey] = $Value
+    $config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
+    if ($null -ne $config.ConnectionStrings) {
+        foreach ($property in @($config.ConnectionStrings.PSObject.Properties)) {
+            if (-not [string]::IsNullOrWhiteSpace([string]$property.Value)) {
+                throw "通用发布包配置中不得包含数据库连接信息：$ConfigPath"
+            }
+        }
+    }
+    if ($null -ne $config.TokenSettings -and
+        $null -ne $config.TokenSettings.PSObject.Properties['SigningKey'] -and
+        -not [string]::IsNullOrWhiteSpace([string]$config.TokenSettings.SigningKey)) {
+        throw "通用发布包配置中不得包含签名密钥：$ConfigPath"
+    }
+}
+
+function Get-ZipEntryNames {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [IO.Compression.ZipFile]::OpenRead($Path)
+    try {
+        return @($archive.Entries | ForEach-Object { $_.FullName.Replace('\', '/') })
+    }
+    finally {
+        $archive.Dispose()
+    }
+}
+
+function Invoke-UnzipChecks {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    $nativeUnzip = Get-Command 'unzip' -ErrorAction SilentlyContinue
+    if ($null -ne $nativeUnzip) {
+        Invoke-CheckedCommand -Command $nativeUnzip.Source -Arguments @('-t', $Path)
+        Invoke-CheckedCommand -Command $nativeUnzip.Source -Arguments @('-l', $Path)
+        return
+    }
+
+    $wsl = Get-Command 'wsl.exe' -ErrorAction SilentlyContinue
+    if ($null -eq $wsl) {
+        throw '未找到 unzip，也未找到可用于执行 unzip 的 WSL。'
+    }
+
+    $wslUnzip = (& $wsl.Source -e sh -lc 'command -v unzip').Trim()
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($wslUnzip)) {
+        throw 'WSL 中未找到 unzip。'
+    }
+    $wslZipPath = (& $wsl.Source -e wslpath -a -u $Path).Trim()
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($wslZipPath)) {
+        throw "无法将 ZIP 路径转换为 WSL 路径：$Path"
+    }
+
+    Invoke-CheckedCommand -Command $wsl.Source -Arguments @('-e', $wslUnzip, '-t', $wslZipPath)
+    Invoke-CheckedCommand -Command $wsl.Source -Arguments @('-e', $wslUnzip, '-l', $wslZipPath)
 }
 
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $frontendRoot = Join-Path $repositoryRoot 'frontend'
 $backendProject = Join-Path $repositoryRoot 'backend\ModernWMS\ModernWMS.csproj'
-$frontendProductionEnv = Join-Path $frontendRoot '.env.production'
-$backendProductionConfig = Join-Path $repositoryRoot 'backend\ModernWMS\appsettings.Production.json'
-$nginxProductionConfig = Join-Path $repositoryRoot 'deploy\nginx\conf.d\wsm.nyamtn.conf'
-$productionDatabaseHost = '192.168.100.112'
-$productionDatabasePort = 8866
-$backendListenUrl = 'http://127.0.0.1:21011'
+$backendSourceRoot = Join-Path $repositoryRoot 'backend'
+$flywaySqlRoot = Join-Path $repositoryRoot 'flyway\sql'
+$databaseUpdateScript = Join-Path $PSScriptRoot 'Update-Database.ps1'
 $publishRoot = Join-Path $repositoryRoot 'artifacts\publish'
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $packageName = "ModernWMS-prod-$timestamp"
@@ -111,8 +142,7 @@ $stagingRoot = Join-Path $publishRoot "$packageName.staging"
 $frontendBuildRoot = Join-Path $publishRoot "$packageName.frontend-build"
 $frontendPackageRoot = Join-Path $stagingRoot 'frontend'
 $backendPackageRoot = Join-Path $stagingRoot 'backend'
-$deployPackageRoot = Join-Path $stagingRoot 'deploy\nginx\conf.d'
-$deploymentGuidePath = Join-Path $stagingRoot '部署说明.txt'
+$releaseNotesPath = Join-Path $stagingRoot 'RELEASE_NOTES.txt'
 $zipPath = Join-Path $publishRoot 'wms.zip'
 $zipTempPath = Join-Path $publishRoot "$packageName.tmp.zip"
 $resolvedPublishRoot = [IO.Path]::GetFullPath($publishRoot).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
@@ -126,83 +156,75 @@ foreach ($publishPath in @($resolvedStagingRoot, $resolvedFrontendBuildRoot, $re
     }
 }
 
-foreach ($requiredCommand in @('npm.cmd', 'dotnet')) {
+foreach ($requiredCommand in @('npm.cmd', 'dotnet', 'git')) {
     if (-not (Get-Command $requiredCommand -ErrorAction SilentlyContinue)) {
-        throw "未找到命令 $requiredCommand，请先安装对应的 Node.js/npm 或 .NET SDK。"
+        throw "未找到命令 $requiredCommand。"
+    }
+}
+foreach ($requiredPath in @($frontendRoot, $backendSourceRoot, $flywaySqlRoot)) {
+    if (-not (Test-Path -LiteralPath $requiredPath -PathType Container)) {
+        throw "发布所需目录不存在：$requiredPath"
+    }
+}
+foreach ($requiredPath in @($backendProject, $databaseUpdateScript)) {
+    if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
+        throw "发布所需文件不存在：$requiredPath"
     }
 }
 
-if (-not (Test-Path -LiteralPath $frontendRoot -PathType Container)) {
-    throw "前端目录不存在：$frontendRoot"
+$healthMapping = Get-ChildItem -LiteralPath $backendSourceRoot -Recurse -Filter '*.cs' -File |
+    Select-String -SimpleMatch 'MapHealthChecks("/health")' |
+    Select-Object -First 1
+if ($null -eq $healthMapping) {
+    throw '后端源码未找到 /health 健康检查映射，停止生成生产发布包。'
 }
-if (-not (Test-Path -LiteralPath $backendProject -PathType Leaf)) {
-    throw "后端项目不存在：$backendProject"
-}
-if (-not (Test-Path -LiteralPath $frontendProductionEnv -PathType Leaf)) {
-    throw "前端生产配置不存在：$frontendProductionEnv"
-}
-if (-not (Test-Path -LiteralPath $backendProductionConfig -PathType Leaf)) {
-    throw "后端生产配置不存在：$backendProductionConfig"
-}
-if (-not (Test-Path -LiteralPath $nginxProductionConfig -PathType Leaf)) {
-    throw "Nginx 生产配置不存在：$nginxProductionConfig"
-}
+
 if ((Test-Path -LiteralPath $stagingRoot) -or
     (Test-Path -LiteralPath $frontendBuildRoot) -or
     (Test-Path -LiteralPath $zipTempPath)) {
     throw "本次发布目标已存在，请稍后重新执行：$packageName"
 }
 
-$frontendProductionEnvContent = Get-Content -LiteralPath $frontendProductionEnv -Raw
-$backendBasePath = Get-DotEnvValue -Content $frontendProductionEnvContent -Name 'VITE_BASE_PATH'
-$backendPort = Get-DotEnvValue -Content $frontendProductionEnvContent -Name 'VITE_SERVER_PORT'
-if ([string]::IsNullOrWhiteSpace($backendBasePath)) {
-    throw '请先在 frontend/.env.production 中配置 VITE_BASE_PATH。'
+$commitId = (& git -C $repositoryRoot rev-parse --short=12 HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($commitId)) {
+    throw '无法读取当前 Git 提交号。'
 }
-$backendBaseUrl = if ([string]::IsNullOrWhiteSpace($backendPort)) {
-    $backendBasePath.TrimEnd('/')
-} else {
-    "$($backendBasePath.TrimEnd('/')):$backendPort"
-}
-$backendUri = Get-AbsoluteHttpUri -Value $backendBaseUrl -ParameterName 'frontend/.env.production 后端地址'
-if ($backendUri.Query -or $backendUri.Fragment) {
-    throw "frontend/.env.production 后端地址不能包含查询参数或片段：$backendBaseUrl"
-}
-$normalizedBackendBaseUrl = $backendUri.AbsoluteUri.TrimEnd('/')
-
-$productionConfig = Get-Content -LiteralPath $backendProductionConfig -Raw | ConvertFrom-Json
-$allowedOrigins = @($productionConfig.Cors.AllowedOrigins)
-if ($allowedOrigins.Count -eq 0) {
-    throw '请先在 backend/ModernWMS/appsettings.Production.json 的 Cors.AllowedOrigins 中配置正式前端地址。'
-}
-$normalizedFrontendOrigins = foreach ($allowedOrigin in $allowedOrigins) {
-    $frontendUri = Get-AbsoluteHttpUri -Value $allowedOrigin -ParameterName 'Cors.AllowedOrigins'
-    if ($frontendUri.AbsolutePath -ne '/' -or $frontendUri.Query -or $frontendUri.Fragment) {
-        throw "Cors.AllowedOrigins 只能包含协议、域名和端口：$allowedOrigin"
-    }
-    $frontendUri.GetLeftPart([UriPartial]::Authority)
-}
-
-$secretLines = & dotnet user-secrets list --project $backendProject
+$workingTreeChanges = @(& git -C $repositoryRoot status --porcelain --untracked-files=no)
 if ($LASTEXITCODE -ne 0) {
-    throw '读取开发环境 User Secrets 失败，无法生成生产发布包。'
+    throw '无法读取当前 Git 工作区状态。'
 }
-$developmentConnectionString = Get-UserSecretValue -SecretLines $secretLines -Name 'ConnectionStrings:MySqlConn'
-$developmentSigningKey = Get-UserSecretValue -SecretLines $secretLines -Name 'TokenSettings:SigningKey'
-$productionConnectionBuilder = [System.Data.Common.DbConnectionStringBuilder]::new()
-$productionConnectionBuilder.set_ConnectionString($developmentConnectionString)
-Set-ConnectionStringValue -Builder $productionConnectionBuilder -CandidateKeys @('Server', 'Data Source', 'Host') -DefaultKey 'Server' -Value $productionDatabaseHost
-Set-ConnectionStringValue -Builder $productionConnectionBuilder -CandidateKeys @('Port') -DefaultKey 'Port' -Value $productionDatabasePort
+if ($workingTreeChanges.Count -gt 0) {
+    $commitId = "$commitId-dirty"
+}
+$changeNotes = @(& git -C $repositoryRoot log -10 --pretty=format:'%s')
+if ($LASTEXITCODE -ne 0) {
+    throw '无法生成发布功能变更记录。'
+}
+$migrationFiles = @(Get-ChildItem -LiteralPath $flywaySqlRoot -Filter 'V*__*.sql' -File | Sort-Object Name)
+$databaseScriptContent = Get-Content -LiteralPath $databaseUpdateScript -Raw
+$flywayVersionMatch = [Regex]::Match($databaseScriptContent, "expectedFlywayVersion\s*=\s*'([^']+)'")
+if (-not $flywayVersionMatch.Success) {
+    throw '无法从 Update-Database.ps1 读取所需 Flyway 版本。'
+}
+$flywayVersion = $flywayVersionMatch.Groups[1].Value
+$buildTime = Get-Date -Format 'yyyy-MM-ddTHH:mm:sszzz'
 
 New-Item -ItemType Directory -Path $frontendPackageRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $backendPackageRoot -Force | Out-Null
-New-Item -ItemType Directory -Path $deployPackageRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $frontendBuildRoot -Force | Out-Null
+
+$previousViteBasePath = [Environment]::GetEnvironmentVariable('VITE_BASE_PATH', 'Process')
+$previousViteServerPort = [Environment]::GetEnvironmentVariable('VITE_SERVER_PORT', 'Process')
+$previousViteBaseApi = [Environment]::GetEnvironmentVariable('VITE_BASE_API', 'Process')
 
 try {
     Get-ChildItem -LiteralPath $frontendRoot -Force |
         Where-Object { $_.Name -notin @('node_modules', 'dist', 'test-results', 'artifacts', '.git') } |
         Copy-Item -Destination $frontendBuildRoot -Recurse -Force
+
+    Set-ProcessEnvironmentValue -Name 'VITE_BASE_PATH' -Value '/api/'
+    Set-ProcessEnvironmentValue -Name 'VITE_SERVER_PORT' -Value ''
+    Set-ProcessEnvironmentValue -Name 'VITE_BASE_API' -Value '/api/'
 
     Push-Location $frontendBuildRoot
     try {
@@ -215,10 +237,38 @@ try {
 
     $frontendDist = Join-Path $frontendBuildRoot 'dist'
     if (-not (Test-Path -LiteralPath $frontendDist -PathType Container)) {
-        throw "前端构建完成后未找到 dist 目录：$frontendDist"
+        throw "前端构建完成后未找到全新 dist 目录：$frontendDist"
     }
     Get-ChildItem -LiteralPath $frontendDist -Force |
         Copy-Item -Destination $frontendPackageRoot -Recurse -Force
+
+    $frontendIndex = Join-Path $frontendPackageRoot 'index.html'
+    $frontendAssets = Join-Path $frontendPackageRoot 'assets'
+    $unityIndex = Join-Path $frontendPackageRoot 'unity\index.html'
+    $unityBuild = Join-Path $frontendPackageRoot 'unity\Build'
+    foreach ($requiredFrontendPath in @($frontendIndex, $unityIndex)) {
+        if (-not (Test-Path -LiteralPath $requiredFrontendPath -PathType Leaf)) {
+            throw "前端发布产物缺少：$requiredFrontendPath"
+        }
+    }
+    foreach ($requiredFrontendPath in @($frontendAssets, $unityBuild)) {
+        if (-not (Test-Path -LiteralPath $requiredFrontendPath -PathType Container)) {
+            throw "前端发布产物缺少：$requiredFrontendPath"
+        }
+    }
+    if (@(Get-ChildItem -LiteralPath $unityBuild -File -Recurse).Count -eq 0) {
+        throw 'Unity WebGL Build 目录为空。'
+    }
+    $frontendTextFiles = @(Get-ChildItem -LiteralPath $frontendPackageRoot -File -Recurse |
+        Where-Object { $_.Extension -in @('.html', '.js', '.css') })
+    $absoluteApiReference = $frontendTextFiles | Select-String -Pattern 'https?://[^"''\s]+/api/?' | Select-Object -First 1
+    if ($null -ne $absoluteApiReference) {
+        throw "前端生产产物包含绝对 API 地址：$($absoluteApiReference.Path)"
+    }
+    $relativeApiReference = $frontendTextFiles | Select-String -SimpleMatch '/api' | Select-Object -First 1
+    if ($null -eq $relativeApiReference) {
+        throw '前端生产产物中未找到相对 API 路径 /api/。'
+    }
 
     $publishArguments = @(
         'publish',
@@ -227,49 +277,71 @@ try {
         '--framework', 'net10.0',
         '--runtime', 'linux-x64',
         '--self-contained', 'false',
-        '--output', $backendPackageRoot
+        '--output', $backendPackageRoot,
+        '-p:UseAppHost=false',
+        '-p:DebugType=None',
+        '-p:DebugSymbols=false'
     )
     Invoke-CheckedCommand -Command 'dotnet' -Arguments $publishArguments
 
-    $productionConfigPath = Join-Path $backendPackageRoot 'appsettings.Production.json'
-    if (-not (Test-Path -LiteralPath $productionConfigPath -PathType Leaf)) {
-        throw "后端发布目录缺少生产配置：$productionConfigPath"
+    $requiredBackendFiles = @(
+        'ModernWMS.dll',
+        'ModernWMS.deps.json',
+        'ModernWMS.runtimeconfig.json',
+        'appsettings.json',
+        'appsettings.Production.json',
+        'nlog.config'
+    )
+    foreach ($requiredBackendFile in $requiredBackendFiles) {
+        $requiredBackendPath = Join-Path $backendPackageRoot $requiredBackendFile
+        if (-not (Test-Path -LiteralPath $requiredBackendPath -PathType Leaf)) {
+            throw "后端发布产物缺少：$requiredBackendFile"
+        }
     }
 
+    $runtimeConfig = Get-Content -LiteralPath (Join-Path $backendPackageRoot 'ModernWMS.runtimeconfig.json') -Raw | ConvertFrom-Json
+    if ([string]$runtimeConfig.runtimeOptions.tfm -ne 'net10.0' -or
+        [string]$runtimeConfig.runtimeOptions.framework.name -ne 'Microsoft.AspNetCore.App') {
+        throw '后端发布产物不是 .NET 10 framework-dependent ASP.NET Core 应用。'
+    }
+
+    $developmentConfig = Join-Path $backendPackageRoot 'appsettings.Development.json'
+    if (Test-Path -LiteralPath $developmentConfig) {
+        Remove-Item -LiteralPath $developmentConfig -Force
+    }
+    Get-ChildItem -LiteralPath $backendPackageRoot -Filter '*.pdb' -File -Recurse | Remove-Item -Force
+
+    $baseConfigPath = Join-Path $backendPackageRoot 'appsettings.json'
+    $productionConfigPath = Join-Path $backendPackageRoot 'appsettings.Production.json'
+    Clear-PackagedSecrets -ConfigPath $baseConfigPath
+    Clear-PackagedSecrets -ConfigPath $productionConfigPath -SetListener
+    Assert-NoPackagedSecrets -ConfigPath $baseConfigPath
+    Assert-NoPackagedSecrets -ConfigPath $productionConfigPath
+
     $publishedProductionConfig = Get-Content -LiteralPath $productionConfigPath -Raw | ConvertFrom-Json
-    $publishedProductionConfig | Add-Member -NotePropertyName 'ConnectionStrings' -NotePropertyValue ([pscustomobject]@{
-        MySqlConn = $productionConnectionBuilder.get_ConnectionString()
-    }) -Force
-    $publishedProductionConfig | Add-Member -NotePropertyName 'TokenSettings' -NotePropertyValue ([pscustomobject]@{
-        SigningKey = $developmentSigningKey
-    }) -Force
-    $publishedProductionConfig | Add-Member -NotePropertyName 'Urls' -NotePropertyValue $backendListenUrl -Force
-    $publishedProductionConfig | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $productionConfigPath -Encoding utf8
+    if ([string]$publishedProductionConfig.Urls -ne 'http://127.0.0.1:21011') {
+        throw '后端监听地址未固定为 http://127.0.0.1:21011。'
+    }
 
-    Copy-Item -LiteralPath $nginxProductionConfig -Destination $deployPackageRoot -Force
-    @'
-ModernWMS Linux 生产更新包
-
-本压缩包用于已经完成基础环境配置的 Linux 生产服务器，解压后包含：
-- frontend：Nginx 静态站点文件
-- backend：ASP.NET Core 后端发布文件
-- deploy/nginx/conf.d/wsm.nyamtn.conf：Nginx 站点配置
-
-部署前置条件：
-1. 服务器已经安装 .NET 10 ASP.NET Core Runtime 和 Nginx。
-2. wms.nyamtn.com 的 TLS 证书已经按 Nginx 配置中的路径准备好。
-3. 生产数据库已备份，所需 Flyway 版本化 SQL 已经过评审并单独执行。
-4. 不要使用本包自动初始化或迁移生产数据库。
-
-建议部署位置：/opt/modernwms
-后端工作目录：/opt/modernwms/backend
-后端启动命令：dotnet ModernWMS.dll
-后端监听地址：http://127.0.0.1:21011
-前端目录：/opt/modernwms/frontend
-
-Nginx 配置复制到服务器前必须先核对域名、证书路径和目录，然后执行 nginx -t。
-替换线上文件和重启服务属于生产操作，应按现有服务管理流程执行；本发布脚本不会连接或修改服务器。
-'@ | Set-Content -LiteralPath $deploymentGuidePath -Encoding utf8
+    $releaseLines = [Collections.Generic.List[string]]::new()
+    $releaseLines.Add("Version: $Version")
+    $releaseLines.Add("BuildTime: $buildTime")
+    $releaseLines.Add("Commit: $commitId")
+    $releaseLines.Add('Changes:')
+    foreach ($changeNote in $changeNotes) {
+        if (-not [string]::IsNullOrWhiteSpace($changeNote)) {
+            $releaseLines.Add("- $changeNote")
+        }
+    }
+    if ($migrationFiles.Count -eq 0) {
+        $releaseLines.Add('DatabaseChanges: none')
+    }
+    else {
+        $releaseLines.Add('DatabaseChanges: required')
+        $releaseLines.Add("FlywayVersion: $flywayVersion")
+        $releaseLines.Add("SqlFiles: $($migrationFiles.Name -join ', ')")
+    }
+    $releaseLines | Set-Content -LiteralPath $releaseNotesPath -Encoding utf8
 
     if (Test-Path -LiteralPath $resolvedZipPath -PathType Leaf) {
         Remove-Item -LiteralPath $resolvedZipPath -Force
@@ -279,36 +351,52 @@ Nginx 配置复制到服务器前必须先核对域名、证书路径和目录�
         throw "ZIP 临时包生成失败：$zipTempPath"
     }
 
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    $zipArchive = [System.IO.Compression.ZipFile]::OpenRead($zipTempPath)
-    try {
-        $zipEntries = @($zipArchive.Entries | ForEach-Object { $_.FullName.Replace('\', '/') })
+    $zipEntries = Get-ZipEntryNames -Path $zipTempPath
+    $topLevelEntries = @($zipEntries |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        ForEach-Object { $_.Split('/')[0] } |
+        Sort-Object -Unique)
+    $expectedTopLevelEntries = @('backend', 'frontend', 'RELEASE_NOTES.txt')
+    $topLevelDifference = @(Compare-Object -ReferenceObject $expectedTopLevelEntries -DifferenceObject $topLevelEntries)
+    if ($topLevelDifference.Count -gt 0) {
+        throw "ZIP 顶层结构不合规，实际为：$($topLevelEntries -join ', ')"
     }
-    finally {
-        $zipArchive.Dispose()
-    }
+
     foreach ($requiredEntry in @(
         'frontend/index.html',
+        'frontend/unity/index.html',
         'backend/ModernWMS.dll',
+        'backend/ModernWMS.deps.json',
         'backend/ModernWMS.runtimeconfig.json',
+        'backend/appsettings.json',
         'backend/appsettings.Production.json',
-        'deploy/nginx/conf.d/wsm.nyamtn.conf',
-        '部署说明.txt'
+        'backend/nlog.config',
+        'RELEASE_NOTES.txt'
     )) {
         if ($zipEntries -notcontains $requiredEntry) {
             throw "ZIP 内容校验失败，缺少：$requiredEntry"
         }
     }
+    if (-not ($zipEntries | Where-Object { $_ -like 'frontend/assets/*' } | Select-Object -First 1)) {
+        throw 'ZIP 内容校验失败，frontend/assets/ 为空。'
+    }
+    if (-not ($zipEntries | Where-Object { $_ -like 'frontend/unity/Build/*' } | Select-Object -First 1)) {
+        throw 'ZIP 内容校验失败，frontend/unity/Build/ 为空。'
+    }
+
     $unexpectedEntry = $zipEntries | Where-Object {
-        $_ -match '(^|/)(node_modules|\.git|src)(/|$)' -or
-        $_ -match '(^|/)package-lock\.json$' -or
+        $_ -match '(^|/)(deploy|nginx|systemd|node_modules|\.git|src|bin|obj|tests?|test-results)(/|$)' -or
+        $_ -match '(^|/)(wsm\.nyamtn\.conf|wms\.zip)$' -or
+        $_ -match '\.(service|pem|crt|cer|key|pfx|p12)$' -or
+        $_ -like 'frontend/dist/*' -or
         $_ -like '*.frontend-build/*'
     } | Select-Object -First 1
     if ($null -ne $unexpectedEntry) {
-        throw "ZIP 内容校验失败，包含非发布文件：$unexpectedEntry"
+        throw "ZIP 内容校验失败，包含禁止发布文件：$unexpectedEntry"
     }
 
     Move-Item -LiteralPath $zipTempPath -Destination $zipPath
+    Invoke-UnzipChecks -Path $zipPath
     Remove-Item -LiteralPath $resolvedStagingRoot -Recurse -Force
 }
 catch {
@@ -321,6 +409,9 @@ catch {
     throw
 }
 finally {
+    Set-ProcessEnvironmentValue -Name 'VITE_BASE_PATH' -Value $(if ($null -eq $previousViteBasePath) { '' } else { $previousViteBasePath })
+    Set-ProcessEnvironmentValue -Name 'VITE_SERVER_PORT' -Value $(if ($null -eq $previousViteServerPort) { '' } else { $previousViteServerPort })
+    Set-ProcessEnvironmentValue -Name 'VITE_BASE_API' -Value $(if ($null -eq $previousViteBaseApi) { '' } else { $previousViteBaseApi })
     if (Test-Path -LiteralPath $resolvedFrontendBuildRoot) {
         try {
             Remove-Item -LiteralPath $resolvedFrontendBuildRoot -Recurse -Force
@@ -331,10 +422,10 @@ finally {
     }
 }
 
-Write-Host "发布完成。"
+Write-Host '生产发布包生成并校验完成。'
 Write-Host "ZIP 包：$zipPath"
-Write-Host "前端来源：$($normalizedFrontendOrigins -join ', ')"
-Write-Host "后端地址：$normalizedBackendBaseUrl"
-Write-Host "后端监听：$backendListenUrl"
-Write-Host "生产数据库：$productionDatabaseHost`:$productionDatabasePort（账号和密码沿用开发环境 User Secrets）"
-Write-Host '部署前提：目标 Linux 服务器已安装 .NET 10 ASP.NET Core Runtime 和 Nginx，数据库结构升级已单独完成。'
+Write-Host 'ZIP 顶层：backend/、frontend/、RELEASE_NOTES.txt'
+Write-Host '后端启动：dotnet ModernWMS.dll'
+Write-Host '后端监听：http://127.0.0.1:21011'
+Write-Host '前端 API：/api/'
+Write-Host '数据库迁移：仅记录在 RELEASE_NOTES.txt，本脚本不会执行迁移。'
