@@ -824,7 +824,7 @@ public partial class ErpPendingReceiptService
         var result = new DynamicParameters();
         foreach (var (name, value) in parameters)
         {
-            result.Add(name.TrimStart('@'), value);
+            result.Add(name.TrimStart('@'), value is DBNull ? null : value);
         }
         return result;
     }
