@@ -22,7 +22,7 @@
   <v-alert v-if="props.warehouseId === null" type="info" variant="tonal" class="mt-4">请先选择仓库。</v-alert>
   <div v-else class="mt-5" :style="{ height: cardHeight }">
     <vxe-table ref="xTable" :column-config="{ minWidth: '110px' }" :row-config="{ keyField: 'id' }"
-      :data="data.tableData" :height="tableHeight" align="center" row-id="id"
+      :data="data.tableData" :height="tableHeight" :row-class-name="method.rowClassName" align="center" row-id="id"
       @checkbox-change="method.handleSelectionChange" @checkbox-all="method.handleSelectionChange">
       <template #empty>{{ i18n.global.t('system.page.noData') }}</template>
       <vxe-column type="checkbox" width="52" fixed="left" />
@@ -309,6 +309,10 @@ const method = reactive({
   handlePageChange: (({ currentPage, pageSize }) => { data.pageIndex = currentPage; data.pageSize = pageSize; void method.getDelivery() }) as VxePagerEvents.PageChange,
   handleSelectionChange: (): void => { data.selectedOrderCount = (xTable.value?.getCheckboxRecords?.() ?? []).length },
   hasCarrier: (row: PendingOutboundRow): boolean => Boolean(row.carrier_warehouse_id && row.carrier_unit.trim()),
+  rowClassName: ({ row }: { row: PendingOutboundRow }): string =>
+    !row.source_change_pending && row.detail && isPendingOutboundReady(row.detail) && method.hasCarrier(row)
+      ? 'outbound-ready-row'
+      : '',
   outboundTooltip: (row: PendingOutboundRow): string => method.hasCarrier(row) ? '整单确认出库' : '请先设置承运信息',
   openCarrier: (row: PendingOutboundRow): void => {
     void carrierDialog.value?.openDialog([row.id], row.carrier_warehouse_id)
@@ -353,6 +357,12 @@ defineExpose({ getDelivery: method.getDelivery })
 .carrier-missing { color: rgb(var(--v-theme-error)); font-weight: 600; }
 .task-no { line-height: 22px; }
 .row-actions { display: flex; align-items: center; justify-content: center; gap: 10px; }
+:deep(.outbound-ready-row),
+:deep(.outbound-ready-row > td),
+:deep(.vxe-table--fixed-left-wrapper .outbound-ready-row),
+:deep(.vxe-table--fixed-left-wrapper .outbound-ready-row > td),
+:deep(.vxe-table--fixed-right-wrapper .outbound-ready-row),
+:deep(.vxe-table--fixed-right-wrapper .outbound-ready-row > td) { background-color: #e8f5e9 !important; }
 .order-detail { padding: 16px 68px; background: #fff; }
 .task-list { display: grid; gap: 14px; }
 .task-card { padding: 12px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; background: #fff; }
