@@ -87,11 +87,14 @@
           </div>
         </template>
       </vxe-column>
-      <vxe-column field="dispatch_no" title="WMS拣货单" min-width="170" align="left" header-align="left">
-        <template #default="{ row }"><div class="primary-text">{{ row.dispatch_no }}</div><div class="secondary-text">仓库ID：{{ row.warehouse_id }}</div></template>
-      </vxe-column>
-      <vxe-column title="装箱任务" min-width="230" align="left" header-align="left">
-        <template #default="{ row }"><div v-for="taskNo in row.packing_task_nos" :key="taskNo" class="task-no">{{ taskNo }}</div></template>
+      <vxe-column title="单号信息" min-width="270" align="left" header-align="left">
+        <template #default="{ row }">
+          <div class="number-information">
+            <div><span class="number-label">WMS拣货单：</span><strong>{{ row.dispatch_no }}</strong></div>
+            <div v-for="taskNo in row.packing_task_nos" :key="taskNo" class="task-no"><span class="number-label">装箱任务：</span>{{ taskNo }}</div>
+            <div class="secondary-text"><span class="number-label">仓库：</span>{{ warehouseName(row.warehouse_id) }}</div>
+          </div>
+        </template>
       </vxe-column>
       <vxe-column title="任务 / SKU / 数量" min-width="180">
         <template #default="{ row }">
@@ -101,6 +104,28 @@
       <vxe-column title="箱测量汇总" min-width="190">
         <template #default="{ row }">
           <template v-if="row.detail"><div>{{ metrics(row).measuredBoxCount }}/{{ metrics(row).expectedBoxCount }} 箱</div><div class="secondary-text">{{ formatNumber(metrics(row).totalWeight) }} kg / {{ formatVolume(metrics(row).totalVolumeCubicMeters) }}</div></template><span v-else>-</span>
+        </template>
+      </vxe-column>
+      <vxe-column title="计划装货量" min-width="130">
+        <template #default="{ row }">
+          <v-chip
+            v-if="row.detail"
+            :color="metrics(row).loadingQtyMismatch ? 'error' : 'success'"
+            :variant="metrics(row).loadingQtyMismatch ? 'flat' : 'tonal'"
+            size="small"
+          >{{ metrics(row).plannedLoadingQty }} 件</v-chip>
+          <span v-else>-</span>
+        </template>
+      </vxe-column>
+      <vxe-column title="实际装货量" min-width="130">
+        <template #default="{ row }">
+          <v-chip
+            v-if="row.detail"
+            :color="metrics(row).loadingQtyMismatch ? 'error' : 'success'"
+            :variant="metrics(row).loadingQtyMismatch ? 'flat' : 'tonal'"
+            size="small"
+          >{{ metrics(row).actualLoadingQty }} 件</v-chip>
+          <span v-else>-</span>
         </template>
       </vxe-column>
       <vxe-column title="承运信息" min-width="180">
@@ -167,6 +192,7 @@ import customPager from '@/components/custom-pager.vue'
 import { computedCardHeight, computedTableHeight } from '@/constant/style'
 import { DEFAULT_PAGE_SIZE, PAGE_LAYOUT, PAGE_SIZE } from '@/constant/vxeTable'
 import i18n from '@/languages/i18n'
+import { useDispatchWarehouseStore } from '@/store/module/dispatchWarehouse'
 import type { DispatchOrderDetail, DispatchOrderSummary, DispatchPackingTask, DispatchPackingTaskItem, PackingPlanBoxItem, WeighingBox } from '@/types/DeliveryManagement/DispatchWorkflow'
 import type { btnGroupItem } from '@/types/System/Form'
 import { getMenuAuthorityList } from '@/utils/common'
@@ -189,6 +215,7 @@ const props = defineProps<{ warehouseId: number | null }>()
 const emit = defineEmits<{ goToCompleted: []; statusChanged: [] }>()
 const xTable = ref()
 const carrierDialog = ref<InstanceType<typeof DispatchCarrierDialog>>()
+const dispatchWarehouseStore = useDispatchWarehouseStore()
 const requestGuard = createLatestRequestGuard()
 const data = reactive({ keyword: '', group_id: null as number | null, member_id: null as number | null,
   tableData: [] as PendingOutboundRow[], total: 0, pageIndex: 1, pageSize: DEFAULT_PAGE_SIZE,
@@ -196,6 +223,8 @@ const data = reactive({ keyword: '', group_id: null as number | null, member_id:
 const decisionDialog = reactive({ visible: false, submitting: false, reason: '', row: null as PendingOutboundRow | null })
 
 const requestId = (): string => globalThis.crypto?.randomUUID?.() ?? `dispatch-${Date.now()}-${Math.random().toString(16).slice(2)}`
+const warehouseName = (warehouseId: number): string =>
+  dispatchWarehouseStore.warehouseOptions.find(warehouse => warehouse.id === warehouseId)?.name ?? '-'
 const formatNumber = (value: number | null | undefined): string => Number(value) > 0 ? String(Number(value)) : '-'
 const formatVolume = (value: number): string => value > 0 ? `${value.toFixed(3)} m³` : '-'
 const variantQty = (item: DispatchPackingTaskItem | undefined): number => {
@@ -297,7 +326,7 @@ const method = reactive({
       data.tableData = rows
       data.total = result.data.totals
       data.selectedOrderCount = 0
-      await Promise.all(rows.map(row => loadRowDetail(row, sequence)))
+      await Promise.all(data.tableData.map(row => loadRowDetail(row, sequence)))
     } catch (error) {
       if (requestGuard.isCurrent(sequence)) {
         hookComponent.$message({ type: 'error', content: error instanceof Error ? error.message : '待出库列表加载失败' })
@@ -356,6 +385,8 @@ defineExpose({ getDelivery: method.getDelivery })
 .secondary-text { margin-top: 2px; color: rgba(var(--v-theme-on-surface), 0.62); }
 .carrier-missing { color: rgb(var(--v-theme-error)); font-weight: 600; }
 .task-no { line-height: 22px; }
+.number-information { display: grid; gap: 3px; line-height: 20px; }
+.number-label { color: rgba(var(--v-theme-on-surface), 0.62); font-weight: 400; }
 .row-actions { display: flex; align-items: center; justify-content: center; gap: 10px; }
 :deep(.outbound-ready-row),
 :deep(.outbound-ready-row > td),

@@ -3,6 +3,7 @@ import type {
   DispatchOrderPageRequest,
   DispatchOrderStatus,
   OutboundCommandRequest,
+  PackingPlanBoxItem,
   SourceDecisionRequest,
   WeighingBox
 } from '@/types/DeliveryManagement/DispatchWorkflow'
@@ -11,6 +12,9 @@ export interface PendingOutboundMetrics {
   taskCount: number
   skuLineCount: number
   totalQty: number
+  plannedLoadingQty: number
+  actualLoadingQty: number
+  loadingQtyMismatch: boolean
   expectedBoxCount: number
   measuredBoxCount: number
   totalWeight: number
@@ -62,15 +66,28 @@ export const getPendingOutboundMetrics = (
   boxesByTask: Record<number, WeighingBox[]>
 ): PendingOutboundMetrics => {
   const boxes = order.packing_tasks.flatMap(task => boxesByTask[task.id] ?? [])
+  const taskItems = order.packing_tasks.flatMap(task => task.items)
+  const taskItemsById = new Map(taskItems.map(item => [item.id, item]))
+  const plannedLoadingQty = taskItems.reduce((total, item) => total + Number(item.required_qty ?? 0), 0)
+  const actualLoadingQty = boxes.reduce((total, box) => {
+    const boxItems = (box as WeighingBox & { items?: PackingPlanBoxItem[] }).items ?? []
+    return total + boxItems.reduce((boxTotal, boxItem) => {
+      const taskItem = taskItemsById.get(boxItem.packing_task_item_id)
+      const taskQty = Number(taskItem?.task_qty ?? 0)
+      const requiredQty = Number(taskItem?.required_qty ?? 0)
+      const variantQty = taskQty > 0 && requiredQty > 0 ? requiredQty / taskQty : 0
+      return boxTotal + Number(boxItem.task_qty ?? 0) * variantQty
+    }, 0)
+  }, 0)
   const volumeCm3 = boxes.reduce((total, box) => total
     + Number(box.length ?? 0) * Number(box.width ?? 0) * Number(box.height ?? 0), 0)
   return {
     taskCount: order.packing_tasks.length,
     skuLineCount: order.packing_tasks.reduce((total, task) => total + task.items.length, 0),
-    totalQty: order.packing_tasks.reduce(
-      (total, task) => total + task.items.reduce((taskTotal, item) => taskTotal + Number(item.required_qty ?? 0), 0),
-      0
-    ),
+    totalQty: plannedLoadingQty,
+    plannedLoadingQty,
+    actualLoadingQty,
+    loadingQtyMismatch: plannedLoadingQty !== actualLoadingQty,
     expectedBoxCount: order.packing_tasks.reduce((total, task) => total + task.expected_box_count, 0),
     measuredBoxCount: order.packing_tasks.reduce((total, task) => total + task.measured_box_count, 0),
     totalWeight: boxes.reduce((total, box) => total + Number(box.weight ?? 0), 0),
