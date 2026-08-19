@@ -24,6 +24,19 @@ function Get-ProcessStartTimeUtcString {
     return $Process.StartTime.ToUniversalTime().ToString('O')
 }
 
+function ConvertTo-ProcessStartTimeUtcString {
+    param($Value)
+
+    if ($Value -is [DateTimeOffset]) {
+        return $Value.UtcDateTime.ToString('O')
+    }
+    if ($Value -is [DateTime]) {
+        return $Value.ToUniversalTime().ToString('O')
+    }
+
+    return [string]$Value
+}
+
 function Test-TrackedProcess {
     param($Entry)
 
@@ -37,9 +50,10 @@ function Test-TrackedProcess {
     }
 
     try {
+        $expectedStartTimeUtc = ConvertTo-ProcessStartTimeUtcString -Value $Entry.startTimeUtc
         return [string]::Equals(
             (Get-ProcessStartTimeUtcString -Process $process),
-            [string]$Entry.startTimeUtc,
+            $expectedStartTimeUtc,
             [System.StringComparison]::OrdinalIgnoreCase)
     }
     catch {

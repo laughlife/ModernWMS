@@ -25,4 +25,10 @@
     <ProjectReference Include="..\ModernWMS\ModernWMS.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="..\..\scripts\一键停止前后端.ps1"
+          Link="TestAssets\一键停止前后端.ps1"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
