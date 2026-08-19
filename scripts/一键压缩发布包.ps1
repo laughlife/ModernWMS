@@ -300,8 +300,9 @@ try {
     }
 
     $runtimeConfig = Get-Content -LiteralPath (Join-Path $backendPackageRoot 'ModernWMS.runtimeconfig.json') -Raw | ConvertFrom-Json
+    $runtimeFrameworkNames = @($runtimeConfig.runtimeOptions.frameworks | ForEach-Object { [string]$_.name })
     if ([string]$runtimeConfig.runtimeOptions.tfm -ne 'net10.0' -or
-        [string]$runtimeConfig.runtimeOptions.framework.name -ne 'Microsoft.AspNetCore.App') {
+        $runtimeFrameworkNames -notcontains 'Microsoft.AspNetCore.App') {
         throw '后端发布产物不是 .NET 10 framework-dependent ASP.NET Core 应用。'
     }
 
