@@ -50,7 +50,7 @@
           </tbody>
         </v-table>
       </section>
-      <div class="box-toolbar">
+      <div class="box-toolbar justify-center">
         <v-text-field
           :model-value="plannedBoxCountInput"
           class="planned-box-count"

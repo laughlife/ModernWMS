@@ -87,6 +87,7 @@ describe('装箱编辑器计划箱数布局', () => {
     const boxCard = wrapper.find('.box-card')
 
     expect(plannedBoxCount.exists()).toBe(true)
+    expect(toolbar.classes()).toContain('justify-center')
     expect(progress.element.compareDocumentPosition(toolbar.element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(toolbar.element.compareDocumentPosition(boxCard.element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
