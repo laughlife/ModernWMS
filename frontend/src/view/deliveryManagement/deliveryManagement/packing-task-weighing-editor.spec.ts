@@ -101,4 +101,11 @@ describe('装箱编辑器计划箱数布局', () => {
     expect((input.element as HTMLInputElement).value).toBe('3')
     expect(wrapper.findAll('.box-card')).toHaveLength(3)
   })
+
+  it('新建计划的第一箱任务量初始化为0', async () => {
+    const wrapper = await mountEditor()
+    const taskQtyInput = wrapper.get('.box-item-row input')
+
+    expect((taskQtyInput.element as HTMLInputElement).value).toBe('0')
+  })
 })

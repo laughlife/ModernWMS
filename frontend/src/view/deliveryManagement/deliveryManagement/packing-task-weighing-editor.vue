@@ -182,12 +182,11 @@ const fillBoxProductRows = (packingPlan: PackingPlan, initializeFirstBox = false
   if (initializeFirstBox && (packingPlan.packing_plan_status === 'DRAFT' || String(packingPlan.packing_plan_status) === 'PACKING_CONFIRMED') && packingPlan.boxes.length === 0) {
     packingPlan.boxes.push(newDraftBox(1))
   }
-  const fillFirstBox = initializeFirstBox && packingPlan.boxes.length === 1 && packingPlan.boxes[0].items.length === 0
   packingPlan.boxes.forEach((box) => {
     const currentItems = new Map(box.items.map((item) => [item.packing_task_item_id, item]))
     box.items = packingPlan.items.map((item) => currentItems.get(item.id) ?? {
       packing_task_item_id: item.id,
-      task_qty: fillFirstBox ? itemTaskLimit(packingPlan, item) : 0
+      task_qty: 0
     })
   })
   plan.value = packingPlan
