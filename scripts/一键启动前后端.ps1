@@ -349,9 +349,7 @@ try {
             '-IntervalSeconds', '60'
         ) `
         -WorkingDirectory $repositoryRoot `
-        -RedirectStandardOutput (Join-Path $logDirectory 'backend.watcher.log') `
-        -RedirectStandardError (Join-Path $logDirectory 'backend.watcher.stderr.log') `
-        -WindowStyle Hidden `
+        -NoNewWindow `
         -PassThru
 
     $backendEntry = [ordered]@{
@@ -407,8 +405,18 @@ try {
     Write-Host '[启动完成]'
     Write-Host "  前端：http://127.0.0.1:$FrontendPort"
     Write-Host "  后端：http://127.0.0.1:$BackendPort"
-    Write-Host "  日志：$logDirectory"
+    Write-Host '  实时日志：当前控制台'
+    Write-Host "  运行状态：$statePath"
     Write-Host '  停止：powershell -ExecutionPolicy Bypass -File scripts\Stop-Development.ps1'
+    Write-Host '[日志输出中] 启动器将保持运行；请从另一个控制台执行停止脚本。'
+
+    $backendProcess.WaitForExit()
+    if ($backendProcess.ExitCode -eq 0) {
+        Write-Host '[运行结束] 后端变更检测进程已正常退出。'
+    }
+    else {
+        Write-Warning "后端变更检测进程已退出，退出码：$($backendProcess.ExitCode)。"
+    }
 }
 catch {
     if ($stateOwnedByThisInvocation) {

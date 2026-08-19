@@ -44,10 +44,6 @@ if ([string]::IsNullOrWhiteSpace($StatePath) -or [string]::IsNullOrWhiteSpace($L
 $backendRoot = [System.IO.Path]::GetFullPath((Split-Path -Parent (Split-Path -Parent $Project)))
 $frontendDirectory = Join-Path $repositoryRoot 'frontend'
 $viteCliPath = Join-Path $frontendDirectory 'node_modules\vite\bin\vite.js'
-$appStdoutLog = Join-Path $LogDirectory 'backend.stdout.log'
-$appStderrLog = Join-Path $LogDirectory 'backend.stderr.log'
-$frontendStdoutLog = Join-Path $LogDirectory 'frontend.stdout.log'
-$frontendStderrLog = Join-Path $LogDirectory 'frontend.stderr.log'
 $healthUrl = "http://127.0.0.1:$Port/health"
 
 function Write-WatcherLog {
@@ -261,9 +257,7 @@ function Start-AppProcess {
     return Start-Process -FilePath $DotnetPath `
         -ArgumentList @('run', '--project', $Project, '--no-launch-profile', '--no-restore') `
         -WorkingDirectory $repositoryRoot `
-        -RedirectStandardOutput $appStdoutLog `
-        -RedirectStandardError $appStderrLog `
-        -WindowStyle Hidden `
+        -NoNewWindow `
         -PassThru
 }
 
@@ -285,9 +279,7 @@ function Start-FrontendProcess {
         return Start-Process -FilePath $NodePath `
             -ArgumentList @($viteCliPath, '--host', '0.0.0.0', '--port', [string]$FrontendPort, '--strictPort') `
             -WorkingDirectory $frontendDirectory `
-            -RedirectStandardOutput $frontendStdoutLog `
-            -RedirectStandardError $frontendStderrLog `
-            -WindowStyle Hidden `
+            -NoNewWindow `
             -PassThru
     }
     finally {
