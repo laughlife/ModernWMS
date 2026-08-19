@@ -58,3 +58,28 @@ export const copyDraftBox = (source: PackingPlanBox, sequence: number): PackingP
     task_qty: item.task_qty
   }))
 })
+
+export const plannedBoxCountDigits = (value: unknown): string =>
+  String(value ?? '').replace(/\D/g, '')
+
+export const normalizePlannedBoxCount = (value: unknown): number => {
+  const digits = plannedBoxCountDigits(value)
+  if (!digits) return 1
+  const count = Number(digits)
+  return Number.isSafeInteger(count) && count >= 1 ? count : 1
+}
+
+export const expandPackingPlanBoxes = (plan: PackingPlan, plannedCount: number): PackingPlanBox[] => {
+  const boxes = [...plan.boxes]
+  const targetCount = Math.max(boxes.length, normalizePlannedBoxCount(plannedCount))
+  while (boxes.length < targetCount) {
+    const draftPlan = { ...plan, boxes }
+    const box = newDraftBox(boxes.length + 1)
+    box.items = plan.items.map((item) => ({
+      packing_task_item_id: item.id,
+      task_qty: remainingTaskQty(draftPlan, item)
+    }))
+    boxes.push(box)
+  }
+  return boxes
+}

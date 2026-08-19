@@ -22,7 +22,6 @@
         </tbody>
       </v-table>
 
-      <div class="box-toolbar"><v-btn size="small" color="primary" prepend-icon="mdi-package-variant" :disabled="!editable" @click="addEmptyBox">新增箱</v-btn></div>
       <section class="packing-progress">
         <div class="packing-progress-title">装箱进度</div>
         <v-table density="compact">
@@ -51,6 +50,23 @@
           </tbody>
         </v-table>
       </section>
+      <div class="box-toolbar">
+        <v-text-field
+          :model-value="plannedBoxCountInput"
+          class="planned-box-count"
+          label="计划箱数"
+          density="compact"
+          variant="outlined"
+          inputmode="numeric"
+          pattern="[0-9]*"
+          hide-details
+          :disabled="!editable"
+          @keydown="restrictPlannedBoxCountKeydown"
+          @update:model-value="updatePlannedBoxCount"
+          @blur="commitPlannedBoxCount"
+        />
+        <v-btn size="small" color="primary" prepend-icon="mdi-package-variant" :disabled="!editable" @click="addEmptyBox">新增箱</v-btn>
+      </div>
       <v-card v-for="(box, boxIndex) in plan.boxes" :key="box.client_key" variant="outlined" class="box-card">
         <v-card-title class="box-title">
           <span>第 {{ boxIndex + 1 }} 箱</span>
@@ -133,7 +149,16 @@ import { confirmDispatchPacking, getDispatchPackingPlan, saveDispatchPackingPlan
 import { hookComponent } from '@/components/system'
 import ProductImage from '@/components/system/product-image.vue'
 import type { PackingPlan, PackingPlanBox } from '@/types/DeliveryManagement/DispatchWorkflow'
-import { allocatedTaskQty, copyDraftBox, itemTaskLimit, newDraftBox, remainingTaskQty } from './packingPlanPolicy'
+import {
+  allocatedTaskQty,
+  copyDraftBox,
+  expandPackingPlanBoxes,
+  itemTaskLimit,
+  newDraftBox,
+  normalizePlannedBoxCount,
+  plannedBoxCountDigits,
+  remainingTaskQty
+} from './packingPlanPolicy'
 import { advancePackingPlan, inspectPackingPlan } from './packingPlanCompletion'
 
 const props = defineProps<{ orderId: number; packingTaskId: number; frozen?: boolean; autoCheck?: boolean }>()
@@ -142,6 +167,7 @@ const plan = ref<PackingPlan | null>(null)
 const loading = ref(false); const saving = ref(false); const completing = ref(false); const checking = ref(false)
 const copyDialog = reactive({ visible: false, sourceIndex: -1, targetIndexes: [] as number[] })
 const errorMessage = ref('')
+const plannedBoxCountInput = ref('1')
 const packingPlanStatus = computed(() => String(plan.value?.packing_plan_status ?? ''))
 const editable = computed(() => !props.frozen && (packingPlanStatus.value === 'DRAFT' || packingPlanStatus.value === 'PACKING_CONFIRMED'))
 const completionHint = computed(() => plan.value ? inspectPackingPlan(plan.value).issues.join('；') : '')
@@ -165,6 +191,7 @@ const fillBoxProductRows = (packingPlan: PackingPlan, initializeFirstBox = false
     })
   })
   plan.value = packingPlan
+  plannedBoxCountInput.value = String(Math.max(1, packingPlan.boxes.length))
 }
 const boxesForSave = () => plan.value?.boxes.map((box) => ({
   ...box,
@@ -173,11 +200,35 @@ const boxesForSave = () => plan.value?.boxes.map((box) => ({
 const load = async () => { loading.value = true; errorMessage.value = ''; try { const result = await getDispatchPackingPlan(props.orderId, props.packingTaskId, true); if (!result.isSuccess) throw new Error(result.errorMessage); fillBoxProductRows(result.data, true); if (props.autoCheck) checkPacking() } catch (error) { errorMessage.value = error instanceof Error ? error.message : String(error) } finally { loading.value = false } }
 const addEmptyBox = () => {
   if (!plan.value) return
-  const box = newDraftBox(plan.value.boxes.length + 1)
-  box.items = plan.value.items.map((item) => ({ packing_task_item_id: item.id, task_qty: remainingTaskQty(plan.value!, item) }))
-  plan.value.boxes.push(box)
+  plan.value.boxes = expandPackingPlanBoxes(plan.value, plan.value.boxes.length + 1)
+  plannedBoxCountInput.value = String(plan.value.boxes.length)
 }
-const removeBox = (index: number) => plan.value?.boxes.splice(index, 1)
+const updatePlannedBoxCount = (value: unknown) => {
+  if (!plan.value) return
+  const digits = plannedBoxCountDigits(value)
+  plannedBoxCountInput.value = digits
+  if (!digits) return
+  const targetCount = normalizePlannedBoxCount(digits)
+  plan.value.boxes = expandPackingPlanBoxes(plan.value, targetCount)
+  plannedBoxCountInput.value = String(Math.max(targetCount, plan.value.boxes.length))
+}
+const commitPlannedBoxCount = () => {
+  if (!plan.value) return
+  const targetCount = Math.max(1, plan.value.boxes.length, normalizePlannedBoxCount(plannedBoxCountInput.value))
+  plan.value.boxes = expandPackingPlanBoxes(plan.value, targetCount)
+  plannedBoxCountInput.value = String(plan.value.boxes.length)
+}
+const restrictPlannedBoxCountKeydown = (event: KeyboardEvent) => {
+  const allowedKeys = ['Backspace', 'Delete', 'Tab', 'ArrowLeft', 'ArrowRight', 'Home', 'End']
+  if (/^\d$/.test(event.key) || allowedKeys.includes(event.key) || event.ctrlKey || event.metaKey) return
+  event.preventDefault()
+}
+const removeBox = (index: number) => {
+  if (!plan.value) return
+  plan.value.boxes.splice(index, 1)
+  plan.value.boxes = expandPackingPlanBoxes(plan.value, Math.max(1, plan.value.boxes.length))
+  plannedBoxCountInput.value = String(plan.value.boxes.length)
+}
 const closeCopyDialog = () => { copyDialog.visible = false; copyDialog.sourceIndex = -1; copyDialog.targetIndexes = [] }
 const changeCopySource = (sourceIndex: number) => {
   copyDialog.targetIndexes = copyDialog.targetIndexes.filter((targetIndex) => targetIndex !== sourceIndex)
@@ -186,6 +237,7 @@ const openCopyBox = (box: PackingPlanBox, index: number) => {
   if (!plan.value) return
   if (plan.value.boxes.length === 1) {
     plan.value.boxes.push(copyDraftBox(box, 2))
+    plannedBoxCountInput.value = String(plan.value.boxes.length)
     hookComponent.$message({ type: 'info', content: '当前没有其他箱，已新建第 2 箱并复制全部数据' })
     return
   }
@@ -256,7 +308,8 @@ onMounted(load)
 <style scoped lang="less">
 .packing-editor { padding: 4px; background: rgb(var(--v-theme-surface)); }
 .editor-heading,.box-title,.box-actions,.editor-actions,.box-toolbar,.box-item-row,.editor-footer { display: flex; align-items: center; gap: 12px; }
-.editor-heading,.box-title { justify-content: space-between; }.product-pool { margin-top: 10px; }.box-toolbar { margin: 14px 0; }
+.editor-heading,.box-title { justify-content: space-between; }.product-pool { margin-top: 10px; }.box-toolbar { margin: 0 0 14px; }
+.planned-box-count { flex: 0 0 110px; max-width: 110px; }
 .packing-progress { margin-bottom: 14px; overflow: hidden; border: 1px solid rgba(var(--v-border-color),var(--v-border-opacity)); border-radius: 6px; }
 .packing-progress-title { padding: 9px 12px; background: rgba(var(--v-theme-primary),.08); font-weight: 600; }
 .progress-product { display: flex; align-items: center; gap: 10px; }.progress-product small { display: block; }
