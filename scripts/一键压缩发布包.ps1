@@ -46,14 +46,16 @@ function Clear-PackagedSecrets {
     )
 
     $config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
-    if ($null -ne $config.ConnectionStrings) {
-        foreach ($property in @($config.ConnectionStrings.PSObject.Properties)) {
+    $connectionStringsProperty = $config.PSObject.Properties['ConnectionStrings']
+    if ($null -ne $connectionStringsProperty) {
+        foreach ($property in @($connectionStringsProperty.Value.PSObject.Properties)) {
             $property.Value = ''
         }
     }
-    if ($null -ne $config.TokenSettings -and
-        $null -ne $config.TokenSettings.PSObject.Properties['SigningKey']) {
-        $config.TokenSettings.SigningKey = ''
+    $tokenSettingsProperty = $config.PSObject.Properties['TokenSettings']
+    if ($null -ne $tokenSettingsProperty -and
+        $null -ne $tokenSettingsProperty.Value.PSObject.Properties['SigningKey']) {
+        $tokenSettingsProperty.Value.SigningKey = ''
     }
     if ($SetListener) {
         $config | Add-Member -NotePropertyName 'Urls' -NotePropertyValue 'http://127.0.0.1:21011' -Force
@@ -68,16 +70,18 @@ function Assert-NoPackagedSecrets {
     )
 
     $config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
-    if ($null -ne $config.ConnectionStrings) {
-        foreach ($property in @($config.ConnectionStrings.PSObject.Properties)) {
+    $connectionStringsProperty = $config.PSObject.Properties['ConnectionStrings']
+    if ($null -ne $connectionStringsProperty) {
+        foreach ($property in @($connectionStringsProperty.Value.PSObject.Properties)) {
             if (-not [string]::IsNullOrWhiteSpace([string]$property.Value)) {
                 throw "通用发布包配置中不得包含数据库连接信息：$ConfigPath"
             }
         }
     }
-    if ($null -ne $config.TokenSettings -and
-        $null -ne $config.TokenSettings.PSObject.Properties['SigningKey'] -and
-        -not [string]::IsNullOrWhiteSpace([string]$config.TokenSettings.SigningKey)) {
+    $tokenSettingsProperty = $config.PSObject.Properties['TokenSettings']
+    if ($null -ne $tokenSettingsProperty -and
+        $null -ne $tokenSettingsProperty.Value.PSObject.Properties['SigningKey'] -and
+        -not [string]::IsNullOrWhiteSpace([string]$tokenSettingsProperty.Value.SigningKey)) {
         throw "通用发布包配置中不得包含签名密钥：$ConfigPath"
     }
 }

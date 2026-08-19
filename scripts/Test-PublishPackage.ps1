@@ -70,16 +70,19 @@ try {
     if ([string]$productionConfig.Urls -ne 'http://127.0.0.1:21011') {
         throw '发布包后端未固定监听 http://127.0.0.1:21011。'
     }
-    if ($null -ne $productionConfig.ConnectionStrings) {
-        $connectionValue = @($productionConfig.ConnectionStrings.PSObject.Properties | Where-Object {
+    $productionConnectionStrings = $productionConfig.PSObject.Properties['ConnectionStrings']
+    if ($null -ne $productionConnectionStrings) {
+        $connectionValue = @($productionConnectionStrings.Value.PSObject.Properties | Where-Object {
             -not [string]::IsNullOrWhiteSpace([string]$_.Value)
         } | Select-Object -First 1)
         if ($connectionValue.Count -gt 0) {
             throw '发布包 appsettings.Production.json 包含数据库连接信息。'
         }
     }
-    if ($null -ne $productionConfig.TokenSettings -and
-        -not [string]::IsNullOrWhiteSpace([string]$productionConfig.TokenSettings.SigningKey)) {
+    $productionTokenSettings = $productionConfig.PSObject.Properties['TokenSettings']
+    if ($null -ne $productionTokenSettings -and
+        $null -ne $productionTokenSettings.Value.PSObject.Properties['SigningKey'] -and
+        -not [string]::IsNullOrWhiteSpace([string]$productionTokenSettings.Value.SigningKey)) {
         throw '发布包 appsettings.Production.json 包含签名密钥。'
     }
 
@@ -91,16 +94,19 @@ try {
     finally {
         $baseConfigReader.Dispose()
     }
-    if ($null -ne $baseConfig.ConnectionStrings) {
-        $connectionValue = @($baseConfig.ConnectionStrings.PSObject.Properties | Where-Object {
+    $baseConnectionStrings = $baseConfig.PSObject.Properties['ConnectionStrings']
+    if ($null -ne $baseConnectionStrings) {
+        $connectionValue = @($baseConnectionStrings.Value.PSObject.Properties | Where-Object {
             -not [string]::IsNullOrWhiteSpace([string]$_.Value)
         } | Select-Object -First 1)
         if ($connectionValue.Count -gt 0) {
             throw '发布包 appsettings.json 包含数据库连接信息。'
         }
     }
-    if ($null -ne $baseConfig.TokenSettings -and
-        -not [string]::IsNullOrWhiteSpace([string]$baseConfig.TokenSettings.SigningKey)) {
+    $baseTokenSettings = $baseConfig.PSObject.Properties['TokenSettings']
+    if ($null -ne $baseTokenSettings -and
+        $null -ne $baseTokenSettings.Value.PSObject.Properties['SigningKey'] -and
+        -not [string]::IsNullOrWhiteSpace([string]$baseTokenSettings.Value.SigningKey)) {
         throw '发布包 appsettings.json 包含签名密钥。'
     }
 }
