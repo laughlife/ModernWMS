@@ -18,6 +18,10 @@ public class WmsInventoryOperationEntity
     [MaxLength(64)]
     public string operation_key { get; set; } = string.Empty;
 
+    public long? shared_command_id { get; set; }
+    public long? reservation_id { get; set; }
+    public long? reservation_item_id { get; set; }
+
     [MaxLength(32)]
     public string biz_type { get; set; } = string.Empty;
 
