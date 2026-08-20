@@ -95,6 +95,10 @@ namespace ModernWMS.WMS.Entities.ViewModels
 
         public long? stock_allocation_id { get; set; }
 
+        public long? reservation_id { get; set; }
+
+        public long? reservation_item_id { get; set; }
+
         /// <summary>解冻时明确关联的源冻结单。</summary>
         public long? source_freeze_id { get; set; }
 

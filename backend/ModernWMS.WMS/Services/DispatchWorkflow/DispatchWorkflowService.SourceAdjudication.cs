@@ -3,6 +3,7 @@ using Dapper;
 using ModernWMS.Core.JWT;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels.DispatchWorkflow;
+using ModernWMS.WMS.IServices.StockAllocation;
 using MySqlConnector;
 
 namespace ModernWMS.WMS.Services.DispatchWorkflow;
@@ -119,13 +120,17 @@ public partial class DispatchWorkflowService
             if(releasable.Count>0)
             {
                 var mutation=RequireStockAllocationMutationService();
-                await mutation.PrelockAsync(c,tx,order.tenant_id,[order.warehouse_id],
-                    releasable.Select(x=>x.erp_stock_id!.Value).Distinct().OrderBy(x=>x).ToArray(),
-                    releasable.Select(x=>x.stock_allocation_id!.Value).Distinct().OrderBy(x=>x).ToArray(),ct);
+                var prelocks=releasable.Select(pick=>new StockReservationPrelockRequest(
+                    DispatchMutationContext(user,order.warehouse_id,"DISPATCH_RELEASE",order.id,pick.id,
+                        pick.erp_stock_id!.Value,pick.stock_allocation_id!.Value,pick.picked_qty,
+                        $"SOURCE_CANCEL:{requestId}",pick.reservation_id,pick.reservation_item_id),
+                    pick.erp_stock_id.Value,pick.stock_allocation_id.Value,"UNLOCK")).ToArray();
+                await mutation.PrelockReservationOwnersAsync(c,tx,order.tenant_id,[order.warehouse_id],prelocks,ct);
                 foreach(var pick in releasable.OrderBy(x=>x.erp_stock_id).ThenBy(x=>x.stock_allocation_id).ThenBy(x=>x.id))
                     await mutation.ReleaseAsync(c,tx,
                         DispatchMutationContext(user,order.warehouse_id,"DISPATCH_RELEASE",order.id,pick.id,
-                            pick.erp_stock_id!.Value,pick.stock_allocation_id!.Value,pick.picked_qty,$"SOURCE_CANCEL:{requestId}"),
+                            pick.erp_stock_id!.Value,pick.stock_allocation_id!.Value,pick.picked_qty,$"SOURCE_CANCEL:{requestId}",
+                            pick.reservation_id,pick.reservation_item_id),
                         pick.erp_stock_id.Value,pick.stock_allocation_id.Value,pick.picked_qty,ct);
             }
         }

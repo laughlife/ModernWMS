@@ -69,6 +69,10 @@ namespace ModernWMS.WMS.Entities.Models
 
         public long? stock_allocation_id { get; set; }
 
+        public long? reservation_id { get; set; }
+
+        public long? reservation_item_id { get; set; }
+
         public long? source_freeze_id { get; set; }
 
         /// <summary>

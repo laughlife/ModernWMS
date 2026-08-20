@@ -910,7 +910,8 @@ public class PackingTaskQueryService : IPackingTaskQueryService
             var snapshot = await connection.QuerySingleOrDefaultAsync<DeleteSelectionSnapshot>("""
                 SELECT task.`warehouse_id` AS erp_warehouse_id,
                        selection.`id` AS selection_id,selection.`stock_id`,selection.`erp_stock_id`,
-                       selection.`stock_allocation_id`,selection.`qty`
+                       selection.`stock_allocation_id`,selection.`reservation_id`,
+                       selection.`reservation_item_id`,selection.`qty`
                   FROM `ruiyi_sellfox_packing_task_item` item
                   JOIN `ruiyi_sellfox_packing_task` task
                     ON task.`sellfox_task_id`=item.`sellfox_task_id`
@@ -968,11 +969,6 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                     if(snapshot.erp_stock_id is not >0||snapshot.stock_allocation_id is not >0||snapshot.qty is not >0)
                         return await RollbackResultAsync(transaction,
                             "库存选择缺少ERP库存引用，已拒绝释放；请先修复历史绑定");
-                    await _stockAllocationMutationService.PrelockAsync(
-                        connection, transaction, currentUser.tenant_id,
-                        [taskContext.erp_warehouse_id],
-                        [snapshot.erp_stock_id.Value],
-                        [snapshot.stock_allocation_id.Value]);
                     var locked=await LockDeleteSelectionAsync(connection,transaction,snapshot.selection_id.Value,
                         currentUser.tenant_id,request);
                     if(!MatchesDeleteSnapshot(locked,snapshot))
@@ -983,7 +979,8 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                     await _stockAllocationMutationService.ReleaseAsync(
                         connection, transaction,
                         BuildMutationContext(currentUser,request,taskContext.erp_warehouse_id,"PACKING_RELEASE",
-                            "RELEASE",locked.qty,locked.stock_allocation_id.Value,sequence:sequence),
+                            "RELEASE",locked.qty,locked.stock_allocation_id.Value,sequence:sequence,
+                            reservationId:locked.reservation_id,reservationItemId:locked.reservation_item_id),
                         locked.erp_stock_id!.Value,locked.stock_allocation_id.Value,locked.qty);
                     var affected=await connection.ExecuteAsync("""
                         DELETE FROM `wms_packing_task_stock_selection`
@@ -1035,7 +1032,8 @@ public class PackingTaskQueryService : IPackingTaskQueryService
             IDbConnection connection,IDbTransaction transaction,int selectionId,long tenantId,
             PackingTaskStockSelectRequest request)=>
             connection.QuerySingleOrDefaultAsync<DeleteSelectionLockedRow>("""
-                SELECT `id`,`stock_id`,`erp_stock_id`,`stock_allocation_id`,`qty`
+                SELECT `id`,`stock_id`,`erp_stock_id`,`stock_allocation_id`,`reservation_id`,
+                       `reservation_item_id`,`qty`
                   FROM `wms_packing_task_stock_selection`
                  WHERE `id`=@SelectionId AND `tenant_id`=@TenantId
                    AND `sellfox_task_id`=@TaskId AND `sellfox_item_id`=@ItemId
@@ -1049,7 +1047,9 @@ public class PackingTaskQueryService : IPackingTaskQueryService
         private static bool MatchesDeleteSnapshot(DeleteSelectionLockedRow? locked,DeleteSelectionSnapshot snapshot)=>
             locked!=null&&snapshot.selection_id==locked.id&&snapshot.stock_id==locked.stock_id
             &&snapshot.erp_stock_id==locked.erp_stock_id
-            &&snapshot.stock_allocation_id==locked.stock_allocation_id&&snapshot.qty==locked.qty;
+            &&snapshot.stock_allocation_id==locked.stock_allocation_id
+            &&snapshot.reservation_id==locked.reservation_id
+            &&snapshot.reservation_item_id==locked.reservation_item_id&&snapshot.qty==locked.qty;
 
         private async Task<PackingTaskStockSaveResult> SaveCanonicalSelectionAsync(
             IDbConnection connection,
@@ -1067,10 +1067,38 @@ public class PackingTaskQueryService : IPackingTaskQueryService
             if (calculatedQty > int.MaxValue)
                 return await RollbackResultAsync(transaction, "可用量不足");
 
-            await _stockAllocationMutationService.PrelockAsync(
-                connection, transaction, currentUser.tenant_id,
-                [taskContext.erp_warehouse_id],
-                [request.erp_stock_id.Value], [request.stock_allocation_id.Value]);
+            var existing = await connection.QuerySingleOrDefaultAsync<CanonicalSelectionRow>("""
+                SELECT `id`,`erp_stock_id`,`stock_allocation_id`,`reservation_id`,
+                       `reservation_item_id`,`qty`
+                  FROM `wms_packing_task_stock_selection`
+                 WHERE `tenant_id`=@TenantId AND `sellfox_task_id`=@TaskId
+                   AND `sellfox_item_id`=@ItemId AND `stock_allocation_id`=@AllocationId
+                 ORDER BY `id` LIMIT 1 FOR UPDATE;
+                """, new
+            {
+                TenantId = currentUser.tenant_id,
+                TaskId = request.sellfox_task_id,
+                ItemId = request.sellfox_item_id,
+                AllocationId = request.stock_allocation_id.Value
+            }, transaction);
+            var oldQty = existing?.qty ?? 0;
+            var newQty = checked((int)calculatedQty);
+            var delta = newQty - oldQty;
+            var sequence = delta == 0 ? 0 : await NextPackingMutationSequenceAsync(
+                connection, transaction, currentUser.tenant_id, request.sellfox_task_id,
+                request.sellfox_item_id, request.stock_allocation_id.Value);
+            var mutationContext = delta == 0 ? null : BuildMutationContext(
+                currentUser,request,taskContext.erp_warehouse_id,
+                delta > 0 ? "PACKING_LOCK" : "PACKING_RELEASE",
+                delta > 0 ? "RESERVE" : "RELEASE",Math.Abs((long)delta),
+                request.stock_allocation_id.Value,oldQty,newQty,sequence,
+                existing?.reservation_id,existing?.reservation_item_id);
+            if (mutationContext != null)
+                await _stockAllocationMutationService.PrelockReservationOwnersAsync(
+                    connection,transaction,currentUser.tenant_id,[taskContext.erp_warehouse_id],
+                    [new StockReservationPrelockRequest(mutationContext,request.erp_stock_id.Value,
+                        request.stock_allocation_id.Value,delta > 0 ? "LOCK" : "UNLOCK")]);
+
             var stock = await connection.QuerySingleOrDefaultAsync<CanonicalSelectionStockRow>("""
                 SELECT allocation.`id` AS stock_allocation_id,allocation.`erp_stock_id`,
                        map.`wms_sku_id` AS sku_id,sku.`sku_code`,allocation.`goods_location_id`,
@@ -1099,41 +1127,21 @@ public class PackingTaskQueryService : IPackingTaskQueryService
             if (!string.Equals(stock.location_state, "ACTIVE", StringComparison.Ordinal))
                 return await RollbackResultAsync(transaction, "待确认库位或已停用库位不可选择");
 
-            var existing = await connection.QuerySingleOrDefaultAsync<CanonicalSelectionRow>("""
-                SELECT `id`,`erp_stock_id`,`stock_allocation_id`,`qty`
-                  FROM `wms_packing_task_stock_selection`
-                 WHERE `tenant_id`=@TenantId AND `sellfox_task_id`=@TaskId
-                   AND `sellfox_item_id`=@ItemId AND `stock_allocation_id`=@AllocationId
-                 ORDER BY `id` LIMIT 1 FOR UPDATE;
-                """, new
-            {
-                TenantId = currentUser.tenant_id,
-                TaskId = request.sellfox_task_id,
-                ItemId = request.sellfox_item_id,
-                AllocationId = request.stock_allocation_id.Value
-            }, transaction);
             if (existing != null && existing.erp_stock_id != stock.erp_stock_id)
                 return await RollbackResultAsync(transaction, "库存选择引用已变化，已拒绝更新");
-            var oldQty = existing?.qty ?? 0;
-            var newQty = checked((int)calculatedQty);
-            var delta = newQty - oldQty;
-            var sequence = delta == 0 ? 0 : await NextPackingMutationSequenceAsync(
-                connection, transaction, currentUser.tenant_id, request.sellfox_task_id,
-                request.sellfox_item_id, stock.stock_allocation_id);
+            StockAllocationMutationResult? mutationResult = null;
             if (delta > 0)
             {
-                await _stockAllocationMutationService.ReserveAsync(
+                mutationResult = await _stockAllocationMutationService.ReserveAsync(
                     connection, transaction,
-                    BuildMutationContext(currentUser, request, taskContext.erp_warehouse_id,"PACKING_LOCK",
-                        "RESERVE", delta, stock.stock_allocation_id, oldQty, newQty, sequence),
+                    mutationContext!,
                     stock.erp_stock_id, stock.stock_allocation_id, delta);
             }
             else if (delta < 0)
             {
-                await _stockAllocationMutationService.ReleaseAsync(
+                mutationResult = await _stockAllocationMutationService.ReleaseAsync(
                     connection, transaction,
-                    BuildMutationContext(currentUser, request, taskContext.erp_warehouse_id,"PACKING_RELEASE",
-                        "RELEASE", -delta, stock.stock_allocation_id, oldQty, newQty, sequence),
+                    mutationContext!,
                     stock.erp_stock_id, stock.stock_allocation_id, -delta);
             }
 
@@ -1146,6 +1154,8 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                 WmsSkuId = stock.sku_id,
                 ErpStockId = stock.erp_stock_id,
                 AllocationId = stock.stock_allocation_id,
+                ReservationId = mutationResult?.ReservationId ?? existing?.reservation_id,
+                ReservationItemId = mutationResult?.ReservationItemId ?? existing?.reservation_item_id,
                 Qty = newQty,
                 stock.goods_location_id,
                 stock.goods_owner_id,
@@ -1159,9 +1169,11 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                 await connection.ExecuteAsync("""
                     INSERT INTO `wms_packing_task_stock_selection`
                       (`tenant_id`,`sellfox_task_id`,`sellfox_item_id`,`wms_sku_id`,`stock_id`,
-                       `erp_stock_id`,`stock_allocation_id`,`qty`,`goods_location_id`,`goods_owner_id`,
+                       `erp_stock_id`,`stock_allocation_id`,`reservation_id`,`reservation_item_id`,
+                       `qty`,`goods_location_id`,`goods_owner_id`,
                        `sku_code`,`selected_by`,`selected_by_name`,`create_time`,`last_update_time`)
-                    VALUES (@TenantId,@TaskId,@ItemId,@WmsSkuId,0,@ErpStockId,@AllocationId,@Qty,
+                    VALUES (@TenantId,@TaskId,@ItemId,@WmsSkuId,0,@ErpStockId,@AllocationId,
+                      @ReservationId,@ReservationItemId,@Qty,
                       @goods_location_id,@goods_owner_id,@SkuCode,@SelectedBy,@SelectedByName,@Now,@Now);
                     """, values, transaction);
             }
@@ -1171,6 +1183,7 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                     UPDATE `wms_packing_task_stock_selection`
                        SET `wms_sku_id`=@WmsSkuId,`stock_id`=0,`erp_stock_id`=@ErpStockId,
                            `stock_allocation_id`=@AllocationId,`qty`=@Qty,
+                           `reservation_id`=@ReservationId,`reservation_item_id`=@ReservationItemId,
                            `goods_location_id`=@goods_location_id,`goods_owner_id`=@goods_owner_id,
                            `sku_code`=@SkuCode,`selected_by`=@SelectedBy,
                            `selected_by_name`=@SelectedByName,`last_update_time`=@Now
@@ -1238,7 +1251,9 @@ public class PackingTaskQueryService : IPackingTaskQueryService
             long allocationId,
             long oldQty = 0,
             long newQty = 0,
-            long sequence = 0)
+            long sequence = 0,
+            long? reservationId = null,
+            long? reservationItemId = null)
         {
             var identity = $"{action}:{currentUser.tenant_id}:{request.sellfox_task_id}:" +
                 $"{request.sellfox_item_id}:{allocationId}:{quantity}:{oldQty}:{newQty}:{sequence}";
@@ -1256,7 +1271,21 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                 request.sellfox_item_id,
                 currentUser.user_id,
                 operatorName,
-                $"装箱任务库存选择{action}");
+                $"装箱任务库存选择{action}",
+                new StockReservationMutationContext(
+                    "WMS_RESERVATION_V1",
+                    operationKey,
+                    "MODERN_WMS",
+                    "PACKING_TASK",
+                    request.sellfox_task_id,
+                    null,
+                    null,
+                    null,
+                    "PACKING_TASK_ITEM",
+                    request.sellfox_item_id,
+                    $"PACKING:{request.sellfox_task_id}:{request.sellfox_item_id}:{allocationId}",
+                    reservationId,
+                    reservationItemId));
         }
 
         private static async Task<long> NextPackingMutationSequenceAsync(
@@ -1345,6 +1374,8 @@ public class PackingTaskQueryService : IPackingTaskQueryService
             public int id { get; init; }
             public long? erp_stock_id { get; init; }
             public long? stock_allocation_id { get; init; }
+            public long? reservation_id { get; init; }
+            public long? reservation_item_id { get; init; }
             public int qty { get; init; }
             public long erp_warehouse_id { get; init; }
         }
@@ -1355,6 +1386,8 @@ public class PackingTaskQueryService : IPackingTaskQueryService
             public int? stock_id { get; init; }
             public long? erp_stock_id { get; init; }
             public long? stock_allocation_id { get; init; }
+            public long? reservation_id { get; init; }
+            public long? reservation_item_id { get; init; }
             public int? qty { get; init; }
             public long erp_warehouse_id { get; init; }
         }
@@ -1365,6 +1398,8 @@ public class PackingTaskQueryService : IPackingTaskQueryService
             public int stock_id { get; init; }
             public long? erp_stock_id { get; init; }
             public long? stock_allocation_id { get; init; }
+            public long? reservation_id { get; init; }
+            public long? reservation_item_id { get; init; }
             public int qty { get; init; }
         }
 

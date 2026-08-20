@@ -19,6 +19,8 @@ public class PackingTaskStockSelectionEntity : BaseModel
     public int stock_id { get; set; }
     public long? erp_stock_id { get; set; }
     public long? stock_allocation_id { get; set; }
+    public long? reservation_id { get; set; }
+    public long? reservation_item_id { get; set; }
     public int qty { get; set; }
     public int goods_location_id { get; set; }
     public int goods_owner_id { get; set; }

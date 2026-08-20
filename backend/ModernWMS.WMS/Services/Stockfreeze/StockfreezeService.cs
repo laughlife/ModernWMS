@@ -18,7 +18,7 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
     private const string ViewSql = """
         SELECT f.`id`,f.`job_code`,f.`job_type`,f.`sku_id`,f.`goods_owner_id`,f.`goods_location_id`,
                f.`handler`,f.`handle_time`,f.`last_update_time`,f.`tenant_id`,f.`series_number`,
-               f.`erp_stock_id`,f.`stock_allocation_id`,
+               f.`erp_stock_id`,f.`stock_allocation_id`,f.`reservation_id`,f.`reservation_item_id`,
                f.`source_freeze_id`,
                k.`sku_code`,p.`spu_code`,p.`spu_name`,l.`location_name`,l.`warehouse_name`
           FROM `wms_stockfreeze` f
@@ -112,7 +112,7 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
                 connection, null, currentUser.tenant_id, viewModel.sku_id,
                 viewModel.goods_location_id, viewModel.goods_owner_id, viewModel.series_number,
                 forUpdate: false);
-        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
+        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted);
         try
         {
             StockfreezeEntity? sourceFreeze = null;
@@ -228,10 +228,6 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
                 }, transaction);
             if (allocation != null)
             {
-                await _stockMutationService.PrelockAsync(
-                    connection, transaction, currentUser.tenant_id,
-                    [route.ErpWarehouseId],
-                    [allocation.ErpStockId], [allocation.AllocationId]);
                 allocation = await connection.QuerySingleAsync<CanonicalInventorySupport.CanonicalAllocation>("""
                     SELECT `id` AllocationId,`erp_stock_id` ErpStockId,
                            `allocated_qty` AllocatedQty,`occupied_qty` OccupiedQty
@@ -243,13 +239,23 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
                 var context = CanonicalInventorySupport.Context(
                     currentUser.tenant_id, route.ErpWarehouseId, operationKey,
                     viewModel.job_type ? "STOCK_FREEZE_RESERVE" : "STOCK_FREEZE_RELEASE", id, id,
-                    currentUser, currentUser.user_name, viewModel.job_type ? "冻结库存" : "解冻库存");
+                    currentUser, currentUser.user_name, viewModel.job_type ? "冻结库存" : "解冻库存") with
+                {
+                    Reservation = new StockReservationMutationContext(
+                        "WMS_RESERVATION_V1",operationKey,"MODERN_WMS","STOCK_FREEZE",
+                        viewModel.job_type?id:sourceFreeze!.id,jobCode,null,null,
+                        "STOCK_FREEZE",viewModel.job_type?id:sourceFreeze.id,
+                        $"STOCK_FREEZE:{(viewModel.job_type?id:sourceFreeze.id)}:{allocation.AllocationId}",
+                        viewModel.job_type?null:sourceFreeze.reservation_id,
+                        viewModel.job_type?null:sourceFreeze.reservation_item_id)
+                };
+                StockAllocationMutationResult mutationResult;
                 if (viewModel.job_type)
                 {
                     var quantity = allocation.AllocatedQty - allocation.OccupiedQty;
                     if (quantity <= 0)
                         throw new InvalidOperationException("该库存分配没有可冻结数量");
-                    await _stockMutationService.ReserveAsync(
+                    mutationResult = await _stockMutationService.ReserveAsync(
                         connection, transaction, context, allocation.ErpStockId, allocation.AllocationId, quantity);
                 }
                 else
@@ -280,9 +286,16 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
                         throw new InvalidOperationException("源冻结单已全部解冻或没有可解冻持有量");
                     if (quantity > allocation.OccupiedQty)
                         throw new InvalidOperationException("源冻结单剩余持有量超过当前占用量，禁止解冻");
-                    await _stockMutationService.ReleaseAsync(
+                    mutationResult = await _stockMutationService.ReleaseAsync(
                         connection, transaction, context, allocation.ErpStockId, allocation.AllocationId, quantity);
                 }
+                await connection.ExecuteAsync("""
+                    UPDATE `wms_stockfreeze`
+                       SET `reservation_id`=@reservationId,`reservation_item_id`=@reservationItemId
+                     WHERE `id`=@id AND `tenant_id`=@tenantId;
+                    """,new{id,tenantId=currentUser.tenant_id,
+                        reservationId=mutationResult.ReservationId,
+                        reservationItemId=mutationResult.ReservationItemId},transaction);
             }
             await transaction.CommitAsync();
             return id > 0 ? (id, _stringLocalizer["save_success"]) : (0, _stringLocalizer["save_failed"]);

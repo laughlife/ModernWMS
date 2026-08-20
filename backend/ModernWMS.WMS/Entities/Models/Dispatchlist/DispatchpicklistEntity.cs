@@ -53,6 +53,12 @@ namespace ModernWMS.WMS.Entities.Models
         /// <summary>Canonical WMS location allocation. Null is retained for legacy rows.</summary>
         public long? stock_allocation_id { get; set; }
 
+        /// <summary>Shared ERP reservation owner carried from the source selection.</summary>
+        public long? reservation_id { get; set; }
+
+        /// <summary>Shared ERP reservation item carried through release and consumption.</summary>
+        public long? reservation_item_id { get; set; }
+
         /// <summary>
         /// goods_owner_id
         /// </summary>

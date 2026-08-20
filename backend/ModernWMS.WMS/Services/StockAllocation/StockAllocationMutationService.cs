@@ -16,6 +16,37 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
     private const string CanonicalMode = "CANONICAL_ERP";
     private const string SavepointName = "mwms_stock_allocation_mutation";
 
+    public async Task PrelockReservationOwnersAsync(
+        IDbConnection connection,
+        IDbTransaction transaction,
+        long tenantId,
+        IReadOnlyCollection<long> erpWarehouseIds,
+        IReadOnlyCollection<StockReservationPrelockRequest> requests,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateConnectionAndTransaction(connection, transaction);
+        ArgumentNullException.ThrowIfNull(requests);
+        if (requests.Count == 0) return;
+        var warehouseIds = ValidateIds(erpWarehouseIds, nameof(erpWarehouseIds));
+        if (requests.Any(x => x.Context.TenantId != tenantId))
+            throw new InvalidOperationException("批量预锁包含跨租户预占来源");
+        await LockRuntimeConfigsAsync(connection, transaction, tenantId, warehouseIds, cancellationToken);
+        foreach (var request in requests
+                     .OrderBy(x => x.Context.Reservation?.ExistingReservationId ?? long.MaxValue)
+                     .ThenBy(x => x.Context.Reservation?.SourceSystem, StringComparer.Ordinal)
+                     .ThenBy(x => x.Context.Reservation?.ReservationBizType, StringComparer.Ordinal)
+                     .ThenBy(x => x.Context.Reservation?.ReservationBizId)
+                     .ThenBy(x => x.Context.Reservation?.ExistingReservationItemId ?? long.MaxValue)
+                     .ThenBy(x => x.Context.Reservation?.SourceLineKey, StringComparer.Ordinal)
+                     .ThenBy(x => x.ErpStockId))
+            await StockReservationMutationCoordinator.LockOwnerAsync(
+                connection, transaction, request.Context, request.ErpStockId,
+                request.EventType, cancellationToken);
+        await PrelockAsync(connection, transaction, tenantId, warehouseIds,
+            requests.Select(x => x.ErpStockId).Distinct().ToArray(),
+            requests.Select(x => x.AllocationId).Distinct().ToArray(), cancellationToken);
+    }
+
     public async Task PrelockAsync(
         IDbConnection connection,
         IDbTransaction transaction,
@@ -210,6 +241,7 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
                 sourceAllocationId,
                 targetAllocationId,
                 quantity,
+                null,
                 cancellationToken);
 
             EnsureMoveSourceUsable(source);
@@ -247,7 +279,8 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
 
             foreach (var change in changes.OrderBy(t => t.Before.Id))
                 await InsertAllocationLogAsync(
-                    connection, transaction, context, stock.Id, null, change, now, cancellationToken);
+                    connection, transaction, context, stock.Id, null, change, now, null,
+                    cancellationToken);
 
             await EnsureConservationAsync(connection, transaction, context.TenantId, stock.Id, cancellationToken);
             await CompleteInventoryOperationAsync(
@@ -280,6 +313,11 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
         {
             await EnsureRuntimeAllowsMutationAsync(
                 connection, transaction, context.TenantId, context.ErpWarehouseId, cancellationToken);
+            var deltas = MutationDeltas.For(kind, quantity);
+            StockReservationMutationCoordinator.LockedOwner? reservationOwner = null;
+            if (StockReservationMutationCoordinator.RequiresReservation(deltas.EventType))
+                reservationOwner = await StockReservationMutationCoordinator.LockOwnerAsync(
+                    connection, transaction, context, erpStockId, deltas.EventType, cancellationToken);
             var stock = await LockStockAsync(connection, transaction, erpStockId, cancellationToken);
             EnsureWarehouseUnchanged(erpStockId, context.ErpWarehouseId, stock.WarehouseId);
             var allocation = (await LockAllocationsAsync(
@@ -291,7 +329,11 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
                 cancellationToken)).Single();
             await EnsureAllocationReferencesAsync(
                 connection, transaction, context.TenantId, stock, [allocationId], cancellationToken);
-            var deltas = MutationDeltas.For(kind, quantity);
+            StockReservationMutationCoordinator.MutationState? reservationState = null;
+            if (reservationOwner != null)
+                reservationState = await StockReservationMutationCoordinator.BeginMutationAsync(
+                    connection, transaction, context, reservationOwner, erpStockId,
+                    allocationId, deltas.EventType, quantity, cancellationToken);
             var operation = await LockInventoryOperationAsync(
                 connection, transaction, context, cancellationToken);
             var existingLogs = await ReadOperationLogsAsync(
@@ -310,6 +352,8 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
                 EnsureOperationSucceeded(operation);
                 if (operation.ErpStockRecordId == null)
                     throw IdempotencyConflict(context.OperationKey);
+                if (reservationState is { Command.IsReplay: false })
+                    throw new InvalidOperationException("本地库存命令已成功但共享预占命令不是重放，已拒绝不一致状态");
                 var replay = await BuildMutationReplayAsync(
                     connection,
                     transaction,
@@ -323,8 +367,15 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
                 await EnsureConservationAsync(
                     connection, transaction, context.TenantId, stock.Id, cancellationToken);
                 await ReleaseSavepointAsync(connection, transaction);
-                return replay;
+                return replay with
+                {
+                    SharedCommandId = reservationState?.Command.CommandId,
+                    ReservationId = reservationState?.Owner.ReservationId,
+                    ReservationItemId = reservationState?.Owner.ReservationItemId
+                };
             }
+            if (reservationState is { Command.IsReplay: true })
+                throw new InvalidOperationException("共享预占命令已成功但WMS本地执行结果缺失，禁止重复变更库存");
             if (existingLogs.Count > 0) throw IdempotencyConflict(context.OperationKey);
             await InsertInventoryOperationAsync(
                 connection,
@@ -335,6 +386,7 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
                 allocationId,
                 null,
                 quantity,
+                reservationState,
                 cancellationToken);
 
             EnsureAllocationUsable(kind, allocation);
@@ -351,10 +403,19 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
                 null);
             await UpdateAllocationAsync(connection, transaction, context, pendingChange, now, cancellationToken);
             var recordId = await InsertStockRecordAsync(
-                connection, transaction, context, stock, stockAfter, deltas, now, cancellationToken);
+                connection, transaction, context, stock, stockAfter, deltas, now,
+                reservationState, cancellationToken);
             await InsertAllocationLogAsync(
-                connection, transaction, context, stock.Id, recordId, pendingChange, now, cancellationToken);
+                connection, transaction, context, stock.Id, recordId, pendingChange, now,
+                reservationState, cancellationToken);
+            if (reservationState != null)
+                await StockReservationMutationCoordinator.EnsureConservationAsync(
+                    connection, transaction, context.TenantId, stock.Id, allocationId,
+                    reservationState, cancellationToken);
             await EnsureConservationAsync(connection, transaction, context.TenantId, stock.Id, cancellationToken);
+            if (reservationState != null)
+                await StockReservationMutationCoordinator.CompleteAsync(
+                    connection, transaction, context, reservationState, recordId, cancellationToken);
             await CompleteInventoryOperationAsync(
                 connection, transaction, context, recordId, now, cancellationToken);
 
@@ -366,7 +427,8 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
                 stockAfter,
                 recordId,
                 [pendingChange],
-                false);
+                false,
+                reservationState);
         }
         catch (Exception exception)
         {
@@ -484,17 +546,20 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
         long allocationId,
         long? counterpartAllocationId,
         long quantity,
+        StockReservationMutationCoordinator.MutationState? reservationState,
         CancellationToken cancellationToken)
     {
         var now = DateTime.Now;
         await connection.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO `wms_inventory_operation`
-                (`tenant_id`,`operation_key`,`biz_type`,`biz_id`,`biz_item_id`,`mutation_type`,
+                (`tenant_id`,`operation_key`,`shared_command_id`,`reservation_id`,`reservation_item_id`,
+                 `biz_type`,`biz_id`,`biz_item_id`,`mutation_type`,
                  `erp_stock_id`,`allocation_id`,`counterpart_allocation_id`,`quantity`,
                  `result_status`,`erp_stock_record_id`,`operator`,`create_time`,`update_time`)
             VALUES
-                (@tenantId,@operationKey,@bizType,@bizId,@bizItemId,@mutationType,
+                (@tenantId,@operationKey,@sharedCommandId,@reservationId,@reservationItemId,
+                 @bizType,@bizId,@bizItemId,@mutationType,
                  @erpStockId,@allocationId,@counterpartAllocationId,@quantity,
                  'PENDING',NULL,@operatorName,@now,@now)
             """,
@@ -502,6 +567,9 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
             {
                 tenantId = context.TenantId,
                 operationKey = context.OperationKey,
+                sharedCommandId = reservationState?.Command.CommandId,
+                reservationId = reservationState?.Owner.ReservationId,
+                reservationItemId = reservationState?.Owner.ReservationItemId,
                 bizType = context.BizType,
                 bizId = context.BizId,
                 bizItemId = context.BizItemId,
@@ -891,6 +959,7 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
         StockRow after,
         MutationDeltas deltas,
         DateTime now,
+        StockReservationMutationCoordinator.MutationState? reservationState,
         CancellationToken cancellationToken)
     {
         var bizNo = $"{context.BizType}-{context.BizId}";
@@ -905,7 +974,8 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
                  `updater`,`update_time`,`deleted`,`operation_key`,`available_change_qty`,
                  `occupied_change_qty`,`total_change_qty`,`before_available_qty`,
                  `after_available_qty`,`before_occupied_qty`,`after_occupied_qty`,
-                 `before_total_qty`,`after_total_qty`)
+                 `before_total_qty`,`after_total_qty`,`reservation_command_id`,`reservation_id`,
+                 `reservation_item_id`,`reservation_action`)
             VALUES
                 (@recordNo,@recordType,@bizId,@bizItemId,@bizNo,@stockId,
                  @forwarderId,@warehouseId,@deptId,@orderUserId,@commodityId,
@@ -913,7 +983,8 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
                  @now,@operatorId,@operatorName,@remark,@operatorName,@now,
                  @operatorName,@now,b'0',@operationKey,@availableDelta,
                  @occupiedDelta,@totalDelta,@beforeAvailable,@afterAvailable,
-                 @beforeOccupied,@afterOccupied,@beforeTotal,@afterTotal)
+                 @beforeOccupied,@afterOccupied,@beforeTotal,@afterTotal,
+                 @reservationCommandId,@reservationId,@reservationItemId,@reservationAction)
             """,
             new
             {
@@ -944,7 +1015,11 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
                 beforeAvailable = before.AvailableQty,
                 afterAvailable = after.AvailableQty,
                 beforeOccupied = before.OccupiedQty,
-                afterOccupied = after.OccupiedQty
+                afterOccupied = after.OccupiedQty,
+                reservationCommandId = reservationState?.Command.CommandId,
+                reservationId = reservationState?.Owner.ReservationId,
+                reservationItemId = reservationState?.Owner.ReservationItemId,
+                reservationAction = reservationState?.Command.Action
             }, transaction, cancellationToken: cancellationToken));
         return await connection.ExecuteScalarAsync<long>(new CommandDefinition(
             "SELECT LAST_INSERT_ID();", transaction: transaction, cancellationToken: cancellationToken));
@@ -958,16 +1033,19 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
         long? erpStockRecordId,
         PendingAllocationChange change,
         DateTime now,
+        StockReservationMutationCoordinator.MutationState? reservationState,
         CancellationToken cancellationToken) =>
         await connection.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO `wms_erp_stock_allocation_log`
-                (`tenant_id`,`operation_key`,`biz_type`,`biz_id`,`biz_item_id`,`event_type`,
+                (`tenant_id`,`operation_key`,`shared_command_id`,`reservation_id`,`reservation_item_id`,
+                 `biz_type`,`biz_id`,`biz_item_id`,`event_type`,
                  `erp_stock_id`,`allocation_id`,`counterpart_allocation_id`,`erp_stock_record_id`,
                  `allocated_delta`,`occupied_delta`,`before_allocated_qty`,`after_allocated_qty`,
                  `before_occupied_qty`,`after_occupied_qty`,`operator`,`operate_time`,`remark`)
             VALUES
-                (@tenantId,@operationKey,@bizType,@bizId,@bizItemId,@eventType,
+                (@tenantId,@operationKey,@sharedCommandId,@reservationId,@reservationItemId,
+                 @bizType,@bizId,@bizItemId,@eventType,
                  @erpStockId,@allocationId,@counterpartAllocationId,@erpStockRecordId,
                  @allocatedDelta,@occupiedDelta,@beforeAllocated,@afterAllocated,
                  @beforeOccupied,@afterOccupied,@operatorName,@now,@remark)
@@ -976,6 +1054,9 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
             {
                 tenantId = context.TenantId,
                 operationKey = context.OperationKey,
+                sharedCommandId = reservationState?.Command.CommandId,
+                reservationId = reservationState?.Owner.ReservationId,
+                reservationItemId = reservationState?.Owner.ReservationItemId,
                 bizType = context.BizType,
                 bizId = context.BizId,
                 bizItemId = context.BizItemId,
@@ -1159,7 +1240,8 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
         StockRow afterStock,
         long? recordId,
         IEnumerable<PendingAllocationChange> changes,
-        bool isReplay) =>
+        bool isReplay,
+        StockReservationMutationCoordinator.MutationState? reservationState = null) =>
         new(
             context.OperationKey,
             mutationType,
@@ -1175,7 +1257,10 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
                 t.CounterpartAllocationId,
                 new StockAllocationQuantitySnapshot(t.Before.AllocatedQty, t.Before.OccupiedQty),
                 new StockAllocationQuantitySnapshot(t.After.AllocatedQty, t.After.OccupiedQty))).ToArray(),
-            isReplay);
+            isReplay,
+            reservationState?.Command.CommandId,
+            reservationState?.Owner.ReservationId,
+            reservationState?.Owner.ReservationItemId);
 
     private static Task CreateSavepointAsync(
         IDbConnection connection,

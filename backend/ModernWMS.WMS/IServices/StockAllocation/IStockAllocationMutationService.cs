@@ -22,6 +22,18 @@ public interface IStockAllocationMutationService : IDependency
         IReadOnlyCollection<long> allocationIds,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Locks every reservation owner before taking any ERP stock/allocation lock.
+    /// Required for commands that mutate more than one reservation item.
+    /// </summary>
+    Task PrelockReservationOwnersAsync(
+        IDbConnection connection,
+        IDbTransaction transaction,
+        long tenantId,
+        IReadOnlyCollection<long> erpWarehouseIds,
+        IReadOnlyCollection<StockReservationPrelockRequest> requests,
+        CancellationToken cancellationToken = default);
+
     Task<StockAllocationMutationResult> AdjustAvailableAsync(
         IDbConnection connection,
         IDbTransaction transaction,

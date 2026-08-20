@@ -4,6 +4,7 @@ using ModernWMS.Core.DBContext.Entities;
 using ModernWMS.Core.JWT;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels.DispatchWorkflow;
+using ModernWMS.WMS.IServices.StockAllocation;
 using MySqlConnector;
 
 namespace ModernWMS.WMS.Services.DispatchWorkflow;
@@ -383,17 +384,19 @@ public partial class DispatchWorkflowService
         CancellationToken cancellationToken)
     {
         var mutation = RequireStockAllocationMutationService();
-        await mutation.PrelockAsync(connection,transaction,order.tenant_id,
-            [order.warehouse_id],
-            allocations.Select(x=>x.erp_stock_id!.Value).Distinct().OrderBy(x=>x).ToArray(),
-            allocations.Select(x=>x.stock_allocation_id!.Value).Distinct().OrderBy(x=>x).ToArray(),
-            cancellationToken);
+        var prelocks=allocations.Select(allocation=>new StockReservationPrelockRequest(
+            DispatchMutationContext(user,order.warehouse_id,"DISPATCH_SHIP_OUT",order.id,allocation.id,
+                allocation.erp_stock_id!.Value,allocation.stock_allocation_id!.Value,
+                allocation.picked_qty,requestId,allocation.reservation_id,allocation.reservation_item_id),
+            allocation.erp_stock_id.Value,allocation.stock_allocation_id.Value,"SHIP_OUT")).ToArray();
+        await mutation.PrelockReservationOwnersAsync(connection,transaction,order.tenant_id,
+            [order.warehouse_id],prelocks,cancellationToken);
         foreach (var allocation in allocations.OrderBy(x=>x.erp_stock_id).ThenBy(x=>x.stock_allocation_id).ThenBy(x=>x.id))
         {
             await mutation.ShipLockedAsync(connection,transaction,
                 DispatchMutationContext(user,order.warehouse_id,"DISPATCH_SHIP_OUT",order.id,allocation.id,
                     allocation.erp_stock_id!.Value,allocation.stock_allocation_id!.Value,
-                    allocation.picked_qty,requestId),
+                    allocation.picked_qty,requestId,allocation.reservation_id,allocation.reservation_item_id),
                 allocation.erp_stock_id.Value,allocation.stock_allocation_id.Value,
                 allocation.picked_qty,cancellationToken);
             await connection.ExecuteAsync(new CommandDefinition("""

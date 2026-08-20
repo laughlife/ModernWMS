@@ -51,3 +51,17 @@ ALTER TABLE `wms_erp_stock_allocation_log`
   ADD KEY `idx_stock_allocation_log_shared_command` (`tenant_id`,`shared_command_id`),
   ADD KEY `idx_stock_allocation_log_reservation_item` (`tenant_id`,`reservation_item_id`);
 
+ALTER TABLE `wms_packing_task_stock_selection`
+  ADD COLUMN `reservation_id` bigint DEFAULT NULL COMMENT '逻辑引用 trk_stock_reservation.id' AFTER `stock_allocation_id`,
+  ADD COLUMN `reservation_item_id` bigint DEFAULT NULL COMMENT '逻辑引用 trk_stock_reservation_item.id' AFTER `reservation_id`,
+  ADD KEY `idx_packing_selection_reservation_item` (`tenant_id`,`reservation_item_id`);
+
+ALTER TABLE `wms_dispatchpicklist`
+  ADD COLUMN `reservation_id` bigint DEFAULT NULL COMMENT '逻辑引用 trk_stock_reservation.id' AFTER `stock_allocation_id`,
+  ADD COLUMN `reservation_item_id` bigint DEFAULT NULL COMMENT '逻辑引用 trk_stock_reservation_item.id' AFTER `reservation_id`,
+  ADD KEY `idx_dispatchpicklist_reservation_item` (`reservation_item_id`);
+
+ALTER TABLE `wms_stockfreeze`
+  ADD COLUMN `reservation_id` bigint DEFAULT NULL COMMENT '逻辑引用 trk_stock_reservation.id' AFTER `stock_allocation_id`,
+  ADD COLUMN `reservation_item_id` bigint DEFAULT NULL COMMENT '逻辑引用 trk_stock_reservation_item.id' AFTER `reservation_id`,
+  ADD KEY `idx_stockfreeze_reservation_item` (`tenant_id`,`reservation_item_id`);

@@ -75,7 +75,9 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
         long erpStockId,
         long allocationId,
         long quantity,
-        string requestIdentity)
+        string requestIdentity,
+        long? reservationId,
+        long? reservationItemId)
     {
         var operationKey = HashText(
             $"{action}:{orderId}:{bizItemId}:{erpStockId}:{allocationId}:{quantity}:{requestIdentity}");
@@ -90,7 +92,11 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
             bizItemId,
             user.user_id,
             operatorName,
-            action);
+            action,
+            new StockReservationMutationContext(
+                "WMS_RESERVATION_V1",operationKey,"MODERN_WMS","DISPATCH_ORDER",orderId,null,
+                "DISPATCH_ORDER",orderId,"DISPATCH_PICK",bizItemId,"DISPATCH_PICK:"+bizItemId,
+                reservationId,reservationItemId));
     }
 
     private sealed class InventoryRuntime

@@ -3,6 +3,7 @@ using Dapper;
 using ModernWMS.Core.JWT;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels.DispatchWorkflow;
+using ModernWMS.WMS.IServices.StockAllocation;
 using MySqlConnector;
 
 namespace ModernWMS.WMS.Services.DispatchWorkflow;
@@ -45,7 +46,8 @@ public partial class DispatchWorkflowService
             {
                 var sourceTaskIds=tasks.Select(x=>x.source_task_id).ToArray();
                 var reserved=(await c.QueryAsync<ReservedAllocationRow>(new CommandDefinition("""
-                    SELECT `id`,`erp_stock_id`,`stock_allocation_id`,`qty`
+                    SELECT `id`,`erp_stock_id`,`stock_allocation_id`,`reservation_id`,
+                           `reservation_item_id`,`qty`
                       FROM `wms_packing_task_stock_selection`
                      WHERE `tenant_id`=@tenantId AND `sellfox_task_id` IN @sourceTaskIds
                        AND `erp_stock_id` IS NOT NULL AND `stock_allocation_id` IS NOT NULL
@@ -53,14 +55,19 @@ public partial class DispatchWorkflowService
                     """,new{tenantId=order.tenant_id,sourceTaskIds},tx,cancellationToken:ct))).AsList();
                 var mutation=RequireStockAllocationMutationService();
                 if(reserved.Count>0)
-                    await mutation.PrelockAsync(c,tx,order.tenant_id,
-                        [order.warehouse_id],
-                        reserved.Select(x=>x.erp_stock_id).Distinct().OrderBy(x=>x).ToArray(),
-                        reserved.Select(x=>x.stock_allocation_id).Distinct().OrderBy(x=>x).ToArray(),ct);
+                {
+                    var prelocks=reserved.Select(row=>new StockReservationPrelockRequest(
+                        DispatchMutationContext(user,order.warehouse_id,"DISPATCH_RELEASE",order.id,row.id,
+                            row.erp_stock_id,row.stock_allocation_id,row.qty,requestId,
+                            row.reservation_id,row.reservation_item_id),row.erp_stock_id,
+                        row.stock_allocation_id,"UNLOCK")).ToArray();
+                    await mutation.PrelockReservationOwnersAsync(c,tx,order.tenant_id,
+                        [order.warehouse_id],prelocks,ct);
+                }
                 foreach(var row in reserved)
                     await mutation.ReleaseAsync(c,tx,
                         DispatchMutationContext(user,order.warehouse_id,"DISPATCH_RELEASE",order.id,row.id,row.erp_stock_id,
-                            row.stock_allocation_id,row.qty,requestId),
+                            row.stock_allocation_id,row.qty,requestId,row.reservation_id,row.reservation_item_id),
                         row.erp_stock_id,row.stock_allocation_id,row.qty,ct);
                 if(reserved.Count>0)
                     await c.ExecuteAsync(new CommandDefinition(

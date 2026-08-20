@@ -4,6 +4,7 @@ using ModernWMS.Core.JWT;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels.DispatchWorkflow;
 using ModernWMS.WMS.Entities.ViewModels.PackingTask;
+using ModernWMS.WMS.IServices.StockAllocation;
 
 namespace ModernWMS.WMS.Services.DispatchWorkflow;
 
@@ -136,14 +137,16 @@ public partial class DispatchWorkflowService
         if (canonical)
         {
             var reserved = (await c.QueryAsync<ReservedAllocationRow>(new CommandDefinition("""
-                SELECT selection.`id`,selection.`erp_stock_id`,selection.`stock_allocation_id`,selection.`qty`
+                SELECT selection.`id`,selection.`erp_stock_id`,selection.`stock_allocation_id`,
+                       selection.`reservation_id`,selection.`reservation_item_id`,selection.`qty`
                   FROM `wms_packing_task_stock_selection` selection
                  WHERE selection.`tenant_id`=@tenantId AND selection.`sellfox_task_id`=@sourceTaskId
                    AND selection.`erp_stock_id` IS NOT NULL AND selection.`stock_allocation_id` IS NOT NULL
                  ORDER BY selection.`stock_allocation_id`,selection.`id` FOR UPDATE;
                 """,new{tenantId=order.tenant_id,sourceTaskId=task.source_task_id},tx,cancellationToken:ct))).AsList();
             var pickReservations=(await c.QueryAsync<ReservedAllocationRow>(new CommandDefinition("""
-                SELECT `id`,`erp_stock_id`,`stock_allocation_id`,`picked_qty` AS qty
+                SELECT `id`,`erp_stock_id`,`stock_allocation_id`,`reservation_id`,
+                       `reservation_item_id`,`picked_qty` AS qty
                   FROM `wms_dispatchpicklist`
                  WHERE `packing_task_item_id` IN @ids AND `is_update_stock`=0
                    AND `erp_stock_id` IS NOT NULL AND `stock_allocation_id` IS NOT NULL
@@ -153,14 +156,20 @@ public partial class DispatchWorkflowService
                 throw new InvalidOperationException("装箱选择与拣货明细同时持有同一业务预占，已拒绝自动释放");
             var allReservations=reserved.Concat(pickReservations).ToList();
             if (allReservations.Count > 0)
-                await RequireStockAllocationMutationService().PrelockAsync(c,tx,order.tenant_id,
-                    [order.warehouse_id],
-                    allReservations.Select(x=>x.erp_stock_id).Distinct().OrderBy(x=>x).ToArray(),
-                    allReservations.Select(x=>x.stock_allocation_id).Distinct().OrderBy(x=>x).ToArray(),ct);
+            {
+                var prelocks=allReservations.Select(row=>new StockReservationPrelockRequest(
+                    DispatchMutationContext(user,order.warehouse_id,"DISPATCH_RELEASE",order.id,row.id,
+                        row.erp_stock_id,row.stock_allocation_id,row.qty,$"{requestIdentity}:{task.id}",
+                        row.reservation_id,row.reservation_item_id),row.erp_stock_id,
+                    row.stock_allocation_id,"UNLOCK")).ToArray();
+                await RequireStockAllocationMutationService().PrelockReservationOwnersAsync(c,tx,
+                    order.tenant_id,[order.warehouse_id],prelocks,ct);
+            }
             foreach (var row in allReservations.OrderBy(x=>x.erp_stock_id).ThenBy(x=>x.stock_allocation_id).ThenBy(x=>x.id))
                 await RequireStockAllocationMutationService().ReleaseAsync(c,tx,
                     DispatchMutationContext(user,order.warehouse_id,"DISPATCH_RELEASE",order.id,row.id,row.erp_stock_id,
-                        row.stock_allocation_id,row.qty,$"{requestIdentity}:{task.id}"),
+                        row.stock_allocation_id,row.qty,$"{requestIdentity}:{task.id}",
+                        row.reservation_id,row.reservation_item_id),
                     row.erp_stock_id,row.stock_allocation_id,row.qty,ct);
             if (reserved.Count > 0)
                 await c.ExecuteAsync(new CommandDefinition(
@@ -187,6 +196,8 @@ public partial class DispatchWorkflowService
         public int id { get; init; }
         public long erp_stock_id { get; init; }
         public long stock_allocation_id { get; init; }
+        public long? reservation_id { get; init; }
+        public long? reservation_item_id { get; init; }
         public int qty { get; init; }
     }
 

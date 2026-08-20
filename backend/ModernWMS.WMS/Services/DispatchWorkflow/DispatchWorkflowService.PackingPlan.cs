@@ -3,6 +3,7 @@ using Dapper;
 using ModernWMS.Core.JWT;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels.DispatchWorkflow;
+using ModernWMS.WMS.IServices.StockAllocation;
 
 namespace ModernWMS.WMS.Services.DispatchWorkflow;
 
@@ -134,14 +135,21 @@ public partial class DispatchWorkflowService
                 if(reductions.Count>0)
                 {
                     var mutation=RequireStockAllocationMutationService();
-                    await mutation.PrelockAsync(c,tx,a.Order.tenant_id,[a.Order.warehouse_id],
-                        reductions.Select(x=>x.Allocation.erp_stock_id!.Value).Distinct().OrderBy(x=>x).ToArray(),
-                        reductions.Select(x=>x.Allocation.stock_allocation_id!.Value).Distinct().OrderBy(x=>x).ToArray(),ct);
+                    var prelocks=reductions.Select(reduction=>new StockReservationPrelockRequest(
+                        DispatchMutationContext(user,a.Order.warehouse_id,"DISPATCH_RELEASE",a.Order.id,
+                            reduction.Allocation.id,reduction.Allocation.erp_stock_id!.Value,
+                            reduction.Allocation.stock_allocation_id!.Value,reduction.Reduce,
+                            $"ACTUAL_PACKING:{r.request_id}:{taskId}",reduction.Allocation.reservation_id,
+                            reduction.Allocation.reservation_item_id),reduction.Allocation.erp_stock_id.Value,
+                        reduction.Allocation.stock_allocation_id.Value,"UNLOCK")).ToArray();
+                    await mutation.PrelockReservationOwnersAsync(c,tx,a.Order.tenant_id,
+                        [a.Order.warehouse_id],prelocks,ct);
                     foreach(var reduction in reductions.OrderBy(x=>x.Allocation.erp_stock_id).ThenBy(x=>x.Allocation.stock_allocation_id).ThenBy(x=>x.Allocation.id))
                         await mutation.ReleaseAsync(c,tx,
                             DispatchMutationContext(user,a.Order.warehouse_id,"DISPATCH_RELEASE",a.Order.id,reduction.Allocation.id,
                                 reduction.Allocation.erp_stock_id!.Value,reduction.Allocation.stock_allocation_id!.Value,
-                                reduction.Reduce,$"ACTUAL_PACKING:{r.request_id}:{taskId}"),
+                                reduction.Reduce,$"ACTUAL_PACKING:{r.request_id}:{taskId}",
+                                reduction.Allocation.reservation_id,reduction.Allocation.reservation_item_id),
                             reduction.Allocation.erp_stock_id.Value,reduction.Allocation.stock_allocation_id.Value,reduction.Reduce,ct);
                 }
             }
