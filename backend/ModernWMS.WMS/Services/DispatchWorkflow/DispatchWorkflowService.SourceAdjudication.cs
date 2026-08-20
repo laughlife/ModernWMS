@@ -110,7 +110,7 @@ public partial class DispatchWorkflowService
             JOIN `wms_dispatchlist` d ON d.`id`=p.`dispatchlist_id`
             WHERE d.`dispatch_order_id`=@id ORDER BY p.`erp_stock_id`,p.`stock_allocation_id`,p.`id` FOR UPDATE;
             """,new{id=order.id},tx,cancellationToken:ct))).AsList();
-        if(picks.Any(x=>x.is_update_stock==1))throw DispatchWorkflowCommandException.StockAlreadyDeducted();
+        if(picks.Any(x=>x.is_update_stock))throw DispatchWorkflowCommandException.StockAlreadyDeducted();
         if(runtime.Mode==CanonicalInventoryMode)
         {
             if(picks.Any(x=>x.erp_stock_id is null||x.stock_allocation_id is null))

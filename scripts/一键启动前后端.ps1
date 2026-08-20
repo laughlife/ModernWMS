@@ -181,6 +181,27 @@ function Assert-PortAvailable {
     }
 }
 
+function Find-AvailablePort {
+    param(
+        [Parameter(Mandatory = $true)][int]$StartPort,
+        [Parameter(Mandatory = $true)][string]$ServiceName
+    )
+
+    for ($candidatePort = $StartPort; $candidatePort -le 65535; $candidatePort++) {
+        $owner = Get-PortOwner -Port $candidatePort
+        if (-not $owner) {
+            if ($candidatePort -ne $StartPort) {
+                Write-Host "[端口自适应] $ServiceName 端口 $StartPort 已被占用，自动改用 $candidatePort。"
+            }
+            return $candidatePort
+        }
+
+        Write-Host "[端口自适应] $ServiceName 端口 $candidatePort 已被 PID $($owner.ProcessId) ($($owner.ProcessName)) 占用，继续查找。"
+    }
+
+    throw "$ServiceName 从端口 $StartPort 到 65535 都没有可用端口。"
+}
+
 function Assert-CommandAvailable {
     param([Parameter(Mandatory = $true)][string]$Name)
 
@@ -310,7 +331,7 @@ try {
     }
 
     Assert-PortAvailable -Port $BackendPort -ServiceName '后端'
-    Assert-PortAvailable -Port $FrontendPort -ServiceName '前端'
+    $FrontendPort = Find-AvailablePort -StartPort $FrontendPort -ServiceName '前端'
 
     if (-not (Test-Path -LiteralPath $viteCliPath)) {
         throw "前端依赖未安装。请先在 $frontendDirectory 运行 npm ci。"

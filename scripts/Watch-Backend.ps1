@@ -253,6 +253,9 @@ function Start-AppProcess {
 
     $env:ASPNETCORE_URLS = "http://0.0.0.0:$Port"
     $env:ASPNETCORE_ENVIRONMENT = 'Development'
+    $env:Cors__AllowedOrigins__6 = "http://localhost:$FrontendPort"
+    $env:Cors__AllowedOrigins__7 = "http://127.0.0.1:$FrontendPort"
+    $env:Cors__AllowedOrigins__8 = "http://192.168.100.2:$FrontendPort"
 
     return Start-Process -FilePath $DotnetPath `
         -ArgumentList @('run', '--project', $Project, '--no-launch-profile', '--no-restore') `
