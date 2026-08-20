@@ -60,8 +60,10 @@ public partial class DispatchWorkflowService
             }
             var occupied = await FindOccupiedTaskIdsAsync(connection, transaction, taskIds, cancellationToken);
             if (occupied.Count > 0) throw new InvalidOperationException($"packing tasks already belong to an active order: {string.Join(',', occupied.Order())}");
+            var runtime = await LoadInventoryRuntimeAsync(connection, transaction,
+                currentUser.tenant_id, request.warehouse_id, cancellationToken);
             var bindingRows = await LoadCreationBindingRowsAsync(connection,transaction,
-                currentUser.tenant_id,taskIds,cancellationToken);
+                currentUser.tenant_id,taskIds,runtime.Mode == CanonicalInventoryMode,cancellationToken);
             var bindingQty = bindingRows.GroupBy(x => (x.TaskId, x.ItemId))
                 .ToDictionary(x => x.Key, x => x.Sum(row => row.LockedQty));
             foreach (var snapshot in snapshots)
@@ -109,10 +111,25 @@ public partial class DispatchWorkflowService
 
     private static async Task<List<CreationBindingRow>> LoadCreationBindingRowsAsync(
         System.Data.IDbConnection connection,IDbTransaction transaction,long tenantId,
-        IReadOnlyCollection<long> taskIds,CancellationToken cancellationToken) =>
-        (await connection.QueryAsync<CreationBindingRow>(new CommandDefinition("""
+        IReadOnlyCollection<long> taskIds,bool canonical,CancellationToken cancellationToken)
+    {
+        var sql = canonical ? """
                 SELECT selection.`sellfox_task_id` AS TaskId,selection.`sellfox_item_id` AS ItemId,
-                       selection.`stock_id` AS StockId,selection.`qty` AS LockedQty,
+                       selection.`stock_allocation_id` AS StockKey,selection.`qty` AS LockedQty,
+                       allocation.`allocated_qty`-allocation.`occupied_qty`+selection.`qty` AS AvailableBeforeTask
+                  FROM `wms_packing_task_stock_selection` selection
+                  JOIN `wms_erp_stock_allocation` allocation
+                    ON allocation.`tenant_id`=selection.`tenant_id`
+                   AND allocation.`id`=selection.`stock_allocation_id`
+                   AND allocation.`erp_stock_id`=selection.`erp_stock_id`
+                 WHERE selection.`tenant_id`=@tenantId AND selection.`sellfox_task_id` IN @taskIds
+                   AND selection.`erp_stock_id` IS NOT NULL
+                   AND selection.`stock_allocation_id` IS NOT NULL
+                   AND allocation.`location_state`='ACTIVE'
+                 ORDER BY selection.`stock_allocation_id`,selection.`sellfox_item_id`,selection.`id` FOR UPDATE;
+                """ : """
+                SELECT selection.`sellfox_task_id` AS TaskId,selection.`sellfox_item_id` AS ItemId,
+                       selection.`stock_id` AS StockKey,selection.`qty` AS LockedQty,
                        GREATEST(0,CASE WHEN stock.`is_freeze`=1 THEN 0 ELSE stock.`qty`
                          -COALESCE((SELECT SUM(pick.`pick_qty`) FROM `wms_dispatchpicklist` pick
                            JOIN `wms_dispatchlist` detail ON detail.`id`=pick.`dispatchlist_id`
@@ -132,7 +149,10 @@ public partial class DispatchWorkflowService
                 JOIN `wms_stock` stock ON stock.`id`=selection.`stock_id` AND stock.`tenant_id`=selection.`tenant_id`
                 WHERE selection.`tenant_id`=@tenantId AND selection.`sellfox_task_id` IN @taskIds
                 ORDER BY selection.`stock_id`,selection.`sellfox_item_id`,selection.`id` FOR UPDATE;
-                """,new{tenantId,taskIds},transaction,cancellationToken:cancellationToken))).AsList();
+                """;
+        return (await connection.QueryAsync<CreationBindingRow>(new CommandDefinition(
+            sql,new{tenantId,taskIds},transaction,cancellationToken:cancellationToken))).AsList();
+    }
 
     private static async Task<List<long>> FindOccupiedTaskIdsAsync(System.Data.IDbConnection connection, IDbTransaction? transaction,
         IReadOnlyCollection<long> taskIds, CancellationToken cancellationToken) =>
@@ -195,7 +215,7 @@ public partial class DispatchWorkflowService
     private static IReadOnlyDictionary<(long TaskId,long ItemId),int> BuildAvailableSnapshots(
         IReadOnlyList<PackingTaskSourceSnapshot> snapshots,IReadOnlyList<CreationBindingRow> bindings)
     {
-        var remainingByStock = bindings.GroupBy(x => x.StockId)
+        var remainingByStock = bindings.GroupBy(x => x.StockKey)
             .ToDictionary(x => x.Key, x => x.First().AvailableBeforeTask);
         var result = new Dictionary<(long TaskId,long ItemId),int>();
         foreach (var snapshot in snapshots.OrderBy(x => x.SourceTaskId))
@@ -205,10 +225,10 @@ public partial class DispatchWorkflowService
                 .Where(x => x.TaskId == snapshot.SourceTaskId && x.ItemId == item.SourceItemId)
                 .ToList();
             foreach (var binding in itemBindings)
-                remainingByStock[binding.StockId] = Math.Max(0,
-                    remainingByStock.GetValueOrDefault(binding.StockId) - binding.LockedQty);
+                remainingByStock[binding.StockKey] = Math.Max(0,
+                    remainingByStock.GetValueOrDefault(binding.StockKey) - binding.LockedQty);
             result[(snapshot.SourceTaskId,item.SourceItemId)] = itemBindings
-                .Select(x => x.StockId).Distinct().Sum(stockId => remainingByStock.GetValueOrDefault(stockId));
+                .Select(x => x.StockKey).Distinct().Sum(stockId => remainingByStock.GetValueOrDefault(stockId));
         }
         return result;
     }
@@ -217,7 +237,7 @@ public partial class DispatchWorkflowService
     {
         public long TaskId { get; init; }
         public long ItemId { get; init; }
-        public int StockId { get; init; }
+        public long StockKey { get; init; }
         public int LockedQty { get; init; }
         public int AvailableBeforeTask { get; init; }
     }

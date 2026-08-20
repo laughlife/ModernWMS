@@ -167,7 +167,7 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
     }
 
     /// <summary>
-    /// Confirms product-level receipt and posts the same business event to ERP and WMS ledgers.
+    /// Confirms product-level receipt and atomically posts the ERP balance plus WMS location allocation.
     /// </summary>
     public async Task<(bool flag, string message, long inboundQty)> ConfirmAsync(
         ErpReceiptConfirmInputViewModel input,
@@ -215,6 +215,15 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
             if (shipment.source_version != input.source_version)
             {
                 return (false, "货件数据已更新，请刷新列表后重新确认", 0);
+            }
+
+            await EnsureCanonicalInventoryWriteEnabledAsync(
+                shipment.to_warehouse_id!.Value,
+                currentUser.tenant_id);
+            if (string.Equals(shipment.source_type, "STOCK_DISPATCH", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    "调度收货尚未完成来源库存库位分配迁移，当前禁止签收入库，避免 ERP 库存与库位分配失衡");
             }
 
             var products = ParseProducts(shipment.product_snapshot_json);

@@ -125,8 +125,12 @@
               </div>
             </template>
           </vxe-column>
-          <vxe-column field="qty" title="库存量" width="90"></vxe-column>
-          <vxe-column field="available_qty" title="可用量" width="90"></vxe-column>
+          <vxe-column title="库存量/可用量" width="140">
+            <template #default="{ row }">{{ row.qty }} / {{ row.available_qty }}</template>
+          </vxe-column>
+          <vxe-column title="任务量" width="90">
+            <template #default>{{ taskQty }}</template>
+          </vxe-column>
           <vxe-column title="变体" width="130">
             <template #default="{ row }">
               <div class="variant-cell">
@@ -138,10 +142,9 @@
                   density="compact"
                   variant="outlined"
                   hide-details
-                  :disabled="row.selected"
                   class="variant-input"
                 />
-                <div class="variant-lock">锁定 {{ taskQty * row.variant }}</div>
+                <div class="variant-lock">锁定 {{ computeLockedQty(taskQty, row.variant) }}</div>
               </div>
             </template>
           </vxe-column>
@@ -153,15 +156,27 @@
               <v-chip v-else size="small" variant="tonal">其它</v-chip>
             </template>
           </vxe-column>
-          <vxe-column title="操作" width="130" fixed="right">
+          <vxe-column title="操作" width="190" fixed="right">
             <template #default="{ row }">
+              <v-btn
+                v-if="row.selected"
+                size="small"
+                color="primary"
+                variant="tonal"
+                class="mr-1"
+                :disabled="loading"
+                :loading="selectingStockId === stockIdentity(row)"
+                @click="method.selectStock(row)"
+              >
+                更新
+              </v-btn>
               <v-btn
                 v-if="row.selected"
                 size="small"
                 color="error"
                 variant="tonal"
                 :disabled="loading"
-                :loading="selectingStockId === row.stock_id"
+                :loading="selectingStockId === stockIdentity(row)"
                 @click="method.unselectStock(row)"
               >
                 取消选择
@@ -171,8 +186,8 @@
                 size="small"
                 color="primary"
                 variant="tonal"
-                :disabled="row.available_qty <= 0"
-                :loading="selectingStockId === row.stock_id"
+                :disabled="loading"
+                :loading="selectingStockId === stockIdentity(row)"
                 @click="method.selectStock(row)"
               >
                 选择
@@ -206,6 +221,11 @@ import { getPackingTaskSelectableStock, selectPackingTaskStock, deletePackingTas
 import { hookComponent } from '@/components/system'
 import ProductImage from '@/components/system/product-image.vue'
 import type { PackingTaskItemVO, PackingTaskVO, SelectableStockVO } from '@/types/DeliveryManagement/PackingTask'
+import {
+  computeLockedQty,
+  deriveVariant,
+  validatePackingStockSelection
+} from './packingTaskSelection'
 
 const PAGE_SIZE = 20
 
@@ -221,7 +241,9 @@ const stockRows = ref<StockRow[]>([])
 const selectedRows = ref<StockRow[]>([])
 const total = ref(0)
 const pageIndex = ref(1)
-const selectingStockId = ref<number | null>(null)
+const selectingStockId = ref<string | null>(null)
+const stockIdentity = (row: Pick<SelectableStockVO, 'stock_id' | 'stock_allocation_id'>): string =>
+  row.stock_allocation_id ? `allocation:${row.stock_allocation_id}` : `legacy:${row.stock_id}`
 const searchForm = reactive({ keyword: '', location: '', owner: '' })
 const searching = ref(false)
 
@@ -241,7 +263,7 @@ const extractSkuVariant = (sku: string | null | undefined): number | null => {
 // 未选择的行默认 1 变体。
 const toRow = (r: SelectableStockVO): StockRow => ({
   ...r,
-  variant: r.selected ? Math.max(1, Math.round((r.selected_qty ?? 0) / taskQty.value)) : 1
+  variant: deriveVariant(taskQty.value, r.selected_qty, r.selected)
 })
 
 const footerText = computed(() => searching.value
@@ -327,31 +349,44 @@ const method = reactive({
   confirmSelectStock: async (row: StockRow) => {
     if (!item.value || !task.value) return
     const variant = row.variant
-    if (!Number.isInteger(variant) || variant <= 0) {
+    const validation = validatePackingStockSelection(row, taskQty.value, variant)
+    if (!validation.ok && validation.reason === 'INVALID_VARIANT') {
       hookComponent.$message({ type: 'warning', content: '请输入大于0的变体数量' })
       return
     }
+    if (!validation.ok) {
+      hookComponent.$message({ type: 'warning', content: '可用量不足' })
+      return
+    }
     // 锁定数量 = 装箱任务量 × 变体数量。
-    const lockedQty = taskQty.value * variant
-    selectingStockId.value = row.stock_id
+    const lockedQty = computeLockedQty(taskQty.value, variant)
+    selectingStockId.value = stockIdentity(row)
     try {
       const result = await selectPackingTaskStock({
         sellfox_task_id: task.value.sellfox_task_id,
         sellfox_item_id: item.value.sellfox_item_id,
         stock_id: row.stock_id,
-        qty: lockedQty
+        erp_stock_id: row.erp_stock_id,
+        stock_allocation_id: row.stock_allocation_id,
+        qty: lockedQty,
+        variant
       })
       if (!result.isSuccess) {
         hookComponent.$message({ type: 'error', content: result.errorMessage })
         return
       }
       hookComponent.$message({ type: 'success', content: '库存选择成功' })
-      const selected = { ...row, selected: true, selected_qty: lockedQty, available_qty: 0 }
+      const selected = {
+        ...row,
+        selected: true,
+        selected_qty: lockedQty,
+        available_qty: Math.max(0, row.available_qty + (row.selected_qty ?? 0) - lockedQty)
+      }
       stockRows.value = stockRows.value.map((t) =>
-        t.stock_id === row.stock_id ? selected : t
+        stockIdentity(t) === stockIdentity(row) ? selected : t
       )
       selectedRows.value = [
-        ...selectedRows.value.filter((t) => t.stock_id !== row.stock_id),
+        ...selectedRows.value.filter((t) => stockIdentity(t) !== stockIdentity(row)),
         selected
       ]
       // 选择成功后自动关闭，并把所选库存回传给父页面刷新数据。
@@ -365,12 +400,14 @@ const method = reactive({
   },
   unselectStock: async (row: StockRow) => {
     if (!item.value || !task.value) return
-    selectingStockId.value = row.stock_id
+    selectingStockId.value = stockIdentity(row)
     try {
       const result = await deletePackingTaskStockSelection({
         sellfox_task_id: task.value.sellfox_task_id,
         sellfox_item_id: item.value.sellfox_item_id,
         stock_id: row.stock_id,
+        erp_stock_id: row.erp_stock_id,
+        stock_allocation_id: row.stock_allocation_id,
         qty: 0
       })
       if (!result.isSuccess) {
@@ -378,7 +415,7 @@ const method = reactive({
         return
       }
       hookComponent.$message({ type: 'success', content: '已取消选择，锁定库存已释放' })
-      selectedRows.value = selectedRows.value.filter((t) => t.stock_id !== row.stock_id)
+      selectedRows.value = selectedRows.value.filter((t) => stockIdentity(t) !== stockIdentity(row))
       // 重新加载列表恢复该行的可用量与选择状态，并通知父页面刷新锁定量。
       pageIndex.value = 1
       await method.loadPage()

@@ -55,7 +55,7 @@ export interface PackingTaskPageRequest {
   pageIndex: number
   pageSize: number
   searchObjects: Array<{
-    name: 'keyword' | 'warehouse_id'
+    name: 'keyword' | 'warehouse_id' | 'group_id' | 'member_id'
     operator?: number
     text?: string
     value?: string

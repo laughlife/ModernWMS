@@ -45,7 +45,7 @@
               <ErpReceiptShipmentList ref="tabToDoArrivalRef" list-type="pending" :warehouse-id="selectedWarehouseId" />
             </v-window-item>
             <v-window-item value="tabReceiptDetails">
-              <tabReceiptDetails ref="tabReceiptDetailsRef" />
+              <tabReceiptDetails ref="tabReceiptDetailsRef" :warehouse-id="selectedWarehouseId" />
             </v-window-item>
           </v-window>
         </v-card-text>
@@ -183,7 +183,7 @@ const refreshStatusCounts = async (): Promise<void> => {
     loadListTotal(getErpArrivedReceiptList, { pageIndex: 1, pageSize: 1, searchObjects: warehouseSearchObjects }),
     loadListTotal(getErpToShipReceiptList, { pageIndex: 1, pageSize: 1, searchObjects: warehouseSearchObjects }),
     loadListTotal(getErpPendingReceiptList, { pageIndex: 1, pageSize: 1, searchObjects: warehouseSearchObjects }),
-    loadListTotal(getErpReceiptDetailList, { pageIndex: 1, pageSize: 1, searchObjects: [] })
+    loadListTotal(getErpReceiptDetailList, { pageIndex: 1, pageSize: 1, searchObjects: warehouseSearchObjects })
   ])
   if (requestId !== statusCountRequestId) return
 

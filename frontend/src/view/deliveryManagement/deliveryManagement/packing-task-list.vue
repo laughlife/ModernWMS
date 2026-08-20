@@ -5,28 +5,65 @@
   </div>
 
   <div class="operateArea">
-    <v-row no-gutters>
-      <v-col cols="3" class="col">
-        <BtnGroup :authority-list="data.authorityList" :btn-list="data.btnList" />
-      </v-col>
+    <v-row no-gutters align="center">
       <v-col cols="3" class="createOrderCol">
         <v-btn
-          color="primary"
+          :color="selectedTasksReady ? 'primary' : 'black'"
           prepend-icon="mdi-clipboard-list-outline"
-          :disabled="data.creating || data.selectedTaskCount === 0 || props.warehouseId === null"
+          :disabled="data.creating || data.selectedTaskCount === 0 || props.warehouseId === null || !selectedTasksReady"
           :loading="data.creating"
           @click="method.createPickingOrder"
         >
           生成待拣货单（{{ data.selectedTaskCount }}）
         </v-btn>
       </v-col>
-      <v-col cols="6" @keyup.enter="method.sureSearch">
-        <v-text-field
-          v-model="data.searchForm.keyword"
-          clearable hide-details density="comfortable"
-          class="searchInput ml-5 mt-1"
-          :label="$t('wms.deliveryManagement.packingTaskKeyword')" variant="solo"
-        ></v-text-field>
+      <v-col cols="7">
+        <v-row no-gutters @keyup.enter="method.sureSearch">
+          <v-col cols="4">
+            <v-text-field
+              v-model="data.searchForm.keyword"
+              clearable hide-details density="comfortable"
+              class="searchInput mt-1"
+              label="装箱任务号、商品、SKU、FNSKU" variant="solo"
+            ></v-text-field>
+          </v-col>
+          <v-col cols="4">
+            <v-select
+              v-model="data.searchForm.group_id"
+              :items="data.groupOptions"
+              item-title="name"
+              item-value="id"
+              clearable
+              hide-details
+              density="comfortable"
+              class="searchInput ml-2 mt-1"
+              label="小组"
+              variant="solo"
+              @update:model-value="method.onGroupChange"
+            ></v-select>
+          </v-col>
+          <v-col cols="4">
+            <v-autocomplete
+              v-model="data.searchForm.member_id"
+              :items="filteredMemberOptions"
+              :item-title="memberOptionTitle"
+              item-value="user_id"
+              clearable
+              hide-details
+              density="comfortable"
+              class="searchInput ml-2 mt-1"
+              label="组员"
+              variant="solo"
+              :loading="data.memberOptionsLoading"
+              @update:search="method.searchMembers"
+              @update:model-value="method.onMemberChange"
+              @click:clear="method.clearMemberFilter"
+            ></v-autocomplete>
+          </v-col>
+        </v-row>
+      </v-col>
+      <v-col cols="2" class="searchBtnCol">
+        <v-btn color="primary" prepend-icon="mdi-magnify" @click="method.sureSearch">搜索</v-btn>
       </v-col>
     </v-row>
   </div>
@@ -49,10 +86,10 @@
         <span class="header-item">创建：{{ row.create_name || '-' }} {{ row.source_create_time || '' }}</span>
         <v-btn
           size="small"
-          color="primary"
+          :color="method.isTaskReady(row) ? 'primary' : 'black'"
           variant="tonal"
           :loading="data.creatingRowId === row.sellfox_task_id"
-          :disabled="data.creating || props.warehouseId === null"
+          :disabled="data.creating || props.warehouseId === null || !method.isTaskReady(row)"
           @click="method.createPickingOrderForRow(row)"
         >
           生成拣货单
@@ -67,11 +104,11 @@
               <th>FNSKU / MSKU</th>
               <th>装箱信息</th>
               <th>任务量</th>
-              <th>可用量</th>
+              <th>库存量/可用量</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="item in row.item_list" :key="item.id">
+            <tr v-for="item in row.item_list" :key="item.id" :class="{ 'bound-item-row': method.isItemReady(item) }">
               <td class="detailImageCell">
                 <ProductImage
                   :src="item.main_image || ''"
@@ -111,7 +148,7 @@
               <td>
                 <div class="availableCell">
                   <div class="stockInfoLines">
-                    <div class="stockInfoLine">可用量：{{ method.displayStockAvailable(item) }}</div>
+                    <div class="stockInfoLine">库存量/可用量：{{ item.stock_qty ?? 0 }} / {{ method.displayStockAvailable(item) }}</div>
                     <div class="stockInfoLine secondaryText">锁定量：{{ item.locked_qty ?? 0 }}</div>
                   </div>
                   <v-btn
@@ -149,9 +186,9 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { createDispatchOrder, getWorkflowPackingTaskPage } from '@/api/wms/dispatchWorkflow'
-import BtnGroup from '@/components/system/btnGroup.vue'
+import { getOperatorGroupOptions, getOperatorMemberOptions } from '@/api/base/warehouseSetting'
 import { hookComponent } from '@/components/system'
 import ProductImage from '@/components/system/product-image.vue'
 import customPager from '@/components/custom-pager.vue'
@@ -159,13 +196,15 @@ import { DEFAULT_PAGE_SIZE, PAGE_LAYOUT, PAGE_SIZE } from '@/constant/vxeTable'
 import { DEBOUNCE_TIME } from '@/constant/system'
 import i18n from '@/languages/i18n'
 import type { PackingTaskItemVO, PackingTaskVO } from '@/types/DeliveryManagement/PackingTask'
-import type { btnGroupItem } from '@/types/System/Form'
-import { getMenuAuthorityList } from '@/utils/common'
+import type { OperatorGroupOptionVO, OperatorGroupMemberOptionVO } from '@/types/Base/Warehouse'
 import {
   buildPackingTaskPageRequest,
   createTaskSetIdempotencyKey,
   removeCreatedPackingTasks,
   resetPackingTaskPageState,
+  isPackingItemReady,
+  isPackingSelectionReady,
+  isPackingTaskReady,
   validatePackingTaskSelection
 } from './packingTaskSelection'
 import SelectStockDialog from './select-stock-dialog.vue'
@@ -179,7 +218,14 @@ const emit = defineEmits<{
 const selectStockDialogRef = ref<InstanceType<typeof SelectStockDialog>>()
 
 const data = reactive({
-  searchForm: { keyword: '' },
+  searchForm: {
+    keyword: '',
+    group_id: null as number | null,
+    member_id: null as number | null
+  },
+  groupOptions: [] as OperatorGroupOptionVO[],
+  memberOptions: [] as OperatorGroupMemberOptionVO[],
+  memberOptionsLoading: false,
   tableData: ref<PackingTaskVO[]>([]),
   selectedTaskIds: ref<number[]>([]),
   errorMessage: '',
@@ -191,13 +237,28 @@ const data = reactive({
     pageIndex: 1,
     pageSize: DEFAULT_PAGE_SIZE
   }),
-  timer: ref<ReturnType<typeof setTimeout> | null>(null),
-  btnList: [] as btnGroupItem[],
-  authorityList: getMenuAuthorityList()
+  timer: ref<ReturnType<typeof setTimeout> | null>(null)
 })
 let pageRequestId = 0
+let memberSearchRequestId = 0
+let memberSearchTimer: ReturnType<typeof setTimeout> | null = null
+
+const memberOptionTitle = (item: OperatorGroupMemberOptionVO): string =>
+  item ? `${item.group_name}/${item.member_name}` : ''
+
+const filteredMemberOptions = computed(() => {
+  const groupId = data.searchForm.group_id
+  if (!groupId) return data.memberOptions
+  return data.memberOptions.filter((member) => member.group_id === groupId)
+})
+
+const selectedTasks = computed(() =>
+  data.tableData.filter((task) => data.selectedTaskIds.includes(task.sellfox_task_id)))
+const selectedTasksReady = computed(() => isPackingSelectionReady(selectedTasks.value))
 
 const method = reactive({
+  isItemReady: (item: PackingTaskItemVO): boolean => isPackingItemReady(item),
+  isTaskReady: (row: PackingTaskVO): boolean => isPackingTaskReady(row),
   displayValue: (value: unknown): string | number => value === null || value === undefined ? '' : value as string | number,
   summaryName: (row: PackingTaskVO): string => {
     const first = row.item_list?.[0]
@@ -208,10 +269,7 @@ const method = reactive({
     return first?.commodity_sku || first?.sku || '-'
   },
   displayStockAvailable: (item: PackingTaskItemVO): string => {
-    if (!item.stock_sku_code) return '-'
-    const locked = item.locked_qty ?? 0
-    const available = Math.max(0, (item.stock_available_qty ?? 0) - locked)
-    return `库存${item.stock_sku_code}:${available}`
+    return String(item.stock_available_qty ?? 0)
   },
   copyText: async (text: string | number | null | undefined, successMessage: string) => {
     const value = String(text ?? '').trim()
@@ -279,6 +337,22 @@ const method = reactive({
       data.errorMessage = ''
       return
     }
+    if (data.searchForm.group_id) {
+      request.searchObjects.push({
+        name: 'group_id',
+        operator: 1,
+        text: String(data.searchForm.group_id),
+        value: String(data.searchForm.group_id)
+      })
+    }
+    if (data.searchForm.member_id) {
+      request.searchObjects.push({
+        name: 'member_id',
+        operator: 1,
+        text: String(data.searchForm.member_id),
+        value: String(data.searchForm.member_id)
+      })
+    }
     try {
       const res = await getWorkflowPackingTaskPage(request, hideLoading)
       if (requestId !== pageRequestId) return
@@ -299,6 +373,47 @@ const method = reactive({
   },
   // 库存选择完成后的数据回刷属于后台同步，不应再次占用全局阻塞式加载遮罩。
   refresh: () => method.getPage(true),
+  loadGroupOptions: async () => {
+    try {
+      const { data: res } = await getOperatorGroupOptions()
+      if (res.isSuccess) data.groupOptions = res.data
+    } catch {
+      data.groupOptions = []
+    }
+  },
+  searchMembers: (keyword: string | null) => {
+    if (memberSearchTimer) clearTimeout(memberSearchTimer)
+    const requestId = ++memberSearchRequestId
+    data.memberOptionsLoading = true
+    memberSearchTimer = setTimeout(async () => {
+      memberSearchTimer = null
+      try {
+        const { data: res } = await getOperatorMemberOptions(keyword?.trim() ?? '')
+        if (requestId === memberSearchRequestId && res.isSuccess) data.memberOptions = res.data
+      } catch {
+        if (requestId === memberSearchRequestId) data.memberOptions = []
+      } finally {
+        if (requestId === memberSearchRequestId) data.memberOptionsLoading = false
+      }
+    }, DEBOUNCE_TIME)
+  },
+  onGroupChange: () => {
+    data.searchForm.member_id = null
+    data.tablePage.pageIndex = 1
+    method.getPage()
+  },
+  onMemberChange: (memberId: number | null) => {
+    if (!memberId) return
+    const member = data.memberOptions.find((item) => item.user_id === memberId)
+    if (member) data.searchForm.group_id = member.group_id
+    data.tablePage.pageIndex = 1
+    method.getPage()
+  },
+  clearMemberFilter: () => {
+    data.searchForm.member_id = null
+    data.tablePage.pageIndex = 1
+    method.getPage()
+  },
   handlePageChange: ({ currentPage, pageSize }: { currentPage: number; pageSize: number }) => {
     data.tablePage.pageIndex = currentPage
     data.tablePage.pageSize = pageSize
@@ -362,6 +477,10 @@ const method = reactive({
     }
   },
   createPickingOrder: async () => {
+    if (!selectedTasksReady.value) {
+      hookComponent.$message({ type: 'warning', content: '存在未绑定库存的商品，不能生成拣货单' })
+      return
+    }
     const selection = validatePackingTaskSelection(
       data.tableData.filter((t) => data.selectedTaskIds.includes(t.sellfox_task_id)),
       props.warehouseId
@@ -378,6 +497,10 @@ const method = reactive({
     await method.createOrderForTaskIds(selection.sourceTaskIds)
   },
   createPickingOrderForRow: async (row: PackingTaskVO) => {
+    if (!isPackingTaskReady(row)) {
+      hookComponent.$message({ type: 'warning', content: '存在未绑定库存的商品，不能生成拣货单' })
+      return
+    }
     const selection = validatePackingTaskSelection([row], props.warehouseId)
     if (!selection.ok) {
       hookComponent.$message({ type: 'error', content: '请先选择仓库' })
@@ -389,22 +512,26 @@ const method = reactive({
 })
 
 onMounted(() => {
-  data.btnList = [
-    { name: i18n.global.t('system.page.refresh'), icon: 'mdi-refresh', code: '', click: method.refresh }
-  ]
+  method.loadGroupOptions()
+  method.searchMembers('')
 })
 
 watch(
-  () => data.searchForm,
+  () => data.searchForm.keyword,
   () => {
     if (data.timer) clearTimeout(data.timer)
     data.timer = setTimeout(() => {
       data.timer = null
       method.sureSearch()
     }, DEBOUNCE_TIME)
-  },
-  { deep: true }
+  }
 )
+
+onBeforeUnmount(() => {
+  if (data.timer) clearTimeout(data.timer)
+  if (memberSearchTimer) clearTimeout(memberSearchTimer)
+  memberSearchRequestId++
+})
 
 watch(
   () => props.warehouseId,
@@ -435,10 +562,20 @@ defineExpose({ getPackingTask: method.getPage })
   align-items: center;
 }
 
+.searchBtnCol {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
 .packing-task-list {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.bound-item-row td {
+  background-color: #e8f5e9 !important;
 }
 
 .packing-task-card {

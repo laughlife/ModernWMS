@@ -45,12 +45,16 @@ public partial class ErpPendingReceiptService
         shipment.loss_reason = lossQty > 0 ? input.loss_reason.Trim() : string.Empty;
         var inputItems = input.items.ToDictionary(t => t.source_item_key, StringComparer.Ordinal);
 
+        // Establish one deterministic stock-lock order before resolving any location allocation.
+        await LockWarehousePoolStocksAsync(shipment.to_warehouse_id!.Value);
+
         for (var index = 0; index < products.Count; index++)
         {
             var product = products[index];
             var item = inputItems[product.source_item_key];
             var itemInboundQty = checked(item.actual_receipt_qty - item.loss_qty);
-            var erpStockId = 0L;
+            long? erpStockId = null;
+            long? primaryStockAllocationId = null;
             var wmsSkuId = await EnsureWmsSkuAsync(product, currentUser, now);
             var allocations = await BuildReceiptAllocationsAsync(
                 shipment,
@@ -60,29 +64,44 @@ public partial class ErpPendingReceiptService
                 currentUser,
                 now);
             var primaryArea = allocations.FirstOrDefault();
-            var wmsStockId = 0;
 
             if (itemInboundQty > 0)
             {
-                erpStockId = await PostErpStockAsync(shipment, product, itemInboundQty, index + 1, currentUser, now);
+                var posting = await PostErpStockAsync(
+                    shipment,
+                    product,
+                    itemInboundQty,
+                    index + 1,
+                    currentUser,
+                    now);
+                erpStockId = posting.StockId;
+                await LockStockAllocationsInIdOrderAsync(erpStockId.Value, currentUser.tenant_id);
+                var erpStockRecordId = await WriteErpStockReceiptRecordAsync(
+                    posting,
+                    shipment,
+                    product,
+                    itemInboundQty,
+                    index + 1,
+                    currentUser,
+                    now);
                 for (var allocIndex = 0; allocIndex < allocations.Count; allocIndex++)
                 {
                     var allocation = allocations[allocIndex];
-                    var stockId = await PostWmsStockAsync(
-                        shipment.id,
+                    var stockAllocationId = await PostStockAllocationAsync(
+                        posting,
+                        erpStockRecordId,
+                        shipment,
                         index + 1,
-                        allocIndex + 1,
                         wmsSkuId,
-                        allocation.LocationId,
-                        allocation.GoodsOwnerId,
-                        allocation.Qty,
+                        allocation,
                         currentUser,
                         now);
                     if (allocIndex == 0)
                     {
-                        wmsStockId = stockId;
+                        primaryStockAllocationId = stockAllocationId;
                     }
                 }
+                await EnsureStockAllocationInvariantAsync(erpStockId.Value, currentUser.tenant_id);
             }
 
             await ExecuteAsync(
@@ -92,14 +111,16 @@ public partial class ErpPendingReceiptService
                      commodity_id, commodity_sku, commodity_name, dept_id, order_user_id,
                      dept_name, order_user_name, warehouse_area_id, warehouse_area_name,
                      shipment_qty, actual_receipt_qty, loss_qty, inbound_qty, erp_stock_id,
-                     wms_sku_id, wms_stock_id, receipt_time, total_weight, total_volume,
+                     wms_sku_id, wms_stock_id, primary_stock_allocation_id,
+                     receipt_time, total_weight, total_volume,
                      create_time, tenant_id)
                 VALUES
                     (@receiptId, @shipmentId, @sourceItemKey, @taskItemId, @allocationId,
                      @commodityId, @sku, @name, @deptId, @orderUserId,
                      @deptName, @orderUserName, @areaId, @areaName,
                      @shipmentQty, @actualQty, @lossQty, @inboundQty, @erpStockId,
-                     @wmsSkuId, @wmsStockId, @now, NULL, NULL, @now, @tenantId)
+                     @wmsSkuId, NULL, @primaryStockAllocationId,
+                     @now, NULL, NULL, @now, @tenantId)
                 """,
                 ("@receiptId", receiptId), ("@shipmentId", shipment.id),
                 ("@sourceItemKey", product.source_item_key), ("@taskItemId", product.task_item_id),
@@ -112,7 +133,8 @@ public partial class ErpPendingReceiptService
                 ("@shipmentQty", item.shipment_qty), ("@actualQty", item.actual_receipt_qty),
                 ("@lossQty", item.loss_qty), ("@inboundQty", itemInboundQty),
                 ("@erpStockId", erpStockId), ("@wmsSkuId", wmsSkuId),
-                ("@wmsStockId", wmsStockId), ("@now", now), ("@tenantId", currentUser.tenant_id));
+                ("@primaryStockAllocationId", primaryStockAllocationId),
+                ("@now", now), ("@tenantId", currentUser.tenant_id));
 
             if (allocations.Count > 0)
             {
@@ -199,86 +221,6 @@ public partial class ErpPendingReceiptService
         {
             throw new InvalidOperationException("货件状态或版本已变化，签收入库已回滚");
         }
-    }
-
-    private async Task<long> PostErpStockAsync(
-        ErpLogisticsInfoEntity shipment,
-        ErpPendingReceiptProductViewModel product,
-        long quantity,
-        int itemIndex,
-        CurrentUser currentUser,
-        DateTime now)
-    {
-        var stockId = await ScalarAsync<long?>(
-            """
-            SELECT id FROM trk_stock
-             WHERE deleted = b'0' AND stock_batch_no = 'POOL'
-               AND warehouse_id = @warehouseId
-               AND commodity_id <=> @commodityId AND commodity_sku <=> @sku
-               AND dept_id <=> @deptId AND order_user_id <=> @orderUserId
-               AND freight_forwarder_id <=> @forwarderId
-             LIMIT 1 FOR UPDATE
-            """,
-            ("@warehouseId", shipment.to_warehouse_id), ("@commodityId", product.commodity_id),
-            ("@sku", product.sku), ("@deptId", product.dept_id),
-            ("@orderUserId", product.order_user_id), ("@forwarderId", shipment.freight_forwarder_id));
-
-        if (stockId == null)
-        {
-            await ExecuteAsync(
-                """
-                INSERT INTO trk_stock
-                    (freight_forwarder_id, freight_forwarder_name, warehouse_id, warehouse_name,
-                     dept_id, dept_name, order_user_id, order_user_name, commodity_id,
-                     commodity_sku, commodity_name, product_snapshot_json, stock_batch_no,
-                     source_logistics_info_id, source_shipment_batch_id, available_qty,
-                     occupied_qty, total_qty, creator, create_time, updater, update_time, deleted)
-                VALUES
-                    (@forwarderId, @forwarderName, @warehouseId, @warehouseName,
-                     @deptId, @deptName, @orderUserId, @orderUserName, @commodityId,
-                     @sku, @name, @snapshot, 'POOL', @shipmentId, @batchId, 0, 0, 0,
-                     @operatorName, @now, @operatorName, @now, b'0')
-                """,
-                ("@forwarderId", shipment.freight_forwarder_id),
-                ("@forwarderName", shipment.freight_forwarder_name),
-                ("@warehouseId", shipment.to_warehouse_id), ("@warehouseName", shipment.to_warehouse_name),
-                ("@deptId", product.dept_id), ("@deptName", product.dept_name),
-                ("@orderUserId", product.order_user_id), ("@orderUserName", product.order_user_name),
-                ("@commodityId", product.commodity_id), ("@sku", product.sku),
-                ("@name", product.product_name), ("@snapshot", shipment.product_snapshot_json),
-                ("@shipmentId", shipment.id), ("@batchId", shipment.source_shipment_batch_id),
-                ("@operatorName", Truncate(currentUser.user_name, 64)), ("@now", now));
-            stockId = await ScalarAsync<long>("SELECT LAST_INSERT_ID()");
-        }
-
-        var beforeQty = await ScalarAsync<long>(
-            "SELECT available_qty FROM trk_stock WHERE id = @stockId FOR UPDATE", ("@stockId", stockId.Value));
-        var afterQty = checked(beforeQty + quantity);
-        await ExecuteAsync(
-            "UPDATE trk_stock SET available_qty=@afterQty,total_qty=total_qty+@qty,updater=@name,update_time=@now WHERE id=@stockId",
-            ("@afterQty", afterQty), ("@qty", quantity), ("@name", Truncate(currentUser.user_name, 64)),
-            ("@now", now), ("@stockId", stockId.Value));
-        await ExecuteAsync(
-            """
-            INSERT INTO trk_stock_record
-                (record_no,biz_type,biz_id,biz_item_id,biz_no,stock_id,freight_forwarder_id,
-                 warehouse_id,dept_id,order_user_id,commodity_id,commodity_sku,commodity_name,
-                 change_qty,before_qty,after_qty,direction,operate_time,operator_id,operator_name,
-                 remark,creator,create_time,updater,update_time,deleted)
-            VALUES
-                (@recordNo,'RECEIPT_IN',@shipmentId,@itemIndex,@bizNo,@stockId,@forwarderId,
-                 @warehouseId,@deptId,@orderUserId,@commodityId,@sku,@name,@qty,@beforeQty,@afterQty,
-                 'IN',@now,@operatorId,@operatorName,'ModernWMS确认签收入库',@operatorName,@now,
-                 @operatorName,@now,b'0')
-            """,
-            ("@recordNo", $"MWMS-RI-{shipment.id}-{itemIndex}"), ("@shipmentId", shipment.id),
-            ("@itemIndex", itemIndex), ("@bizNo", shipment.shipment_batch_no), ("@stockId", stockId.Value),
-            ("@forwarderId", shipment.freight_forwarder_id), ("@warehouseId", shipment.to_warehouse_id),
-            ("@deptId", product.dept_id), ("@orderUserId", product.order_user_id),
-            ("@commodityId", product.commodity_id), ("@sku", product.sku), ("@name", product.product_name),
-            ("@qty", quantity), ("@beforeQty", beforeQty), ("@afterQty", afterQty), ("@now", now),
-            ("@operatorId", currentUser.user_id), ("@operatorName", Truncate(currentUser.user_name, 64)));
-        return stockId.Value;
     }
 
     private async Task<ReceiptAreaLocation> EnsureReceiptAreaLocationAsync(
@@ -530,74 +472,6 @@ public partial class ErpPendingReceiptService
         return ownerId;
     }
 
-    private async Task<int> PostWmsStockAsync(
-        long shipmentId,
-        int itemIndex,
-        int allocIndex,
-        int skuId,
-        int locationId,
-        int ownerId,
-        long quantity,
-        CurrentUser currentUser,
-        DateTime now)
-    {
-        if (quantity > int.MaxValue)
-        {
-            throw new InvalidOperationException("单商品入库数量超过 WMS 库存字段上限");
-        }
-        var stockPrice = await ScalarAsync<decimal>("SELECT cost FROM wms_sku WHERE id=@skuId", ("@skuId", skuId));
-        var stockId = await ScalarAsync<int?>(
-            """
-            SELECT id FROM wms_stock
-             WHERE sku_id=@skuId AND goods_location_id=@locationId AND goods_owner_id=@ownerId
-               AND tenant_id=@tenantId AND is_freeze=0 AND series_number=''
-               AND expiry_date='9999-12-31 00:00:00' AND price=@price
-             LIMIT 1 FOR UPDATE
-            """,
-            ("@skuId", skuId), ("@locationId", locationId), ("@ownerId", ownerId),
-            ("@tenantId", currentUser.tenant_id), ("@price", stockPrice));
-        var beforeQty = 0L;
-        if (stockId == null)
-        {
-            await ExecuteAsync(
-                """
-                INSERT INTO wms_stock
-                    (sku_id,goods_location_id,qty,goods_owner_id,is_freeze,last_update_time,tenant_id,
-                     series_number,expiry_date,price,putaway_date)
-                VALUES (@skuId,@locationId,@qty,@ownerId,0,@now,@tenantId,'','9999-12-31',@price,@putawayDate)
-                """,
-                ("@skuId", skuId), ("@locationId", locationId), ("@qty", (int)quantity),
-                ("@ownerId", ownerId), ("@now", now), ("@tenantId", currentUser.tenant_id),
-                ("@price", stockPrice), ("@putawayDate", now.Date));
-            stockId = await ScalarAsync<int>("SELECT LAST_INSERT_ID()");
-        }
-        else
-        {
-            beforeQty = await ScalarAsync<int>("SELECT qty FROM wms_stock WHERE id=@id FOR UPDATE", ("@id", stockId.Value));
-            if (beforeQty + quantity > int.MaxValue)
-            {
-                throw new InvalidOperationException("WMS 库存累计数量超过字段上限");
-            }
-            await ExecuteAsync(
-                "UPDATE wms_stock SET qty=@qty,last_update_time=@now WHERE id=@id",
-                ("@qty", (int)(beforeQty + quantity)), ("@now", now), ("@id", stockId.Value));
-        }
-        await ExecuteAsync(
-            """
-            INSERT INTO wms_stock_record
-                (record_no,biz_type,biz_id,biz_item_id,stock_id,sku_id,goods_location_id,goods_owner_id,
-                 change_qty,before_qty,after_qty,direction,operator_id,operator_name,remark,operate_time,tenant_id)
-            VALUES (@recordNo,'RECEIPT_IN',@shipmentId,@itemIndex,@stockId,@skuId,@locationId,@ownerId,
-                    @qty,@beforeQty,@afterQty,'IN',@operatorId,@operatorName,'确认签收入库',@now,@tenantId)
-            """,
-            ("@recordNo", $"MWMS-RI-{shipmentId}-{itemIndex}-{allocIndex}"), ("@shipmentId", shipmentId),
-            ("@itemIndex", itemIndex), ("@stockId", stockId.Value), ("@skuId", skuId),
-            ("@locationId", locationId), ("@ownerId", ownerId), ("@qty", quantity),
-            ("@beforeQty", beforeQty), ("@afterQty", beforeQty + quantity),
-            ("@operatorId", currentUser.user_id), ("@operatorName", Truncate(currentUser.user_name, 128)),
-            ("@now", now), ("@tenantId", currentUser.tenant_id));
-        return stockId.Value;
-    }
     private async Task SynchronizeSourceAsync(
         ErpLogisticsInfoEntity shipment,
         long actualReceiptQty,
@@ -609,7 +483,7 @@ public partial class ErpPendingReceiptService
         if (string.Equals(shipment.source_type, PurchaseTaskSourceType, StringComparison.OrdinalIgnoreCase)
             && shipment.source_task_id != null)
         {
-            // ERP receipt quantity must match the quantity actually posted to both inventory ledgers.
+            // ERP receipt quantity must match the quantity posted to the canonical ERP balance.
             var targetReceiptQty = inboundQty;
             var existedReceiptQty = await ScalarAsync<long>(
                 """
@@ -708,84 +582,8 @@ public partial class ErpPendingReceiptService
         else if (string.Equals(shipment.source_type, "STOCK_DISPATCH", StringComparison.OrdinalIgnoreCase)
                  && shipment.source_stock_move_id != null)
         {
-            var moveStatus = await ScalarAsync<string?>(
-                "SELECT status FROM trk_stock_move WHERE id=@moveId AND deleted=b'0' FOR UPDATE",
-                ("@moveId", shipment.source_stock_move_id));
-            if (!string.Equals(moveStatus, "WAIT_RECEIPT", StringComparison.Ordinal))
-            {
-                throw new InvalidOperationException("调度来源不是待收货状态，签收入库已回滚");
-            }
-            var invalidCount = await ScalarAsync<long>(
-                """
-                SELECT COUNT(*)
-                  FROM (SELECT COALESCE(i.from_stock_id,i.stock_id) stock_id,SUM(i.qty) qty
-                          FROM trk_stock_move_item i
-                         WHERE i.stock_move_id=@moveId AND i.deleted=b'0'
-                           AND NOT EXISTS (SELECT 1 FROM trk_stock_record r
-                                            WHERE r.biz_type='DISPATCH_SHIP_OUT' AND r.biz_id=i.stock_move_id
-                                              AND r.biz_item_id=i.id AND r.stock_id=COALESCE(i.from_stock_id,i.stock_id)
-                                              AND r.deleted=b'0')
-                         GROUP BY COALESCE(i.from_stock_id,i.stock_id)) i
-                  JOIN trk_stock s ON s.id=i.stock_id
-                 WHERE s.deleted=b'1' OR s.occupied_qty<i.qty OR s.total_qty<i.qty
-                """,
-                ("@moveId", shipment.source_stock_move_id));
-            if (invalidCount > 0)
-            {
-                throw new InvalidOperationException("调度来源冻结库存不足，签收入库已回滚");
-            }
-            await ExecuteAsync(
-                """
-                INSERT INTO trk_stock_record
-                    (record_no,biz_type,biz_id,biz_item_id,biz_no,stock_id,freight_forwarder_id,
-                     warehouse_id,dept_id,order_user_id,commodity_id,commodity_sku,commodity_name,
-                     change_qty,before_qty,after_qty,direction,operate_time,operator_id,operator_name,
-                     remark,creator,create_time,updater,update_time,deleted)
-                SELECT CONCAT('MWMS-DSO-',m.id,'-',i.id),'DISPATCH_SHIP_OUT',m.id,i.id,m.no,s.id,
-                       s.freight_forwarder_id,s.warehouse_id,s.dept_id,s.order_user_id,s.commodity_id,
-                       s.commodity_sku,s.commodity_name,-i.qty,s.total_qty,s.total_qty-i.qty,'OUT',@now,
-                       @operatorId,@operatorName,'目标仓物理收货，结转来源冻结库存',@operatorName,@now,
-                       @operatorName,@now,b'0'
-                  FROM trk_stock_move m
-                  JOIN trk_stock_move_item i ON i.stock_move_id=m.id AND i.deleted=b'0'
-                  JOIN trk_stock s ON s.id=COALESCE(i.from_stock_id,i.stock_id) AND s.deleted=b'0'
-                 WHERE m.id=@moveId AND m.deleted=b'0'
-                   AND NOT EXISTS (SELECT 1 FROM trk_stock_record r
-                                    WHERE r.biz_type='DISPATCH_SHIP_OUT' AND r.biz_id=m.id
-                                      AND r.biz_item_id=i.id AND r.stock_id=s.id AND r.deleted=b'0')
-                """,
-                ("@now", now), ("@operatorId", currentUser.user_id),
-                ("@operatorName", Truncate(currentUser.user_name, 64)),
-                ("@moveId", shipment.source_stock_move_id));
-            await ExecuteAsync(
-                """
-                UPDATE trk_stock s
-                JOIN (SELECT COALESCE(i.from_stock_id,i.stock_id) stock_id,SUM(i.qty) qty
-                        FROM trk_stock_move_item i
-                       WHERE i.stock_move_id=@moveId AND i.deleted=b'0'
-                         AND NOT EXISTS (SELECT 1 FROM trk_stock_record r
-                                          WHERE r.biz_type='DISPATCH_SHIP_OUT' AND r.biz_id=i.stock_move_id
-                                            AND r.biz_item_id=i.id AND r.stock_id=COALESCE(i.from_stock_id,i.stock_id)
-                                            AND r.deleted=b'0' AND r.record_no NOT LIKE 'MWMS-DSO-%')
-                       GROUP BY COALESCE(i.from_stock_id,i.stock_id)) i ON i.stock_id=s.id
-                   SET s.occupied_qty=s.occupied_qty-i.qty,s.total_qty=s.total_qty-i.qty,
-                       s.updater=@name,s.update_time=@now
-                 WHERE s.deleted=b'0'
-                """,
-                ("@name", Truncate(currentUser.user_name, 64)), ("@now", now),
-                ("@moveId", shipment.source_stock_move_id));
-            await ExecuteAsync(
-                "UPDATE trk_stock_move_item SET occupied_qty=0,updater=@name,update_time=@now WHERE stock_move_id=@moveId AND deleted=b'0'",
-                ("@name", Truncate(currentUser.user_name, 64)), ("@now", now),
-                ("@moveId", shipment.source_stock_move_id));
-            var moveAffected = await ExecuteAsync(
-                "UPDATE trk_stock_move SET status='COMPLETED',shipment_status='COMPLETED',shipment_status_time=@now,updater=@name,update_time=@now WHERE id=@id AND status='WAIT_RECEIPT' AND deleted=b'0'",
-                ("@name", Truncate(currentUser.user_name, 64)), ("@now", now),
-                ("@id", shipment.source_stock_move_id));
-            if (moveAffected != 1)
-            {
-                throw new InvalidOperationException("调度来源状态已变化，签收入库已回滚");
-            }
+            throw new InvalidOperationException(
+                "调度收货必须先完成来源allocation扣减迁移；当前禁止绕过统一库存Mutation直接结转ERP库存");
         }
     }
 

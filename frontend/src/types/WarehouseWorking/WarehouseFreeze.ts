@@ -2,6 +2,9 @@ import { UniformFileNaming } from '../System/Form'
 
 export interface WarehouseFreezeVO extends UniformFileNaming {
   id: number
+  source_freeze_id?: number | null
+  erp_stock_id?: number | null
+  stock_allocation_id?: number | null
   job_code: string
   job_type: boolean
   sku_id: number

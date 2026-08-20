@@ -44,8 +44,11 @@ public class PackingTaskQueryItemViewModel
     /// </summary>
     public string? stock_sku_code { get; set; }
 
+    /// <summary>当前仓库中装箱任务创建人名下的非冻结库存总量。</summary>
+    public int? stock_qty { get; set; }
+
     /// <summary>
-    /// 匹配到 WMS 基础 SKU 的可用库存合计（同一 SPU 下所有变体的非冻结库存之和）。
+    /// 当前仓库中创建人库存扣除有效锁定后的可用量。
     /// </summary>
     public int? stock_available_qty { get; set; }
 

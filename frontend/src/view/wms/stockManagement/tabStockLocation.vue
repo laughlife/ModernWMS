@@ -85,6 +85,8 @@
             <div class="cell-line">{{ row.warehouse_name }}</div>
             <div class="cell-line cell-sub">{{ row.warehouse_area_name || row.location_name }}</div>
             <div class="cell-line cell-sub">{{ $t('wms.stockLocation.goods_owner') }}：{{ row.goods_owner_name || '-' }}</div>
+            <v-chip v-if="row.is_pending_location" color="warning" size="x-small" variant="tonal">待确认库位</v-chip>
+            <v-chip v-else-if="!row.allocation_consistent" color="error" size="x-small" variant="tonal">库存分配不一致</v-chip>
           </div>
         </template>
       </vxe-column>
@@ -99,6 +101,9 @@
       <vxe-column field="qty" :title="$t('wms.stockLocation.qty')"></vxe-column>
       <vxe-column field="qty_available" :title="$t('wms.stockLocation.qty_available')"></vxe-column>
       <vxe-column field="qty_locked" :title="$t('wms.stockLocation.qty_locked')"></vxe-column>
+      <vxe-column field="erp_total_qty" title="ERP总库存"></vxe-column>
+      <vxe-column field="erp_available_qty" title="ERP可用库存"></vxe-column>
+      <vxe-column field="erp_occupied_qty" title="ERP占用库存"></vxe-column>
       <vxe-column field="price" :title="$t('wms.stockAsnInfo.price')"></vxe-column>
       <vxe-date-column field="expiry_date" :title="$t('wms.stockAsnInfo.expiry_date')"> </vxe-date-column>
       <vxe-date-column field="putaway_date" :title="$t('wms.stockAsnInfo.putaway_date')"> </vxe-date-column>

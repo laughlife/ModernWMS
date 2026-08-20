@@ -256,9 +256,19 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
         rows.RemoveAll(x=>x.putaway_qty<1);
         if(rows.Any(x=>x.goods_location_id==0))return(false,"[202]"+string.Format(_stringLocalizer["Required"],_stringLocalizer["location_name"]));
         var locationIds=rows.Select(x=>x.goods_location_id).Distinct().ToList();
-        await using var c=await _connectionFactory.OpenConnectionAsync();await using var tx=await c.BeginTransactionAsync(IsolationLevel.Serializable);
-        var locations=(await c.QueryAsync<GoodslocationEntity>("SELECT * FROM `wms_goodslocation` WHERE `id` IN @locationIds;",new{locationIds},tx)).AsList();
+        await using var c=await _connectionFactory.OpenConnectionAsync();
+        var locations=(await c.QueryAsync<GoodslocationEntity>("SELECT * FROM `wms_goodslocation` WHERE `id` IN @locationIds;",new{locationIds})).AsList();
         if(locations.Count!=locationIds.Count)return(false,"[202]"+string.Format(_stringLocalizer["Required"],_stringLocalizer["location_name"]));
+        var routeSnapshots=new List<CanonicalInventorySupport.InventoryRoute>();
+        foreach(var locationId in locationIds)
+        {
+            var route=await CanonicalInventorySupport.GetRouteAsync(c,user.tenant_id,locationId);
+            routeSnapshots.Add(route);
+            if(route.Mode==CanonicalInventorySupport.CanonicalMode)
+                return(false,"普通ASN缺少可唯一关联的ERP采购物流库存维度，统一库存模式下禁止上架；请使用ERP签收入库流程");
+        }
+        await using var tx=await c.BeginTransactionAsync(IsolationLevel.Serializable);
+        await CanonicalInventorySupport.LockRoutesAsync(c,tx,user.tenant_id,routeSnapshots);
         var asn=await c.QuerySingleOrDefaultAsync<AsnEntity>("SELECT * FROM `wms_asn` WHERE `id`=@id FOR UPDATE;",new{id=rows[0].asn_id},tx);
         if(asn==null)return(false,"[202]"+_stringLocalizer["not_exists_entity"]);
         var sum=rows.Sum(x=>x.putaway_qty);

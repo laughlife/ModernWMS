@@ -95,6 +95,13 @@
                         :tooltip-text="$t('system.page.view')"
                         @click="method.viewRow(row)"
                       ></tooltip-btn>
+                      <tooltip-btn
+                        v-if="row.job_type === FREEZE_JOB_FREEZE"
+                        :flat="true"
+                        icon="mdi-lock-open-variant-outline"
+                        tooltip-text="解冻此冻结单"
+                        @click="method.unfreezeRow(row)"
+                      ></tooltip-btn>
                       <!-- <tooltip-btn
                         :flat="true"
                         icon="mdi-book-open-outline"
@@ -170,6 +177,7 @@ const data = reactive({
   tableData: ref<WarehouseFreezeVO[]>([]),
   dialogForm: {
     id: 0,
+    source_freeze_id: null,
     job_code: '',
     job_type: FREEZE_JOB_FREEZE,
     sku_id: 0,
@@ -205,6 +213,7 @@ const method = reactive({
     data.freezeType = jobType
     data.dialogForm = {
       id: 0,
+      source_freeze_id: null,
       job_code: '',
       job_type: FREEZE_JOB_FREEZE,
       sku_id: 0,
@@ -259,6 +268,25 @@ const method = reactive({
 
   viewRow: async (row: WarehouseFreezeVO) => {
     await method.getOne(row.id)
+    nextTick(() => {
+      data.showDialog = true
+    })
+  },
+
+  unfreezeRow: (row: WarehouseFreezeVO) => {
+    data.freezeType = FREEZE_JOB_UNFREEZE
+    data.dialogForm = {
+      ...row,
+      id: 0,
+      job_code: '',
+      job_type: FREEZE_JOB_UNFREEZE,
+      source_freeze_id: row.id,
+      handler: '',
+      handle_time: '',
+      last_update_time: '',
+      creator: '',
+      create_time: ''
+    }
     nextTick(() => {
       data.showDialog = true
     })
@@ -336,14 +364,6 @@ onMounted(() => {
       code: 'freeze',
       click: () => {
         method.add(FREEZE_JOB_FREEZE)
-      }
-    },
-    {
-      name: i18n.global.t('wms.warehouseWorking.warehouseFreeze.unfreeze'),
-      icon: 'mdi-lock-open-variant-outline',
-      code: 'unfreeze',
-      click: () => {
-        method.add(FREEZE_JOB_UNFREEZE)
       }
     },
     {

@@ -10,6 +10,7 @@ using ModernWMS.WMS.Entities.ViewModels.PackingTask;
 using ModernWMS.WMS.IServices;
 using ModernWMS.WMS.IServices.DispatchWorkflow;
 using ModernWMS.WMS.IServices.PackingTask;
+using ModernWMS.WMS.IServices.StockAllocation;
 using ModernWMS.WMS.Services.Dispatchlist;
 
 namespace ModernWMS.WMS.Services.DispatchWorkflow;
@@ -20,17 +21,82 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
     private readonly IPackingTaskSourceReader _sourceReader;
     private readonly IWarehouseAccessService _warehouseAccessService;
     private readonly IDispatchSignNotificationClient? _dispatchSignNotificationClient;
+    private readonly IStockAllocationMutationService? _stockAllocationMutationService;
 
     public DispatchWorkflowService(
         IMySqlConnectionFactory connectionFactory,
         IPackingTaskSourceReader sourceReader,
         IWarehouseAccessService warehouseAccessService,
-        IDispatchSignNotificationClient? dispatchSignNotificationClient = null)
+        IDispatchSignNotificationClient? dispatchSignNotificationClient = null,
+        IStockAllocationMutationService? stockAllocationMutationService = null)
     {
         _connectionFactory = connectionFactory;
         _sourceReader = sourceReader;
         _warehouseAccessService = warehouseAccessService;
         _dispatchSignNotificationClient = dispatchSignNotificationClient;
+        _stockAllocationMutationService = stockAllocationMutationService;
+    }
+
+    private const string LegacyInventoryMode = "LEGACY_READ";
+    private const string CanonicalInventoryMode = "CANONICAL_ERP";
+
+    private static async Task<InventoryRuntime> LoadInventoryRuntimeAsync(
+        System.Data.IDbConnection connection,
+        System.Data.IDbTransaction? transaction,
+        long tenantId,
+        long erpWarehouseId,
+        CancellationToken cancellationToken)
+    {
+        var suffix = transaction == null ? string.Empty : " FOR UPDATE";
+        var runtime = await connection.QuerySingleOrDefaultAsync<InventoryRuntime>(new CommandDefinition(
+            $"""
+            SELECT `mode` Mode,`maintenance_enabled` MaintenanceEnabled
+              FROM `wms_inventory_runtime_config`
+             WHERE `tenant_id`=@tenantId AND `erp_warehouse_id`=@erpWarehouseId{suffix};
+            """, new { tenantId, erpWarehouseId }, transaction, cancellationToken: cancellationToken));
+        runtime ??= new InventoryRuntime { Mode = LegacyInventoryMode };
+        if (runtime.MaintenanceEnabled)
+            throw new InvalidOperationException($"ERP仓库 {erpWarehouseId} 正处于库存维护窗口，出库操作已暂停");
+        if (runtime.Mode is not (LegacyInventoryMode or CanonicalInventoryMode))
+            throw new InvalidOperationException($"ERP仓库 {erpWarehouseId} 的库存运行模式无效");
+        return runtime;
+    }
+
+    private IStockAllocationMutationService RequireStockAllocationMutationService() =>
+        _stockAllocationMutationService
+        ?? throw new InvalidOperationException("统一ERP库存模式未注册库存分配变更服务，操作已拒绝");
+
+    private static StockMutationContext DispatchMutationContext(
+        CurrentUser user,
+        long erpWarehouseId,
+        string action,
+        long orderId,
+        long bizItemId,
+        long erpStockId,
+        long allocationId,
+        long quantity,
+        string requestIdentity)
+    {
+        var operationKey = HashText(
+            $"{action}:{orderId}:{bizItemId}:{erpStockId}:{allocationId}:{quantity}:{requestIdentity}");
+        var operatorName=string.IsNullOrWhiteSpace(user.user_name)?$"用户{user.user_id}":user.user_name.Trim();
+        if(operatorName.Length>64)operatorName=operatorName[..64];
+        return new StockMutationContext(
+            user.tenant_id,
+            erpWarehouseId,
+            operationKey,
+            action,
+            orderId,
+            bizItemId,
+            user.user_id,
+            operatorName,
+            action);
+    }
+
+    private sealed class InventoryRuntime
+    {
+        public string Mode { get; init; } = LegacyInventoryMode;
+        public bool MaintenanceEnabled { get; init; }
     }
 
     public async Task<DispatchOrderDetailViewModel> PrintAsync(

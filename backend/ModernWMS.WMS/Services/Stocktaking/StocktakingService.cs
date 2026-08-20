@@ -11,6 +11,7 @@ using ModernWMS.Core.Utility;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels;
 using ModernWMS.WMS.IServices;
+using ModernWMS.WMS.IServices.StockAllocation;
 
 namespace ModernWMS.WMS.Services;
 
@@ -20,15 +21,18 @@ public class StocktakingService : BaseService<StocktakingEntity>, IStocktakingSe
     private readonly IMySqlConnectionFactory _connectionFactory;
     private readonly IStringLocalizer<Core.MultiLanguage> _stringLocalizer;
     private readonly FunctionHelper _functionHelper;
+    private readonly IStockAllocationMutationService _stockMutationService;
 
     public StocktakingService(
         IMySqlConnectionFactory connectionFactory,
         IStringLocalizer<Core.MultiLanguage> stringLocalizer,
-        FunctionHelper functionHelper)
+        FunctionHelper functionHelper,
+        IStockAllocationMutationService stockMutationService)
     {
         _connectionFactory = connectionFactory ?? throw new ArgumentNullException(nameof(connectionFactory));
         _stringLocalizer = stringLocalizer ?? throw new ArgumentNullException(nameof(stringLocalizer));
         _functionHelper = functionHelper ?? throw new ArgumentNullException(nameof(functionHelper));
+        _stockMutationService = stockMutationService ?? throw new ArgumentNullException(nameof(stockMutationService));
     }
 
     public async Task<(List<StocktakingViewModel> data, int totals)> PageAsync(
@@ -70,18 +74,31 @@ public class StocktakingService : BaseService<StocktakingEntity>, IStocktakingSe
         entity.last_update_time = DateTime.Now;
         entity.tenant_id = currentUser.tenant_id;
         await using var connection = await _connectionFactory.OpenConnectionAsync();
+        var routeSnapshot = await CanonicalInventorySupport.GetRouteAsync(
+            connection, currentUser.tenant_id, entity.goods_location_id);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted);
         try
         {
+            var route = await CanonicalInventorySupport.LockRouteAsync(
+                connection, transaction, currentUser.tenant_id, routeSnapshot);
+            if (route.Mode == CanonicalInventorySupport.CanonicalMode)
+            {
+                var allocation = await CanonicalInventorySupport.ResolveAllocationAsync(
+                    connection, transaction, currentUser.tenant_id, entity.sku_id,
+                    entity.goods_location_id, entity.goods_owner_id, entity.series_number,
+                    entity.expiry_date, entity.price, entity.putaway_date);
+                entity.erp_stock_id = allocation.ErpStockId;
+                entity.stock_allocation_id = allocation.AllocationId;
+            }
             entity.id = await connection.ExecuteScalarAsync<int>("""
                 INSERT INTO `wms_stocktaking`
                   (`job_code`,`job_status`,`sku_id`,`goods_owner_id`,`goods_location_id`,`series_number`,
                    `expiry_date`,`price`,`putaway_date`,`book_qty`,`counted_qty`,`difference_qty`,`creator`,
-                   `create_time`,`last_update_time`,`tenant_id`,`handler`,`handle_time`)
+                   `create_time`,`last_update_time`,`tenant_id`,`erp_stock_id`,`stock_allocation_id`,`handler`,`handle_time`)
                 VALUES
                   (@job_code,@job_status,@sku_id,@goods_owner_id,@goods_location_id,@series_number,
                    @expiry_date,@price,@putaway_date,@book_qty,@counted_qty,@difference_qty,@creator,
-                   @create_time,@last_update_time,@tenant_id,@handler,@handle_time);
+                   @create_time,@last_update_time,@tenant_id,@erp_stock_id,@stock_allocation_id,@handler,@handle_time);
                 SELECT LAST_INSERT_ID();
                 """, entity, transaction);
             await transaction.CommitAsync();
@@ -121,6 +138,11 @@ public class StocktakingService : BaseService<StocktakingEntity>, IStocktakingSe
             var entity = await GetForUpdateAsync(connection, transaction, viewModel.id);
             if (entity == null)
                 return await RollbackResult((false, _stringLocalizer["not_exists_entity"]), transaction);
+            await using var routeConnection = await _connectionFactory.OpenConnectionAsync();
+            var routeSnapshot = await CanonicalInventorySupport.GetRouteAsync(
+                routeConnection, currentUser.tenant_id, entity.goods_location_id);
+            _ = await CanonicalInventorySupport.LockRouteAsync(
+                connection, transaction, currentUser.tenant_id, routeSnapshot);
             var now = DateTime.Now;
             var qty = await connection.ExecuteAsync("""
                 UPDATE `wms_stocktaking`
@@ -147,16 +169,45 @@ public class StocktakingService : BaseService<StocktakingEntity>, IStocktakingSe
             var entity = await GetForUpdateAsync(connection, transaction, id);
             if (entity == null)
                 return await RollbackResult((false, _stringLocalizer["not_exists_entity"]), transaction);
-            var stockId = await connection.QuerySingleOrDefaultAsync<int?>("""
+            await using var routeConnection = await _connectionFactory.OpenConnectionAsync();
+            var routeSnapshot = await CanonicalInventorySupport.GetRouteAsync(
+                routeConnection, currentUser.tenant_id, entity.goods_location_id);
+            var route = await CanonicalInventorySupport.LockRouteAsync(
+                connection, transaction, currentUser.tenant_id, routeSnapshot);
+            var now = DateTime.Now;
+            var qty = 0;
+            if (route.Mode == CanonicalInventorySupport.CanonicalMode)
+            {
+                if (!entity.erp_stock_id.HasValue || !entity.stock_allocation_id.HasValue)
+                    return await RollbackResult((false, "盘点单未绑定ERP库存分配，禁止确认"), transaction);
+                if (entity.difference_qty != 0)
+                {
+                    await _stockMutationService.PrelockAsync(
+                        connection, transaction, currentUser.tenant_id,
+                        [route.ErpWarehouseId],
+                        [entity.erp_stock_id.Value], [entity.stock_allocation_id.Value]);
+                    await _stockMutationService.AdjustAvailableAsync(
+                        connection, transaction,
+                        CanonicalInventorySupport.Context(
+                            currentUser.tenant_id, route.ErpWarehouseId,
+                            $"MWMS:TA:{entity.id}", "STOCKTAKING_ADJUST",
+                            entity.id, entity.id, currentUser, entity.creator, "盘点差异调整"),
+                        entity.erp_stock_id.Value, entity.stock_allocation_id.Value,
+                        entity.difference_qty);
+                    qty++;
+                }
+            }
+            else
+            {
+                var stockId = await connection.QuerySingleOrDefaultAsync<int?>("""
                 SELECT `id` FROM `wms_stock`
                 WHERE `sku_id`=@sku_id AND `goods_owner_id`=@goods_owner_id
                   AND `goods_location_id`=@goods_location_id AND `series_number`=@series_number
                   AND `expiry_date`=@expiry_date AND `price`=@price AND `putaway_date`=@putaway_date
                 LIMIT 1 FOR UPDATE;
                 """, entity, transaction);
-            var now = DateTime.Now;
-            var qty = stockId.HasValue
-                ? await connection.ExecuteAsync("""
+                qty = stockId.HasValue
+                    ? await connection.ExecuteAsync("""
                     UPDATE `wms_stock` SET `qty`=`qty`+@differenceQty,`last_update_time`=@now
                     WHERE `id`=@stockId;
                     """, new { differenceQty = entity.difference_qty, now, stockId }, transaction)
@@ -172,18 +223,20 @@ public class StocktakingService : BaseService<StocktakingEntity>, IStocktakingSe
                         tenantId = currentUser.tenant_id, seriesNumber = entity.series_number,
                         expiryDate = entity.expiry_date, entity.price,
                         putawayDate = DateTime.Now.ToString("yyyy-MM-dd").ObjToDate() }, transaction);
+            }
             qty += await connection.ExecuteAsync("""
                 INSERT INTO `wms_stockadjust`
                   (`job_code`,`sku_id`,`goods_owner_id`,`goods_location_id`,`qty`,`creator`,`create_time`,
                    `last_update_time`,`tenant_id`,`is_update_stock`,`job_type`,`source_table_id`,
-                   `series_number`,`expiry_date`,`price`,`putaway_date`)
+                   `erp_stock_id`,`stock_allocation_id`,`series_number`,`expiry_date`,`price`,`putaway_date`)
                 VALUES
                   (@jobCode,@skuId,@goodsOwnerId,@goodsLocationId,@differenceQty,@creator,@now,
-                   @now,@tenantId,1,1,@sourceId,@seriesNumber,@expiryDate,@price,@putawayDate);
+                   @now,@tenantId,1,1,@sourceId,@erpStockId,@allocationId,@seriesNumber,@expiryDate,@price,@putawayDate);
                 """, new { jobCode = entity.job_code, skuId = entity.sku_id,
                     goodsOwnerId = entity.goods_owner_id, goodsLocationId = entity.goods_location_id,
                     differenceQty = entity.difference_qty, creator = currentUser.user_name, now,
                     tenantId = currentUser.tenant_id, sourceId = entity.id,
+                    erpStockId = entity.erp_stock_id, allocationId = entity.stock_allocation_id,
                     seriesNumber = entity.series_number, expiryDate = entity.expiry_date,
                     entity.price, putawayDate = entity.putaway_date }, transaction);
             await transaction.CommitAsync();
@@ -200,6 +253,14 @@ public class StocktakingService : BaseService<StocktakingEntity>, IStocktakingSe
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted);
         try
         {
+            var entity = await GetForUpdateAsync(connection, transaction, id);
+            if (entity == null)
+                return await RollbackResult((false, _stringLocalizer["not_exists_entity"]), transaction);
+            await using var routeConnection = await _connectionFactory.OpenConnectionAsync();
+            var routeSnapshot = await CanonicalInventorySupport.GetRouteAsync(
+                routeConnection, entity.tenant_id, entity.goods_location_id);
+            _ = await CanonicalInventorySupport.LockRouteAsync(
+                connection, transaction, entity.tenant_id, routeSnapshot);
             var qty = await connection.ExecuteAsync(
                 "DELETE FROM `wms_stocktaking` WHERE `id`=@id;", new { id }, transaction);
             await transaction.CommitAsync();
@@ -227,7 +288,7 @@ public class StocktakingService : BaseService<StocktakingEntity>, IStocktakingSe
     private const string EntityColumns = """
         `id`,`job_code`,`job_status`,`sku_id`,`goods_owner_id`,`goods_location_id`,`series_number`,
         `expiry_date`,`price`,`putaway_date`,`book_qty`,`counted_qty`,`difference_qty`,`creator`,
-        `create_time`,`last_update_time`,`tenant_id`,`handler`,`handle_time`
+        `create_time`,`last_update_time`,`tenant_id`,`erp_stock_id`,`stock_allocation_id`,`handler`,`handle_time`
         """;
 
     private const string FromSql = """
@@ -246,6 +307,7 @@ public class StocktakingService : BaseService<StocktakingEntity>, IStocktakingSe
         st.`goods_location_id`,gsl.`warehouse_name`,gsl.`location_name`,st.`goods_owner_id`,
         COALESCE(gso.`goods_owner_name`,'') `goods_owner_name`,st.`expiry_date`,st.`price`,
         st.`putaway_date`,st.`series_number`,st.`book_qty`,st.`counted_qty`,st.`difference_qty`,
+        st.`erp_stock_id`,st.`stock_allocation_id`,
         st.`creator`,st.`create_time`,st.`handler`,st.`handle_time`,st.`last_update_time`
         """;
 

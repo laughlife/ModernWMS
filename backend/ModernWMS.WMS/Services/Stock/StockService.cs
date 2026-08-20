@@ -23,14 +23,16 @@ public class StockService : BaseService<StockEntity>, IStockService
     private static readonly IReadOnlyDictionary<string, string> LocationColumns = Columns(
         "warehouse_name", "warehouse_id", "warehouse_area_id", "warehouse_area_name", "location_name",
         "spu_code", "spu_name", "sku_id", "sku_code", "sku_name", "qty", "qty_available", "qty_locked",
-        "goods_owner_name", "series_number", "goods_location_id", "expiry_date", "price", "putaway_date");
+        "goods_owner_name", "series_number", "goods_location_id", "expiry_date", "price", "putaway_date",
+        "erp_stock_id", "stock_allocation_id", "inventory_mode", "location_state", "is_pending_location");
     private static readonly IReadOnlyDictionary<string, string> SafetyColumns = Columns(
         "warehouse_name", "spu_code", "spu_name", "sku_code", "sku_name", "sku_id", "qty",
         "qty_available", "qty_locked", "qty_frozen", "safety_stock_qty");
     private static readonly IReadOnlyDictionary<string, string> StockSelectColumns = Columns(
         "id", "sku_id", "goods_location_id", "qty", "goods_owner_id", "is_freeze", "last_update_time",
         "tenant_id", "warehouse_name", "location_name", "spu_code", "spu_name", "sku_code", "sku_name",
-        "unit", "qty_available", "goods_owner_name", "series_number", "expiry_date", "price", "putaway_date");
+        "unit", "qty_available", "goods_owner_name", "series_number", "expiry_date", "price", "putaway_date",
+        "erp_stock_id", "stock_allocation_id", "inventory_mode", "location_state", "is_pending_location");
     private static readonly IReadOnlyDictionary<string, string> SkuColumns = Columns(
         "sku_id", "spu_id", "spu_code", "spu_name", "sku_code", "sku_name", "supplier_id",
         "supplier_name", "brand", "origin", "unit");
@@ -105,11 +107,11 @@ public class StockService : BaseService<StockEntity>, IStockService
     {
         var filter = DapperSearchBuilder.Build(page.searchObjects, StockSelectColumns);
         AddPage(filter.Parameters, page, user.tenant_id);
-        var clauses = new List<string>();
+        var clauses = new List<string> { "(q.`inventory_mode`='LEGACY_READ' OR q.`location_state`='ACTIVE')" };
         if (page.sqlTitle == "") clauses.Add("q.`qty_available`>0");
         else if (page.sqlTitle == "frozen") clauses.Add("q.`is_freeze`=1");
         if (filter.Sql.Length > 0) clauses.Add(filter.Sql);
-        return await QueryPageAsync<StockViewModel>(DetailLocksCte, StockSelectSql,
+        return await QueryPageAsync<StockViewModel>(UnifiedInventoryCte, StockSelectSql,
             clauses.Count == 0 ? "1=1" : string.Join(" AND ", clauses), "q.`sku_code`", filter.Parameters);
     }
 
@@ -133,21 +135,9 @@ public class StockService : BaseService<StockEntity>, IStockService
             tenantId = user.tenant_id, input.sku_id, input.goods_location_id, input.warehouse_id,
             spuName = $"%{EscapeLike(input.spu_name)}%", locationName = $"%{EscapeLike(input.location_name)}%", input.series_number
         });
-        const string stockCte = """
-            WITH stock_group AS (
-              SELECT s.`sku_id`,s.`goods_location_id`,s.`goods_owner_id`,COALESCE(go.`goods_owner_name`,'') goods_owner_name,
-                     s.`series_number`,s.`expiry_date`,s.`price`,s.`putaway_date`,SUM(CASE WHEN s.`is_freeze`=1 THEN s.`qty` ELSE 0 END) qty_frozen,SUM(s.`qty`) qty
-              FROM `wms_stock` s LEFT JOIN `wms_goodsowner` go ON go.`id`=s.`goods_owner_id`
-              JOIN `wms_goodslocation` gl ON gl.`id`=s.`goods_location_id` JOIN `wms_sku` sku ON sku.`id`=s.`sku_id` JOIN `wms_spu` spu ON spu.`id`=sku.`spu_id`
-              WHERE s.`tenant_id`=@tenantId AND (@sku_id=0 OR s.`sku_id`=@sku_id) AND (@goods_location_id=0 OR s.`goods_location_id`=@goods_location_id)
-                AND (@warehouse_id=0 OR gl.`warehouse_id`=@warehouse_id) AND spu.`spu_name` LIKE @spuName ESCAPE '!'
-                AND gl.`location_name` LIKE @locationName ESCAPE '!' AND (@series_number='' OR s.`series_number`=@series_number)
-              GROUP BY s.`sku_id`,s.`goods_location_id`,s.`goods_owner_id`,go.`goods_owner_name`,s.`series_number`,s.`expiry_date`,s.`price`,s.`putaway_date`
-            ),
-            """;
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         return (await connection.QueryAsync<LocationStockManagementViewModel>(
-            stockCte + DetailLocksCte[5..] + PhoneInventorySelect + " ORDER BY `sku_code`;", p)).AsList();
+            UnifiedInventoryCte + PhoneInventorySelect + " ORDER BY `sku_code`;", p)).AsList();
     }
 
     public async Task<(List<DeliveryStatisticViewModel> datas, int totals)> DeliveryStatistic(DeliveryStatisticSearchViewModel input, CurrentUser user)
@@ -187,27 +177,19 @@ public class StockService : BaseService<StockEntity>, IStockService
             today = DateTime.Today,
             offset = (input.pageIndex - 1) * input.pageSize, pageSize = input.pageSize
         });
-        const string cte = """
-            WITH stock_group AS (
-              SELECT s.`sku_id`,s.`goods_location_id`,s.`goods_owner_id`,COALESCE(go.`goods_owner_name`,'') goods_owner_name,
-                     s.`series_number`,s.`expiry_date`,s.`price`,s.`putaway_date`,SUM(s.`qty`) qty
-              FROM `wms_stock` s LEFT JOIN `wms_goodsowner` go ON go.`id`=s.`goods_owner_id`
-              WHERE s.`tenant_id`=@tenantId AND (@expiry_date_from=@minDate OR s.`expiry_date`>=@expiry_date_from)
-                AND (@expiry_date_to=@minDate OR s.`expiry_date`<=@expiry_date_to)
-              GROUP BY s.`sku_id`,s.`goods_location_id`,s.`goods_owner_id`,go.`goods_owner_name`,s.`series_number`,s.`expiry_date`,s.`price`,s.`putaway_date`
-            )
-            """;
         const string select = """
-            SELECT sg.`sku_id`,sg.`goods_owner_name`,spu.`spu_name`,spu.`spu_code`,sku.`sku_code`,sku.`sku_name`,sg.`qty`,
-                   gl.`location_name`,gl.`warehouse_name`,sg.`series_number`,sg.`expiry_date`,sg.`price`,sg.`putaway_date`,
-                   CASE WHEN sg.`putaway_date`=@minDate THEN 0 ELSE DATEDIFF(@today,DATE(sg.`putaway_date`)) END stock_age
-            FROM stock_group sg JOIN `wms_sku` sku ON sku.`id`=sg.`sku_id` JOIN `wms_spu` spu ON spu.`id`=sku.`spu_id`
-            JOIN `wms_goodslocation` gl ON gl.`id`=sg.`goods_location_id`
-            WHERE spu.`spu_name` LIKE @spuName ESCAPE '!' AND sku.`sku_name` LIKE @skuName ESCAPE '!'
-              AND sku.`sku_code` LIKE @skuCode ESCAPE '!' AND spu.`spu_code` LIKE @spuCode ESCAPE '!' AND gl.`warehouse_name` LIKE @warehouseName ESCAPE '!'
+            SELECT i.`erp_stock_id`,i.`stock_allocation_id`,i.`inventory_mode`,i.`location_state`,i.`is_pending_location`,
+                   i.`sku_id`,i.`goods_owner_name`,i.`spu_name`,i.`spu_code`,i.`sku_code`,i.`sku_name`,i.`qty`,
+                   i.`location_name`,i.`warehouse_name`,i.`series_number`,i.`expiry_date`,i.`price`,i.`putaway_date`,i.`goods_location_id`,
+                   CASE WHEN i.`putaway_date`=@minDate THEN 0 ELSE DATEDIFF(@today,DATE(i.`putaway_date`)) END stock_age
+            FROM inventory_detail i
+            WHERE (@expiry_date_from=@minDate OR i.`expiry_date`>=@expiry_date_from)
+              AND (@expiry_date_to=@minDate OR i.`expiry_date`<=@expiry_date_to)
+              AND i.`spu_name` LIKE @spuName ESCAPE '!' AND i.`sku_name` LIKE @skuName ESCAPE '!'
+              AND i.`sku_code` LIKE @skuCode ESCAPE '!' AND i.`spu_code` LIKE @spuCode ESCAPE '!' AND i.`warehouse_name` LIKE @warehouseName ESCAPE '!'
             """;
         const string where = "q.`qty`>0 AND (@stock_age_from<=0 OR q.`stock_age`>=@stock_age_from) AND (@stock_age_to<=0 OR q.`stock_age`<=@stock_age_to)";
-        return await QueryPageAsync<StockAgeViewModel>(cte, select, where, "q.`sku_code`", p);
+        return await QueryPageAsync<StockAgeViewModel>(UnifiedInventoryCte, select, where, "q.`sku_code`", p);
     }
 
     private async Task PopulateProductImagesAsync<T>(List<T> rows, long tenantId, Func<T, int> skuId, Action<T, string> setImage)
@@ -243,69 +225,107 @@ public class StockService : BaseService<StockEntity>, IStockService
     private static string Like(string value) => $"%{EscapeLike(value)}%";
     private static string EscapeLike(string value) => value.Replace("!", "!!").Replace("%", "!%").Replace("_", "!_");
 
-    private const string DetailLocksCte = """
-        WITH dispatch_lock AS (
+    private const string UnifiedInventoryCte = """
+        WITH warehouse_mode AS (
+          SELECT wh.`id` warehouse_id,wh.`warehouse_name`,wh.`erp_warehouse_id`,
+                 COALESCE(cfg.`mode`,'LEGACY_READ') inventory_mode
+          FROM `wms_warehouse` wh
+          LEFT JOIN `wms_inventory_runtime_config` cfg
+            ON cfg.`tenant_id`=wh.`tenant_id` AND cfg.`erp_warehouse_id`=wh.`erp_warehouse_id`
+          WHERE wh.`tenant_id`=@tenantId AND wh.`is_valid`=1
+        ), dispatch_lock AS (
           SELECT p.`sku_id`,p.`goods_location_id`,p.`goods_owner_id`,p.`series_number`,p.`expiry_date`,p.`price`,p.`putaway_date`,SUM(p.`pick_qty`) qty_locked
           FROM `wms_dispatchlist` d JOIN `wms_dispatchpicklist` p ON p.`dispatchlist_id`=d.`id`
           WHERE d.`tenant_id`=@tenantId AND d.`dispatch_status`>1 AND d.`dispatch_status`<6
           GROUP BY p.`sku_id`,p.`goods_location_id`,p.`goods_owner_id`,p.`series_number`,p.`expiry_date`,p.`price`,p.`putaway_date`
         ), process_lock AS (
           SELECT p.`sku_id`,p.`goods_location_id`,p.`goods_owner_id`,p.`series_number`,p.`expiry_date`,p.`price`,p.`putaway_date`,SUM(p.`qty`) qty_locked
-          FROM `wms_stockprocessdetail` p WHERE p.`is_update_stock`=0 AND p.`is_source`=1
+          FROM `wms_stockprocessdetail` p WHERE p.`tenant_id`=@tenantId AND p.`is_update_stock`=0 AND p.`is_source`=1
           GROUP BY p.`sku_id`,p.`goods_location_id`,p.`goods_owner_id`,p.`series_number`,p.`expiry_date`,p.`price`,p.`putaway_date`
         ), move_lock AS (
           SELECT m.`sku_id`,m.`orig_goods_location_id` goods_location_id,m.`goods_owner_id`,m.`series_number`,m.`expiry_date`,m.`price`,m.`putaway_date`,SUM(m.`qty`) qty_locked
-          FROM `wms_stockmove` m WHERE m.`move_status`=0
+          FROM `wms_stockmove` m WHERE m.`tenant_id`=@tenantId AND m.`move_status`=0
           GROUP BY m.`sku_id`,m.`orig_goods_location_id`,m.`goods_owner_id`,m.`series_number`,m.`expiry_date`,m.`price`,m.`putaway_date`
+        ), legacy_inventory AS (
+          SELECT s.`id`,NULL erp_stock_id,NULL stock_allocation_id,'LEGACY_READ' inventory_mode,'LEGACY' location_state,
+                 FALSE is_pending_location,TRUE allocation_consistent,s.`sku_id`,s.`goods_location_id`,s.`goods_owner_id`,
+                 gl.`warehouse_area_id`,gl.`warehouse_area_name`,wm.`warehouse_id`,wm.`warehouse_name`,gl.`location_name`,
+                 spu.`spu_code`,spu.`spu_name`,sku.`sku_code`,sku.`sku_name`,sku.`unit`,COALESCE(go.`goods_owner_name`,'') goods_owner_name,
+                 s.`series_number`,s.`expiry_date`,s.`price`,s.`putaway_date`,s.`qty`,
+                 CASE WHEN s.`is_freeze`=1 OR gl.`warehouse_area_property`=5 THEN 0
+                      ELSE GREATEST(s.`qty`-COALESCE(dl.`qty_locked`,0)-COALESCE(pl.`qty_locked`,0)-COALESCE(ml.`qty_locked`,0),0) END qty_available,
+                 CASE WHEN s.`is_freeze`=1 THEN s.`qty` ELSE 0 END+COALESCE(dl.`qty_locked`,0)+COALESCE(pl.`qty_locked`,0)+COALESCE(ml.`qty_locked`,0) qty_locked,
+                 CASE WHEN s.`is_freeze`=1 THEN s.`qty` ELSE 0 END qty_frozen,0 qty_pending_location,
+                 0 erp_total_qty,0 erp_available_qty,0 erp_occupied_qty,s.`is_freeze`,s.`last_update_time`,s.`tenant_id`
+          FROM `wms_stock` s
+          JOIN `wms_goodslocation` gl ON gl.`id`=s.`goods_location_id`
+          JOIN warehouse_mode wm ON wm.`warehouse_id`=gl.`warehouse_id` AND wm.`inventory_mode`='LEGACY_READ'
+          JOIN `wms_sku` sku ON sku.`id`=s.`sku_id` JOIN `wms_spu` spu ON spu.`id`=sku.`spu_id`
+          LEFT JOIN `wms_goodsowner` go ON go.`id`=s.`goods_owner_id`
+          LEFT JOIN dispatch_lock dl ON dl.`sku_id`=s.`sku_id` AND dl.`goods_location_id`=s.`goods_location_id` AND dl.`goods_owner_id`=s.`goods_owner_id` AND dl.`series_number`<=>s.`series_number` AND dl.`expiry_date`<=>s.`expiry_date` AND dl.`price`<=>s.`price` AND dl.`putaway_date`<=>s.`putaway_date`
+          LEFT JOIN process_lock pl ON pl.`sku_id`=s.`sku_id` AND pl.`goods_location_id`=s.`goods_location_id` AND pl.`goods_owner_id`=s.`goods_owner_id` AND pl.`series_number`<=>s.`series_number` AND pl.`expiry_date`<=>s.`expiry_date` AND pl.`price`<=>s.`price` AND pl.`putaway_date`<=>s.`putaway_date`
+          LEFT JOIN move_lock ml ON ml.`sku_id`=s.`sku_id` AND ml.`goods_location_id`=s.`goods_location_id` AND ml.`goods_owner_id`=s.`goods_owner_id` AND ml.`series_number`<=>s.`series_number` AND ml.`expiry_date`<=>s.`expiry_date` AND ml.`price`<=>s.`price` AND ml.`putaway_date`<=>s.`putaway_date`
+          WHERE s.`tenant_id`=@tenantId
+        ), canonical_inventory_windowed AS (
+          SELECT 0 id,stock.`id` erp_stock_id,a.`id` stock_allocation_id,'CANONICAL_ERP' inventory_mode,a.`location_state`,
+                 a.`location_state`='UNLOCATED' is_pending_location,map.`wms_sku_id` sku_id,
+                 a.`goods_location_id`,a.`goods_owner_id`,a.`warehouse_area_id`,
+                 CASE WHEN a.`location_state`='UNLOCATED' THEN '待确认库区' ELSE COALESCE(gl.`warehouse_area_name`,'') END warehouse_area_name,
+                 wm.`warehouse_id`,wm.`warehouse_name`,
+                 CASE WHEN a.`location_state`='UNLOCATED' THEN '待确认库位' ELSE COALESCE(gl.`location_name`,'') END location_name,
+                 spu.`spu_code`,spu.`spu_name`,sku.`sku_code`,sku.`sku_name`,sku.`unit`,COALESCE(go.`goods_owner_name`,'') goods_owner_name,
+                 a.`series_number`,a.`expiry_date`,a.`price`,a.`putaway_date`,a.`allocated_qty` qty,
+                 CASE WHEN a.`location_state`='ACTIVE' THEN a.`allocated_qty`-a.`occupied_qty` ELSE 0 END qty_available,
+                 a.`occupied_qty` qty_locked,0 qty_frozen,
+                 CASE WHEN a.`location_state`='UNLOCATED' THEN a.`allocated_qty` ELSE 0 END qty_pending_location,
+                 stock.`total_qty` erp_total_qty,stock.`available_qty` erp_available_qty,stock.`occupied_qty` erp_occupied_qty,
+                 a.`location_state`<>'ACTIVE' is_freeze,a.`update_time` last_update_time,a.`tenant_id`,
+                 SUM(a.`allocated_qty`) OVER(PARTITION BY a.`tenant_id`,a.`erp_stock_id`) allocation_total,
+                 SUM(a.`occupied_qty`) OVER(PARTITION BY a.`tenant_id`,a.`erp_stock_id`) allocation_occupied,
+                 owner_map.`wms_goods_owner_id` mapped_goods_owner_id
+          FROM `wms_erp_stock_allocation` a
+          JOIN `trk_stock` stock ON stock.`id`=a.`erp_stock_id` AND stock.`deleted`=b'0'
+          JOIN warehouse_mode wm ON wm.`erp_warehouse_id`=stock.`warehouse_id` AND wm.`inventory_mode`='CANONICAL_ERP'
+          JOIN `wms_erp_commodity_map` map ON map.`tenant_id`=a.`tenant_id` AND map.`erp_commodity_id`=stock.`commodity_id`
+          JOIN `wms_sku` sku ON sku.`id`=map.`wms_sku_id` JOIN `wms_spu` spu ON spu.`id`=sku.`spu_id`
+          LEFT JOIN `wms_erp_goods_owner_map` owner_map ON owner_map.`tenant_id`=a.`tenant_id`
+            AND owner_map.`erp_dept_id`=stock.`dept_id` AND owner_map.`erp_order_user_id`=stock.`order_user_id`
+          LEFT JOIN `wms_goodsowner` go ON go.`id`=a.`goods_owner_id`
+          LEFT JOIN `wms_goodslocation` gl ON gl.`id`=a.`goods_location_id` AND gl.`warehouse_id`=wm.`warehouse_id`
+          WHERE a.`tenant_id`=@tenantId AND a.`location_state`<>'RETIRED'
+        ), canonical_inventory AS (
+          SELECT id,erp_stock_id,stock_allocation_id,inventory_mode,location_state,is_pending_location,
+                 allocation_total=erp_total_qty AND allocation_occupied=erp_occupied_qty
+                   AND allocation_total-allocation_occupied=erp_available_qty
+                   AND COALESCE(mapped_goods_owner_id=goods_owner_id,FALSE) allocation_consistent,
+                 sku_id,goods_location_id,goods_owner_id,warehouse_area_id,warehouse_area_name,warehouse_id,warehouse_name,location_name,
+                 spu_code,spu_name,sku_code,sku_name,unit,goods_owner_name,series_number,expiry_date,price,putaway_date,
+                 qty,qty_available,qty_locked,qty_frozen,qty_pending_location,erp_total_qty,erp_available_qty,erp_occupied_qty,
+                 is_freeze,last_update_time,tenant_id
+          FROM canonical_inventory_windowed
+        ), inventory_detail AS (
+          SELECT * FROM legacy_inventory
+          UNION ALL
+          SELECT * FROM canonical_inventory
         )
         """;
 
     private const string StockSelectSql = """
-        SELECT s.`sku_id`,spu.`spu_name`,spu.`spu_code`,sku.`sku_code`,sku.`sku_name`,
-          CASE WHEN s.`is_freeze`=1 THEN 0 ELSE s.`qty`-COALESCE(dl.`qty_locked`,0)-COALESCE(pl.`qty_locked`,0)-COALESCE(ml.`qty_locked`,0) END qty_available,
-          s.`qty`,s.`goods_location_id`,s.`goods_owner_id`,gl.`location_name`,gl.`warehouse_name`,s.`series_number`,s.`expiry_date`,s.`price`,s.`putaway_date`,
-          s.`is_freeze`,s.`id`,s.`tenant_id`,s.`last_update_time`,sku.`unit`,COALESCE(go.`goods_owner_name`,'') goods_owner_name
-        FROM `wms_stock` s
-        LEFT JOIN dispatch_lock dl ON dl.`sku_id`=s.`sku_id` AND dl.`goods_location_id`=s.`goods_location_id` AND dl.`goods_owner_id`=s.`goods_owner_id` AND dl.`series_number`<=>s.`series_number` AND dl.`expiry_date`<=>s.`expiry_date` AND dl.`price`<=>s.`price` AND dl.`putaway_date`<=>s.`putaway_date`
-        LEFT JOIN process_lock pl ON pl.`sku_id`=s.`sku_id` AND pl.`goods_location_id`=s.`goods_location_id` AND pl.`goods_owner_id`=s.`goods_owner_id` AND pl.`series_number`<=>s.`series_number` AND pl.`expiry_date`<=>s.`expiry_date` AND pl.`price`<=>s.`price` AND pl.`putaway_date`<=>s.`putaway_date`
-        LEFT JOIN move_lock ml ON ml.`sku_id`=s.`sku_id` AND ml.`goods_location_id`=s.`goods_location_id` AND ml.`goods_owner_id`=s.`goods_owner_id` AND ml.`series_number`<=>s.`series_number` AND ml.`expiry_date`<=>s.`expiry_date` AND ml.`price`<=>s.`price` AND ml.`putaway_date`<=>s.`putaway_date`
-        JOIN `wms_sku` sku ON sku.`id`=s.`sku_id` JOIN `wms_spu` spu ON spu.`id`=sku.`spu_id` JOIN `wms_goodslocation` gl ON gl.`id`=s.`goods_location_id`
-        LEFT JOIN `wms_goodsowner` go ON go.`id`=s.`goods_owner_id` WHERE s.`tenant_id`=@tenantId
+        SELECT i.`id`,i.`erp_stock_id`,i.`stock_allocation_id`,i.`inventory_mode`,i.`location_state`,i.`is_pending_location`,
+          i.`allocation_consistent`,i.`sku_id`,i.`spu_name`,i.`spu_code`,i.`sku_code`,i.`sku_name`,i.`qty_available`,i.`qty_locked`,i.`qty`,
+          i.`goods_location_id`,i.`goods_owner_id`,i.`location_name`,i.`warehouse_name`,i.`series_number`,i.`expiry_date`,i.`price`,i.`putaway_date`,
+          i.`is_freeze`,i.`tenant_id`,i.`last_update_time`,i.`unit`,i.`goods_owner_name`,i.`erp_total_qty`,i.`erp_available_qty`,i.`erp_occupied_qty`
+        FROM inventory_detail i
         """;
 
-    private const string LocationInventoryCte = """
-        WITH stock_group AS (
-          SELECT s.`sku_id`,s.`goods_location_id`,s.`goods_owner_id`,COALESCE(go.`goods_owner_name`,'') goods_owner_name,s.`expiry_date`,s.`price`,s.`putaway_date`,
-                 SUM(CASE WHEN s.`is_freeze`=1 THEN s.`qty` ELSE 0 END) qty_frozen,SUM(s.`qty`) qty
-          FROM `wms_stock` s LEFT JOIN `wms_goodsowner` go ON go.`id`=s.`goods_owner_id` WHERE s.`tenant_id`=@tenantId
-          GROUP BY s.`sku_id`,s.`goods_location_id`,s.`goods_owner_id`,go.`goods_owner_name`,s.`expiry_date`,s.`price`,s.`putaway_date`
-        ), dispatch_lock AS (
-          SELECT p.`sku_id`,p.`goods_location_id`,p.`goods_owner_id`,p.`expiry_date`,p.`price`,p.`putaway_date`,SUM(p.`pick_qty`) qty_locked
-          FROM `wms_dispatchlist` d JOIN `wms_dispatchpicklist` p ON p.`dispatchlist_id`=d.`id`
-          WHERE d.`tenant_id`=@tenantId AND d.`dispatch_status`>1 AND d.`dispatch_status`<6
-          GROUP BY p.`sku_id`,p.`goods_location_id`,p.`goods_owner_id`,p.`expiry_date`,p.`price`,p.`putaway_date`
-        ), process_lock AS (
-          SELECT p.`sku_id`,p.`goods_location_id`,p.`goods_owner_id`,p.`expiry_date`,p.`price`,p.`putaway_date`,SUM(p.`qty`) qty_locked
-          FROM `wms_stockprocessdetail` p WHERE p.`is_update_stock`=0 AND p.`is_source`=1
-          GROUP BY p.`sku_id`,p.`goods_location_id`,p.`goods_owner_id`,p.`expiry_date`,p.`price`,p.`putaway_date`
-        ), move_lock AS (
-          SELECT m.`sku_id`,m.`orig_goods_location_id` goods_location_id,m.`goods_owner_id`,m.`expiry_date`,m.`price`,m.`putaway_date`,SUM(m.`qty`) qty_locked
-          FROM `wms_stockmove` m WHERE m.`move_status`=0
-          GROUP BY m.`sku_id`,m.`orig_goods_location_id`,m.`goods_owner_id`,m.`expiry_date`,m.`price`,m.`putaway_date`
-        )
-        """;
+    private const string LocationInventoryCte = UnifiedInventoryCte;
 
     private const string LocationInventorySelect = """
-        SELECT sg.`sku_id`,sg.`goods_owner_name`,spu.`spu_name`,spu.`spu_code`,sku.`sku_code`,sku.`sku_name`,
-          CASE WHEN gl.`warehouse_area_property`=5 THEN 0 ELSE sg.`qty`-sg.`qty_frozen`-COALESCE(dl.`qty_locked`,0)-COALESCE(pl.`qty_locked`,0)-COALESCE(ml.`qty_locked`,0) END qty_available,
-          sg.`qty_frozen`+COALESCE(dl.`qty_locked`,0)+COALESCE(pl.`qty_locked`,0)+COALESCE(ml.`qty_locked`,0) qty_locked,sg.`qty`,
-          gl.`location_name`,gl.`warehouse_area_id`,gl.`warehouse_area_name`,wh.`id` warehouse_id,wh.`warehouse_name`,sg.`expiry_date`,sg.`price`,sg.`putaway_date`,sg.`goods_location_id`
-        FROM stock_group sg
-        LEFT JOIN dispatch_lock dl ON dl.`sku_id`=sg.`sku_id` AND dl.`goods_location_id`=sg.`goods_location_id` AND dl.`goods_owner_id`=sg.`goods_owner_id` AND dl.`expiry_date`<=>sg.`expiry_date` AND dl.`price`<=>sg.`price` AND dl.`putaway_date`<=>sg.`putaway_date`
-        LEFT JOIN process_lock pl ON pl.`sku_id`=sg.`sku_id` AND pl.`goods_location_id`=sg.`goods_location_id` AND pl.`goods_owner_id`=sg.`goods_owner_id` AND pl.`expiry_date`<=>sg.`expiry_date` AND pl.`price`<=>sg.`price` AND pl.`putaway_date`<=>sg.`putaway_date`
-        LEFT JOIN move_lock ml ON ml.`sku_id`=sg.`sku_id` AND ml.`goods_location_id`=sg.`goods_location_id` AND ml.`goods_owner_id`=sg.`goods_owner_id` AND ml.`expiry_date`<=>sg.`expiry_date` AND ml.`price`<=>sg.`price` AND ml.`putaway_date`<=>sg.`putaway_date`
-        JOIN `wms_sku` sku ON sku.`id`=sg.`sku_id` JOIN `wms_spu` spu ON spu.`id`=sku.`spu_id`
-        JOIN `wms_goodslocation` gl ON gl.`id`=sg.`goods_location_id` JOIN `wms_warehouse` wh ON wh.`id`=gl.`warehouse_id`
+        SELECT i.`erp_stock_id`,i.`stock_allocation_id`,i.`inventory_mode`,i.`location_state`,i.`is_pending_location`,i.`allocation_consistent`,
+          i.`sku_id`,i.`goods_owner_name`,i.`spu_name`,i.`spu_code`,i.`sku_code`,i.`sku_name`,i.`qty_available`,i.`qty_locked`,i.`qty`,
+          i.`location_name`,i.`warehouse_area_id`,i.`warehouse_area_name`,i.`warehouse_id`,i.`warehouse_name`,i.`series_number`,
+          i.`expiry_date`,i.`price`,i.`putaway_date`,i.`goods_location_id`,i.`erp_total_qty`,i.`erp_available_qty`,i.`erp_occupied_qty`
+        FROM inventory_detail i
         """;
 
     private const string MemberOperatorGroupsCte = """
@@ -324,73 +344,73 @@ public class StockService : BaseService<StockEntity>, IStockService
         """;
 
     private const string PhoneInventorySelect = """
-        SELECT sg.`sku_id`,sg.`goods_owner_name`,spu.`spu_name`,spu.`spu_code`,sku.`sku_code`,sku.`sku_name`,
-          CASE WHEN gl.`warehouse_area_property`=5 THEN 0 ELSE sg.`qty`-sg.`qty_frozen`-COALESCE(dl.`qty_locked`,0)-COALESCE(pl.`qty_locked`,0)-COALESCE(ml.`qty_locked`,0) END qty_available,
-          sg.`qty_frozen`+COALESCE(dl.`qty_locked`,0)+COALESCE(pl.`qty_locked`,0)+COALESCE(ml.`qty_locked`,0) qty_locked,sg.`qty`,
-          gl.`location_name`,gl.`warehouse_id`,gl.`warehouse_name`,sg.`series_number`,sg.`expiry_date`,sg.`price`,sg.`putaway_date`,sg.`goods_location_id`
-        FROM stock_group sg
-        LEFT JOIN dispatch_lock dl ON dl.`sku_id`=sg.`sku_id` AND dl.`goods_location_id`=sg.`goods_location_id` AND dl.`goods_owner_id`=sg.`goods_owner_id` AND dl.`series_number`<=>sg.`series_number` AND dl.`expiry_date`<=>sg.`expiry_date` AND dl.`price`<=>sg.`price` AND dl.`putaway_date`<=>sg.`putaway_date`
-        LEFT JOIN process_lock pl ON pl.`sku_id`=sg.`sku_id` AND pl.`goods_location_id`=sg.`goods_location_id` AND pl.`goods_owner_id`=sg.`goods_owner_id` AND pl.`series_number`<=>sg.`series_number` AND pl.`expiry_date`<=>sg.`expiry_date` AND pl.`price`<=>sg.`price` AND pl.`putaway_date`<=>sg.`putaway_date`
-        LEFT JOIN move_lock ml ON ml.`sku_id`=sg.`sku_id` AND ml.`goods_location_id`=sg.`goods_location_id` AND ml.`goods_owner_id`=sg.`goods_owner_id` AND ml.`series_number`<=>sg.`series_number` AND ml.`expiry_date`<=>sg.`expiry_date` AND ml.`price`<=>sg.`price` AND ml.`putaway_date`<=>sg.`putaway_date`
-        JOIN `wms_sku` sku ON sku.`id`=sg.`sku_id` JOIN `wms_spu` spu ON spu.`id`=sku.`spu_id`
-        JOIN `wms_goodslocation` gl ON gl.`id`=sg.`goods_location_id`
+        SELECT i.`erp_stock_id`,i.`stock_allocation_id`,i.`inventory_mode`,i.`location_state`,i.`is_pending_location`,i.`allocation_consistent`,
+          i.`sku_id`,i.`goods_owner_name`,i.`spu_name`,i.`spu_code`,i.`sku_code`,i.`sku_name`,i.`qty_available`,i.`qty_locked`,i.`qty`,
+          i.`location_name`,i.`warehouse_id`,i.`warehouse_name`,i.`warehouse_area_id`,i.`warehouse_area_name`,i.`series_number`,
+          i.`expiry_date`,i.`price`,i.`putaway_date`,i.`goods_location_id`,i.`erp_total_qty`,i.`erp_available_qty`,i.`erp_occupied_qty`
+        FROM inventory_detail i
+        WHERE (@sku_id=0 OR i.`sku_id`=@sku_id) AND (@goods_location_id=0 OR i.`goods_location_id`=@goods_location_id)
+          AND (@warehouse_id=0 OR i.`warehouse_id`=@warehouse_id) AND i.`spu_name` LIKE @spuName ESCAPE '!'
+          AND i.`location_name` LIKE @locationName ESCAPE '!' AND (@series_number='' OR i.`series_number`=@series_number)
         """;
 
-    private const string StockSummaryCte = """
-        WITH stock_group AS (
-          SELECT s.`sku_id`,SUM(CASE WHEN s.`is_freeze`=1 THEN s.`qty` ELSE 0 END) qty_frozen,SUM(s.`qty`) qty,
-            SUM(CASE WHEN gl.`warehouse_area_property`<>5 THEN s.`qty` ELSE 0 END) qty_normal,
-            SUM(CASE WHEN gl.`warehouse_area_property`<>5 AND s.`is_freeze`=1 THEN s.`qty` ELSE 0 END) qty_normal_frozen
-          FROM `wms_stock` s JOIN `wms_goodslocation` gl ON gl.`id`=s.`goods_location_id` WHERE s.`tenant_id`=@tenantId GROUP BY s.`sku_id`
+    private const string StockSummaryCte = UnifiedInventoryCte + """
+        , stock_group AS (
+          SELECT i.`sku_id`,SUM(i.`qty`) qty,SUM(i.`qty_available`) qty_available,SUM(i.`qty_locked`) qty_locked,
+                 SUM(i.`qty_pending_location`) qty_pending_location,MIN(i.`allocation_consistent`) allocation_consistent
+          FROM inventory_detail i GROUP BY i.`sku_id`
+        ), canonical_stock_unique AS (
+          SELECT i.`erp_stock_id`,i.`sku_id`,MAX(i.`erp_total_qty`) erp_total_qty,
+                 MAX(i.`erp_available_qty`) erp_available_qty,MAX(i.`erp_occupied_qty`) erp_occupied_qty
+          FROM inventory_detail i WHERE i.`inventory_mode`='CANONICAL_ERP'
+          GROUP BY i.`erp_stock_id`,i.`sku_id`
+        ), erp_group AS (
+          SELECT sku_id,SUM(erp_total_qty) erp_total_qty,SUM(erp_available_qty) erp_available_qty,
+                 SUM(erp_occupied_qty) erp_occupied_qty FROM canonical_stock_unique GROUP BY sku_id
         ), asn_group AS (
           SELECT a.`sku_id`,SUM(CASE WHEN a.`asn_status`=0 THEN a.`asn_qty` ELSE 0 END) qty_asn,SUM(CASE WHEN a.`asn_status`=1 THEN a.`asn_qty` ELSE 0 END) qty_to_unload,
             SUM(CASE WHEN a.`asn_status`=2 THEN a.`asn_qty` ELSE 0 END) qty_to_sort,SUM(CASE WHEN a.`asn_status`=3 THEN a.`sorted_qty` ELSE 0 END) qty_sorted,
             SUM(CASE WHEN a.`asn_status`=4 THEN a.`shortage_qty` ELSE 0 END) shortage_qty FROM `wms_asn` a WHERE a.`tenant_id`=@tenantId GROUP BY a.`sku_id`
-        ), dispatch_lock AS (SELECT d.`sku_id`,SUM(d.`lock_qty`) qty_locked FROM `wms_dispatchlist` d WHERE d.`tenant_id`=@tenantId GROUP BY d.`sku_id`),
-        process_lock AS (
-          SELECT p.`sku_id`,SUM(p.`qty`) qty_locked,SUM(CASE WHEN gl.`warehouse_area_property`<>5 THEN p.`qty` ELSE 0 END) qty_normal_locked
-          FROM `wms_stockprocessdetail` p JOIN `wms_goodslocation` gl ON gl.`id`=p.`goods_location_id` WHERE p.`is_update_stock`=0 AND p.`is_source`=1 GROUP BY p.`sku_id`
-        ), move_lock AS (
-          SELECT m.`sku_id`,SUM(m.`qty`) qty_locked,SUM(CASE WHEN gl.`warehouse_area_property`<>5 THEN m.`qty` ELSE 0 END) qty_normal_locked
-          FROM `wms_stockmove` m JOIN `wms_goodslocation` gl ON gl.`id`=m.`orig_goods_location_id` WHERE m.`move_status`=0 GROUP BY m.`sku_id`
         )
         """;
 
     private const string StockSummarySelect = """
         SELECT sku.`id` sku_id,spu.`spu_name`,spu.`spu_code`,sku.`sku_code`,COALESCE(ag.`qty_asn`,0) qty_asn,
-          COALESCE(sg.`qty_normal`,0)-COALESCE(sg.`qty_normal_frozen`,0)-COALESCE(dl.`qty_locked`,0)-COALESCE(pl.`qty_normal_locked`,0)-COALESCE(ml.`qty_normal_locked`,0) qty_available,
-          COALESCE(sg.`qty_frozen`,0)+COALESCE(dl.`qty_locked`,0)+COALESCE(pl.`qty_locked`,0)+COALESCE(ml.`qty_locked`,0) qty_locked,
+          COALESCE(sg.`qty_available`,0) qty_available,COALESCE(sg.`qty_locked`,0) qty_locked,
           COALESCE(ag.`qty_sorted`,0) qty_sorted,COALESCE(ag.`qty_to_sort`,0) qty_to_sort,COALESCE(ag.`shortage_qty`,0) shortage_qty,
-          COALESCE(ag.`qty_to_unload`,0) qty_to_unload,COALESCE(sg.`qty`,0) qty
+          COALESCE(ag.`qty_to_unload`,0) qty_to_unload,COALESCE(sg.`qty`,0) qty,COALESCE(sg.`qty_pending_location`,0) qty_pending_location,
+          COALESCE(eg.`erp_total_qty`,0) erp_total_qty,COALESCE(eg.`erp_available_qty`,0) erp_available_qty,
+          COALESCE(eg.`erp_occupied_qty`,0) erp_occupied_qty,COALESCE(sg.`allocation_consistent`,TRUE) allocation_consistent
         FROM `wms_sku` sku LEFT JOIN asn_group ag ON ag.`sku_id`=sku.`id` LEFT JOIN stock_group sg ON sg.`sku_id`=sku.`id`
-        LEFT JOIN dispatch_lock dl ON dl.`sku_id`=sg.`sku_id` LEFT JOIN process_lock pl ON pl.`sku_id`=sku.`id` LEFT JOIN move_lock ml ON ml.`sku_id`=sku.`id`
+        LEFT JOIN erp_group eg ON eg.`sku_id`=sku.`id`
         JOIN `wms_spu` spu ON spu.`id`=sku.`spu_id` WHERE spu.`tenant_id`=@tenantId
         """;
 
-    private const string SafetyCte = """
-        WITH stock_group AS (
-          SELECT s.`sku_id`,gl.`warehouse_id`,SUM(CASE WHEN s.`is_freeze`=1 THEN s.`qty` ELSE 0 END) qty_frozen,SUM(s.`qty`) qty
-          FROM `wms_stock` s JOIN `wms_goodslocation` gl ON gl.`id`=s.`goods_location_id` WHERE s.`tenant_id`=@tenantId GROUP BY s.`sku_id`,gl.`warehouse_id`
-        ), dispatch_lock AS (
-          SELECT p.`sku_id`,gl.`warehouse_id`,SUM(p.`pick_qty`) qty_locked FROM `wms_dispatchlist` d JOIN `wms_dispatchpicklist` p ON p.`dispatchlist_id`=d.`id`
-          JOIN `wms_goodslocation` gl ON gl.`id`=p.`goods_location_id` WHERE d.`tenant_id`=@tenantId AND d.`dispatch_status`>1 AND d.`dispatch_status`<6 GROUP BY p.`sku_id`,gl.`warehouse_id`
-        ), process_lock AS (
-          SELECT p.`sku_id`,gl.`warehouse_id`,SUM(p.`qty`) qty_locked FROM `wms_stockprocessdetail` p JOIN `wms_goodslocation` gl ON gl.`id`=p.`goods_location_id`
-          WHERE p.`is_update_stock`=0 AND p.`is_source`=1 GROUP BY p.`sku_id`,gl.`warehouse_id`
-        ), move_lock AS (
-          SELECT m.`sku_id`,gl.`warehouse_id`,SUM(m.`qty`) qty_locked FROM `wms_stockmove` m JOIN `wms_goodslocation` gl ON gl.`id`=m.`orig_goods_location_id`
-          WHERE m.`move_status`=0 GROUP BY m.`sku_id`,gl.`warehouse_id`
+    private const string SafetyCte = UnifiedInventoryCte + """
+        , stock_group AS (
+          SELECT i.`sku_id`,i.`warehouse_id`,MAX(i.`warehouse_name`) warehouse_name,SUM(i.`qty`) qty,
+                 SUM(i.`qty_available`) qty_available,SUM(i.`qty_locked`) qty_locked,SUM(i.`qty_frozen`) qty_frozen,
+                 SUM(i.`qty_pending_location`) qty_pending_location,MIN(i.`allocation_consistent`) allocation_consistent
+          FROM inventory_detail i GROUP BY i.`sku_id`,i.`warehouse_id`
+        ), canonical_stock_unique AS (
+          SELECT i.`erp_stock_id`,i.`sku_id`,i.`warehouse_id`,MAX(i.`erp_total_qty`) erp_total_qty,
+                 MAX(i.`erp_available_qty`) erp_available_qty,MAX(i.`erp_occupied_qty`) erp_occupied_qty
+          FROM inventory_detail i WHERE i.`inventory_mode`='CANONICAL_ERP'
+          GROUP BY i.`erp_stock_id`,i.`sku_id`,i.`warehouse_id`
+        ), erp_group AS (
+          SELECT sku_id,warehouse_id,SUM(erp_total_qty) erp_total_qty,SUM(erp_available_qty) erp_available_qty,
+                 SUM(erp_occupied_qty) erp_occupied_qty FROM canonical_stock_unique GROUP BY sku_id,warehouse_id
         )
         """;
 
-    // Keep the legacy goods-location-id lookup used for the warehouse display fields.
     private const string SafetySelect = """
         SELECT sg.`sku_id`,spu.`spu_name`,spu.`spu_code`,sku.`sku_code`,sku.`sku_name`,
-          CASE WHEN gl.`warehouse_area_property`=5 THEN 0 ELSE sg.`qty`-sg.`qty_frozen`-COALESCE(dl.`qty_locked`,0)-COALESCE(pl.`qty_locked`,0)-COALESCE(ml.`qty_locked`,0) END qty_available,
-          sg.`qty_frozen`,COALESCE(dl.`qty_locked`,0)+COALESCE(pl.`qty_locked`,0)+COALESCE(ml.`qty_locked`,0) qty_locked,sg.`qty`,gl.`warehouse_name`,COALESCE(sss.`safety_stock_qty`,0) safety_stock_qty
-        FROM stock_group sg LEFT JOIN dispatch_lock dl ON dl.`sku_id`=sg.`sku_id` AND dl.`warehouse_id`=sg.`warehouse_id`
-        LEFT JOIN process_lock pl ON pl.`sku_id`=sg.`sku_id` AND pl.`warehouse_id`=sg.`warehouse_id` LEFT JOIN move_lock ml ON ml.`sku_id`=sg.`sku_id` AND ml.`warehouse_id`=sg.`warehouse_id`
-        JOIN `wms_sku` sku ON sku.`id`=sg.`sku_id` JOIN `wms_spu` spu ON spu.`id`=sku.`spu_id` JOIN `wms_goodslocation` gl ON gl.`id`=sg.`warehouse_id`
+          sg.`qty_available`,sg.`qty_frozen`,sg.`qty_locked`,sg.`qty`,sg.`qty_pending_location`,sg.`warehouse_name`,
+          COALESCE(eg.`erp_total_qty`,0) erp_total_qty,COALESCE(eg.`erp_available_qty`,0) erp_available_qty,
+          COALESCE(eg.`erp_occupied_qty`,0) erp_occupied_qty,sg.`allocation_consistent`,COALESCE(sss.`safety_stock_qty`,0) safety_stock_qty
+        FROM stock_group sg
+        JOIN `wms_sku` sku ON sku.`id`=sg.`sku_id` JOIN `wms_spu` spu ON spu.`id`=sku.`spu_id`
+        LEFT JOIN erp_group eg ON eg.`sku_id`=sg.`sku_id` AND eg.`warehouse_id`=sg.`warehouse_id`
         LEFT JOIN `wms_sku_safety_stock` sss ON sss.`sku_id`=sg.`sku_id` AND sss.`warehouse_id`=sg.`warehouse_id`
         """;
 

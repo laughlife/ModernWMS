@@ -105,26 +105,58 @@ public partial class DispatchWorkflowService
             var a=await LoadPackingPlanForUpdateAsync(c,tx,orderId,taskId,ct);if(a.Order.status!=DispatchOrderStatus.Weighing||a.Order.row_version!=r.row_version||a.Task.row_version!=r.task_row_version)throw DispatchWorkflowCommandException.ConcurrencyConflict();
             if(a.Task.packing_plan_status!="PACKING_CONFIRMED")throw DispatchWorkflowCommandException.StatusNotAllowedForWeighing();
             if(a.Boxes.Count==0)throw DispatchWorkflowCommandException.WeighingIncomplete("至少建立一个装箱");
-            var now=DateTime.Now;
+            var runtime=await LoadInventoryRuntimeAsync(c,tx,a.Order.tenant_id,a.Order.warehouse_id,ct);
+            var plans=new List<ActualPackingItemPlan>();
             foreach(var item in a.Items)
             {
                 if(item.variant_qty is null or <=0||item.source_quantity_shipped is null or <=0)throw DispatchWorkflowCommandException.WeighingIncomplete($"商品 {item.commodity_sku} 变体数据无效");
                 var packed=a.BoxItems.Where(x=>x.packing_task_item_id==item.id).Sum(x=>x.task_qty);if(packed<0||packed>item.source_quantity_shipped)throw DispatchWorkflowCommandException.WeighingIncomplete($"{item.commodity_name}（sku：{item.commodity_sku}）总任务量{item.source_quantity_shipped}，实际任务量{packed}");
                 var actual=checked(packed*item.variant_qty.Value);var detail=await c.QuerySingleOrDefaultAsync<DispatchlistEntity>(new CommandDefinition("SELECT * FROM `wms_dispatchlist` WHERE `packing_task_item_id`=@id FOR UPDATE;",new{item.id},tx,cancellationToken:ct));
                 if(detail==null)throw DispatchWorkflowCommandException.StockConflict("商品拣货分配不存在");var allocations=(await c.QueryAsync<DispatchpicklistEntity>(new CommandDefinition("SELECT * FROM `wms_dispatchpicklist` WHERE `dispatchlist_id`=@id ORDER BY `id` DESC FOR UPDATE;",new{detail.id},tx,cancellationToken:ct))).AsList();
+                if(allocations.Any(x=>x.is_update_stock==1))throw DispatchWorkflowCommandException.StockAlreadyDeducted();
                 var release=allocations.Sum(x=>x.picked_qty)-actual;if(release<0)throw DispatchWorkflowCommandException.StockConflict("实际装箱数量超过已拣库存");
+                var reductions=new List<ActualPackingAllocationReduction>();
                 foreach(var allocation in allocations)
                 {
                     var reduce=Math.Min(release,allocation.picked_qty);var remain=allocation.picked_qty-reduce;release-=reduce;
-                    if(remain==0)await c.ExecuteAsync(new CommandDefinition("DELETE FROM `wms_dispatchpicklist` WHERE `id`=@id;",new{allocation.id},tx,cancellationToken:ct));
-                    else await c.ExecuteAsync(new CommandDefinition("UPDATE `wms_dispatchpicklist` SET `pick_qty`=@remain,`picked_qty`=@remain,`last_update_time`=@now WHERE `id`=@id;",new{remain,now,allocation.id},tx,cancellationToken:ct));
+                    if(reduce>0)reductions.Add(new ActualPackingAllocationReduction(allocation,reduce,remain));
                 }
                 if(release!=0)throw DispatchWorkflowCommandException.StockConflict("库存释放数量不一致");
-                if(actual==0)await c.ExecuteAsync(new CommandDefinition("DELETE FROM `wms_dispatchlist` WHERE `id`=@id;",new{detail.id},tx,cancellationToken:ct));
-                else await c.ExecuteAsync(new CommandDefinition("UPDATE `wms_dispatchlist` SET `qty`=@actual,`lock_qty`=@actual,`picked_qty`=@actual,`last_update_time`=@now WHERE `id`=@id;",new{actual,now,detail.id},tx,cancellationToken:ct));
-                await c.ExecuteAsync(new CommandDefinition("UPDATE `wms_dispatch_packing_task_item` SET `actual_packed_task_qty`=@packed,`actual_packed_required_qty`=@actual,`last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id`=@id;",new{packed,actual,now,item.id},tx,cancellationToken:ct));
+                plans.Add(new ActualPackingItemPlan(item,packed,actual,detail,allocations,reductions));
             }
-            if(a.Items.All(i=>a.BoxItems.Where(x=>x.packing_task_item_id==i.id).Sum(x=>x.task_qty)==0))throw DispatchWorkflowCommandException.WeighingIncomplete("实际装箱总量不能为零");
+            if(plans.All(x=>x.Packed==0))throw DispatchWorkflowCommandException.WeighingIncomplete("实际装箱总量不能为零");
+            if(runtime.Mode==CanonicalInventoryMode)
+            {
+                var allAllocations=plans.SelectMany(x=>x.Allocations).ToList();
+                if(allAllocations.Any(x=>x.erp_stock_id is null||x.stock_allocation_id is null))
+                    throw DispatchWorkflowCommandException.StockConflict("统一ERP库存模式检测到遗留旧库存拣货明细，已拒绝确认实际装箱");
+                var reductions=plans.SelectMany(x=>x.Reductions).ToList();
+                if(reductions.Count>0)
+                {
+                    var mutation=RequireStockAllocationMutationService();
+                    await mutation.PrelockAsync(c,tx,a.Order.tenant_id,[a.Order.warehouse_id],
+                        reductions.Select(x=>x.Allocation.erp_stock_id!.Value).Distinct().OrderBy(x=>x).ToArray(),
+                        reductions.Select(x=>x.Allocation.stock_allocation_id!.Value).Distinct().OrderBy(x=>x).ToArray(),ct);
+                    foreach(var reduction in reductions.OrderBy(x=>x.Allocation.erp_stock_id).ThenBy(x=>x.Allocation.stock_allocation_id).ThenBy(x=>x.Allocation.id))
+                        await mutation.ReleaseAsync(c,tx,
+                            DispatchMutationContext(user,a.Order.warehouse_id,"DISPATCH_RELEASE",a.Order.id,reduction.Allocation.id,
+                                reduction.Allocation.erp_stock_id!.Value,reduction.Allocation.stock_allocation_id!.Value,
+                                reduction.Reduce,$"ACTUAL_PACKING:{r.request_id}:{taskId}"),
+                            reduction.Allocation.erp_stock_id.Value,reduction.Allocation.stock_allocation_id.Value,reduction.Reduce,ct);
+                }
+            }
+            var now=DateTime.Now;
+            foreach(var plan in plans)
+            {
+                foreach(var reduction in plan.Reductions)
+                {
+                    if(reduction.Remain==0)await c.ExecuteAsync(new CommandDefinition("DELETE FROM `wms_dispatchpicklist` WHERE `id`=@id;",new{id=reduction.Allocation.id},tx,cancellationToken:ct));
+                    else await c.ExecuteAsync(new CommandDefinition("UPDATE `wms_dispatchpicklist` SET `pick_qty`=@remain,`picked_qty`=@remain,`last_update_time`=@now WHERE `id`=@id;",new{remain=reduction.Remain,now,id=reduction.Allocation.id},tx,cancellationToken:ct));
+                }
+                if(plan.Actual==0)await c.ExecuteAsync(new CommandDefinition("DELETE FROM `wms_dispatchlist` WHERE `id`=@id;",new{id=plan.Detail.id},tx,cancellationToken:ct));
+                else await c.ExecuteAsync(new CommandDefinition("UPDATE `wms_dispatchlist` SET `qty`=@actual,`lock_qty`=@actual,`picked_qty`=@actual,`last_update_time`=@now WHERE `id`=@id;",new{actual=plan.Actual,now,id=plan.Detail.id},tx,cancellationToken:ct));
+                await c.ExecuteAsync(new CommandDefinition("UPDATE `wms_dispatch_packing_task_item` SET `actual_packed_task_qty`=@packed,`actual_packed_required_qty`=@actual,`last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id`=@id;",new{packed=plan.Packed,actual=plan.Actual,now,id=plan.Item.id},tx,cancellationToken:ct));
+            }
             await c.ExecuteAsync(new CommandDefinition("""
                 UPDATE `wms_dispatch_packing_task` SET `packing_plan_status`='ACTUAL_CONFIRMED',`actual_confirmed_at`=@now,`actual_confirmed_by`=@userId,`actual_confirmed_by_name`=@name,`last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id`=@taskId;
                 UPDATE `wms_dispatch_order` SET `last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id`=@orderId AND `row_version`=@expected;
@@ -144,4 +176,7 @@ public partial class DispatchWorkflowService
     private static void ValidatePackingPlanCommand(int orderId,int taskId,string requestId,long orderVersion,long taskVersion){if(orderId<=0||taskId<=0||string.IsNullOrWhiteSpace(requestId)||requestId.Length>64||orderVersion<0||taskVersion<0)throw new ArgumentException("order, task, request id and versions are required");}
     private static PackingPlanViewModel ToPackingPlan(DispatchOrderEntity o,DispatchPackingTaskEntity t,IReadOnlyCollection<DispatchPackingTaskItemEntity> items,IReadOnlyCollection<WeighingBoxEntity> boxes,IReadOnlyCollection<WeighingBoxItemEntity> boxItems)=>new(){order_id=o.id,packing_task_id=t.id,packing_task_no=t.source_task_no,packing_plan_status=t.packing_plan_status,row_version=o.row_version,task_row_version=t.row_version,items=items.Select(i=>new PackingPlanItemViewModel{id=i.id,commodity_sku=i.commodity_sku,commodity_name=i.commodity_name,fn_sku=i.fn_sku,msku=i.msku,main_image=SourceMainImage(i.source_snapshot),task_qty=i.source_quantity_shipped??0,variant_qty=i.variant_qty??0,required_qty=i.required_qty??0,actual_packed_task_qty=i.actual_packed_task_qty,actual_packed_required_qty=i.actual_packed_required_qty}).ToList(),boxes=boxes.Select(b=>new PackingPlanBoxViewModel{id=b.id,client_key=$"box-{b.id}",box_sequence=b.box_sequence,weight=b.weight,length=b.length,width=b.width,height=b.height,row_version=b.row_version,items=boxItems.Where(x=>x.weighing_box_id==b.id).Select(x=>new PackingPlanBoxItemViewModel{packing_task_item_id=x.packing_task_item_id,task_qty=x.task_qty}).ToList()}).ToList()};
     private sealed record PackingPlanAggregate(DispatchOrderEntity Order,DispatchPackingTaskEntity Task,List<DispatchPackingTaskItemEntity> Items,List<WeighingBoxEntity> Boxes,List<WeighingBoxItemEntity> BoxItems);
+    private sealed record ActualPackingItemPlan(DispatchPackingTaskItemEntity Item,int Packed,int Actual,
+        DispatchlistEntity Detail,List<DispatchpicklistEntity> Allocations,List<ActualPackingAllocationReduction> Reductions);
+    private sealed record ActualPackingAllocationReduction(DispatchpicklistEntity Allocation,int Reduce,int Remain);
 }

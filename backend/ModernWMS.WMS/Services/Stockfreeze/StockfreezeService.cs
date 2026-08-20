@@ -9,6 +9,7 @@ using ModernWMS.Core.Services;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels;
 using ModernWMS.WMS.IServices;
+using ModernWMS.WMS.IServices.StockAllocation;
 
 namespace ModernWMS.WMS.Services;
 
@@ -17,6 +18,8 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
     private const string ViewSql = """
         SELECT f.`id`,f.`job_code`,f.`job_type`,f.`sku_id`,f.`goods_owner_id`,f.`goods_location_id`,
                f.`handler`,f.`handle_time`,f.`last_update_time`,f.`tenant_id`,f.`series_number`,
+               f.`erp_stock_id`,f.`stock_allocation_id`,
+               f.`source_freeze_id`,
                k.`sku_code`,p.`spu_code`,p.`spu_name`,l.`location_name`,l.`warehouse_name`
           FROM `wms_stockfreeze` f
           INNER JOIN `wms_sku` k ON k.`id`=f.`sku_id`
@@ -39,15 +42,18 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
     private readonly IMySqlConnectionFactory _connectionFactory;
     private readonly IStringLocalizer<ModernWMS.Core.MultiLanguage> _stringLocalizer;
     private readonly FunctionHelper _functionHelper;
+    private readonly IStockAllocationMutationService _stockMutationService;
 
     public StockfreezeService(
         IMySqlConnectionFactory connectionFactory,
         IStringLocalizer<ModernWMS.Core.MultiLanguage> stringLocalizer,
-        FunctionHelper functionHelper)
+        FunctionHelper functionHelper,
+        IStockAllocationMutationService stockMutationService)
     {
         _connectionFactory = connectionFactory;
         _stringLocalizer = stringLocalizer;
         _functionHelper = functionHelper;
+        _stockMutationService = stockMutationService;
     }
 
     public async Task<(List<StockfreezeViewModel> data, int totals)> PageAsync(
@@ -80,7 +86,8 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         return (await connection.QueryAsync<StockfreezeViewModel>("""
             SELECT `id`,`job_code`,`job_type`,`sku_id`,`goods_owner_id`,`goods_location_id`,`handler`,
-                   `handle_time`,`last_update_time`,`tenant_id`,`series_number`
+                   `handle_time`,`last_update_time`,`tenant_id`,`erp_stock_id`,`stock_allocation_id`,
+                   `source_freeze_id`,`series_number`
               FROM `wms_stockfreeze` WHERE `tenant_id`=@tenantId;
             """, new { tenantId = currentUser.tenant_id })).AsList();
     }
@@ -97,9 +104,55 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
     {
         var jobCode = await _functionHelper.GetFormNoAsync("Stockfreeze");
         await using var connection = await _connectionFactory.OpenConnectionAsync();
+        var routeSnapshot = await CanonicalInventorySupport.GetRouteAsync(
+            connection, currentUser.tenant_id, viewModel.goods_location_id);
+        CanonicalInventorySupport.CanonicalAllocation? freezeAllocationSnapshot = null;
+        if (viewModel.job_type && routeSnapshot.Mode == CanonicalInventorySupport.CanonicalMode)
+            freezeAllocationSnapshot = await CanonicalInventorySupport.ResolveSimpleAllocationAsync(
+                connection, null, currentUser.tenant_id, viewModel.sku_id,
+                viewModel.goods_location_id, viewModel.goods_owner_id, viewModel.series_number,
+                forUpdate: false);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
         try
         {
+            StockfreezeEntity? sourceFreeze = null;
+            if (!viewModel.job_type && viewModel.source_freeze_id.HasValue)
+                sourceFreeze = await connection.QuerySingleOrDefaultAsync<StockfreezeEntity>("""
+                    SELECT * FROM `wms_stockfreeze`
+                     WHERE `id`=@sourceFreezeId AND `tenant_id`=@tenantId AND `job_type`=1
+                     FOR UPDATE;
+                    """, new { sourceFreezeId = viewModel.source_freeze_id.Value,
+                        tenantId = currentUser.tenant_id }, transaction);
+            var route = await CanonicalInventorySupport.LockRouteAsync(
+                connection, transaction, currentUser.tenant_id, routeSnapshot);
+            CanonicalInventorySupport.CanonicalAllocation? allocation = null;
+            if (route.Mode == CanonicalInventorySupport.CanonicalMode)
+            {
+                if (!viewModel.job_type)
+                {
+                    if (sourceFreeze == null || !sourceFreeze.erp_stock_id.HasValue
+                        || !sourceFreeze.stock_allocation_id.HasValue)
+                        throw new InvalidOperationException("统一库存模式解冻必须明确关联有效的源冻结单");
+                    if (sourceFreeze.sku_id != viewModel.sku_id
+                        || sourceFreeze.goods_location_id != viewModel.goods_location_id
+                        || sourceFreeze.goods_owner_id != viewModel.goods_owner_id
+                        || sourceFreeze.series_number != viewModel.series_number)
+                        throw new InvalidOperationException("解冻维度与源冻结单不一致");
+                    allocation = new CanonicalInventorySupport.CanonicalAllocation
+                    {
+                        ErpStockId = sourceFreeze.erp_stock_id.Value,
+                        AllocationId = sourceFreeze.stock_allocation_id.Value,
+                        ErpWarehouseId = route.ErpWarehouseId
+                    };
+                }
+                else
+                {
+                    if (viewModel.source_freeze_id.HasValue)
+                        throw new InvalidOperationException("冻结操作不能关联源冻结单");
+                    allocation = freezeAllocationSnapshot
+                        ?? throw new InvalidOperationException("冻结库存分配预解析失败，请重试");
+                }
+            }
             var parameters = new
             {
                 viewModel.goods_location_id,
@@ -137,7 +190,8 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
             }
 
             var now = DateTime.Now;
-            await connection.ExecuteAsync("""
+            if (route.Mode == CanonicalInventorySupport.LegacyMode)
+                await connection.ExecuteAsync("""
                 UPDATE `wms_stock` SET `is_freeze`=@isFreeze
                  WHERE `goods_location_id`=@goods_location_id AND `goods_owner_id`=@goods_owner_id
                    AND `sku_id`=@sku_id AND `series_number`=@series_number AND `tenant_id`=@tenantId;
@@ -152,9 +206,10 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
                 }, transaction);
             var id = await connection.ExecuteScalarAsync<int>("""
                 INSERT INTO `wms_stockfreeze` (`job_code`,`job_type`,`sku_id`,`goods_owner_id`,`goods_location_id`,
-                    `handler`,`handle_time`,`last_update_time`,`tenant_id`,`series_number`)
+                    `handler`,`handle_time`,`last_update_time`,`tenant_id`,`erp_stock_id`,`stock_allocation_id`,
+                    `source_freeze_id`,`series_number`)
                 VALUES (@jobCode,@jobType,@skuId,@goodsOwnerId,@goodsLocationId,@handler,@handleTime,@lastUpdate,
-                    @tenantId,@seriesNumber); SELECT LAST_INSERT_ID();
+                    @tenantId,@erpStockId,@allocationId,@sourceFreezeId,@seriesNumber); SELECT LAST_INSERT_ID();
                 """, new
                 {
                     jobCode,
@@ -166,8 +221,69 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
                     handleTime = now,
                     lastUpdate = now,
                     tenantId = currentUser.tenant_id,
+                    erpStockId = allocation?.ErpStockId,
+                    allocationId = allocation?.AllocationId,
+                    sourceFreezeId = viewModel.source_freeze_id,
                     seriesNumber = viewModel.series_number
                 }, transaction);
+            if (allocation != null)
+            {
+                await _stockMutationService.PrelockAsync(
+                    connection, transaction, currentUser.tenant_id,
+                    [route.ErpWarehouseId],
+                    [allocation.ErpStockId], [allocation.AllocationId]);
+                allocation = await connection.QuerySingleAsync<CanonicalInventorySupport.CanonicalAllocation>("""
+                    SELECT `id` AllocationId,`erp_stock_id` ErpStockId,
+                           `allocated_qty` AllocatedQty,`occupied_qty` OccupiedQty
+                      FROM `wms_erp_stock_allocation`
+                     WHERE `tenant_id`=@tenantId AND `id`=@allocationId;
+                    """, new { tenantId = currentUser.tenant_id,
+                        allocationId = allocation.AllocationId }, transaction);
+                var operationKey = $"MWMS:FRZ:{id}";
+                var context = CanonicalInventorySupport.Context(
+                    currentUser.tenant_id, route.ErpWarehouseId, operationKey,
+                    viewModel.job_type ? "STOCK_FREEZE_RESERVE" : "STOCK_FREEZE_RELEASE", id, id,
+                    currentUser, currentUser.user_name, viewModel.job_type ? "冻结库存" : "解冻库存");
+                if (viewModel.job_type)
+                {
+                    var quantity = allocation.AllocatedQty - allocation.OccupiedQty;
+                    if (quantity <= 0)
+                        throw new InvalidOperationException("该库存分配没有可冻结数量");
+                    await _stockMutationService.ReserveAsync(
+                        connection, transaction, context, allocation.ErpStockId, allocation.AllocationId, quantity);
+                }
+                else
+                {
+                    var quantity = await connection.ExecuteScalarAsync<long>("""
+                        SELECT reserve_qty-COALESCE(released_qty,0)
+                          FROM (
+                            SELECT COALESCE(SUM(CASE
+                                       WHEN l.`biz_type`='STOCK_FREEZE_RESERVE'
+                                        AND l.`biz_id`=@sourceFreezeId THEN l.`occupied_delta`
+                                       ELSE 0 END),0) reserve_qty,
+                                   COALESCE(SUM(CASE
+                                       WHEN l.`biz_type`='STOCK_FREEZE_RELEASE'
+                                        AND f.`source_freeze_id`=@sourceFreezeId THEN -l.`occupied_delta`
+                                       ELSE 0 END),0) released_qty
+                              FROM `wms_erp_stock_allocation_log` l
+                              LEFT JOIN `wms_stockfreeze` f
+                                ON f.`id`=l.`biz_id` AND f.`tenant_id`=l.`tenant_id`
+                             WHERE l.`tenant_id`=@tenantId
+                               AND l.`erp_stock_id`=@erpStockId
+                               AND l.`allocation_id`=@allocationId
+                               AND l.`biz_type` IN ('STOCK_FREEZE_RESERVE','STOCK_FREEZE_RELEASE')
+                          ) hold_qty;
+                        """, new { tenantId = currentUser.tenant_id,
+                            erpStockId = allocation.ErpStockId, allocationId = allocation.AllocationId,
+                            sourceFreezeId = sourceFreeze!.id }, transaction);
+                    if (quantity <= 0)
+                        throw new InvalidOperationException("源冻结单已全部解冻或没有可解冻持有量");
+                    if (quantity > allocation.OccupiedQty)
+                        throw new InvalidOperationException("源冻结单剩余持有量超过当前占用量，禁止解冻");
+                    await _stockMutationService.ReleaseAsync(
+                        connection, transaction, context, allocation.ErpStockId, allocation.AllocationId, quantity);
+                }
+            }
             await transaction.CommitAsync();
             return id > 0 ? (id, _stringLocalizer["save_success"]) : (0, _stringLocalizer["save_failed"]);
         }
@@ -184,13 +300,26 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
         try
         {
-            var existingId = await connection.QuerySingleOrDefaultAsync<int?>(
-                "SELECT `id` FROM `wms_stockfreeze` WHERE `id`=@id FOR UPDATE;",
+            var existing = await connection.QuerySingleOrDefaultAsync<StockfreezeEntity>(
+                "SELECT * FROM `wms_stockfreeze` WHERE `id`=@id FOR UPDATE;",
                 new { viewModel.id }, transaction);
-            if (!existingId.HasValue)
+            if (existing == null)
             {
                 await transaction.RollbackAsync();
                 return (false, _stringLocalizer["not_exists_entity"]);
+            }
+            await using var routeConnection = await _connectionFactory.OpenConnectionAsync();
+            var routeSnapshot = await CanonicalInventorySupport.GetRouteAsync(
+                routeConnection, existing.tenant_id, existing.goods_location_id);
+            _ = await CanonicalInventorySupport.LockRouteAsync(
+                connection, transaction, existing.tenant_id, routeSnapshot);
+            var canonical = await connection.ExecuteScalarAsync<bool>("""
+                SELECT `erp_stock_id` IS NOT NULL FROM `wms_stockfreeze` WHERE `id`=@id;
+                """, new { viewModel.id }, transaction);
+            if (canonical)
+            {
+                await transaction.RollbackAsync();
+                return (false, "统一库存模式下冻结记录不可编辑，请执行新的冻结或解冻操作");
             }
             var qty = await connection.ExecuteAsync("""
                 UPDATE `wms_stockfreeze` SET `job_code`=@job_code,`job_type`=@job_type,`sku_id`=@sku_id,
@@ -221,6 +350,26 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
         try
         {
+            var existing = await connection.QuerySingleOrDefaultAsync<StockfreezeEntity>(
+                "SELECT * FROM `wms_stockfreeze` WHERE `id`=@id FOR UPDATE;", new { id }, transaction);
+            if (existing == null)
+            {
+                await transaction.RollbackAsync();
+                return (false, _stringLocalizer["not_exists_entity"]);
+            }
+            await using var routeConnection = await _connectionFactory.OpenConnectionAsync();
+            var routeSnapshot = await CanonicalInventorySupport.GetRouteAsync(
+                routeConnection, existing.tenant_id, existing.goods_location_id);
+            _ = await CanonicalInventorySupport.LockRouteAsync(
+                connection, transaction, existing.tenant_id, routeSnapshot);
+            var canonical = await connection.ExecuteScalarAsync<bool>("""
+                SELECT COALESCE(`erp_stock_id` IS NOT NULL,0) FROM `wms_stockfreeze` WHERE `id`=@id FOR UPDATE;
+                """, new { id }, transaction);
+            if (canonical)
+            {
+                await transaction.RollbackAsync();
+                return (false, "统一库存模式下冻结记录不可删除");
+            }
             var qty = await connection.ExecuteAsync("DELETE FROM `wms_stockfreeze` WHERE `id`=@id;", new { id }, transaction);
             await transaction.CommitAsync();
             return qty > 0

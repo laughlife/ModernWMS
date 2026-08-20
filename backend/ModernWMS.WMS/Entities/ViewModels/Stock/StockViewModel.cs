@@ -34,6 +34,28 @@ namespace ModernWMS.WMS.Entities.ViewModels
         public int id { get; set; } = 0;
 
         /// <summary>
+        /// ERP authoritative stock id. Canonical inventory actions must use this id.
+        /// </summary>
+        public long? erp_stock_id { get; set; }
+
+        /// <summary>
+        /// WMS location allocation id. Canonical inventory actions must use this id.
+        /// </summary>
+        public long? stock_allocation_id { get; set; }
+
+        /// <summary>
+        /// Inventory read mode for the warehouse.
+        /// </summary>
+        public string inventory_mode { get; set; } = "LEGACY_READ";
+
+        /// <summary>
+        /// Allocation state: ACTIVE, UNLOCATED, RETIRED or LEGACY.
+        /// </summary>
+        public string location_state { get; set; } = "LEGACY";
+
+        public bool is_pending_location { get; set; }
+
+        /// <summary>
         /// sku_id
         /// </summary>
         [Display(Name = "sku_id")]
@@ -49,7 +71,7 @@ namespace ModernWMS.WMS.Entities.ViewModels
         /// qty
         /// </summary>
         [Display(Name = "qty")]
-        public int qty { get; set; } = 0;
+        public long qty { get; set; } = 0;
 
         /// <summary>
         /// goods_owner_id
@@ -115,7 +137,17 @@ namespace ModernWMS.WMS.Entities.ViewModels
         /// qty_available
         /// </summary>
         [Display(Name = "qty_available")]
-        public int qty_available { get; set; } = 0;
+        public long qty_available { get; set; } = 0;
+
+        public long qty_locked { get; set; } = 0;
+
+        public long erp_total_qty { get; set; } = 0;
+
+        public long erp_available_qty { get; set; } = 0;
+
+        public long erp_occupied_qty { get; set; } = 0;
+
+        public bool allocation_consistent { get; set; } = true;
 
         /// <summary>
         /// goods owner name

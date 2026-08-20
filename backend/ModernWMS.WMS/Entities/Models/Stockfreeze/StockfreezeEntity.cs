@@ -65,6 +65,12 @@ namespace ModernWMS.WMS.Entities.Models
         /// </summary>
         public long tenant_id { get; set; } = 0;
 
+        public long? erp_stock_id { get; set; }
+
+        public long? stock_allocation_id { get; set; }
+
+        public long? source_freeze_id { get; set; }
+
         /// <summary>
         /// series_number
         /// </summary>

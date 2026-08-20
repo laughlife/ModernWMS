@@ -117,6 +117,10 @@ namespace ModernWMS.WMS.Entities.ViewModels
         [Display(Name = "tenant_id")]
         public long tenant_id { get; set; } = 0;
 
+        public long? erp_stock_id { get; set; }
+
+        public long? stock_allocation_id { get; set; }
+
         /// <summary>
         /// origin warehouse
         /// </summary>

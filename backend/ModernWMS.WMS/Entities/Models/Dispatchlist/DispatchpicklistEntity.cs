@@ -47,6 +47,12 @@ namespace ModernWMS.WMS.Entities.Models
         /// </summary>
         public int stock_id { get; set; } = 0;
 
+        /// <summary>Canonical ERP balance row. Null is retained for legacy rows.</summary>
+        public long? erp_stock_id { get; set; }
+
+        /// <summary>Canonical WMS location allocation. Null is retained for legacy rows.</summary>
+        public long? stock_allocation_id { get; set; }
+
         /// <summary>
         /// goods_owner_id
         /// </summary>

@@ -38,6 +38,9 @@ namespace ModernWMS.WMS.Entities.ViewModels
         /// </summary>
         [Display(Name = "dispatchlist_id")]
         public int dispatchlist_id { get; set; } = 0;
+        public int stock_id { get; set; }
+        public long? erp_stock_id { get; set; }
+        public long? stock_allocation_id { get; set; }
 
         /// <summary>
         /// goods_owner_id

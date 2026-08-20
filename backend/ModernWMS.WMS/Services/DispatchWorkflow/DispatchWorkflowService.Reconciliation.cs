@@ -35,9 +35,11 @@ public partial class DispatchWorkflowService
             if(snapshots.Count!=tasks.Count) throw new InvalidOperationException("one or more packing tasks are missing during reconciliation");
             if(snapshots.Where(x=>!x.IsCancelled).Any(x=>x.WarehouseId!=order.warehouse_id))
                 throw new InvalidOperationException("packing task warehouse changed; order reconciliation rejected");
+            var runtime = await LoadInventoryRuntimeAsync(connection, tx, order.tenant_id,
+                order.warehouse_id, cancellationToken);
             // 兼容本功能上线前已生成的待拣货单：选择记录仍在时补齐可用量快照。
             var legacyBindings=await LoadCreationBindingRowsAsync(connection,tx,order.tenant_id,
-                tasks.Select(x=>x.source_task_id).ToArray(),cancellationToken);
+                tasks.Select(x=>x.source_task_id).ToArray(),runtime.Mode == CanonicalInventoryMode,cancellationToken);
             var legacyRequiredQty=legacyBindings.GroupBy(x=>(x.TaskId,x.ItemId))
                 .ToDictionary(x=>x.Key,x=>x.Sum(row=>row.LockedQty));
             var legacyAvailableSnapshots=BuildAvailableSnapshots(snapshots,legacyBindings);
@@ -46,10 +48,12 @@ public partial class DispatchWorkflowService
             foreach(var task in tasks)
             {
                 var snapshot=snapshots.Single(x=>x.SourceTaskId==task.source_task_id);
-                if(snapshot.IsCancelled) { await CancelTaskAsync(connection,tx,task,now,cancellationToken); changed=true; }
+                if(snapshot.IsCancelled) { await CancelTaskAsync(connection,tx,task,order,currentUser,
+                    runtime.Mode == CanonicalInventoryMode,now,cancellationToken); changed=true; }
                 else if(!string.Equals(task.source_version,snapshot.SourceVersion,StringComparison.Ordinal))
                 {
-                    await RemoveTaskAllocationsAsync(connection,tx,task,cancellationToken);
+                    await RemoveTaskAllocationsAsync(connection,tx,task,order,currentUser,
+                        runtime.Mode == CanonicalInventoryMode,"RECONCILE",cancellationToken);
                     await RebuildTaskItemsAsync(connection,tx,task,snapshot,now,cancellationToken);
                     changed=true;
                 }
@@ -120,25 +124,70 @@ public partial class DispatchWorkflowService
         foreach(var t in order.packing_tasks)t.items=items.Where(x=>x.packing_task_id==t.id).ToList(); return order;
     }
 
-    private static async Task RemoveTaskAllocationsAsync(System.Data.IDbConnection c,IDbTransaction tx,DispatchPackingTaskEntity task,CancellationToken ct)
+    private async Task RemoveTaskAllocationsAsync(System.Data.IDbConnection c,IDbTransaction tx,
+        DispatchPackingTaskEntity task,DispatchOrderEntity order,CurrentUser user,bool canonical,
+        string requestIdentity,CancellationToken ct)
     {
         var ids=task.items.Where(x=>x.id>0).Select(x=>x.id).ToArray(); if(ids.Length==0)return;
         if(await c.ExecuteScalarAsync<bool>(new CommandDefinition("""
             SELECT EXISTS(SELECT 1 FROM `wms_dispatchpicklist` WHERE `packing_task_item_id` IN @ids AND `is_update_stock`=1);
             """,new{ids},tx,cancellationToken:ct)))
             throw new InvalidOperationException("packing task has allocations that already updated stock; automatic reconciliation is forbidden");
+        if (canonical)
+        {
+            var reserved = (await c.QueryAsync<ReservedAllocationRow>(new CommandDefinition("""
+                SELECT selection.`id`,selection.`erp_stock_id`,selection.`stock_allocation_id`,selection.`qty`
+                  FROM `wms_packing_task_stock_selection` selection
+                 WHERE selection.`tenant_id`=@tenantId AND selection.`sellfox_task_id`=@sourceTaskId
+                   AND selection.`erp_stock_id` IS NOT NULL AND selection.`stock_allocation_id` IS NOT NULL
+                 ORDER BY selection.`stock_allocation_id`,selection.`id` FOR UPDATE;
+                """,new{tenantId=order.tenant_id,sourceTaskId=task.source_task_id},tx,cancellationToken:ct))).AsList();
+            var pickReservations=(await c.QueryAsync<ReservedAllocationRow>(new CommandDefinition("""
+                SELECT `id`,`erp_stock_id`,`stock_allocation_id`,`picked_qty` AS qty
+                  FROM `wms_dispatchpicklist`
+                 WHERE `packing_task_item_id` IN @ids AND `is_update_stock`=0
+                   AND `erp_stock_id` IS NOT NULL AND `stock_allocation_id` IS NOT NULL
+                 ORDER BY `erp_stock_id`,`stock_allocation_id`,`id` FOR UPDATE;
+                """,new{ids},tx,cancellationToken:ct))).AsList();
+            if(reserved.Count>0&&pickReservations.Count>0)
+                throw new InvalidOperationException("装箱选择与拣货明细同时持有同一业务预占，已拒绝自动释放");
+            var allReservations=reserved.Concat(pickReservations).ToList();
+            if (allReservations.Count > 0)
+                await RequireStockAllocationMutationService().PrelockAsync(c,tx,order.tenant_id,
+                    [order.warehouse_id],
+                    allReservations.Select(x=>x.erp_stock_id).Distinct().OrderBy(x=>x).ToArray(),
+                    allReservations.Select(x=>x.stock_allocation_id).Distinct().OrderBy(x=>x).ToArray(),ct);
+            foreach (var row in allReservations.OrderBy(x=>x.erp_stock_id).ThenBy(x=>x.stock_allocation_id).ThenBy(x=>x.id))
+                await RequireStockAllocationMutationService().ReleaseAsync(c,tx,
+                    DispatchMutationContext(user,order.warehouse_id,"DISPATCH_RELEASE",order.id,row.id,row.erp_stock_id,
+                        row.stock_allocation_id,row.qty,$"{requestIdentity}:{task.id}"),
+                    row.erp_stock_id,row.stock_allocation_id,row.qty,ct);
+            if (reserved.Count > 0)
+                await c.ExecuteAsync(new CommandDefinition(
+                    "DELETE FROM `wms_packing_task_stock_selection` WHERE `id` IN @ids;",
+                    new{ids=reserved.Select(x=>x.id).ToArray()},tx,cancellationToken:ct));
+        }
         await c.ExecuteAsync(new CommandDefinition("DELETE FROM `wms_dispatchpicklist` WHERE `packing_task_item_id` IN @ids AND `is_update_stock`=0;",
             new{ids},tx,cancellationToken:ct));
     }
 
-    private static async Task CancelTaskAsync(System.Data.IDbConnection c,IDbTransaction tx,DispatchPackingTaskEntity task,DateTime now,CancellationToken ct)
+    private async Task CancelTaskAsync(System.Data.IDbConnection c,IDbTransaction tx,DispatchPackingTaskEntity task,
+        DispatchOrderEntity order,CurrentUser user,bool canonical,DateTime now,CancellationToken ct)
     {
-        await RemoveTaskAllocationsAsync(c,tx,task,ct);
+        await RemoveTaskAllocationsAsync(c,tx,task,order,user,canonical,"SOURCE_CANCEL",ct);
         await c.ExecuteAsync(new CommandDefinition("""
             UPDATE `wms_dispatch_packing_task_item` SET `is_active`=0,`last_update_time`=@now,`row_version`=`row_version`+1 WHERE `packing_task_id`=@id;
             UPDATE `wms_dispatch_packing_task` SET `is_active`=0,`active_source_task_id`=NULL,`source_cancelled_at`=@now,
               `status`=@status,`last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id`=@id;
             """,new{now,id=task.id,status=DispatchOrderStatus.SourceCancelled},tx,cancellationToken:ct));
+    }
+
+    private sealed class ReservedAllocationRow
+    {
+        public int id { get; init; }
+        public long erp_stock_id { get; init; }
+        public long stock_allocation_id { get; init; }
+        public int qty { get; init; }
     }
 
     private static async Task RebuildTaskItemsAsync(System.Data.IDbConnection c,IDbTransaction tx,DispatchPackingTaskEntity task,

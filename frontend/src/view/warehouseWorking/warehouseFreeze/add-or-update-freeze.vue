@@ -13,8 +13,8 @@
               variant="outlined"
               readonly
               clearable
-              @click="method.openCommoditySelect"
-              @click:clear="method.clearCommodity"
+              @click="data.form.job_type === FREEZE_JOB_FREEZE && method.openCommoditySelect()"
+              @click:clear="data.form.job_type === FREEZE_JOB_FREEZE && method.clearCommodity()"
             ></v-text-field>
             <v-text-field
               v-model="data.form.spu_name"
@@ -99,6 +99,7 @@ const data = reactive({
 
   form: ref<WarehouseFreezeVO>({
     id: 0,
+    source_freeze_id: null,
     job_code: '',
     job_type: FREEZE_JOB_FREEZE,
     sku_id: 0,

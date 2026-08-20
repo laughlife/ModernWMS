@@ -53,17 +53,27 @@ namespace ModernWMS.WMS.Entities.ViewModels
         /// <summary>
         /// quantity
         /// </summary>
-        public int qty { get; set; } = 0;
+        public long qty { get; set; } = 0;
 
         /// <summary>
         /// quantity available
         /// </summary>
-        public int qty_available { get; set; } = 0;
+        public long qty_available { get; set; } = 0;
 
         /// <summary>
         /// quantity locked
         /// </summary>
-        public int qty_locked { get; set; } = 0;
+        public long qty_locked { get; set; } = 0;
+
+        public long qty_pending_location { get; set; } = 0;
+
+        public long erp_total_qty { get; set; } = 0;
+
+        public long erp_available_qty { get; set; } = 0;
+
+        public long erp_occupied_qty { get; set; } = 0;
+
+        public bool allocation_consistent { get; set; } = true;
 
         /// <summary>
         /// asn qty

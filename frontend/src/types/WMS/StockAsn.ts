@@ -169,6 +169,7 @@ export interface ErpPendingReceiptVO {
 export interface ErpReceiptDetailVO {
   id: number
   shipment_id: number
+  erp_stock_id?: number | null
   purchase_no: string
   shipment_batch_no: string
   commodity_sku: string
@@ -178,6 +179,12 @@ export interface ErpReceiptDetailVO {
   order_user_name: string
   warehouse_area_id: number
   warehouse_area_name: string
+  warehouse_id: number
+  warehouse_name: string
+  lifecycle_status: string
+  location_state: 'ACTIVE' | 'UNLOCATED' | 'NONE'
+  data_source: 'WMS_RECEIPT' | 'ERP_HISTORY'
+  unlocated: boolean
   receipt_time: string
   actual_receipt_qty: number
   loss_qty: number

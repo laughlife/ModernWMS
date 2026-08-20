@@ -9,6 +9,7 @@ using ModernWMS.Core.Services;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels;
 using ModernWMS.WMS.IServices;
+using ModernWMS.WMS.IServices.StockAllocation;
 using MySqlConnector;
 
 namespace ModernWMS.WMS.Services;
@@ -19,6 +20,7 @@ public class StockmoveService : BaseService<StockmoveEntity>, IStockmoveService
         SELECT m.`id`,m.`job_code`,m.`move_status`,m.`sku_id`,m.`orig_goods_location_id`,
                m.`dest_googs_location_id`,m.`qty`,m.`goods_owner_id`,m.`handler`,m.`handle_time`,
                m.`creator`,m.`create_time`,m.`last_update_time`,m.`tenant_id`,m.`series_number`,
+               m.`erp_stock_id`,m.`stock_allocation_id`,
                m.`expiry_date`,m.`price`,m.`putaway_date`,sku.`sku_code`,sku.`sku_name`,
                spu.`spu_code`,spu.`spu_name`,dest.`location_name` `dest_googs_location_name`,
                dest.`warehouse_name` `dest_googs_warehouse`,orig.`location_name` `orig_goods_location_name`,
@@ -49,13 +51,16 @@ public class StockmoveService : BaseService<StockmoveEntity>, IStockmoveService
     private readonly IMySqlConnectionFactory _connectionFactory;
     private readonly IStringLocalizer<Core.MultiLanguage> _stringLocalizer;
     private readonly FunctionHelper _functionHelper;
+    private readonly IStockAllocationMutationService _stockMutationService;
 
     public StockmoveService(IMySqlConnectionFactory connectionFactory,
-        IStringLocalizer<Core.MultiLanguage> stringLocalizer,FunctionHelper functionHelper)
+        IStringLocalizer<Core.MultiLanguage> stringLocalizer,FunctionHelper functionHelper,
+        IStockAllocationMutationService stockMutationService)
     {
         _connectionFactory=connectionFactory ?? throw new ArgumentNullException(nameof(connectionFactory));
         _stringLocalizer=stringLocalizer ?? throw new ArgumentNullException(nameof(stringLocalizer));
         _functionHelper=functionHelper ?? throw new ArgumentNullException(nameof(functionHelper));
+        _stockMutationService=stockMutationService ?? throw new ArgumentNullException(nameof(stockMutationService));
     }
 
     public async Task<(List<StockmoveViewModel> data,int totals)> PageAsync(PageSearch pageSearch,CurrentUser currentUser)
@@ -90,10 +95,39 @@ public class StockmoveService : BaseService<StockmoveEntity>, IStockmoveService
     {
         var jobCode=await _functionHelper.GetFormNoAsync("Stockmove");
         await using var db=await _connectionFactory.OpenConnectionAsync();
+        var originRouteSnapshot=await CanonicalInventorySupport.GetRouteAsync(
+            db,currentUser.tenant_id,viewModel.orig_goods_location_id);
+        var destinationRouteSnapshot=await CanonicalInventorySupport.GetRouteAsync(
+            db,currentUser.tenant_id,viewModel.dest_googs_location_id);
+        if(originRouteSnapshot.ErpWarehouseId!=destinationRouteSnapshot.ErpWarehouseId ||
+           originRouteSnapshot.Mode!=destinationRouteSnapshot.Mode)
+            return (0,"移库起点和终点不属于同一库存运行模式及ERP仓库");
         await using var tx=await db.BeginTransactionAsync(IsolationLevel.Serializable);
         try
         {
-            var stock=await db.QuerySingleOrDefaultAsync<AvailableStockRow>("""
+            await CanonicalInventorySupport.LockRoutesAsync(
+                db,tx,currentUser.tenant_id,[originRouteSnapshot,destinationRouteSnapshot]);
+            var originRoute=originRouteSnapshot;
+            var destinationRoute=destinationRouteSnapshot;
+            if(originRoute.ErpWarehouseId!=destinationRoute.ErpWarehouseId || originRoute.Mode!=destinationRoute.Mode)
+                return await Rollback(0,"移库起点和终点不属于同一库存运行模式及ERP仓库",tx);
+            CanonicalInventorySupport.CanonicalAllocation? allocation=null;
+            if(originRoute.Mode==CanonicalInventorySupport.CanonicalMode)
+            {
+                allocation=await CanonicalInventorySupport.ResolveAllocationAsync(
+                    db,tx,currentUser.tenant_id,viewModel.sku_id,viewModel.orig_goods_location_id,
+                    viewModel.goods_owner_id,viewModel.series_number,viewModel.expiry_date,
+                    viewModel.price,viewModel.putaway_date);
+                var pending=await db.ExecuteScalarAsync<long>("""
+                    SELECT COALESCE(SUM(`qty`),0) FROM `wms_stockmove`
+                     WHERE `tenant_id`=@tenantId AND `stock_allocation_id`=@allocationId AND `move_status`=0;
+                    """,new{tenantId=currentUser.tenant_id,allocationId=allocation.AllocationId},tx);
+                if(allocation.AllocatedQty-allocation.OccupiedQty-pending<viewModel.qty)
+                    return await Rollback(0,_stringLocalizer["qty_not_available"],tx);
+            }
+            else
+            {
+                var stock=await db.QuerySingleOrDefaultAsync<AvailableStockRow>("""
                 SELECT s.`id`,s.`is_freeze`,s.`qty`,
                     CASE WHEN s.`is_freeze`=1 THEN 0 ELSE s.`qty`
                       - COALESCE((SELECT SUM(p.`pick_qty`) FROM `wms_dispatchpicklist` p
@@ -130,19 +164,21 @@ public class StockmoveService : BaseService<StockmoveEntity>, IStockmoveService
                       AND `is_freeze`=1);
                 """,StockParams(viewModel,currentUser),tx);
             if(destFrozen) return await Rollback(0,_stringLocalizer["dest_stock_freeze"],tx);
+            }
 
             var now=DateTime.Now;
             var id=await db.ExecuteScalarAsync<int>("""
                 INSERT INTO `wms_stockmove`
                   (`job_code`,`move_status`,`sku_id`,`orig_goods_location_id`,`dest_googs_location_id`,`qty`,
                    `goods_owner_id`,`handler`,`handle_time`,`creator`,`create_time`,`last_update_time`,`tenant_id`,
-                   `series_number`,`expiry_date`,`price`,`putaway_date`)
+                   `erp_stock_id`,`stock_allocation_id`,`series_number`,`expiry_date`,`price`,`putaway_date`)
                 VALUES (@jobCode,0,@skuId,@originId,@destinationId,@qty,@ownerId,@handler,@handleTime,
-                        @creator,@now,@now,@tenantId,@seriesNumber,@expiryDate,@price,@putawayDate);
+                        @creator,@now,@now,@tenantId,@erpStockId,@allocationId,@seriesNumber,@expiryDate,@price,@putawayDate);
                 SELECT LAST_INSERT_ID();
                 """,new { jobCode,skuId=viewModel.sku_id,originId=viewModel.orig_goods_location_id,
                     destinationId=viewModel.dest_googs_location_id,viewModel.qty,ownerId=viewModel.goods_owner_id,
                     viewModel.handler,viewModel.handle_time,creator=currentUser.user_name,now,tenantId=currentUser.tenant_id,
+                    erpStockId=allocation?.ErpStockId,allocationId=allocation?.AllocationId,
                     seriesNumber=viewModel.series_number,viewModel.expiry_date,viewModel.price,viewModel.putaway_date },tx);
             await tx.CommitAsync();
             return id>0 ? (id,_stringLocalizer["save_success"]) : (0,_stringLocalizer["save_failed"]);
@@ -153,26 +189,80 @@ public class StockmoveService : BaseService<StockmoveEntity>, IStockmoveService
     public async Task<(bool flag,string msg)> Confirm(int id,CurrentUser currentUser)
     {
         await using var db=await _connectionFactory.OpenConnectionAsync();
+        var moveSnapshot=await db.QuerySingleOrDefaultAsync<StockmoveEntity>(
+            "SELECT * FROM `wms_stockmove` WHERE `id`=@id LIMIT 1;",new{id});
+        long? targetCandidateSnapshot=null;
+        CanonicalInventorySupport.InventoryRoute? originRouteSnapshot=null;
+        CanonicalInventorySupport.InventoryRoute? targetRouteSnapshot=null;
+        if(moveSnapshot!=null)
+        {
+            originRouteSnapshot=await CanonicalInventorySupport.GetRouteAsync(
+                db,currentUser.tenant_id,moveSnapshot.orig_goods_location_id);
+            targetRouteSnapshot=await CanonicalInventorySupport.GetRouteAsync(
+                db,currentUser.tenant_id,moveSnapshot.dest_googs_location_id);
+        }
+        if(moveSnapshot?.erp_stock_id is >0)
+            targetCandidateSnapshot=await CanonicalInventorySupport.FindTargetAllocationIdAsync(
+                db,null,moveSnapshot,moveSnapshot.erp_stock_id.Value,moveSnapshot.dest_googs_location_id);
         await using var tx=await db.BeginTransactionAsync(IsolationLevel.Serializable);
         try
         {
             var move=await db.QuerySingleOrDefaultAsync<StockmoveEntity>("""
                 SELECT `id`,`job_code`,`move_status`,`sku_id`,`orig_goods_location_id`,`dest_googs_location_id`,
                        `qty`,`goods_owner_id`,`handler`,`handle_time`,`creator`,`create_time`,`last_update_time`,
-                       `tenant_id`,`series_number`,`expiry_date`,`price`,`putaway_date`
+                       `tenant_id`,`erp_stock_id`,`stock_allocation_id`,`series_number`,`expiry_date`,`price`,`putaway_date`
                 FROM `wms_stockmove` WHERE `id`=@id LIMIT 1 FOR UPDATE;
                 """,new { id },tx);
             if(move==null) return await Rollback(false,_stringLocalizer["not_exists_entity"],tx);
+            if(moveSnapshot==null || !SameMoveIdentity(moveSnapshot,move))
+                return await Rollback(false,"移库单在确认前已发生变化，请重试",tx);
 
-            var p=StockParams(move);
-            var origin=await db.QuerySingleOrDefaultAsync<StockEntity>(StockSelectSql+"""
+            await CanonicalInventorySupport.LockRoutesAsync(
+                db,tx,currentUser.tenant_id,[originRouteSnapshot!,targetRouteSnapshot!]);
+            var route=originRouteSnapshot!;
+            var targetRoute=targetRouteSnapshot!;
+            if(route.ErpWarehouseId!=targetRoute.ErpWarehouseId || route.Mode!=targetRoute.Mode)
+                return await Rollback(false,"移库起点和终点不属于同一库存运行模式及ERP仓库",tx);
+            var now=DateTime.Now;
+            if(route.Mode==CanonicalInventorySupport.CanonicalMode)
+            {
+                if(!move.erp_stock_id.HasValue || !move.stock_allocation_id.HasValue)
+                    return await Rollback(false,"移库单未绑定ERP库存分配，禁止确认",tx);
+                var allocationIds=targetCandidateSnapshot.HasValue
+                    ? new[]{move.stock_allocation_id.Value,targetCandidateSnapshot.Value}
+                    : new[]{move.stock_allocation_id.Value};
+                await _stockMutationService.PrelockAsync(
+                    db,tx,currentUser.tenant_id,[route.ErpWarehouseId],
+                    [move.erp_stock_id.Value],allocationIds);
+                var source=new CanonicalInventorySupport.CanonicalAllocation
+                {
+                    ErpStockId=move.erp_stock_id.Value,
+                    AllocationId=move.stock_allocation_id.Value,
+                    ErpWarehouseId=route.ErpWarehouseId
+                };
+                var targetId=await CanonicalInventorySupport.GetOrCreateTargetAllocationAsync(
+                    db,tx,move,source,move.dest_googs_location_id,currentUser.user_name);
+                await _stockMutationService.PrelockAsync(
+                    db,tx,currentUser.tenant_id,[route.ErpWarehouseId],[move.erp_stock_id.Value],
+                    [move.stock_allocation_id.Value,targetId]);
+                await _stockMutationService.MoveLocationAsync(
+                    db,tx,
+                    CanonicalInventorySupport.Context(
+                        currentUser.tenant_id,route.ErpWarehouseId,
+                        $"MWMS:MV:{move.id}","STOCK_MOVE_LOCATION",move.id,move.id,
+                        currentUser,move.creator,"库位移动"),
+                    move.erp_stock_id.Value,move.stock_allocation_id.Value,targetId,move.qty);
+            }
+            else
+            {
+                var p=StockParams(move);
+                var origin=await db.QuerySingleOrDefaultAsync<StockEntity>(StockSelectSql+"""
                  AND `goods_location_id`=@originId AND `sku_id`=@skuId LIMIT 1 FOR UPDATE;
                 """,p,tx);
             // Keep the legacy destination predicate exactly: it selects a different SKU when present.
             var destination=await db.QuerySingleOrDefaultAsync<StockEntity>(StockSelectSql+"""
                  AND `goods_location_id`=@destinationId AND `sku_id`<>@skuId LIMIT 1 FOR UPDATE;
                 """,p,tx);
-            var now=DateTime.Now;
             if(origin!=null)
             {
                 if(origin.qty==move.qty) await db.ExecuteAsync("DELETE FROM `wms_stock` WHERE `id`=@id;",new { origin.id },tx);
@@ -186,6 +276,7 @@ public class StockmoveService : BaseService<StockmoveEntity>, IStockmoveService
                     """,new { destinationId=move.dest_googs_location_id,skuId=move.sku_id,move.qty,ownerId=move.goods_owner_id,
                         now,tenantId=move.tenant_id,seriesNumber=move.series_number,move.expiry_date,move.price,move.putaway_date },tx);
             else await db.ExecuteAsync("UPDATE `wms_stock` SET `qty`=`qty`+@qty,`last_update_time`=@now WHERE `id`=@id;",new { move.qty,now,destination.id },tx);
+            }
 
             var affected=await db.ExecuteAsync("""
                 UPDATE `wms_stockmove` SET `handler`=@handler,`handle_time`=@now,`move_status`=1,`last_update_time`=@now
@@ -203,6 +294,14 @@ public class StockmoveService : BaseService<StockmoveEntity>, IStockmoveService
         await using var tx=await db.BeginTransactionAsync(IsolationLevel.ReadCommitted);
         try
         {
+            var move=await db.QuerySingleOrDefaultAsync<StockmoveEntity>("""
+                SELECT * FROM `wms_stockmove` WHERE `id`=@id FOR UPDATE;
+            """,new{id},tx);
+            if(move==null) return await Rollback(false,_stringLocalizer["not_exists_entity"],tx);
+            await using var routeConnection=await _connectionFactory.OpenConnectionAsync();
+            var routeSnapshot=await CanonicalInventorySupport.GetRouteAsync(
+                routeConnection,move.tenant_id,move.orig_goods_location_id);
+            _=await CanonicalInventorySupport.LockRouteAsync(db,tx,move.tenant_id,routeSnapshot);
             var count=await db.ExecuteAsync("DELETE FROM `wms_stockmove` WHERE `id`=@id AND `move_status`=0;",new { id },tx);
             await tx.CommitAsync();
             return count>0 ? (true,_stringLocalizer["delete_success"]) : (false,_stringLocalizer["delete_failed"]);
@@ -228,6 +327,12 @@ public class StockmoveService : BaseService<StockmoveEntity>, IStockmoveService
     private static object StockParams(StockmoveEntity x)=>new { skuId=x.sku_id,originId=x.orig_goods_location_id,
         destinationId=x.dest_googs_location_id,ownerId=x.goods_owner_id,seriesNumber=x.series_number,
         expiryDate=x.expiry_date,x.price,putawayDate=x.putaway_date };
+    private static bool SameMoveIdentity(StockmoveEntity x,StockmoveEntity y)=>
+        x.erp_stock_id==y.erp_stock_id && x.stock_allocation_id==y.stock_allocation_id
+        && x.sku_id==y.sku_id && x.orig_goods_location_id==y.orig_goods_location_id
+        && x.dest_googs_location_id==y.dest_googs_location_id && x.goods_owner_id==y.goods_owner_id
+        && x.qty==y.qty && x.series_number==y.series_number && x.expiry_date==y.expiry_date
+        && x.price==y.price && x.putaway_date==y.putaway_date && x.move_status==y.move_status;
     private static async Task<(T flag,string msg)> Rollback<T>(T flag,string msg,MySqlTransaction tx){await tx.RollbackAsync();return(flag,msg);}
     private const string StockSelectSql="""
         SELECT `id`,`sku_id`,`goods_location_id`,`qty`,`goods_owner_id`,`is_freeze`,`last_update_time`,

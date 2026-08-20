@@ -17,6 +17,8 @@ public class PackingTaskStockSelectionEntity : BaseModel
     public long sellfox_item_id { get; set; }
     public int wms_sku_id { get; set; }
     public int stock_id { get; set; }
+    public long? erp_stock_id { get; set; }
+    public long? stock_allocation_id { get; set; }
     public int qty { get; set; }
     public int goods_location_id { get; set; }
     public int goods_owner_id { get; set; }

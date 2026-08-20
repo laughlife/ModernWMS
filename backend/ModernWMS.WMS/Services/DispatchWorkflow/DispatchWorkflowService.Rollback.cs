@@ -40,6 +40,33 @@ public partial class DispatchWorkflowService
                 """, new { orderId }, tx, cancellationToken: ct))).AsList();
             if (tasks.Count == 0)
                 throw DispatchWorkflowCommandException.StatusNotAllowedForRollback("the order has no active packing task to roll back");
+            var runtime = await LoadInventoryRuntimeAsync(c,tx,order.tenant_id,order.warehouse_id,ct);
+            if (runtime.Mode == CanonicalInventoryMode)
+            {
+                var sourceTaskIds=tasks.Select(x=>x.source_task_id).ToArray();
+                var reserved=(await c.QueryAsync<ReservedAllocationRow>(new CommandDefinition("""
+                    SELECT `id`,`erp_stock_id`,`stock_allocation_id`,`qty`
+                      FROM `wms_packing_task_stock_selection`
+                     WHERE `tenant_id`=@tenantId AND `sellfox_task_id` IN @sourceTaskIds
+                       AND `erp_stock_id` IS NOT NULL AND `stock_allocation_id` IS NOT NULL
+                     ORDER BY `erp_stock_id`,`stock_allocation_id`,`id` FOR UPDATE;
+                    """,new{tenantId=order.tenant_id,sourceTaskIds},tx,cancellationToken:ct))).AsList();
+                var mutation=RequireStockAllocationMutationService();
+                if(reserved.Count>0)
+                    await mutation.PrelockAsync(c,tx,order.tenant_id,
+                        [order.warehouse_id],
+                        reserved.Select(x=>x.erp_stock_id).Distinct().OrderBy(x=>x).ToArray(),
+                        reserved.Select(x=>x.stock_allocation_id).Distinct().OrderBy(x=>x).ToArray(),ct);
+                foreach(var row in reserved)
+                    await mutation.ReleaseAsync(c,tx,
+                        DispatchMutationContext(user,order.warehouse_id,"DISPATCH_RELEASE",order.id,row.id,row.erp_stock_id,
+                            row.stock_allocation_id,row.qty,requestId),
+                        row.erp_stock_id,row.stock_allocation_id,row.qty,ct);
+                if(reserved.Count>0)
+                    await c.ExecuteAsync(new CommandDefinition(
+                        "DELETE FROM `wms_packing_task_stock_selection` WHERE `id` IN @ids;",
+                        new{ids=reserved.Select(x=>x.id).ToArray()},tx,cancellationToken:ct));
+            }
             var now = DateTime.Now;
             foreach (var task in tasks)
             {

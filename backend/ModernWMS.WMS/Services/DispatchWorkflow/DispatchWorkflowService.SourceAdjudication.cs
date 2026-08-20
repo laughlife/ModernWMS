@@ -83,7 +83,7 @@ public partial class DispatchWorkflowService
             if(sourceVersion!=CombinedVersion(snapshots))throw DispatchWorkflowCommandException.SourceVersionConflict();
             var detected=await c.ExecuteScalarAsync<bool>(new CommandDefinition("SELECT EXISTS(SELECT 1 FROM `wms_dispatch_source_change_event` WHERE `dispatch_order_id`=@orderId AND `source_version`=@sourceVersion AND `decision`=@d);",new{orderId,sourceVersion,d=DispatchSourceChangeDecision.Detected},tx,cancellationToken:ct));
             if(!detected)throw DispatchWorkflowCommandException.SourceVersionConflict();var now=DateTime.Now;
-            if(decision==DispatchSourceChangeDecision.CancelShipment){await CancelAfterSourceChangeAsync(c,tx,order,now,ct);order.status=DispatchOrderStatus.ManualCancelled;}
+            if(decision==DispatchSourceChangeDecision.CancelShipment){await CancelAfterSourceChangeAsync(c,tx,order,user,requestId,now,ct);order.status=DispatchOrderStatus.ManualCancelled;}
             else order.accepted_source_version=sourceVersion;
             var next=order.row_version+1;
             var n=await c.ExecuteAsync(new CommandDefinition("""
@@ -101,9 +101,34 @@ public partial class DispatchWorkflowService
         catch{await tx.RollbackAsync(CancellationToken.None);throw;}
     }
 
-    private static async Task CancelAfterSourceChangeAsync(System.Data.IDbConnection c,IDbTransaction tx,DispatchOrderEntity order,DateTime now,CancellationToken ct)
+    private async Task CancelAfterSourceChangeAsync(System.Data.IDbConnection c,IDbTransaction tx,
+        DispatchOrderEntity order,CurrentUser user,string requestId,DateTime now,CancellationToken ct)
     {
-        if(await c.ExecuteScalarAsync<bool>(new CommandDefinition("SELECT EXISTS(SELECT 1 FROM `wms_dispatchpicklist` p JOIN `wms_dispatchlist` d ON d.`id`=p.`dispatchlist_id` WHERE d.`dispatch_order_id`=@id AND p.`is_update_stock`=1);",new{id=order.id},tx,cancellationToken:ct)))throw DispatchWorkflowCommandException.StockAlreadyDeducted();
+        var runtime=await LoadInventoryRuntimeAsync(c,tx,order.tenant_id,order.warehouse_id,ct);
+        var picks=(await c.QueryAsync<DispatchpicklistEntity>(new CommandDefinition("""
+            SELECT p.* FROM `wms_dispatchpicklist` p
+            JOIN `wms_dispatchlist` d ON d.`id`=p.`dispatchlist_id`
+            WHERE d.`dispatch_order_id`=@id ORDER BY p.`erp_stock_id`,p.`stock_allocation_id`,p.`id` FOR UPDATE;
+            """,new{id=order.id},tx,cancellationToken:ct))).AsList();
+        if(picks.Any(x=>x.is_update_stock==1))throw DispatchWorkflowCommandException.StockAlreadyDeducted();
+        if(runtime.Mode==CanonicalInventoryMode)
+        {
+            if(picks.Any(x=>x.erp_stock_id is null||x.stock_allocation_id is null))
+                throw DispatchWorkflowCommandException.StockConflict("统一ERP库存模式检测到遗留旧库存拣货明细，已拒绝取消");
+            var releasable=picks.Where(x=>x.picked_qty>0).ToList();
+            if(releasable.Count>0)
+            {
+                var mutation=RequireStockAllocationMutationService();
+                await mutation.PrelockAsync(c,tx,order.tenant_id,[order.warehouse_id],
+                    releasable.Select(x=>x.erp_stock_id!.Value).Distinct().OrderBy(x=>x).ToArray(),
+                    releasable.Select(x=>x.stock_allocation_id!.Value).Distinct().OrderBy(x=>x).ToArray(),ct);
+                foreach(var pick in releasable.OrderBy(x=>x.erp_stock_id).ThenBy(x=>x.stock_allocation_id).ThenBy(x=>x.id))
+                    await mutation.ReleaseAsync(c,tx,
+                        DispatchMutationContext(user,order.warehouse_id,"DISPATCH_RELEASE",order.id,pick.id,
+                            pick.erp_stock_id!.Value,pick.stock_allocation_id!.Value,pick.picked_qty,$"SOURCE_CANCEL:{requestId}"),
+                        pick.erp_stock_id.Value,pick.stock_allocation_id.Value,pick.picked_qty,ct);
+            }
+        }
         await c.ExecuteAsync(new CommandDefinition("""
             DELETE p FROM `wms_dispatchpicklist` p JOIN `wms_dispatchlist` d ON d.`id`=p.`dispatchlist_id` WHERE d.`dispatch_order_id`=@id;
             UPDATE `wms_dispatchlist` SET `dispatch_status`=0,`last_update_time`=@now WHERE `dispatch_order_id`=@id;

@@ -67,8 +67,9 @@ public class ErpPendingReceiptProductViewModel
 /// </summary>
 public class ErpReceiptDetailViewModel
 {
-    public int id { get; set; }
+    public long id { get; set; }
     public long shipment_id { get; set; }
+    public long? erp_stock_id { get; set; }
     public string purchase_no { get; set; } = string.Empty;
     public string shipment_batch_no { get; set; } = string.Empty;
     public string commodity_sku { get; set; } = string.Empty;
@@ -78,6 +79,12 @@ public class ErpReceiptDetailViewModel
     public string order_user_name { get; set; } = string.Empty;
     public int warehouse_area_id { get; set; }
     public string warehouse_area_name { get; set; } = string.Empty;
+    public long warehouse_id { get; set; }
+    public string warehouse_name { get; set; } = string.Empty;
+    public string lifecycle_status { get; set; } = string.Empty;
+    public string location_state { get; set; } = string.Empty;
+    public string data_source { get; set; } = string.Empty;
+    public bool unlocated { get; set; }
     public DateTime receipt_time { get; set; }
     public long actual_receipt_qty { get; set; }
     public long loss_qty { get; set; }

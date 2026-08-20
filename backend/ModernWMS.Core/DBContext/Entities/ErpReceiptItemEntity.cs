@@ -44,9 +44,10 @@ public class ErpReceiptItemEntity : BaseModel
     public long actual_receipt_qty { get; set; }
     public long loss_qty { get; set; }
     public long inbound_qty { get; set; }
-    public long erp_stock_id { get; set; }
+    public long? erp_stock_id { get; set; }
     public int wms_sku_id { get; set; }
-    public int wms_stock_id { get; set; }
+    public int? wms_stock_id { get; set; }
+    public long? primary_stock_allocation_id { get; set; }
     public DateTime receipt_time { get; set; }
     public decimal? total_weight { get; set; }
     public decimal? total_volume { get; set; }

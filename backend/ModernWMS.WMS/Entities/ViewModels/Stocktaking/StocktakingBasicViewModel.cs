@@ -67,6 +67,10 @@ namespace ModernWMS.WMS.Entities.ViewModels
         [Display(Name = "goods_location_id")]
         public int goods_location_id { get; set; } = 0;
 
+        public long? erp_stock_id { get; set; }
+
+        public long? stock_allocation_id { get; set; }
+
         /// <summary>
         /// warehouse_name
         /// </summary>

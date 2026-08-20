@@ -11,6 +11,7 @@ using ModernWMS.Core.Services;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels;
 using ModernWMS.WMS.IServices;
+using ModernWMS.WMS.IServices.StockAllocation;
 using ModernWMS.WMS.Services.Dispatchlist;
 
 namespace ModernWMS.WMS.Services;
@@ -22,16 +23,19 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
     private readonly IStringLocalizer<Core.MultiLanguage> _stringLocalizer;
     private readonly FunctionHelper _functionHelper;
     private readonly IDispatchSignNotificationClient? _dispatchSignNotificationClient;
+    private readonly IStockAllocationMutationService? _stockAllocationMutationService;
 
     public DispatchlistService(IMySqlConnectionFactory connectionFactory,
         IStringLocalizer<Core.MultiLanguage> stringLocalizer,
         FunctionHelper functionHelper,
-        IDispatchSignNotificationClient? dispatchSignNotificationClient = null)
+        IDispatchSignNotificationClient? dispatchSignNotificationClient = null,
+        IStockAllocationMutationService? stockAllocationMutationService = null)
     {
         _connectionFactory = connectionFactory ?? throw new ArgumentNullException(nameof(connectionFactory));
         _stringLocalizer = stringLocalizer ?? throw new ArgumentNullException(nameof(stringLocalizer));
         _functionHelper = functionHelper ?? throw new ArgumentNullException(nameof(functionHelper));
         _dispatchSignNotificationClient = dispatchSignNotificationClient;
+        _stockAllocationMutationService = stockAllocationMutationService;
     }
 
     public async Task<(List<DispatchlistViewModel> data, int totals)> PageAsync(
@@ -157,7 +161,8 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         return (await connection.QueryAsync<DispatchpicklistViewModel>("""
-            SELECT p.`id`,p.`dispatchlist_id`,p.`goods_owner_id`,p.`goods_location_id`,p.`sku_id`,
+            SELECT p.`id`,p.`dispatchlist_id`,p.`stock_id`,p.`erp_stock_id`,p.`stock_allocation_id`,
+              p.`goods_owner_id`,p.`goods_location_id`,p.`sku_id`,
               p.`pick_qty`,p.`picked_qty`,COALESCE(o.`goods_owner_name`,'') `goods_owner_name`,
               sku.`sku_code`,spu.`spu_code`,spu.`spu_description`,spu.`spu_name`,sku.`bar_code`,
               l.`location_name`,l.`warehouse_area_name`,l.`warehouse_area_property`,l.`warehouse_name`,
@@ -260,9 +265,13 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
                 WHERE `tenant_id`=@tenantId AND `dispatch_no`=@dispatchNo FOR UPDATE);
                 """, new { tenantId=currentUser.tenant_id, dispatchNo }, transaction))
                 return await RollbackResult((false, "该FBA发货单已经准备拣货，请勿重复操作"), transaction);
+            var runtime=await LoadDispatchRuntimeAsync(connection,transaction,currentUser.tenant_id,warehouseId);
             var skuIds=viewModels.Select(t=>t.sku_id).ToArray();
             var skus=(await connection.QueryAsync<SkuEntity>("SELECT `id`,`sku_code`,`weight`,`volume` FROM `wms_sku` WHERE `id` IN @skuIds;",new{skuIds},transaction)).AsList();
             if(skus.Count!=skuIds.Length) return await RollbackResult((false,"FBA商品未完整匹配到WMS商品资料"),transaction);
+            if(runtime.Mode==CanonicalInventoryMode)
+                return await PrepareCanonicalPickingAsync(connection,transaction,dispatchNo,warehouseId,
+                    goodsOwnerId,viewModels,skus,currentUser,runtime.ErpWarehouseId);
             var now=DateTime.Now;
             foreach(var vm in viewModels)
             {
@@ -310,6 +319,12 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
         string dispatch_no, CurrentUser currentUser)
     {
         await using var connection=await _connectionFactory.OpenConnectionAsync();
+        var canonicalEnabled=await connection.ExecuteScalarAsync<bool>("""
+            SELECT EXISTS(SELECT 1 FROM `wms_inventory_runtime_config`
+             WHERE `tenant_id`=@tenantId AND (`maintenance_enabled`=1 OR `mode`='CANONICAL_ERP'));
+            """,new{tenantId=currentUser.tenant_id});
+        if(canonicalEnabled)
+            throw new InvalidOperationException("统一ERP库存模式下旧版手工库存分配入口已停用，请使用按仓库准备拣货流程");
         var rows=(await connection.QueryAsync<DispatchlistConfirmDetailViewModel>("""
             SELECT d.`id` `dispatchlist_id`,d.`sku_id`,d.`dispatch_no`,sku.`sku_code`,spu.`spu_code`,
               d.`dispatch_status`,spu.`spu_description`,spu.`spu_name`,sku.`bar_code`,d.`qty`
@@ -354,6 +369,14 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
             var ids=viewModels.Select(t=>t.dispatchlist_id).ToArray();
             var dispatches=(await connection.QueryAsync<DispatchlistEntity>($"SELECT {DispatchColumns} FROM `wms_dispatchlist` WHERE `id` IN @ids AND `tenant_id`=@tenantId FOR UPDATE;",new{ids,tenantId=currentUser.tenant_id},transaction)).AsList();
             if(dispatches.Count!=ids.Length||dispatches.Any(t=>t.dispatch_status is not (0 or 1))) return await DataChanged(transaction);
+            var requestedWarehouseIds=viewModels.Where(t=>t.confirm).SelectMany(t=>t.pick_list)
+                .Where(t=>t.pick_qty>0).Select(t=>t.warehouse_id).Where(t=>t>0).Distinct().ToArray();
+            foreach(var warehouseId in requestedWarehouseIds)
+            {
+                var runtime=await LoadDispatchRuntimeAsync(connection,transaction,currentUser.tenant_id,warehouseId);
+                if(runtime.Mode==CanonicalInventoryMode)
+                    return await RollbackResult((false,"统一ERP库存模式下旧版手工库存分配入口已停用"),transaction);
+            }
             var stockIds=viewModels.Where(t=>t.confirm).SelectMany(t=>t.pick_list).Where(t=>t.pick_qty>0).Select(t=>t.stock_id).Distinct().ToArray();
             var stocks=stockIds.Length==0?[]:(await connection.QueryAsync<StockEntity>($"SELECT {StockColumns} FROM `wms_stock` WHERE `id` IN @stockIds AND `tenant_id`=@tenantId FOR UPDATE;",new{stockIds,tenantId=currentUser.tenant_id},transaction)).AsList();
             if(stocks.Count!=stockIds.Length) return await DataChanged(transaction);
@@ -420,6 +443,48 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
             }
             else if(viewModel.dispatch_status==2)
             {
+                var picks=(await connection.QueryAsync<DispatchpicklistEntity>($"SELECT {PickColumns} FROM `wms_dispatchpicklist` WHERE `dispatchlist_id` IN @ids ORDER BY `id` FOR UPDATE;",new{ids},transaction)).AsList();
+                if(picks.Any(x=>x.erp_stock_id is >0||x.stock_allocation_id is >0))
+                {
+                    if(picks.Any(x=>x.erp_stock_id is null or <=0||x.stock_allocation_id is null or <=0))
+                        return await RollbackResult((false,"发货单同时包含新旧库存引用，已拒绝撤销"),transaction);
+                    var mutation=_stockAllocationMutationService
+                        ??throw new InvalidOperationException("统一ERP库存模式未注册库存分配变更服务，操作已拒绝");
+                    var stockWarehouses=(await connection.QueryAsync<ErpStockWarehouseRow>("""
+                        SELECT `id` ErpStockId,`warehouse_id` ErpWarehouseId FROM `trk_stock`
+                         WHERE `id` IN @stockIds AND `deleted`=b'0';
+                        """,new{stockIds=picks.Select(x=>x.erp_stock_id!.Value).Distinct().ToArray()},transaction)).AsList();
+                    if(stockWarehouses.Count!=picks.Select(x=>x.erp_stock_id).Distinct().Count())
+                        return await RollbackResult((false,"ERP库存引用不存在，已拒绝撤销"),transaction);
+                    var warehouseByStock=stockWarehouses.ToDictionary(x=>x.ErpStockId,x=>x.ErpWarehouseId);
+                    await mutation.PrelockAsync(connection,transaction,currentUser.tenant_id,
+                        stockWarehouses.Select(x=>x.ErpWarehouseId).Distinct().OrderBy(x=>x).ToArray(),
+                        picks.Select(x=>x.erp_stock_id!.Value).Distinct().OrderBy(x=>x).ToArray(),
+                        picks.Select(x=>x.stock_allocation_id!.Value).Distinct().OrderBy(x=>x).ToArray());
+                    foreach(var pick in picks.OrderBy(x=>x.erp_stock_id).ThenBy(x=>x.stock_allocation_id).ThenBy(x=>x.id))
+                        await mutation.ReleaseAsync(connection,transaction,
+                            BuildLegacyDispatchMutationContext(currentUser,warehouseByStock[pick.erp_stock_id!.Value],
+                                "DISPATCH_RELEASE",pick.dispatchlist_id,
+                                pick.id,pick.erp_stock_id!.Value,pick.stock_allocation_id!.Value,pick.pick_qty,
+                                $"CANCEL:{viewModel.dispatch_no}"),pick.erp_stock_id.Value,
+                            pick.stock_allocation_id.Value,pick.pick_qty);
+                }
+                else
+                {
+                    var warehouseIds=(await connection.QueryAsync<int>("""
+                        SELECT DISTINCT location.`warehouse_id`
+                          FROM `wms_dispatchpicklist` pick
+                          JOIN `wms_goodslocation` location ON location.`id`=pick.`goods_location_id`
+                         WHERE pick.`dispatchlist_id` IN @ids;
+                        """,new{ids},transaction)).AsList();
+                    foreach(var warehouseId in warehouseIds)
+                    {
+                        var runtime=await LoadDispatchRuntimeAsync(connection,transaction,currentUser.tenant_id,warehouseId);
+                        if(runtime.Mode==CanonicalInventoryMode)
+                            return await RollbackResult((false,
+                                "统一ERP库存模式检测到未迁移的旧库存锁定，已拒绝撤销"),transaction);
+                    }
+                }
                 qty=await connection.ExecuteAsync("DELETE FROM `wms_dispatchpicklist` WHERE `dispatchlist_id` IN @ids; UPDATE `wms_dispatchlist` SET `lock_qty`=0,`last_update_time`=@now,`dispatch_status`=1 WHERE `id` IN @ids AND `dispatch_status`=2;",new{now,ids},transaction);
             }
             else qty=0;
@@ -506,7 +571,54 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
             if(dispatches.Count!=ids.Length)return await DataChanged(transaction);
             var picks=(await connection.QueryAsync<DispatchpicklistEntity>($"SELECT {PickColumns} FROM `wms_dispatchpicklist` WHERE `dispatchlist_id` IN @ids ORDER BY `id` FOR UPDATE;",new{ids},transaction)).AsList();
             if(picks.Count==0||picks.Any(t=>t.is_update_stock||t.picked_qty<=0)||dispatches.Any(d=>picks.Where(t=>t.dispatchlist_id==d.id).Sum(t=>t.picked_qty)!=d.picked_qty))return await DataChanged(transaction);
-            var now=DateTime.Now;var operatorName=(currentUser.user_name??string.Empty).Trim();if(operatorName.Length>128)operatorName=operatorName[..128];
+            var now=DateTime.Now;var operatorName=(currentUser.user_name??string.Empty).Trim();if(operatorName.Length>64)operatorName=operatorName[..64];
+            var canonical=picks.All(x=>x.erp_stock_id is >0&&x.stock_allocation_id is >0);
+            if(!canonical&&picks.Any(x=>x.erp_stock_id is >0||x.stock_allocation_id is >0))
+                return await RollbackResult((false,"发货单同时包含新旧库存引用，已拒绝出库"),transaction);
+            if(canonical)
+            {
+                var runtimes=(await connection.QueryAsync<DispatchRuntimeRow>("""
+                    SELECT stock.`id` ErpStockId,config.`mode` Mode,
+                           config.`maintenance_enabled` MaintenanceEnabled,stock.`warehouse_id` ErpWarehouseId
+                      FROM `trk_stock` stock
+                      LEFT JOIN `wms_inventory_runtime_config` config
+                        ON config.`tenant_id`=@tenantId AND config.`erp_warehouse_id`=stock.`warehouse_id`
+                     WHERE stock.`id` IN @stockIds AND stock.`deleted`=b'0';
+                    """,new{tenantId=currentUser.tenant_id,
+                        stockIds=picks.Select(x=>x.erp_stock_id!.Value).Distinct().ToArray()},transaction)).AsList();
+                if(runtimes.Count!=picks.Select(x=>x.erp_stock_id).Distinct().Count()
+                    ||runtimes.Any(x=>x.MaintenanceEnabled||x.Mode!=CanonicalInventoryMode))
+                    return await RollbackResult((false,"ERP仓库未处于可写的统一库存模式，已拒绝出库"),transaction);
+                var mutation=_stockAllocationMutationService
+                    ??throw new InvalidOperationException("统一ERP库存模式未注册库存分配变更服务，操作已拒绝");
+                await mutation.PrelockAsync(connection,transaction,currentUser.tenant_id,
+                    runtimes.Select(x=>x.ErpWarehouseId).Distinct().OrderBy(x=>x).ToArray(),
+                    picks.Select(x=>x.erp_stock_id!.Value).Distinct().OrderBy(x=>x).ToArray(),
+                    picks.Select(x=>x.stock_allocation_id!.Value).Distinct().OrderBy(x=>x).ToArray());
+                foreach(var pick in picks.OrderBy(x=>x.erp_stock_id).ThenBy(x=>x.stock_allocation_id).ThenBy(x=>x.id))
+                    await mutation.ShipLockedAsync(connection,transaction,
+                        BuildLegacyDispatchMutationContext(currentUser,
+                            runtimes.Single(x=>x.ErpStockId==pick.erp_stock_id!.Value).ErpWarehouseId,
+                            "DISPATCH_SHIP_OUT",pick.dispatchlist_id,
+                            pick.id,pick.erp_stock_id!.Value,pick.stock_allocation_id!.Value,pick.picked_qty,
+                            $"LEGACY:{pick.dispatchlist_id}"),
+                        pick.erp_stock_id.Value,pick.stock_allocation_id.Value,pick.picked_qty);
+            }
+            else
+            {
+            var legacyWarehouseIds=(await connection.QueryAsync<int>("""
+                SELECT DISTINCT location.`warehouse_id`
+                  FROM `wms_dispatchpicklist` pick
+                  JOIN `wms_goodslocation` location ON location.`id`=pick.`goods_location_id`
+                 WHERE pick.`dispatchlist_id` IN @ids;
+                """,new{ids},transaction)).AsList();
+            foreach(var warehouseId in legacyWarehouseIds)
+            {
+                var runtime=await LoadDispatchRuntimeAsync(connection,transaction,currentUser.tenant_id,warehouseId);
+                if(runtime.Mode==CanonicalInventoryMode)
+                    return await RollbackResult((false,
+                        "统一ERP库存模式检测到遗留旧库存拣货明细，已拒绝写入 wms_stock；请先完成锁定迁移"),transaction);
+            }
             foreach(var group in picks.GroupBy(t=>new{t.stock_id,t.goods_location_id,t.sku_id,t.goods_owner_id,t.series_number,t.expiry_date,t.price,t.putaway_date}))
             {
                 var key=group.Key;
@@ -535,6 +647,7 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
                 }
                 var affected=await connection.ExecuteAsync("UPDATE `wms_stock` SET `qty`=`qty`-@total,`last_update_time`=@now WHERE `id`=@id AND `qty`>=@total;",new{total,now,id=stock.id},transaction);
                 if(affected!=1)return await DataChanged(transaction);
+            }
             }
             var qty=await connection.ExecuteAsync("UPDATE `wms_dispatchlist` SET `last_update_time`=@now,`dispatch_status`=6,`lock_qty`=0,`actual_qty`=`picked_qty`,`intrasit_qty`=`picked_qty` WHERE `id` IN @ids AND `dispatch_status`=5; UPDATE `wms_dispatchpicklist` SET `is_update_stock`=1,`last_update_time`=@now WHERE `dispatchlist_id` IN @ids AND `is_update_stock`=0;",new{now,ids},transaction);
             await transaction.CommitAsync();return qty>0?(true,_stringLocalizer["operation_success"]):(false,_stringLocalizer["operation_failed"]);
@@ -651,6 +764,131 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
     private async Task<(bool flag,string msg)> DataChanged(IDbTransaction transaction)=>
         await RollbackResult((false,"[202]"+_stringLocalizer["data_changed"]),transaction);
 
+    private const string LegacyInventoryMode="LEGACY_READ";
+    private const string CanonicalInventoryMode="CANONICAL_ERP";
+
+    private async Task<(bool flag,string msg)> PrepareCanonicalPickingAsync(
+        IDbConnection connection,IDbTransaction transaction,string dispatchNo,int warehouseId,int goodsOwnerId,
+        IReadOnlyCollection<DispatchlistAddViewModel> viewModels,IReadOnlyCollection<SkuEntity> skus,
+        CurrentUser user,long erpWarehouseId)
+    {
+        var candidates=(await connection.QueryAsync<CanonicalAvailableStockRow>("""
+            SELECT allocation.`id` StockAllocationId,allocation.`erp_stock_id` ErpStockId,
+                   map.`wms_sku_id` SkuId,allocation.`goods_location_id` GoodsLocationId,
+                   allocation.`goods_owner_id` GoodsOwnerId,allocation.`series_number` SeriesNumber,
+                   allocation.`expiry_date` ExpiryDate,allocation.`price` Price,
+                   allocation.`putaway_date` PutawayDate,
+                   allocation.`allocated_qty`-allocation.`occupied_qty` QtyAvailable
+              FROM `wms_erp_stock_allocation` allocation
+              JOIN `trk_stock` stock ON stock.`id`=allocation.`erp_stock_id`
+                AND stock.`warehouse_id`=@erpWarehouseId AND stock.`deleted`=b'0'
+              JOIN `wms_erp_commodity_map` map ON map.`tenant_id`=allocation.`tenant_id`
+                AND map.`erp_commodity_id`=stock.`commodity_id` AND map.`wms_sku_id` IN @skuIds
+              JOIN `wms_goodslocation` location ON location.`id`=allocation.`goods_location_id`
+                AND location.`warehouse_id`=@warehouseId AND location.`is_valid`=1
+                AND location.`warehouse_area_property`<>5
+             WHERE allocation.`tenant_id`=@tenantId AND allocation.`goods_owner_id`=@goodsOwnerId
+               AND allocation.`location_state`='ACTIVE'
+               AND allocation.`allocated_qty`>allocation.`occupied_qty`
+             ORDER BY map.`wms_sku_id`,QtyAvailable DESC,allocation.`id`;
+            """,new{tenantId=user.tenant_id,erpWarehouseId,warehouseId,goodsOwnerId,
+                skuIds=viewModels.Select(x=>x.sku_id).ToArray()},transaction)).AsList();
+        var plans=new List<CanonicalPickPlan>();
+        foreach(var vm in viewModels)
+        {
+            var remaining=vm.qty;
+            foreach(var candidate in candidates.Where(x=>x.SkuId==vm.sku_id))
+            {
+                var quantity=checked((int)Math.Min((long)remaining,candidate.QtyAvailable));
+                if(quantity<=0)continue;
+                plans.Add(new CanonicalPickPlan(vm,candidate,quantity));
+                remaining-=quantity;
+                if(remaining==0)break;
+            }
+            if(remaining>0)
+            {
+                var sku=skus.First(x=>x.id==vm.sku_id);
+                return await RollbackResult((false,$"商品 {sku.sku_code} 在对应仓库和所属人下的可用库存不足"),transaction);
+            }
+        }
+        var now=DateTime.Now;var detailIds=new Dictionary<int,int>();
+        foreach(var vm in viewModels)
+        {
+            var sku=skus.First(x=>x.id==vm.sku_id);
+            detailIds[vm.sku_id]=await InsertDispatchAsync(connection,transaction,new DispatchlistEntity{
+                dispatch_no=dispatchNo,dispatch_status=0,sku_id=vm.sku_id,qty=vm.qty,
+                weight=sku.weight*vm.qty,volume=sku.volume*vm.qty,creator=user.user_name,
+                create_time=now,last_update_time=now,tenant_id=user.tenant_id});
+        }
+        var mutation=_stockAllocationMutationService
+            ?? throw new InvalidOperationException("统一ERP库存模式未注册库存分配变更服务，操作已拒绝");
+        await mutation.PrelockAsync(connection,transaction,user.tenant_id,
+            [erpWarehouseId],
+            plans.Select(x=>x.Stock.ErpStockId).Distinct().OrderBy(x=>x).ToArray(),
+            plans.Select(x=>x.Stock.StockAllocationId).Distinct().OrderBy(x=>x).ToArray());
+        foreach(var plan in plans.OrderBy(x=>x.Stock.ErpStockId).ThenBy(x=>x.Stock.StockAllocationId))
+        {
+            var detailId=detailIds[plan.Request.sku_id];
+            await mutation.ReserveAsync(connection,transaction,
+                BuildLegacyDispatchMutationContext(user,erpWarehouseId,"DISPATCH_LOCK",detailId,
+                    plan.Stock.StockAllocationId,plan.Stock.ErpStockId,plan.Stock.StockAllocationId,
+                    plan.Quantity,dispatchNo),
+                plan.Stock.ErpStockId,plan.Stock.StockAllocationId,plan.Quantity);
+            await connection.ExecuteAsync("""
+                INSERT INTO `wms_dispatchpicklist`
+                  (`dispatchlist_id`,`packing_task_item_id`,`stock_id`,`erp_stock_id`,`stock_allocation_id`,
+                   `goods_owner_id`,`goods_location_id`,`sku_id`,`pick_qty`,`picked_qty`,`is_update_stock`,
+                   `last_update_time`,`series_number`,`picker_id`,`picker`,`expiry_date`,`price`,`putaway_date`)
+                VALUES (@detailId,NULL,0,@erpStockId,@allocationId,@ownerId,@locationId,@skuId,
+                   @quantity,0,0,@now,@series,0,'',@expiry,@price,@putaway);
+                """,new{detailId,erpStockId=plan.Stock.ErpStockId,allocationId=plan.Stock.StockAllocationId,
+                    ownerId=plan.Stock.GoodsOwnerId,locationId=plan.Stock.GoodsLocationId,
+                    skuId=plan.Stock.SkuId,plan.Quantity,now,series=plan.Stock.SeriesNumber,
+                    expiry=plan.Stock.ExpiryDate??ModernWMS.Core.Utility.UtilConvert.MinDate,
+                    plan.Stock.Price,putaway=plan.Stock.PutawayDate??ModernWMS.Core.Utility.UtilConvert.MinDate},transaction);
+        }
+        foreach(var vm in viewModels)
+            await connection.ExecuteAsync("""
+                UPDATE `wms_dispatchlist` SET `dispatch_status`=2,`lock_qty`=@qty,`last_update_time`=@now
+                 WHERE `id`=@id;
+                """,new{vm.qty,now,id=detailIds[vm.sku_id]},transaction);
+        if(transaction is System.Data.Common.DbTransaction db)await db.CommitAsync();else transaction.Commit();
+        return(true,"已生成待拣货单");
+    }
+
+    private static async Task<DispatchRuntimeRow> LoadDispatchRuntimeAsync(
+        IDbConnection connection,IDbTransaction transaction,long tenantId,int warehouseId)
+    {
+        var erpWarehouseId=await connection.QuerySingleOrDefaultAsync<long?>("""
+            SELECT `erp_warehouse_id` FROM `wms_warehouse`
+             WHERE `id`=@warehouseId AND `is_valid`=1 LIMIT 1;
+            """,new{warehouseId},transaction)
+            ?? throw new InvalidOperationException("仓库不存在或未映射ERP仓库");
+        var runtime=await connection.QuerySingleOrDefaultAsync<DispatchRuntimeRow>("""
+            SELECT `mode` Mode,`maintenance_enabled` MaintenanceEnabled,
+                   @erpWarehouseId ErpWarehouseId
+              FROM `wms_inventory_runtime_config`
+             WHERE `tenant_id`=@tenantId AND `erp_warehouse_id`=@erpWarehouseId FOR UPDATE;
+            """,new{tenantId,erpWarehouseId},transaction)
+            ??new DispatchRuntimeRow{Mode=LegacyInventoryMode,ErpWarehouseId=erpWarehouseId};
+        if(runtime.MaintenanceEnabled)
+            throw new InvalidOperationException($"ERP仓库 {erpWarehouseId} 正处于库存维护窗口，出库操作已暂停");
+        if(runtime.Mode is not(LegacyInventoryMode or CanonicalInventoryMode))
+            throw new InvalidOperationException("库存运行模式无效，操作已拒绝");
+        return runtime;
+    }
+
+    private static StockMutationContext BuildLegacyDispatchMutationContext(CurrentUser user,long erpWarehouseId,string bizType,
+        long bizId,long bizItemId,long erpStockId,long allocationId,long quantity,string requestIdentity)
+    {
+        var key=DispatchWorkflow.DispatchWorkflowService.HashText(
+            $"{bizType}:{bizId}:{bizItemId}:{erpStockId}:{allocationId}:{quantity}:{requestIdentity}");
+        var operatorName=string.IsNullOrWhiteSpace(user.user_name)?$"用户{user.user_id}":user.user_name.Trim();
+        if(operatorName.Length>64)operatorName=operatorName[..64];
+        return new StockMutationContext(user.tenant_id,erpWarehouseId,key,bizType,bizId,bizItemId,user.user_id,
+            operatorName,bizType);
+    }
+
     private static async Task<T> RollbackResult<T>(T result,IDbTransaction transaction)
     {
         if(transaction is System.Data.Common.DbTransaction db)await db.RollbackAsync();else transaction.Rollback();return result;
@@ -693,6 +931,24 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
         public static AvailableStockRow From(StockEntity s)=>new(){stock_id=s.id,sku_id=s.sku_id,goods_location_id=s.goods_location_id,goods_owner_id=s.goods_owner_id,series_number=s.series_number,expiry_date=s.expiry_date,price=s.price,putaway_date=s.putaway_date};
     }
 
+    private sealed class CanonicalAvailableStockRow
+    {
+        public long StockAllocationId{get;init;} public long ErpStockId{get;init;} public int SkuId{get;init;}
+        public int GoodsLocationId{get;init;} public int GoodsOwnerId{get;init;}
+        public string SeriesNumber{get;init;}=string.Empty; public DateTime? ExpiryDate{get;init;}
+        public decimal Price{get;init;} public DateTime? PutawayDate{get;init;} public long QtyAvailable{get;init;}
+    }
+    private sealed record CanonicalPickPlan(DispatchlistAddViewModel Request,CanonicalAvailableStockRow Stock,int Quantity);
+    private sealed class DispatchRuntimeRow
+    {
+        public string Mode{get;init;}=LegacyInventoryMode;
+        public bool MaintenanceEnabled{get;init;}
+        public long ErpWarehouseId{get;init;}
+        public long ErpStockId{get;init;}
+    }
+    private sealed class ErpStockWarehouseRow
+    {public long ErpStockId{get;init;}public long ErpWarehouseId{get;init;}}
+
     private const string AvailableStockSql="""
         SELECT s.`id` `stock_id`,s.`sku_id`,s.`goods_location_id`,CASE WHEN l.`warehouse_area_property`<>5 THEN l.`warehouse_id` ELSE 0 END `warehouse_id`,s.`goods_owner_id`,
           COALESCE(o.`goods_owner_name`,'') `goods_owner_name`,CASE WHEN l.`warehouse_area_property`<>5 THEN l.`location_name` ELSE '' END `location_name`,
@@ -730,7 +986,7 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
         `weighing_no`,`weighing_person`,`weighing_weight`,`weighing_length`,`weighing_width`,`weighing_height`,`weighing_volume`,`waybill_no`,`carrier`,
         `carrier_warehouse_id`,`carrier_unit`,`volume_divisor`,`freightfee`,`last_update_time`,`tenant_id`,`pick_checker_id`,`pick_checker`
         """;
-    private const string PickColumns="""`id`,`dispatchlist_id`,`packing_task_item_id`,`stock_id`,`goods_owner_id`,`goods_location_id`,`sku_id`,`pick_qty`,`picked_qty`,`is_update_stock`,`last_update_time`,`series_number`,`picker_id`,`picker`,`expiry_date`,`price`,`putaway_date`""";
+    private const string PickColumns="""`id`,`dispatchlist_id`,`packing_task_item_id`,`stock_id`,`erp_stock_id`,`stock_allocation_id`,`goods_owner_id`,`goods_location_id`,`sku_id`,`pick_qty`,`picked_qty`,`is_update_stock`,`last_update_time`,`series_number`,`picker_id`,`picker`,`expiry_date`,`price`,`putaway_date`""";
     private const string StockColumns="""`id`,`sku_id`,`goods_location_id`,`qty`,`goods_owner_id`,`is_freeze`,`last_update_time`,`tenant_id`,`series_number`,`expiry_date`,`price`,`putaway_date`""";
 
     private static readonly IReadOnlyDictionary<string,string> DispatchSearchColumns=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase)

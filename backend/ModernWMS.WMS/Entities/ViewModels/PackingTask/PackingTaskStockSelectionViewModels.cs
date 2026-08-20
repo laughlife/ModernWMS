@@ -34,7 +34,11 @@ public class PackingTaskStockSelectRequest
     public long sellfox_task_id { get; set; }
     public long sellfox_item_id { get; set; }
     public int stock_id { get; set; }
+    public long? erp_stock_id { get; set; }
+    public long? stock_allocation_id { get; set; }
     public int qty { get; set; }
+    /// <summary>变体数量；服务端按赛狐当前任务量重新计算锁定数量。</summary>
+    public int variant { get; set; }
 }
 
 /// <summary>
@@ -43,6 +47,8 @@ public class PackingTaskStockSelectRequest
 public class SelectableStockViewModel
 {
     public int stock_id { get; set; }
+    public long? erp_stock_id { get; set; }
+    public long? stock_allocation_id { get; set; }
     public int sku_id { get; set; }
     public string sku_code { get; set; } = string.Empty;
     public string spu_code { get; set; } = string.Empty;

@@ -12,6 +12,7 @@ export interface PackingTaskItemVO {
   quantity_shipped?: number | null
   stock_available?: number | null
   stock_sku_code?: string | null
+  stock_qty?: number | null
   stock_available_qty?: number | null
   locked_qty?: number | null
 }
@@ -34,6 +35,8 @@ export interface PackingTaskVO {
 
 export interface SelectableStockVO {
   stock_id: number
+  erp_stock_id?: number | null
+  stock_allocation_id?: number | null
   sku_id: number
   sku_code: string
   spu_code: string
@@ -70,5 +73,8 @@ export interface PackingTaskStockSelectRequest {
   sellfox_task_id: number
   sellfox_item_id: number
   stock_id: number
+  erp_stock_id?: number | null
+  stock_allocation_id?: number | null
   qty: number
+  variant?: number
 }

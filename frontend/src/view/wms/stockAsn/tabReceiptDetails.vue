@@ -80,13 +80,37 @@
       </vxe-column>
       <vxe-column :title="$t('wms.erpPendingReceipt.stock_allocation')" min-width="320">
         <template #default="{ row }">
-          <div class="receiptAllocationList">
+          <div v-if="row.allocation_list.length > 0" class="receiptAllocationList">
             <div v-for="(allocation, index) in row.allocation_list" :key="`${row.id}-${index}`" class="receiptAllocationLine">
               <span>{{ allocation.warehouse_area_name || '-' }}</span>
               <span>{{ allocation.goods_owner_name || '-' }}</span>
               <strong>{{ allocation.qty }}</strong>
             </div>
           </div>
+          <div v-else-if="row.location_state === 'NONE'" class="receiptNoAllocationHint">无需库位分配</div>
+          <div v-else class="receiptUnlocatedHint">待确认库位（未分配）</div>
+        </template>
+      </vxe-column>
+      <vxe-column field="warehouse_name" title="收货仓" min-width="150"></vxe-column>
+      <vxe-column title="记录状态" min-width="150">
+        <template #default="{ row }">
+          <div class="receiptStatusCell">
+            <v-chip size="small" :color="row.data_source === 'ERP_HISTORY' ? 'warning' : 'primary'" variant="tonal">
+              {{ row.data_source === 'ERP_HISTORY' ? 'ERP历史入库' : 'WMS收货' }}
+            </v-chip>
+            <span>{{ row.lifecycle_status === 'RECEIVED' ? '已收货' : row.lifecycle_status || '-' }}</span>
+          </div>
+        </template>
+      </vxe-column>
+      <vxe-column title="库位状态" min-width="140">
+        <template #default="{ row }">
+          <v-chip
+            size="small"
+            :color="row.location_state === 'NONE' ? 'default' : row.unlocated ? 'error' : 'success'"
+            variant="tonal"
+          >
+            {{ row.location_state === 'NONE' ? '无需库位分配' : row.unlocated ? '待确认库位' : '已分配库位' }}
+          </v-chip>
         </template>
       </vxe-column>
       <vxe-column field="dept_name" :title="$t('wms.erpPendingReceipt.dept_name')" min-width="140"></vxe-column>
@@ -125,6 +149,9 @@ import type { ErpReceiptDetailVO } from '@/types/WMS/StockAsn'
 import { getMenuAuthorityList, setSearchObject } from '@/utils/common'
 import { exportData } from '@/utils/exportTable'
 
+const props = defineProps<{
+  warehouseId?: number | null
+}>()
 const xTable = ref()
 
 const data = reactive({
@@ -150,6 +177,15 @@ const method = reactive({
     method.getStockAsnList()
   },
   getStockAsnList: async () => {
+    data.tablePage.searchObjects = setSearchObject(data.searchForm)
+    if (props.warehouseId != null && props.warehouseId > 0) {
+      data.tablePage.searchObjects.push({
+        name: 'warehouse_id',
+        operator: 1,
+        text: String(props.warehouseId),
+        value: String(props.warehouseId)
+      })
+    }
     const { data: res } = await getErpReceiptDetailList(data.tablePage)
     if (!res.isSuccess) {
       hookComponent.$message({ type: 'error', content: res.errorMessage })
@@ -171,7 +207,6 @@ const method = reactive({
   },
   sureSearch: () => {
     data.tablePage.pageIndex = 1
-    data.tablePage.searchObjects = setSearchObject(data.searchForm)
     method.getStockAsnList()
   }
 })
@@ -270,5 +305,21 @@ watch(
 .receiptAllocationLine strong {
   color: rgb(var(--v-theme-primary));
   text-align: right;
+}
+
+.receiptUnlocatedHint {
+  color: rgb(var(--v-theme-error));
+  font-weight: 500;
+}
+
+.receiptNoAllocationHint {
+  color: rgba(var(--v-theme-on-surface), 0.6);
+}
+
+.receiptStatusCell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
 }
 </style>

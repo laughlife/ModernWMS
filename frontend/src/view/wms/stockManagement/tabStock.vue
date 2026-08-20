@@ -60,6 +60,17 @@
       <vxe-column field="qty" :title="$t('wms.stockList.qty')"></vxe-column>
       <vxe-column field="qty_available" :title="$t('wms.stockList.qty_available')"></vxe-column>
       <vxe-column field="qty_locked" :title="$t('wms.stockList.qty_locked')"></vxe-column>
+      <vxe-column field="qty_pending_location" title="待确认库位"></vxe-column>
+      <vxe-column field="erp_total_qty" title="ERP总库存"></vxe-column>
+      <vxe-column field="erp_available_qty" title="ERP可用库存"></vxe-column>
+      <vxe-column field="erp_occupied_qty" title="ERP占用库存"></vxe-column>
+      <vxe-column field="allocation_consistent" title="分配校验" width="120">
+        <template #default="{ row }">
+          <v-chip :color="row.allocation_consistent ? 'success' : 'error'" size="x-small" variant="tonal">
+            {{ row.allocation_consistent ? '一致' : '不一致' }}
+          </v-chip>
+        </template>
+      </vxe-column>
       <vxe-column field="qty_to_sort" :title="$t('wms.stockList.qty_to_sort')"></vxe-column>
       <vxe-column field="qty_sorted" :title="$t('wms.stockList.qty_sorted')"></vxe-column>
     </vxe-table>

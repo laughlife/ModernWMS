@@ -19,6 +19,18 @@ namespace ModernWMS.WMS.Entities.ViewModels
     /// </summary>
     public class LocationStockManagementViewModel
     {
+        public long? erp_stock_id { get; set; }
+
+        public long? stock_allocation_id { get; set; }
+
+        public string inventory_mode { get; set; } = "LEGACY_READ";
+
+        public string location_state { get; set; } = "LEGACY";
+
+        public bool is_pending_location { get; set; }
+
+        public bool allocation_consistent { get; set; } = true;
+
         /// <summary>
         /// warehouse_name
         /// </summary>
@@ -72,17 +84,23 @@ namespace ModernWMS.WMS.Entities.ViewModels
         /// <summary>
         /// quantity
         /// </summary>
-        public int qty { get; set; } = 0;
+        public long qty { get; set; } = 0;
 
         /// <summary>
         /// quantity available
         /// </summary>
-        public int qty_available { get; set; } = 0;
+        public long qty_available { get; set; } = 0;
 
         /// <summary>
         /// quantity locked
         /// </summary>
-        public int qty_locked { get; set; } = 0;
+        public long qty_locked { get; set; } = 0;
+
+        public long erp_total_qty { get; set; } = 0;
+
+        public long erp_available_qty { get; set; } = 0;
+
+        public long erp_occupied_qty { get; set; } = 0;
 
         /// <summary>
         /// goods owner name

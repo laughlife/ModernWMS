@@ -144,6 +144,10 @@ namespace ModernWMS.WMS.Entities.ViewModels
         [Display(Name = "source_table_id")]
         public int source_table_id { get; set; } = 0;
 
+        public long? erp_stock_id { get; set; }
+
+        public long? stock_allocation_id { get; set; }
+
         /// <summary>
         /// series_number
         /// </summary>

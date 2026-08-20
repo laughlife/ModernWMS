@@ -24,6 +24,8 @@ public partial class DispatchWorkflowService
             if(previous?.result_status==DispatchWorkflowOperationResultStatus.Succeeded){await tx.CommitAsync(ct);return FromLedger(previous);}
             var order=await LoadReconcileOrderAsync(c,tx,orderId,ct);
             await _warehouseAccessService.EnsureAllowedAsync(order.warehouse_id,user);
+            var runtime=await LoadInventoryRuntimeAsync(c,tx,order.tenant_id,order.warehouse_id,ct);
+            var canonical=runtime.Mode==CanonicalInventoryMode;
             if(order.status!=DispatchOrderStatus.PendingPick)throw DispatchWorkflowCommandException.StatusNotAllowed();
             if(order.row_version!=request.row_version)throw DispatchWorkflowCommandException.ConcurrencyConflict();
             var tasks=order.packing_tasks.Where(x=>x.is_active).ToList();
@@ -33,9 +35,9 @@ public partial class DispatchWorkflowService
             foreach(var task in tasks)
             {
                 var snap=snapshots.Single(x=>x.SourceTaskId==task.source_task_id);
-                if(snap.IsCancelled){await CancelTaskAsync(c,tx,task,now,ct);task.is_active=false;continue;}
+                if(snap.IsCancelled){await CancelTaskAsync(c,tx,task,order,user,canonical,now,ct);task.is_active=false;continue;}
                 if(!string.Equals(task.source_version,snap.SourceVersion,StringComparison.Ordinal))
-                {await RemoveTaskAllocationsAsync(c,tx,task,ct);await RebuildTaskItemsAsync(c,tx,task,snap,now,ct);}
+                {await RemoveTaskAllocationsAsync(c,tx,task,order,user,canonical,"PICK_REBUILD",ct);await RebuildTaskItemsAsync(c,tx,task,snap,now,ct);}
             }
             var active=tasks.Where(x=>x.is_active).ToList();
             if(active.Count==0)
@@ -52,7 +54,7 @@ public partial class DispatchWorkflowService
                 """,new{orderId},tx,cancellationToken:ct))).AsList();
             if(items.Count==0)throw DispatchWorkflowCommandException.SourceChanged("packing task has no active item to pick");
             if(items.Any(x=>x.required_qty is null or <=0))throw DispatchWorkflowCommandException.SourceChanged("packing task item has invalid required quantity");
-            var allocations=await BuildAllocationPlanAsync(c,tx,order.tenant_id,items,ct);
+            var allocations=await BuildAllocationPlanAsync(c,tx,order.tenant_id,items,canonical,ct);
             foreach(var item in items)
                 await c.ExecuteAsync(new CommandDefinition("""
                     UPDATE `wms_dispatch_packing_task_item`
@@ -76,11 +78,13 @@ public partial class DispatchWorkflowService
             }
             foreach(var a in allocations)
                 await c.ExecuteAsync(new CommandDefinition("""
-                    INSERT INTO `wms_dispatchpicklist` (`dispatchlist_id`,`packing_task_item_id`,`stock_id`,`goods_owner_id`,`goods_location_id`,`sku_id`,`pick_qty`,`picked_qty`,
+                    INSERT INTO `wms_dispatchpicklist` (`dispatchlist_id`,`packing_task_item_id`,`stock_id`,`erp_stock_id`,`stock_allocation_id`,`goods_owner_id`,`goods_location_id`,`sku_id`,`pick_qty`,`picked_qty`,
                       `is_update_stock`,`last_update_time`,`series_number`,`picker_id`,`picker`,`expiry_date`,`price`,`putaway_date`)
-                    VALUES (@detailId,@itemId,@stockId,@ownerId,@locationId,@skuId,@quantity,@quantity,0,@now,@series,@userId,@name,@expiry,@price,@putaway);
-                    """,new{detailId=details[a.Item.id],itemId=a.Item.id,stockId=a.Stock.id,ownerId=a.Stock.goods_owner_id,locationId=a.Stock.goods_location_id,
-                        skuId=a.Stock.sku_id,a.Quantity,now,series=a.Stock.series_number,userId=user.user_id,name=user.user_name,expiry=a.Stock.expiry_date,a.Stock.price,putaway=a.Stock.putaway_date},tx,cancellationToken:ct));
+                    VALUES (@detailId,@itemId,@stockId,@erpStockId,@allocationId,@ownerId,@locationId,@skuId,@quantity,@quantity,0,@now,@series,@userId,@name,@expiry,@price,@putaway);
+                    """,new{detailId=details[a.Item.id],itemId=a.Item.id,a.StockId,erpStockId=a.ErpStockId,
+                        allocationId=a.StockAllocationId,ownerId=a.GoodsOwnerId,locationId=a.GoodsLocationId,
+                        skuId=a.SkuId,a.Quantity,now,series=a.SeriesNumber,userId=user.user_id,name=user.user_name,
+                        expiry=a.ExpiryDate,a.Price,putaway=a.PutawayDate},tx,cancellationToken:ct));
             await c.ExecuteAsync(new CommandDefinition("""
                 DELETE FROM `wms_packing_task_stock_selection` WHERE `id` IN @selectionIds;
                 """,new{selectionIds=allocations.Select(x=>x.SelectionId).Distinct().ToArray()},tx,cancellationToken:ct));
@@ -124,17 +128,29 @@ public partial class DispatchWorkflowService
     private static CompletePickingResult FromLedger(DispatchWorkflowOperationEntity x)
     {if(x.result_order_status==null||x.result_row_version==null)throw DispatchWorkflowCommandException.ConcurrencyConflict();return new(){order_id=x.dispatch_order_id,request_id=x.request_id,status=ToApiStatus(x.result_order_status.Value),row_version=x.result_row_version.Value};}
 
-    private static async Task<List<PickingAllocation>> BuildAllocationPlanAsync(System.Data.IDbConnection c,IDbTransaction tx,long tenantId,IReadOnlyList<DispatchPackingTaskItemEntity> items,CancellationToken ct)
+    private static async Task<List<PickingAllocation>> BuildAllocationPlanAsync(System.Data.IDbConnection c,IDbTransaction tx,long tenantId,IReadOnlyList<DispatchPackingTaskItemEntity> items,bool canonical,CancellationToken ct)
     {
         var taskIds=items.Select(x=>x.packing_task_id).Distinct().ToArray();
-        var bindings=(await c.QueryAsync<BoundSelectionRow>(new CommandDefinition("""
-            SELECT s.`id`,s.`sellfox_item_id`,s.`stock_id`,s.`wms_sku_id`,s.`qty`,t.`id` AS packing_task_id
+        var bindingSql=canonical?"""
+            SELECT s.`id`,s.`sellfox_item_id`,s.`stock_id`,s.`erp_stock_id`,s.`stock_allocation_id`,
+                   s.`wms_sku_id`,s.`qty`,t.`id` AS packing_task_id
+            FROM `wms_packing_task_stock_selection` s
+            INNER JOIN `wms_dispatch_packing_task` t ON t.`source_task_id`=s.`sellfox_task_id`
+            WHERE s.`tenant_id`=@tenantId AND t.`id` IN @taskIds
+              AND s.`erp_stock_id` IS NOT NULL AND s.`stock_allocation_id` IS NOT NULL
+            ORDER BY s.`erp_stock_id`,s.`stock_allocation_id`,s.`id` FOR UPDATE;
+            """:"""
+            SELECT s.`id`,s.`sellfox_item_id`,s.`stock_id`,s.`erp_stock_id`,s.`stock_allocation_id`,
+                   s.`wms_sku_id`,s.`qty`,t.`id` AS packing_task_id
             FROM `wms_packing_task_stock_selection` s
             INNER JOIN `wms_dispatch_packing_task` t ON t.`source_task_id`=s.`sellfox_task_id`
             WHERE s.`tenant_id`=@tenantId AND t.`id` IN @taskIds
             ORDER BY s.`stock_id`,s.`id` FOR UPDATE;
-            """,new{tenantId,taskIds},tx,cancellationToken:ct))).AsList();
+            """;
+        var bindings=(await c.QueryAsync<BoundSelectionRow>(new CommandDefinition(
+            bindingSql,new{tenantId,taskIds},tx,cancellationToken:ct))).AsList();
         if(bindings.Count==0)throw DispatchWorkflowCommandException.StockShortage("装箱任务未绑定库存");
+        if(canonical)return await BuildCanonicalAllocationPlanAsync(c,tx,tenantId,items,bindings,ct);
         var stockIds=bindings.Select(x=>x.stock_id).Distinct().ToArray();
         var stocks=(await c.QueryAsync<AvailableStockRow>(new CommandDefinition("""
             SELECT s.*,(CASE WHEN s.`is_freeze`=1 THEN 0 ELSE s.`qty`
@@ -159,13 +175,64 @@ public partial class DispatchWorkflowService
                 if(!stockById.TryGetValue(row.stock_id,out var stock)||stock.sku_id!=row.wms_sku_id||stock.sku_id!=item.wms_sku_id)
                     throw DispatchWorkflowCommandException.StockShortage($"装箱任务商品 {item.commodity_sku} 的绑定库存已变化");
                 if(stock.is_freeze||stock.available_qty<0)throw DispatchWorkflowCommandException.StockShortage($"装箱任务商品 {item.commodity_sku} 可用量不足");
-                plan.Add(new(item,stock,row.qty,row.id));
+                plan.Add(new(item,stock.id,null,null,stock.goods_owner_id,stock.goods_location_id,
+                    stock.sku_id,stock.series_number,stock.expiry_date,stock.price,stock.putaway_date,row.qty,row.id));
             }
         }
         return plan;
     }
-    private sealed record PickingAllocation(DispatchPackingTaskItemEntity Item,StockEntity Stock,int Quantity,int SelectionId);
-    private sealed class BoundSelectionRow{public int id{get;init;}public int packing_task_id{get;init;}public long sellfox_item_id{get;init;}public int stock_id{get;init;}public int wms_sku_id{get;init;}public int qty{get;init;}}
+    private static async Task<List<PickingAllocation>> BuildCanonicalAllocationPlanAsync(
+        System.Data.IDbConnection c,IDbTransaction tx,long tenantId,
+        IReadOnlyList<DispatchPackingTaskItemEntity> items,IReadOnlyList<BoundSelectionRow> bindings,CancellationToken ct)
+    {
+        if(bindings.Any(x=>x.erp_stock_id is null or <=0||x.stock_allocation_id is null or <=0))
+            throw DispatchWorkflowCommandException.StockShortage("装箱任务存在旧库存绑定，统一ERP库存模式拒绝生成拣货明细");
+        var allocationIds=bindings.Select(x=>x.stock_allocation_id!.Value).Distinct().OrderBy(x=>x).ToArray();
+        var stocks=(await c.QueryAsync<CanonicalPickingStock>(new CommandDefinition("""
+            SELECT allocation.`id` StockAllocationId,allocation.`erp_stock_id` ErpStockId,
+                   map.`wms_sku_id` SkuId,allocation.`goods_owner_id` GoodsOwnerId,
+                   allocation.`goods_location_id` GoodsLocationId,allocation.`series_number` SeriesNumber,
+                   allocation.`expiry_date` ExpiryDate,allocation.`price` Price,
+                   allocation.`putaway_date` PutawayDate,allocation.`allocated_qty` AllocatedQty,
+                   allocation.`occupied_qty` OccupiedQty,allocation.`location_state` LocationState
+              FROM `wms_erp_stock_allocation` allocation
+              JOIN `trk_stock` stock ON stock.`id`=allocation.`erp_stock_id` AND stock.`deleted`=b'0'
+              JOIN `wms_erp_commodity_map` map ON map.`tenant_id`=allocation.`tenant_id`
+                AND map.`erp_commodity_id`=stock.`commodity_id` AND map.`wms_sku_id`>0
+             WHERE allocation.`tenant_id`=@tenantId AND allocation.`id` IN @allocationIds
+             ORDER BY allocation.`erp_stock_id`,allocation.`id` FOR UPDATE;
+            """,new{tenantId,allocationIds},tx,cancellationToken:ct))).AsList();
+        if(stocks.Count!=allocationIds.Length||stocks.Any(x=>x.LocationState!="ACTIVE"||x.AllocatedQty<x.OccupiedQty))
+            throw DispatchWorkflowCommandException.StockShortage("ERP库存位置分配不存在、不可用或已变更");
+        var byId=stocks.ToDictionary(x=>x.StockAllocationId);var plan=new List<PickingAllocation>();
+        foreach(var group in bindings.GroupBy(x=>x.stock_allocation_id!.Value))
+            if(byId[group.Key].OccupiedQty<group.Sum(x=>(long)x.qty))
+                throw DispatchWorkflowCommandException.StockShortage("ERP库存位置分配的预占数量不足");
+        foreach(var item in items)
+        {
+            var rows=bindings.Where(x=>x.packing_task_id==item.packing_task_id&&x.sellfox_item_id==item.source_item_id).ToList();
+            if(rows.Sum(x=>x.qty)!=item.required_qty)throw DispatchWorkflowCommandException.StockShortage($"装箱任务商品 {item.commodity_sku} 的绑定数量已变化");
+            var skuIds=rows.Select(x=>x.wms_sku_id).Where(x=>x>0).Distinct().ToArray();
+            if(skuIds.Length!=1)throw DispatchWorkflowCommandException.SkuMappingConflict($"装箱任务商品 {item.commodity_sku} 绑定了多个库存SKU");
+            item.wms_sku_id=skuIds[0];
+            foreach(var row in rows)
+            {
+                var stock=byId.GetValueOrDefault(row.stock_allocation_id!.Value);
+                if(stock==null||stock.ErpStockId!=row.erp_stock_id||stock.SkuId!=row.wms_sku_id||stock.SkuId!=item.wms_sku_id)
+                    throw DispatchWorkflowCommandException.StockShortage($"装箱任务商品 {item.commodity_sku} 的ERP库存绑定已变化");
+                plan.Add(new(item,0,stock.ErpStockId,stock.StockAllocationId,stock.GoodsOwnerId,
+                    stock.GoodsLocationId,stock.SkuId,stock.SeriesNumber,
+                    stock.ExpiryDate??ModernWMS.Core.Utility.UtilConvert.MinDate,stock.Price,
+                    stock.PutawayDate??ModernWMS.Core.Utility.UtilConvert.MinDate,row.qty,row.id));
+            }
+        }
+        return plan;
+    }
+    private sealed record PickingAllocation(DispatchPackingTaskItemEntity Item,int StockId,long? ErpStockId,
+        long? StockAllocationId,int GoodsOwnerId,int GoodsLocationId,int SkuId,string SeriesNumber,
+        DateTime? ExpiryDate,decimal Price,DateTime? PutawayDate,int Quantity,int SelectionId);
+    private sealed class BoundSelectionRow{public int id{get;init;}public int packing_task_id{get;init;}public long sellfox_item_id{get;init;}public int stock_id{get;init;}public long? erp_stock_id{get;init;}public long? stock_allocation_id{get;init;}public int wms_sku_id{get;init;}public int qty{get;init;}}
+    private sealed class CanonicalPickingStock{public long StockAllocationId{get;init;}public long ErpStockId{get;init;}public int SkuId{get;init;}public int GoodsOwnerId{get;init;}public int GoodsLocationId{get;init;}public string SeriesNumber{get;init;}=string.Empty;public DateTime? ExpiryDate{get;init;}public decimal Price{get;init;}public DateTime? PutawayDate{get;init;}public long AllocatedQty{get;init;}public long OccupiedQty{get;init;}public string LocationState{get;init;}=string.Empty;}
     private sealed class AvailableStockRow:StockEntity{public int available_qty{get;set;}}
 }
 

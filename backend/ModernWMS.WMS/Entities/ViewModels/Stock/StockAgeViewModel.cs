@@ -19,6 +19,16 @@ namespace ModernWMS.WMS.Entities.ViewModels
     /// </summary>
     public class StockAgeViewModel
     {
+        public long? erp_stock_id { get; set; }
+
+        public long? stock_allocation_id { get; set; }
+
+        public string inventory_mode { get; set; } = "LEGACY_READ";
+
+        public string location_state { get; set; } = "LEGACY";
+
+        public bool is_pending_location { get; set; }
+
         /// <summary>
         /// warehouse_name
         /// </summary>
@@ -57,7 +67,7 @@ namespace ModernWMS.WMS.Entities.ViewModels
         /// <summary>
         /// quantity
         /// </summary>
-        public int qty { get; set; } = 0;
+        public long qty { get; set; } = 0;
 
 
         /// <summary>

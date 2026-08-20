@@ -198,12 +198,17 @@ public partial class DispatchWorkflowService
             }
             var lockedOrder = await LoadOrderForUpdateAsync(connection, transaction, orderId, cancellationToken);
             await _warehouseAccessService.EnsureAllowedAsync(lockedOrder.warehouse_id, currentUser);
+            var runtime = await LoadInventoryRuntimeAsync(connection, transaction, lockedOrder.tenant_id,
+                lockedOrder.warehouse_id, cancellationToken);
+            var canonical = runtime.Mode == CanonicalInventoryMode;
             if (lockedOrder.status != requiredStatus)
                 throw DispatchWorkflowCommandException.StatusNotAllowedForOutbound(deduct);
             if (lockedOrder.row_version != request.row_version)
                 throw DispatchWorkflowCommandException.ConcurrencyConflict();
             if (!deduct && lockedOrder.signed_at != null)
                 throw DispatchWorkflowCommandException.SignedOrderCannotBeCancelled();
+            if (canonical && !deduct)
+                throw DispatchWorkflowCommandException.CanonicalOutboundCannotBeCancelled();
             if (deduct)
             {
                 var guard = await EnsurePostPickSourceCurrentAsync(
@@ -228,7 +233,15 @@ public partial class DispatchWorkflowService
                 SELECT * FROM `wms_dispatchpicklist` WHERE `dispatchlist_id` IN @detailIds ORDER BY `stock_id`,`id` FOR UPDATE;
                 """, new { detailIds }, transaction, cancellationToken: cancellationToken))).AsList();
             await ValidateDetailAllocationsAsync(connection, transaction, order, details, allocations, deduct, cancellationToken);
-            ValidateAllocationState(allocations, deduct);
+            ValidateAllocationState(allocations, deduct, canonical);
+            var now = DateTime.Now;
+            if (canonical)
+            {
+                await ApplyCanonicalOutboundAsync(connection, transaction, order, allocations,
+                    currentUser, requestId, cancellationToken);
+            }
+            else
+            {
             var stockIds = allocations.Select(x => x.stock_id).Distinct().ToArray();
             var stocks = stockIds.Length == 0 ? [] : (await connection.QueryAsync<StockEntity>(new CommandDefinition("""
                 SELECT * FROM `wms_stock` WHERE `id` IN @stockIds ORDER BY `id` FOR UPDATE;
@@ -240,7 +253,6 @@ public partial class DispatchWorkflowService
                 SELECT `biz_type`,`biz_item_id`,`stock_id` FROM `wms_stock_record`
                 WHERE `biz_id`=@orderId AND (`biz_type` LIKE 'DISPATCH_OUT%' OR `biz_type` LIKE 'DISPATCH_IN%') FOR UPDATE;
                 """, new { orderId }, transaction, cancellationToken: cancellationToken))).AsList();
-            var now = DateTime.Now;
             foreach (var group in allocations.GroupBy(x => x.stock_id).OrderBy(x => x.Key))
             {
                 var stock = stocks.Single(x => x.id == group.Key);
@@ -262,6 +274,7 @@ public partial class DispatchWorkflowService
                 await connection.ExecuteAsync(new CommandDefinition("""
                     UPDATE `wms_stock` SET `qty`=@running,`last_update_time`=@now WHERE `id`=@id;
                     """, new { running, now, stock.id }, transaction, cancellationToken: cancellationToken));
+            }
             }
 
             await connection.ExecuteAsync(new CommandDefinition("""
@@ -349,11 +362,45 @@ public partial class DispatchWorkflowService
             throw DispatchWorkflowCommandException.CarrierRequired();
     }
 
-    private static void ValidateAllocationState(IReadOnlyCollection<DispatchpicklistEntity> allocations, bool deduct)
+    private static void ValidateAllocationState(IReadOnlyCollection<DispatchpicklistEntity> allocations, bool deduct,
+        bool canonical)
     {
-        if (allocations.Count == 0 || allocations.Any(x => x.stock_id <= 0 || x.picked_qty <= 0
+        if (allocations.Count == 0 || allocations.Any(x => x.picked_qty <= 0
+            || (canonical
+                ? x.erp_stock_id is null or <= 0 || x.stock_allocation_id is null or <= 0
+                : x.stock_id <= 0)
             || (deduct ? x.is_update_stock : !x.is_update_stock)))
             throw DispatchWorkflowCommandException.StockConflict("stock allocation state changed");
+    }
+
+    private async Task ApplyCanonicalOutboundAsync(
+        IDbConnection connection,
+        IDbTransaction transaction,
+        DispatchOrderEntity order,
+        IReadOnlyCollection<DispatchpicklistEntity> allocations,
+        CurrentUser user,
+        string requestId,
+        CancellationToken cancellationToken)
+    {
+        var mutation = RequireStockAllocationMutationService();
+        await mutation.PrelockAsync(connection,transaction,order.tenant_id,
+            [order.warehouse_id],
+            allocations.Select(x=>x.erp_stock_id!.Value).Distinct().OrderBy(x=>x).ToArray(),
+            allocations.Select(x=>x.stock_allocation_id!.Value).Distinct().OrderBy(x=>x).ToArray(),
+            cancellationToken);
+        foreach (var allocation in allocations.OrderBy(x=>x.erp_stock_id).ThenBy(x=>x.stock_allocation_id).ThenBy(x=>x.id))
+        {
+            await mutation.ShipLockedAsync(connection,transaction,
+                DispatchMutationContext(user,order.warehouse_id,"DISPATCH_SHIP_OUT",order.id,allocation.id,
+                    allocation.erp_stock_id!.Value,allocation.stock_allocation_id!.Value,
+                    allocation.picked_qty,requestId),
+                allocation.erp_stock_id.Value,allocation.stock_allocation_id.Value,
+                allocation.picked_qty,cancellationToken);
+            await connection.ExecuteAsync(new CommandDefinition("""
+                UPDATE `wms_dispatchpicklist` SET `is_update_stock`=1,`last_update_time`=@now
+                 WHERE `id`=@id AND `is_update_stock`=0;
+                """,new{now=DateTime.Now,allocation.id},transaction,cancellationToken:cancellationToken));
+        }
     }
 
     private static async Task ValidateDetailAllocationsAsync(IDbConnection connection, IDbTransaction transaction,
@@ -500,6 +547,9 @@ public sealed partial class DispatchWorkflowCommandException
         new("STATUS_NOT_ALLOWED", confirming ? "only a pending-outbound order can be confirmed" : "only an outbound order can be cancelled");
     public static DispatchWorkflowCommandException SignedOrderCannotBeCancelled() =>
         new("ORDER_ALREADY_SIGNED", "a signed outbound order cannot be cancelled");
+    public static DispatchWorkflowCommandException CanonicalOutboundCannotBeCancelled() =>
+        new("OUTBOUND_REVERSAL_NOT_SUPPORTED",
+            "统一ERP库存模式不支持已出库库存的无损撤销，请停止操作并按库存流水执行人工向前修复");
     public static DispatchWorkflowCommandException StatusNotAllowedForSigning() =>
         new("STATUS_NOT_ALLOWED", "only an outbound order can be signed");
 }
