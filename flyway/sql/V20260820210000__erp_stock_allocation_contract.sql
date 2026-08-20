@@ -140,7 +140,7 @@ ALTER TABLE `wms_stockmove`
 ALTER TABLE `wms_stockfreeze`
   ADD COLUMN `erp_stock_id` bigint DEFAULT NULL AFTER `tenant_id`,
   ADD COLUMN `stock_allocation_id` bigint DEFAULT NULL AFTER `erp_stock_id`,
-  ADD COLUMN `source_freeze_id` bigint DEFAULT NULL AFTER `stock_allocation_id` COMMENT '逻辑引用原冻结单，不创建物理外键',
+  ADD COLUMN `source_freeze_id` bigint DEFAULT NULL COMMENT '逻辑引用原冻结单，不创建物理外键' AFTER `stock_allocation_id`,
   ADD KEY `idx_stockfreeze_erp_stock` (`tenant_id`,`erp_stock_id`),
   ADD KEY `idx_stockfreeze_allocation` (`tenant_id`,`stock_allocation_id`),
   ADD KEY `idx_stockfreeze_source` (`tenant_id`,`source_freeze_id`);

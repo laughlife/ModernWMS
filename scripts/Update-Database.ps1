@@ -232,10 +232,14 @@ try {
             '-baselineDescription=existing_wms_schema_reviewed'
         )
         Invoke-FlywayCommand -Executable $flywayExecutable -Command 'info'
-        Invoke-FlywayCommand -Executable $flywayExecutable -Command 'validate'
+        Invoke-FlywayCommand -Executable $flywayExecutable -Command 'validate' -ExtraArguments @(
+            '-ignoreMigrationPatterns=*:pending'
+        )
     }
     else {
-        Invoke-FlywayCommand -Executable $flywayExecutable -Command 'validate'
+        Invoke-FlywayCommand -Executable $flywayExecutable -Command 'validate' -ExtraArguments @(
+            '-ignoreMigrationPatterns=*:pending'
+        )
     }
 
     if ($Apply) {
