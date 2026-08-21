@@ -7,8 +7,14 @@ using System.Xml.Linq;
 
 namespace ModernWMS.WMS.Entities.ViewModels
 {
+    /// <summary>
+    /// 表示 SkuSelectViewModel 类型。
+    /// </summary>
     public class SkuSelectViewModel
     {
+        /// <summary>
+        /// 初始化 SkuSelectViewModel 的新实例。
+        /// </summary>
         public SkuSelectViewModel()
         {
 

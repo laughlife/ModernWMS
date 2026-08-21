@@ -11,6 +11,7 @@ using ModernWMS.WMS.IServices;
 
 namespace ModernWMS.WMS.Services;
 
+/// <summary>Provides SPU and SKU catalog operations.</summary>
 public class SpuService : BaseService<SpuEntity>, ISpuService
 {
     private const string SpuColumns = """
@@ -43,12 +44,14 @@ public class SpuService : BaseService<SpuEntity>, ISpuService
     private readonly IMySqlConnectionFactory _connectionFactory;
     private readonly IStringLocalizer<Core.MultiLanguage> _stringLocalizer;
 
+    /// <summary>Initializes the service.</summary>
     public SpuService(IMySqlConnectionFactory connectionFactory, IStringLocalizer<Core.MultiLanguage> stringLocalizer)
     {
         _connectionFactory = connectionFactory;
         _stringLocalizer = stringLocalizer;
     }
 
+    /// <summary>Gets a paged list of SPU records.</summary>
     public async Task<(List<SpuBothViewModel> data, int totals)> PageAsync(PageSearch pageSearch, CurrentUser currentUser)
     {
         var filter = DapperSearchBuilder.Build(pageSearch.searchObjects, SpuSearchColumns);
@@ -68,6 +71,7 @@ public class SpuService : BaseService<SpuEntity>, ISpuService
         return (rows, totals);
     }
 
+    /// <summary>Gets a paged commodity catalog.</summary>
     public async Task<(List<CommodityCatalogViewModel> data, int totals)> PageCatalogAsync(PageSearch pageSearch, CurrentUser currentUser)
     {
         var filter = DapperSearchBuilder.Build(pageSearch.searchObjects, CatalogSearchColumns);
@@ -142,6 +146,7 @@ public class SpuService : BaseService<SpuEntity>, ISpuService
         }
     }
 
+    /// <summary>Gets an SPU by id.</summary>
     public async Task<SpuBothViewModel> GetAsync(int id)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -151,18 +156,21 @@ public class SpuService : BaseService<SpuEntity>, ISpuService
         return row;
     }
 
+    /// <summary>Gets SKU details by id.</summary>
     public async Task<SkuDetailViewModel> GetSkuAsync(int sku_id)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         return await connection.QuerySingleOrDefaultAsync<SkuDetailViewModel>($"{SkuDetailSql} WHERE k.`id`=@sku_id LIMIT 1;", new { sku_id }) ?? new SkuDetailViewModel();
     }
 
+    /// <summary>Gets SKU details by barcode.</summary>
     public async Task<SkuDetailViewModel> GetSkuByBarCodeAsync(string bar_code)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         return await connection.QueryFirstOrDefaultAsync<SkuDetailViewModel>($"{SkuDetailSql} WHERE k.`bar_code`=@bar_code LIMIT 1;", new { bar_code }) ?? new SkuDetailViewModel();
     }
 
+    /// <summary>Adds an SPU and its SKU details.</summary>
     public async Task<(int id, string msg)> AddAsync(SpuBothViewModel viewModel, CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -196,6 +204,7 @@ public class SpuService : BaseService<SpuEntity>, ISpuService
         catch { await transaction.RollbackAsync(); throw; }
     }
 
+    /// <summary>Updates an SPU and its SKU details.</summary>
     public async Task<(bool flag, string msg)> UpdateAsync(SpuBothViewModel viewModel)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -252,6 +261,7 @@ public class SpuService : BaseService<SpuEntity>, ISpuService
         catch { await transaction.RollbackAsync(); throw; }
     }
 
+    /// <summary>Deletes an SPU and its SKU details.</summary>
     public async Task<(bool flag, string msg)> DeleteAsync(int id)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -272,6 +282,7 @@ public class SpuService : BaseService<SpuEntity>, ISpuService
         catch { await transaction.RollbackAsync(); throw; }
     }
 
+    /// <summary>Inserts, updates, or removes SKU safety-stock settings.</summary>
     public async Task<(bool flag, string msg)> InsertOrUpdateSkuSafetyStockAsync(SkuSafetyStockPutViewModel viewModel)
     {
         if (viewModel.detailList.Count == 0) return (false, _stringLocalizer["save_failed"]);

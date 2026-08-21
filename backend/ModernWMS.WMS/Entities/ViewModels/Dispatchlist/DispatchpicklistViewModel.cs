@@ -38,8 +38,17 @@ namespace ModernWMS.WMS.Entities.ViewModels
         /// </summary>
         [Display(Name = "dispatchlist_id")]
         public int dispatchlist_id { get; set; } = 0;
+        /// <summary>
+        /// 获取或设置 stock_id。
+        /// </summary>
         public int stock_id { get; set; }
+        /// <summary>
+        /// 获取或设置 erp_stock_id。
+        /// </summary>
         public long? erp_stock_id { get; set; }
+        /// <summary>
+        /// 获取或设置 stock_allocation_id。
+        /// </summary>
         public long? stock_allocation_id { get; set; }
 
         /// <summary>

@@ -8,6 +8,9 @@ using System.Threading.Tasks;
 
 namespace ModernWMS.WMS.Entities.Models
 {
+    /// <summary>
+    /// 表示 FlowSetUserEntity 类型。
+    /// </summary>
     [Table("flowsetusers")]
     public class FlowSetUserEntity : BaseModel
     {

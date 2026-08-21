@@ -9,9 +9,15 @@ namespace ModernWMS.WMS.IServices.PackingTask;
 /// </summary>
 public interface IPackingTaskSourceReader : IDependency
 {
+    /// <summary>
+    /// 定义 VerifyCapabilityAsync 操作。
+    /// </summary>
     Task<PackingTaskSourceCapability> VerifyCapabilityAsync(
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// 定义 ReadAsync 操作。
+    /// </summary>
     Task<IReadOnlyList<PackingTaskSourceSnapshot>> ReadAsync(
         IReadOnlyCollection<long> sourceTaskIds,
         CancellationToken cancellationToken = default);

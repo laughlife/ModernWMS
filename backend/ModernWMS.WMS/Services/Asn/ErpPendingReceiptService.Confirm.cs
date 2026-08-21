@@ -303,18 +303,31 @@ public partial class ErpPendingReceiptService
 
     private record PurchaseTaskRow
     {
+        /// <summary>记录标识。</summary>
         public long id { get; init; }
+        /// <summary>任务类型。</summary>
         public string? task_type { get; init; }
+        /// <summary>操作类型。</summary>
         public string? action { get; init; }
+        /// <summary>生产操作类型。</summary>
         public string? production_action { get; init; }
+        /// <summary>总数量。</summary>
         public long? total_num { get; init; }
+        /// <summary>关闭类型。</summary>
         public string? close_type { get; init; }
+        /// <summary>关闭人。</summary>
         public string? closed_by { get; init; }
+        /// <summary>关闭时间。</summary>
         public DateTime? closed_time { get; init; }
+        /// <summary>实际生产数量。</summary>
         public long actual_produced_qty { get; init; }
+        /// <summary>FBM 数量。</summary>
         public long fbm_qty { get; init; }
+        /// <summary>FBA 数量。</summary>
         public long fba_qty { get; init; }
+        /// <summary>实际发货数量。</summary>
         public long actual_shipped_qty { get; init; }
+        /// <summary>实际签收数量。</summary>
         public long actual_signed_qty { get; init; }
     }
 

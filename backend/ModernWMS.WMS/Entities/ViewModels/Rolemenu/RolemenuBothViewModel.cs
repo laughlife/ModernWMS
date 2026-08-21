@@ -54,9 +54,15 @@ namespace ModernWMS.WMS.Entities.ViewModels
     /// </summary>
     public class RoleWarehouseBindingViewModel
     {
+        /// <summary>
+        /// 获取或设置 userrole_id。
+        /// </summary>
         [Required(ErrorMessage = "Required")]
         public int userrole_id { get; set; }
 
+        /// <summary>
+        /// 获取或设置 warehouse_ids。
+        /// </summary>
         [Required(ErrorMessage = "Required")]
         public List<long> warehouse_ids { get; set; } = [];
     }

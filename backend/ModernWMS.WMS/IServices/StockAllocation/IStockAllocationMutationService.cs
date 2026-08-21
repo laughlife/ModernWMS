@@ -34,6 +34,9 @@ public interface IStockAllocationMutationService : IDependency
         IReadOnlyCollection<StockReservationPrelockRequest> requests,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// 定义 AdjustAvailableAsync 操作。
+    /// </summary>
     Task<StockAllocationMutationResult> AdjustAvailableAsync(
         IDbConnection connection,
         IDbTransaction transaction,
@@ -43,6 +46,9 @@ public interface IStockAllocationMutationService : IDependency
         long quantityDelta,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// 定义 ReserveAsync 操作。
+    /// </summary>
     Task<StockAllocationMutationResult> ReserveAsync(
         IDbConnection connection,
         IDbTransaction transaction,
@@ -52,6 +58,9 @@ public interface IStockAllocationMutationService : IDependency
         long quantity,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// 定义 ReleaseAsync 操作。
+    /// </summary>
     Task<StockAllocationMutationResult> ReleaseAsync(
         IDbConnection connection,
         IDbTransaction transaction,
@@ -61,6 +70,9 @@ public interface IStockAllocationMutationService : IDependency
         long quantity,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// 定义 ShipLockedAsync 操作。
+    /// </summary>
     Task<StockAllocationMutationResult> ShipLockedAsync(
         IDbConnection connection,
         IDbTransaction transaction,
@@ -70,6 +82,9 @@ public interface IStockAllocationMutationService : IDependency
         long quantity,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// 定义 MoveLocationAsync 操作。
+    /// </summary>
     Task<StockAllocationMutationResult> MoveLocationAsync(
         IDbConnection connection,
         IDbTransaction transaction,

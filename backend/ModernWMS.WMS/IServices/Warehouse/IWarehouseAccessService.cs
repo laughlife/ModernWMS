@@ -9,7 +9,13 @@ namespace ModernWMS.WMS.IServices;
 /// </summary>
 public interface IWarehouseAccessService : IDependency
 {
+    /// <summary>
+    /// 定义 GetAllowedAsync 操作。
+    /// </summary>
     Task<WarehouseAccessViewModel> GetAllowedAsync(CurrentUser currentUser);
 
+    /// <summary>
+    /// 定义 EnsureAllowedAsync 操作。
+    /// </summary>
     Task EnsureAllowedAsync(long warehouseId, CurrentUser currentUser);
 }

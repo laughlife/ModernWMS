@@ -12,6 +12,9 @@ using ModernWMS.WMS.IServices;
 
 namespace ModernWMS.WMS.Services;
 
+/// <summary>
+/// 提供库存汇总、库位库存、安全库存及库存统计查询。
+/// </summary>
 public class StockService : BaseService<StockEntity>, IStockService
 {
     private readonly IMySqlConnectionFactory _connectionFactory;
@@ -37,6 +40,11 @@ public class StockService : BaseService<StockEntity>, IStockService
         "sku_id", "spu_id", "spu_code", "spu_name", "sku_code", "sku_name", "supplier_id",
         "supplier_name", "brand", "origin", "unit");
 
+    /// <summary>
+    /// 初始化库存服务。
+    /// </summary>
+    /// <param name="connectionFactory">MySQL 连接工厂。</param>
+    /// <param name="stringLocalizer">多语言文本提供器。</param>
     public StockService(IMySqlConnectionFactory connectionFactory,
         IStringLocalizer<ModernWMS.Core.MultiLanguage> stringLocalizer)
     {
@@ -44,6 +52,7 @@ public class StockService : BaseService<StockEntity>, IStockService
         _stringLocalizer = stringLocalizer;
     }
 
+    /// <inheritdoc />
     public async Task<(List<StockManagementViewModel> data, int totals)> StockPageAsync(PageSearch page, CurrentUser user)
     {
         var filter = DapperSearchBuilder.Build(page.searchObjects.Where(x =>
@@ -60,6 +69,7 @@ public class StockService : BaseService<StockEntity>, IStockService
         return result;
     }
 
+    /// <inheritdoc />
     public async Task<(List<LocationStockManagementViewModel> data, int totals)> LocationStockPageAsync(PageSearch page, CurrentUser user)
     {
         var memberFilter = page.searchObjects.FirstOrDefault(x =>
@@ -95,6 +105,7 @@ public class StockService : BaseService<StockEntity>, IStockService
         return result;
     }
 
+    /// <inheritdoc />
     public async Task<(List<SafetyStockManagementViewModel> data, int totals)> SafetyStockPageAsync(PageSearch page, CurrentUser user)
     {
         var filter = DapperSearchBuilder.Build(page.searchObjects, SafetyColumns);
@@ -103,6 +114,7 @@ public class StockService : BaseService<StockEntity>, IStockService
             filter.Sql.Length == 0 ? "1=1" : filter.Sql, "q.`sku_code`", filter.Parameters);
     }
 
+    /// <inheritdoc />
     public async Task<(List<StockViewModel> data, int totals)> SelectPageAsync(PageSearch page, CurrentUser user)
     {
         var filter = DapperSearchBuilder.Build(page.searchObjects, StockSelectColumns);
@@ -115,6 +127,7 @@ public class StockService : BaseService<StockEntity>, IStockService
             clauses.Count == 0 ? "1=1" : string.Join(" AND ", clauses), "q.`sku_code`", filter.Parameters);
     }
 
+    /// <inheritdoc />
     public async Task<(List<SkuSelectViewModel> data, int totals)> SkuSelectPageAsync(PageSearch page, CurrentUser user)
     {
         var filter = DapperSearchBuilder.Build(page.searchObjects, SkuColumns);
@@ -128,6 +141,7 @@ public class StockService : BaseService<StockEntity>, IStockService
             filter.Sql.Length == 0 ? "1=1" : filter.Sql, "q.`sku_code`", filter.Parameters);
     }
 
+    /// <inheritdoc />
     public async Task<List<LocationStockManagementViewModel>> LocationStockForPhoneAsync(LocationStockForPhoneSearchViewModel input, CurrentUser user)
     {
         var p = new DynamicParameters(new
@@ -140,6 +154,7 @@ public class StockService : BaseService<StockEntity>, IStockService
             UnifiedInventoryCte + PhoneInventorySelect + " ORDER BY `sku_code`;", p)).AsList();
     }
 
+    /// <inheritdoc />
     public async Task<(List<DeliveryStatisticViewModel> datas, int totals)> DeliveryStatistic(DeliveryStatisticSearchViewModel input, CurrentUser user)
     {
         var p = new DynamicParameters(new
@@ -167,6 +182,7 @@ public class StockService : BaseService<StockEntity>, IStockService
         return await QueryPageAsync<DeliveryStatisticViewModel>("", select, "1=1", "q.`delivery_date` DESC", p);
     }
 
+    /// <inheritdoc />
     public async Task<(List<StockAgeViewModel> data, int totals)> StockAgePageAsync(StockAgeSearchViewModel input, CurrentUser user)
     {
         var p = new DynamicParameters(new

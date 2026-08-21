@@ -8,8 +8,14 @@ using ModernWMS.WMS.IServices.StockAllocation;
 
 namespace ModernWMS.WMS.Services.DispatchWorkflow;
 
+/// <summary>
+/// 表示 DispatchWorkflowService 类型。
+/// </summary>
 public partial class DispatchWorkflowService
 {
+    /// <summary>
+    /// 执行 ReconcileAsync 操作。
+    /// </summary>
     public async Task<DispatchOrderDetailViewModel> ReconcileAsync(int orderId, CurrentUser currentUser,
         CancellationToken cancellationToken = default)
     {

@@ -53,6 +53,9 @@ namespace ModernWMS.WMS.Entities.ViewModels
         /// </summary>
         public string location_state { get; set; } = "LEGACY";
 
+        /// <summary>
+        /// 获取或设置 is_pending_location。
+        /// </summary>
         public bool is_pending_location { get; set; }
 
         /// <summary>
@@ -139,14 +142,29 @@ namespace ModernWMS.WMS.Entities.ViewModels
         [Display(Name = "qty_available")]
         public long qty_available { get; set; } = 0;
 
+        /// <summary>
+        /// 获取或设置 qty_locked。
+        /// </summary>
         public long qty_locked { get; set; } = 0;
 
+        /// <summary>
+        /// 获取或设置 erp_total_qty。
+        /// </summary>
         public long erp_total_qty { get; set; } = 0;
 
+        /// <summary>
+        /// 获取或设置 erp_available_qty。
+        /// </summary>
         public long erp_available_qty { get; set; } = 0;
 
+        /// <summary>
+        /// 获取或设置 erp_occupied_qty。
+        /// </summary>
         public long erp_occupied_qty { get; set; } = 0;
 
+        /// <summary>
+        /// 获取或设置 allocation_consistent。
+        /// </summary>
         public bool allocation_consistent { get; set; } = true;
 
         /// <summary>

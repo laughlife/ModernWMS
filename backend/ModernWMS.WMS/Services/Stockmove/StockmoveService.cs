@@ -14,6 +14,7 @@ using MySqlConnector;
 
 namespace ModernWMS.WMS.Services;
 
+/// <summary>移库业务服务。</summary>
 public class StockmoveService : BaseService<StockmoveEntity>, IStockmoveService
 {
     private const string ViewSql = """
@@ -53,6 +54,7 @@ public class StockmoveService : BaseService<StockmoveEntity>, IStockmoveService
     private readonly FunctionHelper _functionHelper;
     private readonly IStockAllocationMutationService _stockMutationService;
 
+    /// <summary>初始化移库服务。</summary>
     public StockmoveService(IMySqlConnectionFactory connectionFactory,
         IStringLocalizer<Core.MultiLanguage> stringLocalizer,FunctionHelper functionHelper,
         IStockAllocationMutationService stockMutationService)
@@ -63,6 +65,7 @@ public class StockmoveService : BaseService<StockmoveEntity>, IStockmoveService
         _stockMutationService=stockMutationService ?? throw new ArgumentNullException(nameof(stockMutationService));
     }
 
+    /// <inheritdoc />
     public async Task<(List<StockmoveViewModel> data,int totals)> PageAsync(PageSearch pageSearch,CurrentUser currentUser)
     {
         var filter=DapperSearchBuilder.Build(pageSearch.searchObjects,SearchColumns);
@@ -79,18 +82,21 @@ public class StockmoveService : BaseService<StockmoveEntity>, IStockmoveService
         return((await result.ReadAsync<StockmoveViewModel>()).AsList(),totals);
     }
 
+    /// <inheritdoc />
     public async Task<List<StockmoveViewModel>> GetAllAsync(CurrentUser currentUser)
     {
         await using var db=await _connectionFactory.OpenConnectionAsync();
         return(await db.QueryAsync<StockmoveViewModel>($"{ViewSql} WHERE m.`tenant_id`=@tenantId;",new { tenantId=currentUser.tenant_id })).AsList();
     }
 
+    /// <inheritdoc />
     public async Task<StockmoveViewModel> GetAsync(int id)
     {
         await using var db=await _connectionFactory.OpenConnectionAsync();
         return await db.QuerySingleOrDefaultAsync<StockmoveViewModel>($"{ViewSql} WHERE m.`id`=@id LIMIT 1;",new { id });
     }
 
+    /// <inheritdoc />
     public async Task<(int id,string msg)> AddAsync(StockmoveViewModel viewModel,CurrentUser currentUser)
     {
         var jobCode=await _functionHelper.GetFormNoAsync("Stockmove");
@@ -186,6 +192,7 @@ public class StockmoveService : BaseService<StockmoveEntity>, IStockmoveService
         catch { await tx.RollbackAsync(); throw; }
     }
 
+    /// <inheritdoc />
     public async Task<(bool flag,string msg)> Confirm(int id,CurrentUser currentUser)
     {
         await using var db=await _connectionFactory.OpenConnectionAsync();
@@ -288,6 +295,7 @@ public class StockmoveService : BaseService<StockmoveEntity>, IStockmoveService
         catch { await tx.RollbackAsync(); throw; }
     }
 
+    /// <inheritdoc />
     public async Task<(bool flag,string msg)> DeleteAsync(int id)
     {
         await using var db=await _connectionFactory.OpenConnectionAsync();
@@ -309,6 +317,7 @@ public class StockmoveService : BaseService<StockmoveEntity>, IStockmoveService
         catch { await tx.RollbackAsync(); throw; }
     }
 
+    /// <inheritdoc />
     public async Task<string> GetOrderCode(CurrentUser currentUser)
     {
         await using var db=await _connectionFactory.OpenConnectionAsync();

@@ -65,14 +65,29 @@ namespace ModernWMS.WMS.Entities.Models
         /// </summary>
         public long tenant_id { get; set; } = 0;
 
+        /// <summary>
+        /// 获取或设置 erp_stock_id。
+        /// </summary>
         public long? erp_stock_id { get; set; }
 
+        /// <summary>
+        /// 获取或设置 stock_allocation_id。
+        /// </summary>
         public long? stock_allocation_id { get; set; }
 
+        /// <summary>
+        /// 获取或设置 reservation_id。
+        /// </summary>
         public long? reservation_id { get; set; }
 
+        /// <summary>
+        /// 获取或设置 reservation_item_id。
+        /// </summary>
         public long? reservation_item_id { get; set; }
 
+        /// <summary>
+        /// 获取或设置 source_freeze_id。
+        /// </summary>
         public long? source_freeze_id { get; set; }
 
         /// <summary>

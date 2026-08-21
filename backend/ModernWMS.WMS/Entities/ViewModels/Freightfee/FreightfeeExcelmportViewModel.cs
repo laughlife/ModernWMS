@@ -8,6 +8,9 @@ using System.Xml.Linq;
 
 namespace ModernWMS.WMS.Entities.ViewModels
 {
+    /// <summary>
+    /// 表示 FreightfeeExcelmportViewModel 类型。
+    /// </summary>
     public class FreightfeeExcelmportViewModel
     {
         #region constructor

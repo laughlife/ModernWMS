@@ -22,6 +22,9 @@ public class FbaShipmentService : IFbaShipmentService
     private readonly IMySqlConnectionFactory _connectionFactory;
     private readonly IDispatchlistService _dispatchlistService;
 
+    /// <summary>
+    /// 初始化 FbaShipmentService 的新实例。
+    /// </summary>
     public FbaShipmentService(
         IMySqlConnectionFactory connectionFactory,
         IDispatchlistService dispatchlistService)
@@ -30,6 +33,9 @@ public class FbaShipmentService : IFbaShipmentService
         _dispatchlistService = dispatchlistService;
     }
 
+    /// <summary>
+    /// 执行 PageAsync 操作。
+    /// </summary>
     public async Task<(List<FbaShipmentViewModel> data, int totals)> PageAsync(PageSearch pageSearch, CurrentUser currentUser)
     {
         var keyword = FindSearchText(pageSearch, "keyword");
@@ -125,6 +131,9 @@ public class FbaShipmentService : IFbaShipmentService
         return (data, totals);
     }
 
+    /// <summary>
+    /// 执行 PreparePickingAsync 操作。
+    /// </summary>
     public async Task<(bool flag, string msg)> PreparePickingAsync(long stockMoveId, CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();

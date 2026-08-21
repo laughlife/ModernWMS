@@ -7,8 +7,14 @@ using ModernWMS.WMS.IServices.StockAllocation;
 
 namespace ModernWMS.WMS.Services.DispatchWorkflow;
 
+/// <summary>
+/// 表示 DispatchWorkflowService 类型。
+/// </summary>
 public partial class DispatchWorkflowService
 {
+    /// <summary>
+    /// 执行 GetPackingPlanAsync 操作。
+    /// </summary>
     public async Task<PackingPlanViewModel> GetPackingPlanAsync(int orderId,int taskId,CurrentUser user,CancellationToken ct=default)
     {
         await using var c=await _connectionFactory.OpenConnectionAsync(ct);
@@ -22,6 +28,9 @@ public partial class DispatchWorkflowService
         return ToPackingPlan(order,task,items,boxes,boxItems);
     }
 
+    /// <summary>
+    /// 执行 SavePackingPlanAsync 操作。
+    /// </summary>
     public async Task<PackingPlanViewModel> SavePackingPlanAsync(int orderId,int taskId,SavePackingPlanRequest r,CurrentUser user,CancellationToken ct=default)
     {
         ValidatePackingPlanCommand(orderId,taskId,r.request_id,r.row_version,r.task_row_version);
@@ -75,6 +84,9 @@ public partial class DispatchWorkflowService
         }catch{await tx.RollbackAsync(CancellationToken.None);throw;}
     }
 
+    /// <summary>
+    /// 执行 ConfirmPackingAsync 操作。
+    /// </summary>
     public async Task<PackingPlanViewModel> ConfirmPackingAsync(int orderId,int taskId,ConfirmActualPackingRequest r,CurrentUser user,CancellationToken ct=default)
     {
         ValidatePackingPlanCommand(orderId,taskId,r.request_id,r.row_version,r.task_row_version);
@@ -95,6 +107,9 @@ public partial class DispatchWorkflowService
         }catch{await tx.RollbackAsync(CancellationToken.None);throw;}
     }
 
+    /// <summary>
+    /// 执行 ConfirmActualPackingAsync 操作。
+    /// </summary>
     public async Task<PackingPlanViewModel> ConfirmActualPackingAsync(int orderId,int taskId,ConfirmActualPackingRequest r,CurrentUser user,CancellationToken ct=default)
     {
         ValidatePackingPlanCommand(orderId,taskId,r.request_id,r.row_version,r.task_row_version);

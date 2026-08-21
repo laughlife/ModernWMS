@@ -7,6 +7,9 @@ namespace ModernWMS.Core.Database;
 /// </summary>
 public interface IDatabaseTransactionExecutor
 {
+    /// <summary>
+    /// 定义 ExecuteAsync 操作。
+    /// </summary>
     Task<T> ExecuteAsync<T>(
         Func<IDatabaseSession, CancellationToken, Task<T>> operation,
         IsolationLevel isolationLevel = IsolationLevel.ReadCommitted,
@@ -19,6 +22,9 @@ public interface IDatabaseTransactionExecutor
 public sealed class DatabaseTransactionExecutor(IDatabaseSessionFactory sessionFactory)
     : IDatabaseTransactionExecutor
 {
+    /// <summary>
+    /// 执行 ExecuteAsync 操作。
+    /// </summary>
     public async Task<T> ExecuteAsync<T>(
         Func<IDatabaseSession, CancellationToken, Task<T>> operation,
         IsolationLevel isolationLevel = IsolationLevel.ReadCommitted,

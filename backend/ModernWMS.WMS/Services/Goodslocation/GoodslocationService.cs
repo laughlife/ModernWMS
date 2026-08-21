@@ -10,6 +10,9 @@ using ModernWMS.WMS.IServices;
 
 namespace ModernWMS.WMS.Services;
 
+/// <summary>
+/// 表示 GoodslocationService 类型。
+/// </summary>
 public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodslocationService
 {
     private const string Projection = """
@@ -38,6 +41,9 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
     private readonly IMySqlConnectionFactory _connectionFactory;
     private readonly IStringLocalizer<ModernWMS.Core.MultiLanguage> _stringLocalizer;
 
+    /// <summary>
+    /// 初始化 GoodslocationService 的新实例。
+    /// </summary>
     public GoodslocationService(
         IMySqlConnectionFactory connectionFactory,
         IStringLocalizer<ModernWMS.Core.MultiLanguage> stringLocalizer)
@@ -46,6 +52,9 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
         _stringLocalizer = stringLocalizer;
     }
 
+    /// <summary>
+    /// 执行 GetGoodslocationByWarehouse_area_id 操作。
+    /// </summary>
     public async Task<List<FormSelectItem>> GetGoodslocationByWarehouse_area_id(
         int warehouse_area_id, CurrentUser currentUser)
     {
@@ -61,6 +70,9 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
         return rows.AsList();
     }
 
+    /// <summary>
+    /// 执行 PageAsync 操作。
+    /// </summary>
     public async Task<(List<GoodslocationViewModel> data, int totals)> PageAsync(
         PageSearch pageSearch, CurrentUser currentUser)
     {
@@ -87,6 +99,9 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
         return (list, totals);
     }
 
+    /// <summary>
+    /// 执行 GetAllAsync 操作。
+    /// </summary>
     public async Task<List<GoodslocationViewModel>> GetAllAsync(CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -96,6 +111,9 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
         return rows.AsList();
     }
 
+    /// <summary>
+    /// 执行 GetAsync 操作。
+    /// </summary>
     public async Task<GoodslocationViewModel> GetAsync(int id)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -104,6 +122,9 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
             """, new { id });
     }
 
+    /// <summary>
+    /// 执行 AddAsync 操作。
+    /// </summary>
     public async Task<(int id, string msg)> AddAsync(GoodslocationViewModel viewModel, CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -144,6 +165,9 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
         return id > 0 ? (id, _stringLocalizer["save_success"]) : (0, _stringLocalizer["save_failed"]);
     }
 
+    /// <summary>
+    /// 执行 UpdateAsync 操作。
+    /// </summary>
     public async Task<(bool flag, string msg)> UpdateAsync(GoodslocationViewModel viewModel, CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -192,6 +216,9 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
         return qty > 0 ? (true, _stringLocalizer["save_success"]) : (false, _stringLocalizer["save_failed"]);
     }
 
+    /// <summary>
+    /// 执行 DeleteAsync 操作。
+    /// </summary>
     public async Task<(bool flag, string msg)> DeleteAsync(int id)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();

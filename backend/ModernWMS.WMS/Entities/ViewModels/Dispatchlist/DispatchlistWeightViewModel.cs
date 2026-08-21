@@ -23,6 +23,9 @@ namespace ModernWMS.WMS.Entities.ViewModels
         }
         #endregion
         #region Property
+        /// <summary>
+        /// 获取或设置 id。
+        /// </summary>
         [Display(Name = "id")]
         public int id { get; set; } = 0;
         /// <summary>
@@ -50,12 +53,21 @@ namespace ModernWMS.WMS.Entities.ViewModels
         [Display(Name = "weighing_weight")]
         public decimal weighing_weight { get; set; } = 0;
 
+        /// <summary>
+        /// 获取或设置 weighing_length。
+        /// </summary>
         [Display(Name = "weighing_length")]
         public decimal weighing_length { get; set; } = 0;
 
+        /// <summary>
+        /// 获取或设置 weighing_width。
+        /// </summary>
         [Display(Name = "weighing_width")]
         public decimal weighing_width { get; set; } = 0;
 
+        /// <summary>
+        /// 获取或设置 weighing_height。
+        /// </summary>
         [Display(Name = "weighing_height")]
         public decimal weighing_height { get; set; } = 0;
 

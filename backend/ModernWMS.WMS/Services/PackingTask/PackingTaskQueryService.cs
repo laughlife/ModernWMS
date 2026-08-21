@@ -67,6 +67,7 @@ public class PackingTaskQueryService : IPackingTaskQueryService
     private readonly IConfiguration _configuration;
     private readonly IWarehouseAccessService? _warehouseAccessService;
 
+    /// <summary>Initializes the packing-task query service.</summary>
     public PackingTaskQueryService(
         IMySqlConnectionFactory connectionFactory,
         IConfiguration configuration,
@@ -86,6 +87,7 @@ public class PackingTaskQueryService : IPackingTaskQueryService
         _warehouseAccessService = warehouseAccessService;
     }
 
+    /// <summary>Gets a page of packing tasks.</summary>
     public async Task<PackingTaskQueryResult> PageAsync(PageSearch pageSearch, CurrentUser currentUser)
     {
         if (!_configuration.GetValue("Features:PackingTaskFirstStep", false))
@@ -149,6 +151,7 @@ public class PackingTaskQueryService : IPackingTaskQueryService
         return new PackingTaskQueryResult(true, string.Empty, data, page.Totals);
     }
 
+    /// <summary>Gets stock that can be selected for a packing task.</summary>
     public async Task<(List<SelectableStockViewModel> data, int totals)> SelectableStockPageAsync(
         PackingTaskStockPageRequest request,
         CurrentUser currentUser)
@@ -175,6 +178,7 @@ public class PackingTaskQueryService : IPackingTaskQueryService
         return (ordered.Skip((pageIndex - 1) * pageSize).Take(pageSize).ToList(), totals);
     }
 
+    /// <summary>Selects stock for a packing task.</summary>
     public async Task<(bool flag, string message)> SelectStockAsync(
         PackingTaskStockSelectRequest request,
         CurrentUser currentUser)
@@ -188,6 +192,7 @@ public class PackingTaskQueryService : IPackingTaskQueryService
         return (result.IsSuccess, result.Message);
     }
 
+    /// <summary>Deletes a packing-task stock selection.</summary>
     public async Task<(bool flag, string message)> DeleteStockSelectionAsync(
         PackingTaskStockSelectRequest request,
         CurrentUser currentUser)

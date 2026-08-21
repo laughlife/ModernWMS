@@ -8,8 +8,14 @@ using MySqlConnector;
 
 namespace ModernWMS.WMS.Services.DispatchWorkflow;
 
+/// <summary>
+/// 表示 DispatchWorkflowService 类型。
+/// </summary>
 public partial class DispatchWorkflowService
 {
+    /// <summary>
+    /// 执行 EnsurePostPickSourceCurrentAsync 操作。
+    /// </summary>
     public async Task<PostPickSourceGuardResult> EnsurePostPickSourceCurrentAsync(int orderId,CurrentUser user,CancellationToken ct=default)
     {
         if(orderId<=0)throw new ArgumentException("dispatch order id is required",nameof(orderId));
@@ -60,6 +66,9 @@ public partial class DispatchWorkflowService
         return GuardPending(order,version);
     }
 
+    /// <summary>
+    /// 执行 DecideSourceChangeAsync 操作。
+    /// </summary>
     public async Task<SourceDecisionResult> DecideSourceChangeAsync(int orderId,SourceDecisionRequest request,CurrentUser user,CancellationToken ct=default)
     {
         var decision=ParseDecision(request);ValidateDecisionRequest(orderId,request);var requestId=request.request_id.Trim();var sourceVersion=request.source_version.Trim();var reason=request.reason.Trim();
@@ -168,13 +177,37 @@ public partial class DispatchWorkflowService
     private static SourceDecisionResult DecisionFromLedger(DispatchWorkflowOperationEntity x,string decision,string version){if(x.result_order_status==null||x.result_row_version==null)throw DispatchWorkflowCommandException.ConcurrencyConflict();return new(){order_id=x.dispatch_order_id,request_id=x.request_id,decision=decision.Trim().ToUpperInvariant(),source_version=version,status=ToApiStatus(x.result_order_status.Value),source_change_pending=false,row_version=x.result_row_version.Value};}
 }
 
+/// <summary>
+/// 表示 DispatchWorkflowCommandException 类型。
+/// </summary>
 public sealed partial class DispatchWorkflowCommandException
 {
+    /// <summary>
+    /// 执行 SourceChangePending 操作。
+    /// </summary>
     public static DispatchWorkflowCommandException SourceChangePending()=>new("SOURCE_CHANGE_PENDING","source changed after picking and requires a human decision");
+    /// <summary>
+    /// 执行 SourceVersionConflict 操作。
+    /// </summary>
     public static DispatchWorkflowCommandException SourceVersionConflict()=>new("SOURCE_VERSION_CONFLICT","source version is not the current pending version");
+    /// <summary>
+    /// 执行 SourceDecisionNotPending 操作。
+    /// </summary>
     public static DispatchWorkflowCommandException SourceDecisionNotPending()=>new("SOURCE_DECISION_NOT_PENDING","the order has no pending source change");
+    /// <summary>
+    /// 执行 StockAlreadyDeducted 操作。
+    /// </summary>
     public static DispatchWorkflowCommandException StockAlreadyDeducted()=>new("STOCK_ALREADY_DEDUCTED","inventory was already deducted and the order cannot be cancelled");
+    /// <summary>
+    /// 执行 IdempotencyConflict 操作。
+    /// </summary>
     public static DispatchWorkflowCommandException IdempotencyConflict()=>new("IDEMPOTENCY_CONFLICT","request_id was already used for the opposite source decision");
+    /// <summary>
+    /// 执行 StatusNotAllowedForSourceGuard 操作。
+    /// </summary>
     public static DispatchWorkflowCommandException StatusNotAllowedForSourceGuard()=>new("STATUS_NOT_ALLOWED","source guard is only valid after picking");
+    /// <summary>
+    /// 执行 StatusNotAllowedForSourceDecision 操作。
+    /// </summary>
     public static DispatchWorkflowCommandException StatusNotAllowedForSourceDecision()=>new("STATUS_NOT_ALLOWED","source decision is only valid before outbound");
 }

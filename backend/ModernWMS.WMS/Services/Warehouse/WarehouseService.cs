@@ -12,6 +12,9 @@ using ModernWMS.WMS.IServices;
 
 namespace ModernWMS.WMS.Services;
 
+/// <summary>
+/// 提供 WMS 仓库配置、ERP 仓库映射及仓库有效性维护。
+/// </summary>
 public class WarehouseService : BaseService<WarehouseEntity>, IWarehouseService
 {
     private const int CurrentWarehouseId = 1;
@@ -33,6 +36,11 @@ public class WarehouseService : BaseService<WarehouseEntity>, IWarehouseService
     private readonly IMySqlConnectionFactory _connectionFactory;
     private readonly IStringLocalizer<ModernWMS.Core.MultiLanguage> _stringLocalizer;
 
+    /// <summary>
+    /// 初始化仓库服务。
+    /// </summary>
+    /// <param name="connectionFactory">MySQL 连接工厂。</param>
+    /// <param name="stringLocalizer">多语言文本提供器。</param>
     public WarehouseService(IMySqlConnectionFactory connectionFactory,
         IStringLocalizer<ModernWMS.Core.MultiLanguage> stringLocalizer)
     {
@@ -40,6 +48,7 @@ public class WarehouseService : BaseService<WarehouseEntity>, IWarehouseService
         _stringLocalizer = stringLocalizer;
     }
 
+    /// <inheritdoc />
     public async Task<List<FormSelectItem>> GetSelectItemsAsnyc(CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -51,6 +60,7 @@ public class WarehouseService : BaseService<WarehouseEntity>, IWarehouseService
             """, new { tenantId=currentUser.tenant_id, currentId=CurrentWarehouseId, erpId=CurrentErpWarehouseId })).AsList();
     }
 
+    /// <inheritdoc />
     public async Task<List<ErpWarehouseOptionViewModel>> GetErpWarehouseOptionsAsync()
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -60,6 +70,7 @@ public class WarehouseService : BaseService<WarehouseEntity>, IWarehouseService
             """)).AsList();
     }
 
+    /// <inheritdoc />
     public async Task<(List<WarehouseViewModel> data, int totals)> PageAsync(PageSearch pageSearch, CurrentUser currentUser)
     {
         var filter = DapperSearchBuilder.Build(pageSearch.searchObjects, SearchColumns);
@@ -80,6 +91,7 @@ public class WarehouseService : BaseService<WarehouseEntity>, IWarehouseService
         return (rows, totals);
     }
 
+    /// <inheritdoc />
     public async Task<List<WarehouseViewModel>> GetAllAsync(CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -88,6 +100,7 @@ public class WarehouseService : BaseService<WarehouseEntity>, IWarehouseService
             """, new { tenantId=currentUser.tenant_id })).AsList();
     }
 
+    /// <inheritdoc />
     public async Task<WarehouseViewModel> GetAsync(int id, CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -96,6 +109,7 @@ public class WarehouseService : BaseService<WarehouseEntity>, IWarehouseService
             """, new { id, tenantId=currentUser.tenant_id });
     }
 
+    /// <inheritdoc />
     public async Task<(int id, string msg)> AddAsync(WarehouseViewModel viewModel, CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -123,6 +137,7 @@ public class WarehouseService : BaseService<WarehouseEntity>, IWarehouseService
         catch { await transaction.RollbackAsync(); throw; }
     }
 
+    /// <inheritdoc />
     public async Task<(bool flag, string msg)> UpdateAsync(WarehouseViewModel viewModel, CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -158,6 +173,7 @@ public class WarehouseService : BaseService<WarehouseEntity>, IWarehouseService
         catch { await transaction.RollbackAsync(); throw; }
     }
 
+    /// <inheritdoc />
     public async Task<(bool flag, string msg)> DeleteAsync(int id, CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -182,6 +198,7 @@ public class WarehouseService : BaseService<WarehouseEntity>, IWarehouseService
         catch { await transaction.RollbackAsync(); throw; }
     }
 
+    /// <inheritdoc />
     public async Task<(bool flag, string msg)> ExcelAsync(List<WarehouseExcelImportViewModel> datas, CurrentUser currentUser)
     {
         var sb = new StringBuilder();

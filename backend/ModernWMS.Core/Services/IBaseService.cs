@@ -9,6 +9,9 @@ using ModernWMS.Core.Models;
 namespace ModernWMS.Core.Services
 {
 
+    /// <summary>
+    /// 表示 IBaseService 类型。
+    /// </summary>
     public interface IBaseService<TEntity> : IDependency where TEntity : BaseModel
     {
         

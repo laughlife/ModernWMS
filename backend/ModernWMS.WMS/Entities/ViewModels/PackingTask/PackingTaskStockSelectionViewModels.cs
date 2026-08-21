@@ -6,9 +6,21 @@ namespace ModernWMS.WMS.Entities.ViewModels.PackingTask;
 /// </summary>
 public class PackingTaskStockPageRequest
 {
+    /// <summary>
+    /// 获取或设置 sellfox_task_id。
+    /// </summary>
     public long sellfox_task_id { get; set; }
+    /// <summary>
+    /// 获取或设置 sellfox_item_id。
+    /// </summary>
     public long sellfox_item_id { get; set; }
+    /// <summary>
+    /// 获取或设置 page_index。
+    /// </summary>
     public int page_index { get; set; } = 1;
+    /// <summary>
+    /// 获取或设置 page_size。
+    /// </summary>
     public int page_size { get; set; } = 20;
 
     /// <summary>
@@ -31,11 +43,29 @@ public class PackingTaskStockPageRequest
 /// </summary>
 public class PackingTaskStockSelectRequest
 {
+    /// <summary>
+    /// 获取或设置 sellfox_task_id。
+    /// </summary>
     public long sellfox_task_id { get; set; }
+    /// <summary>
+    /// 获取或设置 sellfox_item_id。
+    /// </summary>
     public long sellfox_item_id { get; set; }
+    /// <summary>
+    /// 获取或设置 stock_id。
+    /// </summary>
     public int stock_id { get; set; }
+    /// <summary>
+    /// 获取或设置 erp_stock_id。
+    /// </summary>
     public long? erp_stock_id { get; set; }
+    /// <summary>
+    /// 获取或设置 stock_allocation_id。
+    /// </summary>
     public long? stock_allocation_id { get; set; }
+    /// <summary>
+    /// 获取或设置 qty。
+    /// </summary>
     public int qty { get; set; }
     /// <summary>变体数量；服务端按赛狐当前任务量重新计算锁定数量。</summary>
     public int variant { get; set; }
@@ -46,25 +76,85 @@ public class PackingTaskStockSelectRequest
 /// </summary>
 public class SelectableStockViewModel
 {
+    /// <summary>
+    /// 获取或设置 stock_id。
+    /// </summary>
     public int stock_id { get; set; }
+    /// <summary>
+    /// 获取或设置 erp_stock_id。
+    /// </summary>
     public long? erp_stock_id { get; set; }
+    /// <summary>
+    /// 获取或设置 stock_allocation_id。
+    /// </summary>
     public long? stock_allocation_id { get; set; }
+    /// <summary>
+    /// 获取或设置 sku_id。
+    /// </summary>
     public int sku_id { get; set; }
+    /// <summary>
+    /// 获取或设置 sku_code。
+    /// </summary>
     public string sku_code { get; set; } = string.Empty;
+    /// <summary>
+    /// 获取或设置 spu_code。
+    /// </summary>
     public string spu_code { get; set; } = string.Empty;
+    /// <summary>
+    /// 获取或设置 commodity_name。
+    /// </summary>
     public string commodity_name { get; set; } = string.Empty;
+    /// <summary>
+    /// 获取或设置 main_image。
+    /// </summary>
     public string main_image { get; set; } = string.Empty;
+    /// <summary>
+    /// 获取或设置 goods_location_id。
+    /// </summary>
     public int goods_location_id { get; set; }
+    /// <summary>
+    /// 获取或设置 location_name。
+    /// </summary>
     public string location_name { get; set; } = string.Empty;
+    /// <summary>
+    /// 获取或设置 warehouse_id。
+    /// </summary>
     public int warehouse_id { get; set; }
+    /// <summary>
+    /// 获取或设置 warehouse_name。
+    /// </summary>
     public string warehouse_name { get; set; } = string.Empty;
+    /// <summary>
+    /// 获取或设置 goods_owner_id。
+    /// </summary>
     public int goods_owner_id { get; set; }
+    /// <summary>
+    /// 获取或设置 goods_owner_name。
+    /// </summary>
     public string goods_owner_name { get; set; } = string.Empty;
+    /// <summary>
+    /// 获取或设置 qty。
+    /// </summary>
     public int qty { get; set; }
+    /// <summary>
+    /// 获取或设置 available_qty。
+    /// </summary>
     public int available_qty { get; set; }
+    /// <summary>
+    /// 获取或设置 series_number。
+    /// </summary>
     public string series_number { get; set; } = string.Empty;
+    /// <summary>
+    /// 获取或设置 expiry_date。
+    /// </summary>
     public DateTime? expiry_date { get; set; }
+    /// <summary>
+    /// 获取或设置 matched。
+    /// </summary>
     public bool matched { get; set; }
+    /// <summary>
+    /// 获取或设置 selected。
+    /// </summary>
     public bool selected { get; set; }
 
     /// <summary>

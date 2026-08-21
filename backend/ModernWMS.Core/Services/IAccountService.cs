@@ -19,6 +19,9 @@ namespace ModernWMS.Core.Services
         /// <returns></returns>
         Task<LoginOutputViewModel> Login(LoginInputViewModel loginInput,CurrentUser currentUser);
 
+        /// <summary>
+        /// 定义 HelloWorld 操作。
+        /// </summary>
         string HelloWorld();
     }
 }

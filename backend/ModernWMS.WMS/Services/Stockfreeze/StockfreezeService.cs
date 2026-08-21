@@ -13,6 +13,7 @@ using ModernWMS.WMS.IServices.StockAllocation;
 
 namespace ModernWMS.WMS.Services;
 
+/// <summary>库存冻结业务服务。</summary>
 public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeService
 {
     private const string ViewSql = """
@@ -44,6 +45,7 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
     private readonly FunctionHelper _functionHelper;
     private readonly IStockAllocationMutationService _stockMutationService;
 
+    /// <summary>初始化库存冻结服务。</summary>
     public StockfreezeService(
         IMySqlConnectionFactory connectionFactory,
         IStringLocalizer<ModernWMS.Core.MultiLanguage> stringLocalizer,
@@ -56,6 +58,7 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
         _stockMutationService = stockMutationService;
     }
 
+    /// <inheritdoc />
     public async Task<(List<StockfreezeViewModel> data, int totals)> PageAsync(
         PageSearch pageSearch,
         CurrentUser currentUser)
@@ -81,6 +84,7 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
         return (rows, totals);
     }
 
+    /// <inheritdoc />
     public async Task<List<StockfreezeViewModel>> GetAllAsync(CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -92,6 +96,7 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
             """, new { tenantId = currentUser.tenant_id })).AsList();
     }
 
+    /// <inheritdoc />
     public async Task<StockfreezeViewModel> GetAsync(int id)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -100,6 +105,7 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
             """, new { id });
     }
 
+    /// <inheritdoc />
     public async Task<(int id, string msg)> AddAsync(StockfreezeViewModel viewModel, CurrentUser currentUser)
     {
         var jobCode = await _functionHelper.GetFormNoAsync("Stockfreeze");
@@ -307,6 +313,7 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
         }
     }
 
+    /// <inheritdoc />
     public async Task<(bool flag, string msg)> UpdateAsync(StockfreezeViewModel viewModel)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -357,6 +364,7 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
         }
     }
 
+    /// <inheritdoc />
     public async Task<(bool flag, string msg)> DeleteAsync(int id)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -396,6 +404,7 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
         }
     }
 
+    /// <inheritdoc />
     public async Task<string> GetOrderCode(CurrentUser currentUser)
     {
         var date = DateTime.Now.ToString("yyyyMMdd");

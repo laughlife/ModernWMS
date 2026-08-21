@@ -38,6 +38,9 @@ namespace ModernWMS.WMS.Entities.Models
         /// <summary>Task-scoped source item allocation; null preserves historical allocations.</summary>
         public int? packing_task_item_id { get; set; }
 
+        /// <summary>
+        /// 获取或设置 packing_task_item。
+        /// </summary>
         [ForeignKey(nameof(packing_task_item_id))]
         public DispatchPackingTaskItemEntity? packing_task_item { get; set; }
 

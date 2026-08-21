@@ -19,16 +19,34 @@ namespace ModernWMS.WMS.Entities.ViewModels
     /// </summary>
     public class LocationStockManagementViewModel
     {
+        /// <summary>
+        /// 获取或设置 erp_stock_id。
+        /// </summary>
         public long? erp_stock_id { get; set; }
 
+        /// <summary>
+        /// 获取或设置 stock_allocation_id。
+        /// </summary>
         public long? stock_allocation_id { get; set; }
 
+        /// <summary>
+        /// 获取或设置 inventory_mode。
+        /// </summary>
         public string inventory_mode { get; set; } = "LEGACY_READ";
 
+        /// <summary>
+        /// 获取或设置 location_state。
+        /// </summary>
         public string location_state { get; set; } = "LEGACY";
 
+        /// <summary>
+        /// 获取或设置 is_pending_location。
+        /// </summary>
         public bool is_pending_location { get; set; }
 
+        /// <summary>
+        /// 获取或设置 allocation_consistent。
+        /// </summary>
         public bool allocation_consistent { get; set; } = true;
 
         /// <summary>
@@ -96,10 +114,19 @@ namespace ModernWMS.WMS.Entities.ViewModels
         /// </summary>
         public long qty_locked { get; set; } = 0;
 
+        /// <summary>
+        /// 获取或设置 erp_total_qty。
+        /// </summary>
         public long erp_total_qty { get; set; } = 0;
 
+        /// <summary>
+        /// 获取或设置 erp_available_qty。
+        /// </summary>
         public long erp_available_qty { get; set; } = 0;
 
+        /// <summary>
+        /// 获取或设置 erp_occupied_qty。
+        /// </summary>
         public long erp_occupied_qty { get; set; } = 0;
 
         /// <summary>

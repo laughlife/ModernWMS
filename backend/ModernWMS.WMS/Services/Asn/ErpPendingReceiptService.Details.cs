@@ -5,8 +5,14 @@ using ModernWMS.WMS.Entities.ViewModels;
 
 namespace ModernWMS.WMS.Services;
 
+/// <summary>
+/// 表示 ErpPendingReceiptService 类型。
+/// </summary>
 public partial class ErpPendingReceiptService
 {
+    /// <summary>
+    /// 执行 ReceiptDetailsPageAsync 操作。
+    /// </summary>
     public async Task<(List<ErpReceiptDetailViewModel> data, int totals)> ReceiptDetailsPageAsync(
         PageSearch pageSearch,
         CurrentUser currentUser)

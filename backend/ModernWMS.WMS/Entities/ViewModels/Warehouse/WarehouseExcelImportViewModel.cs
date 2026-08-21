@@ -9,6 +9,9 @@ using System.Xml.Linq;
 
 namespace ModernWMS.WMS.Entities.ViewModels
 {
+    /// <summary>
+    /// 表示 WarehouseExcelImportViewModel 类型。
+    /// </summary>
     public class WarehouseExcelImportViewModel
     {
         #region constructor

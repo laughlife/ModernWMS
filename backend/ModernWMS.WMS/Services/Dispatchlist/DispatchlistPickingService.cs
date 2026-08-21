@@ -34,6 +34,9 @@ public class DispatchlistPickingService : IDispatchlistPickingService
     private readonly IMySqlConnectionFactory _connectionFactory;
     private readonly IStringLocalizer<ModernWMS.Core.MultiLanguage> _stringLocalizer;
 
+    /// <summary>
+    /// 初始化 DispatchlistPickingService 的新实例。
+    /// </summary>
     public DispatchlistPickingService(
         IMySqlConnectionFactory connectionFactory,
         IStringLocalizer<ModernWMS.Core.MultiLanguage> stringLocalizer)
@@ -42,6 +45,9 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         _stringLocalizer = stringLocalizer;
     }
 
+    /// <summary>
+    /// 执行 EnrichPickingRowsAsync 操作。
+    /// </summary>
     public async Task EnrichPickingRowsAsync(List<DispatchlistViewModel> rows, CurrentUser currentUser)
     {
         if (rows.Count == 0)
@@ -182,6 +188,9 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         }
     }
 
+    /// <summary>
+    /// 执行 CompletePickingAsync 操作。
+    /// </summary>
     public async Task<(bool flag, string msg)> CompletePickingAsync(List<int> ids, CurrentUser currentUser)
     {
         var distinctIds = ids.Where(t => t > 0).Distinct().ToList();
@@ -209,6 +218,9 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         return changed > 0 ? (true, _stringLocalizer["operation_success"]) : (false, _stringLocalizer["operation_failed"]);
     }
 
+    /// <summary>
+    /// 执行 RepickAsync 操作。
+    /// </summary>
     public async Task<(bool flag, string msg)> RepickAsync(int id, CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -228,6 +240,9 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         return (true, _stringLocalizer["operation_success"]);
     }
 
+    /// <summary>
+    /// 执行 StartWeighingAsync 操作。
+    /// </summary>
     public async Task<(bool flag, string msg)> StartWeighingAsync(int id, CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -248,6 +263,9 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         return changed > 0 ? (true, _stringLocalizer["operation_success"]) : (false, _stringLocalizer["operation_failed"]);
     }
 
+    /// <summary>
+    /// 执行 UndoWeighingAsync 操作。
+    /// </summary>
     public async Task<(bool flag, string msg)> UndoWeighingAsync(int id, CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -269,6 +287,9 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         return changed > 0 ? (true, _stringLocalizer["operation_success"]) : (false, _stringLocalizer["operation_failed"]);
     }
 
+    /// <summary>
+    /// 执行 ReturnToWeighingAsync 操作。
+    /// </summary>
     public async Task<(bool flag, string msg)> ReturnToWeighingAsync(int id, CurrentUser currentUser)
     {
         if (id <= 0)
@@ -308,6 +329,9 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         return saved > 0 ? (true, _stringLocalizer["operation_success"]) : (false, _stringLocalizer["operation_failed"]);
     }
 
+    /// <summary>
+    /// 执行 CompleteWeighingAsync 操作。
+    /// </summary>
     public async Task<(bool flag, string msg)> CompleteWeighingAsync(int id, CurrentUser currentUser)
     {
         if (id <= 0)
@@ -355,6 +379,9 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         }
     }
 
+    /// <summary>
+    /// 执行 UndoDeliveryAsync 操作。
+    /// </summary>
     public async Task<(bool flag, string msg)> UndoDeliveryAsync(int id, CurrentUser currentUser)
     {
         if (id <= 0)
@@ -522,6 +549,9 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         }
     }
 
+    /// <summary>
+    /// 执行 GetOutboundCarrierOptionsAsync 操作。
+    /// </summary>
     public async Task<List<OutboundCarrierOptionViewModel>> GetOutboundCarrierOptionsAsync()
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -532,6 +562,9 @@ public class DispatchlistPickingService : IDispatchlistPickingService
             """, new { excluded=ExcludedCarrierWarehouseNames })).AsList();
     }
 
+    /// <summary>
+    /// 执行 SetOutboundVolumeDivisorAsync 操作。
+    /// </summary>
     public async Task<(bool flag, string msg)> SetOutboundVolumeDivisorAsync(
         SetOutboundVolumeDivisorViewModel viewModel,
         CurrentUser currentUser)
@@ -562,6 +595,9 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         return saved > 0 ? (true, _stringLocalizer["operation_success"]) : (false, _stringLocalizer["data_changed"]);
     }
 
+    /// <summary>
+    /// 执行 SetOutboundCarrierAsync 操作。
+    /// </summary>
     public async Task<(bool flag, string msg)> SetOutboundCarrierAsync(
         SetOutboundCarrierViewModel viewModel,
         CurrentUser currentUser)
@@ -640,6 +676,9 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         });
     }
 
+    /// <summary>
+    /// 执行 GetWeighingShipmentsAsync 操作。
+    /// </summary>
     public async Task<(List<DispatchWeighingShipmentViewModel> data, int totals)> GetWeighingShipmentsAsync(
         PageSearch pageSearch,
         CurrentUser currentUser)
@@ -762,6 +801,9 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         return (result.Skip((pageIndex - 1) * pageSize).Take(pageSize).ToList(), totals);
     }
 
+    /// <summary>
+    /// 执行 GetWeighingBoxesAsync 操作。
+    /// </summary>
     public async Task<List<DispatchWeighingBoxViewModel>> GetWeighingBoxesAsync(
         string dispatchNo,
         long shipmentId,
@@ -794,6 +836,9 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         }).ToList();
     }
 
+    /// <summary>
+    /// 执行 SaveWeighingBoxesAsync 操作。
+    /// </summary>
     public async Task<(bool flag, string msg)> SaveWeighingBoxesAsync(
         List<SaveDispatchWeighingBoxViewModel> viewModels,
         CurrentUser currentUser)

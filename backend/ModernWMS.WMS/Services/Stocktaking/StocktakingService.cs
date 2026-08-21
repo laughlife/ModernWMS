@@ -23,6 +23,7 @@ public class StocktakingService : BaseService<StocktakingEntity>, IStocktakingSe
     private readonly FunctionHelper _functionHelper;
     private readonly IStockAllocationMutationService _stockMutationService;
 
+    /// <summary>初始化盘点服务。</summary>
     public StocktakingService(
         IMySqlConnectionFactory connectionFactory,
         IStringLocalizer<Core.MultiLanguage> stringLocalizer,
@@ -35,6 +36,7 @@ public class StocktakingService : BaseService<StocktakingEntity>, IStocktakingSe
         _stockMutationService = stockMutationService ?? throw new ArgumentNullException(nameof(stockMutationService));
     }
 
+    /// <inheritdoc />
     public async Task<(List<StocktakingViewModel> data, int totals)> PageAsync(
         PageSearch pageSearch, CurrentUser currentUser)
     {
@@ -55,6 +57,7 @@ public class StocktakingService : BaseService<StocktakingEntity>, IStocktakingSe
         return ((await grid.ReadAsync<StocktakingViewModel>()).AsList(), totals);
     }
 
+    /// <inheritdoc />
     public async Task<StocktakingViewModel> GetAsync(int id)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -63,6 +66,7 @@ public class StocktakingService : BaseService<StocktakingEntity>, IStocktakingSe
             """, new { id }) ?? new StocktakingViewModel();
     }
 
+    /// <inheritdoc />
     public async Task<(int id, string msg)> AddAsync(
         StocktakingBasicViewModel viewModel, CurrentUser currentUser)
     {
@@ -109,6 +113,7 @@ public class StocktakingService : BaseService<StocktakingEntity>, IStocktakingSe
         catch { await transaction.RollbackAsync(); throw; }
     }
 
+    /// <inheritdoc />
     public async Task<string> GetOrderCode(CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -128,6 +133,7 @@ public class StocktakingService : BaseService<StocktakingEntity>, IStocktakingSe
         catch { return date + "-0001"; }
     }
 
+    /// <inheritdoc />
     public async Task<(bool flag, string msg)> PutAsync(
         StocktakingConfirmViewModel viewModel, CurrentUser currentUser)
     {
@@ -160,6 +166,7 @@ public class StocktakingService : BaseService<StocktakingEntity>, IStocktakingSe
         catch { await transaction.RollbackAsync(); throw; }
     }
 
+    /// <inheritdoc />
     public async Task<(bool flag, string msg)> ConfirmAsync(int id, CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -247,6 +254,7 @@ public class StocktakingService : BaseService<StocktakingEntity>, IStocktakingSe
         catch { await transaction.RollbackAsync(); throw; }
     }
 
+    /// <inheritdoc />
     public async Task<(bool flag, string msg)> DeleteAsync(int id)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();

@@ -15,6 +15,9 @@ using ModernWMS.WMS.Services.Dispatchlist;
 
 namespace ModernWMS.WMS.Services.DispatchWorkflow;
 
+/// <summary>
+/// 表示 DispatchWorkflowService 类型。
+/// </summary>
 public partial class DispatchWorkflowService : IDispatchWorkflowService
 {
     private readonly IMySqlConnectionFactory _connectionFactory;
@@ -23,6 +26,9 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
     private readonly IDispatchSignNotificationClient? _dispatchSignNotificationClient;
     private readonly IStockAllocationMutationService? _stockAllocationMutationService;
 
+    /// <summary>
+    /// 初始化 DispatchWorkflowService 的新实例。
+    /// </summary>
     public DispatchWorkflowService(
         IMySqlConnectionFactory connectionFactory,
         IPackingTaskSourceReader sourceReader,
@@ -105,6 +111,9 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
         public bool MaintenanceEnabled { get; init; }
     }
 
+    /// <summary>
+    /// 执行 PrintAsync 操作。
+    /// </summary>
     public async Task<DispatchOrderDetailViewModel> PrintAsync(
         int orderId,
         CurrentUser currentUser,

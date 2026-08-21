@@ -9,7 +9,13 @@ namespace ModernWMS.WMS.IServices;
 /// </summary>
 public interface IErpOssStorageService : IDependency
 {
+    /// <summary>
+    /// 定义 UploadImageAsync 操作。
+    /// </summary>
     Task<OssFileUploadViewModel> UploadImageAsync(IFormFile file, long shipmentId, string category);
 
+    /// <summary>
+    /// 定义 CreateAccessUrlAsync 操作。
+    /// </summary>
     Task<string> CreateAccessUrlAsync(string path);
 }

@@ -47,6 +47,7 @@ namespace ModernWMS.WMS.Services
         /// </summary>
         /// <param name="connectionFactory">MySQL connection factory</param>
         /// <param name="stringLocalizer">Localizer</param>
+        /// <summary>初始化用户服务。</summary>
         public UserService(
             IMySqlConnectionFactory connectionFactory
           , IStringLocalizer<ModernWMS.Core.MultiLanguage> stringLocalizer
@@ -65,6 +66,7 @@ namespace ModernWMS.WMS.Services
         /// </summary>
         /// <param name="currentUser">current user</param>
         /// <returns></returns>
+        /// <inheritdoc />
         public async Task<List<FormSelectItem>> GetSelectItemsAsnyc(CurrentUser currentUser)
         {
             await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -82,6 +84,7 @@ namespace ModernWMS.WMS.Services
         /// <param name="pageSearch">args</param>
         /// <param name="currentUser">currentUser</param>
         /// <returns></returns>
+        /// <inheritdoc />
         public async Task<(List<UserViewModel> data, int totals)> PageAsync(PageSearch pageSearch, CurrentUser currentUser)
         {
             var where = DapperSearchBuilder.Build(pageSearch.searchObjects, UserSearchColumns);
@@ -109,6 +112,7 @@ namespace ModernWMS.WMS.Services
         /// Get all records
         /// </summary>
         /// <returns></returns>
+        /// <inheritdoc />
         public async Task<List<UserViewModel>> GetAllAsync(CurrentUser currentUser)
         {
             await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -122,6 +126,7 @@ namespace ModernWMS.WMS.Services
         /// Get a record by id
         /// </summary>
         /// <returns></returns>
+        /// <inheritdoc />
         public async Task<UserViewModel> GetAsync(int id)
         {
             await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -141,6 +146,7 @@ namespace ModernWMS.WMS.Services
         /// <param name="viewModel">viewmodel</param>
         /// <param name="currentUser">current user</param>
         /// <returns></returns>
+        /// <inheritdoc />
         public async Task<(int id, string msg)> AddAsync(UserViewModel viewModel, CurrentUser currentUser)
         {
             var entity = viewModel.Adapt<userEntity>();
@@ -170,6 +176,7 @@ namespace ModernWMS.WMS.Services
         /// <param name="viewModel">args</param>
         /// <param name="currentUser">currentUser</param>
         /// <returns></returns>
+        /// <inheritdoc />
         public async Task<(bool flag, string msg)> UpdateAsync(UserViewModel viewModel, CurrentUser currentUser)
         {
             await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -215,6 +222,7 @@ namespace ModernWMS.WMS.Services
         /// </summary>
         /// <param name="id">id</param>
         /// <returns></returns>
+        /// <inheritdoc />
         public async Task<(bool flag, string msg)> DeleteAsync(int id)
         {
             await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -237,6 +245,7 @@ namespace ModernWMS.WMS.Services
         /// <param name="datas">excel datas</param>
         /// <param name="currentUser">current user</param>
         /// <returns></returns>
+        /// <inheritdoc />
         public async Task<(bool flag, string msg)> ExcelAsync(List<UserExcelImportViewModel> datas, CurrentUser currentUser)
         {
             StringBuilder sb = new StringBuilder();
@@ -296,6 +305,7 @@ namespace ModernWMS.WMS.Services
         /// </summary>
         /// <param name="viewModel">viewmodel</param>
         /// <returns></returns>
+        /// <inheritdoc />
         public async Task<(bool, string)> ResetPwd(BatchOperationViewModel viewModel)
         {
             var newpassword = GetRandomPassword();
@@ -320,6 +330,7 @@ namespace ModernWMS.WMS.Services
         /// </summary>
         /// <param name="viewModel">viewmodel</param>
         /// <returns></returns>
+        /// <inheritdoc />
         public async Task<(bool flag, string msg)> ChangePwd(UserChangePwdViewModel viewModel)
         {
             await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -348,6 +359,7 @@ namespace ModernWMS.WMS.Services
         /// </summary>
         /// <param name="viewModel">viewModel</param>
         /// <returns></returns>
+        /// <inheritdoc />
         public async Task<(bool flag, string msg)> Register(RegisterViewModel viewModel)
         {
             var entity = viewModel.Adapt<userEntity>();
@@ -654,6 +666,7 @@ namespace ModernWMS.WMS.Services
         /// get a random password
         /// </summary>
         /// <returns></returns>
+        /// <summary>生成随机密码。</summary>
         public string GetRandomPassword()
         {
             string randomChars = "ABCDEFGHIJKLMNOPQRSTVWXYZ123456789";

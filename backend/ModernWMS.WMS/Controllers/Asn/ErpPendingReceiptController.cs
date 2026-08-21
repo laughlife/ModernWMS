@@ -18,6 +18,9 @@ public class ErpPendingReceiptController : BaseController
 {
     private readonly IErpPendingReceiptService _erpPendingReceiptService;
 
+    /// <summary>
+    /// 初始化 ErpPendingReceiptController 的新实例。
+    /// </summary>
     public ErpPendingReceiptController(IErpPendingReceiptService erpPendingReceiptService)
     {
         _erpPendingReceiptService = erpPendingReceiptService;

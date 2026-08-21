@@ -23,6 +23,9 @@ namespace ModernWMS.WMS.Entities.ViewModels
         }
         #endregion
         #region Property
+        /// <summary>
+        /// 获取或设置 id。
+        /// </summary>
         [Display(Name = "id")]
         public int id { get; set; } = 0;
 

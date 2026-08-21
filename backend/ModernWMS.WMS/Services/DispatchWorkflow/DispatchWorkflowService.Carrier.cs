@@ -7,12 +7,18 @@ using ModernWMS.WMS.Entities.ViewModels.DispatchWorkflow;
 
 namespace ModernWMS.WMS.Services.DispatchWorkflow;
 
+/// <summary>
+/// 表示 DispatchWorkflowService 类型。
+/// </summary>
 public partial class DispatchWorkflowService
 {
     private const string CarrierSettingAuthority = "delivered-setCarrier";
     private const long ShenzhenSelfWarehouseId = 320118;
     private const string ShenzhenSelfWarehouseName = "有座山深圳仓";
 
+    /// <summary>
+    /// 执行 GetCarrierOptionsAsync 操作。
+    /// </summary>
     public async Task<List<DispatchCarrierOptionViewModel>> GetCarrierOptionsAsync(
         CurrentUser currentUser, CancellationToken cancellationToken = default)
     {
@@ -30,6 +36,9 @@ public partial class DispatchWorkflowService
             cancellationToken: cancellationToken))).AsList();
     }
 
+    /// <summary>
+    /// 执行 SetCarrierAsync 操作。
+    /// </summary>
     public async Task<SetDispatchCarrierResult> SetCarrierAsync(
         SetDispatchCarrierRequest request, CurrentUser currentUser,
         CancellationToken cancellationToken = default)
@@ -148,11 +157,20 @@ public partial class DispatchWorkflowService
     }
 }
 
+/// <summary>
+/// 表示 DispatchWorkflowCommandException 类型。
+/// </summary>
 public sealed partial class DispatchWorkflowCommandException
 {
+    /// <summary>
+    /// 执行 StatusNotAllowedForCarrier 操作。
+    /// </summary>
     public static DispatchWorkflowCommandException StatusNotAllowedForCarrier() =>
         new("STATUS_NOT_ALLOWED", "仅待出库且明细状态完整的拣货单可以设置承运信息");
 
+    /// <summary>
+    /// 执行 CarrierRequired 操作。
+    /// </summary>
     public static DispatchWorkflowCommandException CarrierRequired() =>
         new("CARRIER_REQUIRED", "请先设置承运信息再确认出库");
 }

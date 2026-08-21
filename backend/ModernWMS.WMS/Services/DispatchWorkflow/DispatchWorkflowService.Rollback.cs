@@ -8,6 +8,9 @@ using MySqlConnector;
 
 namespace ModernWMS.WMS.Services.DispatchWorkflow;
 
+/// <summary>
+/// 表示 DispatchWorkflowService 类型。
+/// </summary>
 public partial class DispatchWorkflowService
 {
     /// <summary>
@@ -140,8 +143,14 @@ public partial class DispatchWorkflowService
     }
 }
 
+/// <summary>
+/// 表示 DispatchWorkflowCommandException 类型。
+/// </summary>
 public sealed partial class DispatchWorkflowCommandException
 {
+    /// <summary>
+    /// 执行 StatusNotAllowedForRollback 操作。
+    /// </summary>
     public static DispatchWorkflowCommandException StatusNotAllowedForRollback(
         string detail = "only a pending-pick order can be rolled back") =>
         new("STATUS_NOT_ALLOWED", detail);

@@ -19,14 +19,29 @@ namespace ModernWMS.WMS.Entities.ViewModels
     /// </summary>
     public class StockAgeViewModel
     {
+        /// <summary>
+        /// 获取或设置 erp_stock_id。
+        /// </summary>
         public long? erp_stock_id { get; set; }
 
+        /// <summary>
+        /// 获取或设置 stock_allocation_id。
+        /// </summary>
         public long? stock_allocation_id { get; set; }
 
+        /// <summary>
+        /// 获取或设置 inventory_mode。
+        /// </summary>
         public string inventory_mode { get; set; } = "LEGACY_READ";
 
+        /// <summary>
+        /// 获取或设置 location_state。
+        /// </summary>
         public string location_state { get; set; } = "LEGACY";
 
+        /// <summary>
+        /// 获取或设置 is_pending_location。
+        /// </summary>
         public bool is_pending_location { get; set; }
 
         /// <summary>

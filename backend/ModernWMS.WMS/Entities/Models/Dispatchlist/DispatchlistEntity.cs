@@ -25,6 +25,9 @@ namespace ModernWMS.WMS.Entities.Models
         /// </summary>
         public int? dispatch_order_id { get; set; }
 
+        /// <summary>
+        /// 获取或设置 dispatch_order。
+        /// </summary>
         [ForeignKey(nameof(dispatch_order_id))]
         public DispatchOrderEntity? dispatch_order { get; set; }
 
@@ -33,12 +36,18 @@ namespace ModernWMS.WMS.Entities.Models
         /// </summary>
         public int? packing_task_id { get; set; }
 
+        /// <summary>
+        /// 获取或设置 packing_task。
+        /// </summary>
         [ForeignKey(nameof(packing_task_id))]
         public DispatchPackingTaskEntity? packing_task { get; set; }
 
         /// <summary>Task-scoped source item; null preserves historical FBA rows.</summary>
         public int? packing_task_item_id { get; set; }
 
+        /// <summary>
+        /// 获取或设置 packing_task_item。
+        /// </summary>
         [ForeignKey(nameof(packing_task_item_id))]
         public DispatchPackingTaskItemEntity? packing_task_item { get; set; }
 

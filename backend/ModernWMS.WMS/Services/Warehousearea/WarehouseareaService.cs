@@ -12,6 +12,9 @@ using MySqlConnector;
 
 namespace ModernWMS.WMS.Services;
 
+/// <summary>
+/// 提供仓库库区、操作小组绑定及有效性维护。
+/// </summary>
 public class WarehouseareaService : BaseService<WarehouseareaEntity>, IWarehouseareaService
 {
     private const string Projection = """
@@ -30,6 +33,11 @@ public class WarehouseareaService : BaseService<WarehouseareaEntity>, IWarehouse
     private readonly IMySqlConnectionFactory _connectionFactory;
     private readonly IStringLocalizer<ModernWMS.Core.MultiLanguage> _stringLocalizer;
 
+    /// <summary>
+    /// 初始化仓库库区服务。
+    /// </summary>
+    /// <param name="connectionFactory">MySQL 连接工厂。</param>
+    /// <param name="stringLocalizer">多语言文本提供器。</param>
     public WarehouseareaService(IMySqlConnectionFactory connectionFactory,
         IStringLocalizer<ModernWMS.Core.MultiLanguage> stringLocalizer)
     {
@@ -37,6 +45,7 @@ public class WarehouseareaService : BaseService<WarehouseareaEntity>, IWarehouse
         _stringLocalizer = stringLocalizer;
     }
 
+    /// <inheritdoc />
     public async Task<List<OperatorGroupOptionViewModel>> GetOperatorGroupOptionsAsync()
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -46,6 +55,7 @@ public class WarehouseareaService : BaseService<WarehouseareaEntity>, IWarehouse
             """)).AsList();
     }
 
+    /// <inheritdoc />
     public async Task<List<OperatorGroupMemberOptionViewModel>> GetOperatorGroupMemberOptionsAsync(string? keyword)
     {
         var normalized = (keyword ?? string.Empty).Trim();
@@ -73,6 +83,7 @@ public class WarehouseareaService : BaseService<WarehouseareaEntity>, IWarehouse
             """, new { like = $"%{normalized}%" })).AsList();
     }
 
+    /// <inheritdoc />
     public async Task<(List<WarehouseareaViewModel> data, int totals)> PageAsync(PageSearch pageSearch, CurrentUser currentUser)
     {
         var filter = DapperSearchBuilder.Build(pageSearch.searchObjects, SearchColumns);
@@ -95,6 +106,7 @@ public class WarehouseareaService : BaseService<WarehouseareaEntity>, IWarehouse
         return (list, totals);
     }
 
+    /// <inheritdoc />
     public async Task<List<FormSelectItem>> GetWarehouseareaByWarehouse_id(int warehouse_id, CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -106,6 +118,7 @@ public class WarehouseareaService : BaseService<WarehouseareaEntity>, IWarehouse
             """, new { currentUser.tenant_id, warehouse_id })).AsList();
     }
 
+    /// <inheritdoc />
     public async Task<List<WarehouseareaViewModel>> GetAllAsync(int warehouse_id, CurrentUser currentUser)
     {
         var byWarehouse = warehouse_id > 0 ? "AND wa.`warehouse_id`=@warehouse_id" : string.Empty;
@@ -118,6 +131,7 @@ public class WarehouseareaService : BaseService<WarehouseareaEntity>, IWarehouse
         return list;
     }
 
+    /// <inheritdoc />
     public async Task<WarehouseareaViewModel> GetAsync(int id, CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -130,6 +144,7 @@ public class WarehouseareaService : BaseService<WarehouseareaEntity>, IWarehouse
         return item;
     }
 
+    /// <inheritdoc />
     public async Task<(int id, string msg)> AddAsync(WarehouseareaViewModel viewModel, CurrentUser currentUser)
     {
         var groupIds = Normalize(viewModel.operator_group_ids);
@@ -153,6 +168,7 @@ public class WarehouseareaService : BaseService<WarehouseareaEntity>, IWarehouse
         catch { await transaction.RollbackAsync(); throw; }
     }
 
+    /// <inheritdoc />
     public async Task<(bool flag, string msg)> UpdateAsync(WarehouseareaViewModel viewModel, CurrentUser currentUser)
     {
         var groupIds = Normalize(viewModel.operator_group_ids);
@@ -186,6 +202,7 @@ public class WarehouseareaService : BaseService<WarehouseareaEntity>, IWarehouse
         catch { await transaction.RollbackAsync(); throw; }
     }
 
+    /// <inheritdoc />
     public async Task<(bool flag, string msg)> DeleteAsync(int id, CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();

@@ -17,6 +17,10 @@ public class WarehouseAccessService : IWarehouseAccessService
 
     private readonly IWarehouseAccessDataSource _dataSource;
 
+    /// <summary>
+    /// 初始化仓库访问控制服务。
+    /// </summary>
+    /// <param name="connectionFactory">MySQL 连接工厂。</param>
     public WarehouseAccessService(IMySqlConnectionFactory connectionFactory)
         : this(new DapperWarehouseAccessDataSource(connectionFactory))
     {
@@ -27,6 +31,7 @@ public class WarehouseAccessService : IWarehouseAccessService
         _dataSource = dataSource;
     }
 
+    /// <inheritdoc />
     public async Task<WarehouseAccessViewModel> GetAllowedAsync(CurrentUser currentUser)
     {
         // 发货/收货等 ERP 协同流程只作用于国内仓，海外仓不出现在仓库选择中。
@@ -68,6 +73,7 @@ public class WarehouseAccessService : IWarehouseAccessService
         };
     }
 
+    /// <inheritdoc />
     public async Task EnsureAllowedAsync(long warehouseId, CurrentUser currentUser)
     {
         var access = await GetAllowedAsync(currentUser);

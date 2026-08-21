@@ -2,6 +2,9 @@
 
 namespace ModernWMS.Core.Models
 {
+    /// <summary>
+    /// 表示 BaseModel 类型。
+    /// </summary>
     [Serializable]
     public abstract class BaseModel
     {

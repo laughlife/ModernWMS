@@ -21,6 +21,9 @@ namespace ModernWMS.Core.Services
         private readonly IMySqlConnectionFactory _connectionFactory;
         private readonly IStringLocalizer<ModernWMS.Core.MultiLanguage> _stringLocalizer;
 
+        /// <summary>
+        /// 初始化 AccountService 的新实例。
+        /// </summary>
         public AccountService(IMySqlConnectionFactory connectionFactory, IStringLocalizer<ModernWMS.Core.MultiLanguage> stringLocalizer
 )
         {
@@ -61,6 +64,9 @@ namespace ModernWMS.Core.Services
                 }))!;
         }
         
+        /// <summary>
+        /// 执行 HelloWorld 操作。
+        /// </summary>
         public string HelloWorld ()
         {
             return _stringLocalizer["hello word"];

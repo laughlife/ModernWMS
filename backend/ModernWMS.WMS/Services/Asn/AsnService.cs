@@ -13,12 +13,16 @@ using ModernWMS.WMS.IServices;
 
 namespace ModernWMS.WMS.Services;
 
+/// <summary>ASN 服务。</summary>
 public class AsnService : BaseService<AsnEntity>, IAsnService
 {
     private readonly IMySqlConnectionFactory _connectionFactory;
     private readonly IStringLocalizer<Core.MultiLanguage> _stringLocalizer;
     private readonly FunctionHelper _functionHelper;
 
+    /// <summary>
+    /// 初始化 AsnService 的新实例。
+    /// </summary>
     public AsnService(IMySqlConnectionFactory connectionFactory,
         IStringLocalizer<Core.MultiLanguage> stringLocalizer, FunctionHelper functionHelper)
     {
@@ -54,6 +58,9 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
         ["expiry_date"]="a.`expiry_date`"
     };
 
+    /// <summary>
+    /// 执行 PageAsync 操作。
+    /// </summary>
     public async Task<(List<AsnViewModel> data, int totals)> PageAsync(PageSearch pageSearch, CurrentUser currentUser)
     {
         var filter = DapperSearchBuilder.Build(pageSearch.searchObjects, DetailSearch);
@@ -80,12 +87,16 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
         return ((await grid.ReadAsync<AsnViewModel>()).AsList(),total);
     }
 
+    /// <summary>获取 ASN。</summary>
     public async Task<AsnViewModel> GetAsync(int id)
     {
         await using var connection=await _connectionFactory.OpenConnectionAsync();
         return await connection.QuerySingleOrDefaultAsync<AsnViewModel>($"{DetailSelect} WHERE a.`id`=@id LIMIT 1;",new{id}) ?? new();
     }
 
+    /// <summary>
+    /// 执行 AddAsync 操作。
+    /// </summary>
     public async Task<(int id,string msg)> AddAsync(AsnViewModel vm,CurrentUser user)
     {
         var no=await _functionHelper.GetFormNoAsync("Asn"); var now=DateTime.Now;
@@ -106,6 +117,7 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
         return id>0?(id,_stringLocalizer["save_success"]):(0,_stringLocalizer["save_failed"]);
     }
 
+    /// <summary>生成 ASN 单号。</summary>
     public async Task<string> GetOrderCode(CurrentUser user)
     {
         await using var c=await _connectionFactory.OpenConnectionAsync();
@@ -116,6 +128,9 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
         catch{return date+"-0001";}
     }
 
+    /// <summary>
+    /// 执行 UpdateAsync 操作。
+    /// </summary>
     public async Task<(bool flag,string msg)> UpdateAsync(AsnViewModel vm)
     {
         await using var c=await _connectionFactory.OpenConnectionAsync();
@@ -130,6 +145,9 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
         return WriteResult(qty,"save");
     }
 
+    /// <summary>
+    /// 执行 DeleteAsync 操作。
+    /// </summary>
     public async Task<(bool flag,string msg)> DeleteAsync(int id)
     {
         await using var c=await _connectionFactory.OpenConnectionAsync();
@@ -142,6 +160,9 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
         return qty>0?(true,_stringLocalizer["delete_success"]):(false,_stringLocalizer["delete_failed"]);
     }
 
+    /// <summary>
+    /// 执行 BulkModifyGoodsownerAsync 操作。
+    /// </summary>
     public async Task<(bool flag,string msg)> BulkModifyGoodsownerAsync(AsnBulkModifyGoodsOwnerViewModel vm)
     {
         await using var c=await _connectionFactory.OpenConnectionAsync();
@@ -151,12 +172,21 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
         return WriteResult(qty,"save");
     }
 
+    /// <summary>
+    /// 执行 ConfirmAsync 操作。
+    /// </summary>
     public Task<(bool flag,string msg)> ConfirmAsync(List<AsnConfirmInputViewModel> rows) =>
         ChangeRowsAsync(rows.Select(x=>x.id).Where(x=>x>0).ToList(),0,1,"ASN_Status_Is_Not_Pre_Delivery","confirm",
             rows.GroupBy(x=>x.id).ToDictionary(x=>x.Key,x=>(object?)x.First().arrival_time));
+    /// <summary>
+    /// 执行 ConfirmCancelAsync 操作。
+    /// </summary>
     public Task<(bool flag,string msg)> ConfirmCancelAsync(List<int> ids) =>
         ChangeRowsAsync(ids,1,0,"ASN_Status_Is_Not_Pre_Delivery","save",null,true);
 
+    /// <summary>
+    /// 执行 UnloadAsync 操作。
+    /// </summary>
     public async Task<(bool flag,string msg)> UnloadAsync(List<AsnUnloadInputViewModel> rows,CurrentUser user)
     {
         var ids=rows.Select(x=>x.id).Where(x=>x>0).ToList();
@@ -173,8 +203,14 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
         await tx.CommitAsync();return(true,_stringLocalizer["confirm_success"]);
     }
 
+    /// <summary>
+    /// 执行 UnloadCancelAsync 操作。
+    /// </summary>
     public Task<(bool flag,string msg)> UnloadCancelAsync(List<int> ids)=>ResetUnloadAsync(ids);
 
+    /// <summary>
+    /// 执行 SortingAsync 操作。
+    /// </summary>
     public async Task<(bool flag,string msg)> SortingAsync(List<AsnsortInputViewModel> rows,CurrentUser user)
     {
         var ids=rows.Select(x=>x.asn_id).Distinct().ToList();
@@ -198,6 +234,7 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
         await tx.CommitAsync();return(true,_stringLocalizer["save_success"]);
     }
 
+    /// <summary>获取 ASN 明细排序信息。</summary>
     public async Task<List<AsnsortViewModel>> GetAsnsortsAsync(int asn_id)
     {
         await using var c=await _connectionFactory.OpenConnectionAsync();
@@ -208,6 +245,9 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
           """,new{asn_id})).AsList();
     }
 
+    /// <summary>
+    /// 执行 ModifyAsnsortsAsync 操作。
+    /// </summary>
     public async Task<(bool flag,string msg)> ModifyAsnsortsAsync(List<AsnsortEntity> rows,CurrentUser user)
     {
         await using var c=await _connectionFactory.OpenConnectionAsync();await using var tx=await c.BeginTransactionAsync();
@@ -223,6 +263,9 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
           """,new{ids},tx);await tx.CommitAsync();return(true,_stringLocalizer["sorted_success"]);
     }
 
+    /// <summary>
+    /// 执行 SortedAsync 操作。
+    /// </summary>
     public async Task<(bool flag,string msg)> SortedAsync(List<int> ids)
     {
         await using var c=await _connectionFactory.OpenConnectionAsync();var rows=(await c.QueryAsync<AsnEntity>("SELECT * FROM `wms_asn` WHERE `id` IN @ids;",new{ids})).AsList();
@@ -233,6 +276,9 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
           """,new{ids,now=DateTime.Now});return qty>0?(true,_stringLocalizer["sorted_success"]):(false,_stringLocalizer["sorted_failed"]);
     }
 
+    /// <summary>
+    /// 执行 SortedCancelAsync 操作。
+    /// </summary>
     public async Task<(bool flag,string msg)> SortedCancelAsync(List<int> ids)
     {
         await using var c=await _connectionFactory.OpenConnectionAsync();await using var tx=await c.BeginTransactionAsync();
@@ -242,6 +288,7 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
         if(qty>0)await c.ExecuteAsync("DELETE FROM `wms_asnsort` WHERE `asn_id` IN @ids;",new{ids},tx);await tx.CommitAsync();return WriteResult(qty,"save");
     }
 
+    /// <summary>获取待上架数据。</summary>
     public async Task<List<AsnPendingPutawayViewModel>> GetPendingPutawayDataAsync(int id)
     {
         await using var c=await _connectionFactory.OpenConnectionAsync();return(await c.QueryAsync<AsnPendingPutawayViewModel>("""
@@ -251,6 +298,9 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
           """,new{id})).AsList();
     }
 
+    /// <summary>
+    /// 执行 PutAwayAsync 操作。
+    /// </summary>
     public async Task<(bool flag,string msg)> PutAwayAsync(List<AsnPutAwayInputViewModel> rows,CurrentUser user)
     {
         rows.RemoveAll(x=>x.putaway_qty<1);
@@ -316,6 +366,9 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
       ["goods_owner_id"]="m.`goods_owner_id`",["goods_owner_name"]="m.`goods_owner_name`",["creator"]="m.`creator`",
       ["create_time"]="m.`create_time`",["last_update_time"]="m.`last_update_time`",["tenant_id"]="m.`tenant_id`" };
 
+    /// <summary>
+    /// 执行 PageAsnmasterAsync 操作。
+    /// </summary>
     public async Task<(List<AsnmasterBothViewModel> data,int totals)> PageAsnmasterAsync(PageSearch pageSearch,CurrentUser user)
     {
         var filter=DapperSearchBuilder.Build(pageSearch.searchObjects,MasterSearch);var clauses=new List<string>{"m.`tenant_id`=@tenantId"};
@@ -327,12 +380,16 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
           """,filter.Parameters);var total=await grid.ReadSingleAsync<int>();var masters=(await grid.ReadAsync<AsnmasterBothViewModel>()).AsList();await FillMasterDetailsAsync(c,masters);return(masters,total);
     }
 
+    /// <summary>获取 ASN 主数据及关联信息。</summary>
     public async Task<AsnmasterBothViewModel> GetAsnmasterAsync(int id,CurrentUser user)
     {
         await using var c=await _connectionFactory.OpenConnectionAsync();var master=await c.QuerySingleOrDefaultAsync<AsnmasterBothViewModel>($"{MasterSelect} WHERE `id`=@id AND `tenant_id`=@tenantId LIMIT 1;",new{id,tenantId=user.tenant_id})??new();
         if(master.id>0)await FillMasterDetailsAsync(c,[master]);return master;
     }
 
+    /// <summary>
+    /// 执行 AddAsnmasterAsync 操作。
+    /// </summary>
     public async Task<(int id,string msg)> AddAsnmasterAsync(AsnmasterBothViewModel vm,CurrentUser user)
     {
         var no=await _functionHelper.GetFormNoAsync("Asnmaster");var now=DateTime.Now;await using var c=await _connectionFactory.OpenConnectionAsync();await using var tx=await c.BeginTransactionAsync();
@@ -344,6 +401,9 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
         await tx.CommitAsync();return id>0?(id,_stringLocalizer["save_success"]):(0,_stringLocalizer["save_failed"]);
     }
 
+    /// <summary>
+    /// 执行 UpdateAsnmasterAsync 操作。
+    /// </summary>
     public async Task<(bool flag,string msg)> UpdateAsnmasterAsync(AsnmasterBothViewModel vm,CurrentUser user)
     {
         await using var c=await _connectionFactory.OpenConnectionAsync();await using var tx=await c.BeginTransactionAsync();
@@ -362,11 +422,15 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
         await tx.CommitAsync();return(true,_stringLocalizer["save_success"]);
     }
 
+    /// <summary>
+    /// 执行 DeleteAsnmasterAsync 操作。
+    /// </summary>
     public async Task<(bool flag,string msg)> DeleteAsnmasterAsync(int id)
     {
         await using var c=await _connectionFactory.OpenConnectionAsync();await using var tx=await c.BeginTransactionAsync();var qty=await c.ExecuteAsync("DELETE FROM `wms_asn` WHERE `asnmaster_id`=@id;",new{id},tx);qty+=await c.ExecuteAsync("DELETE FROM `wms_asnmaster` WHERE `id`=@id;",new{id},tx);await tx.CommitAsync();return qty>0?(true,_stringLocalizer["delete_success"]):(false,_stringLocalizer["delete_failed"]);
     }
 
+    /// <summary>获取 ASN 打印序列号。</summary>
     public async Task<List<AsnPrintSeriesNumberViewModel>> GetAsnPrintSeriesNumberAsync(List<int> input)
     {
         await using var c=await _connectionFactory.OpenConnectionAsync();return(await c.QueryAsync<AsnPrintSeriesNumberViewModel>("""

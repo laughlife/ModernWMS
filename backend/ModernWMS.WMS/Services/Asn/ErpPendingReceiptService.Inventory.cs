@@ -7,6 +7,9 @@ using ModernWMS.WMS.Entities.ViewModels;
 
 namespace ModernWMS.WMS.Services;
 
+/// <summary>
+/// 表示 ErpPendingReceiptService 类型。
+/// </summary>
 public partial class ErpPendingReceiptService
 {
     private const string ReceiptBizType = "RECEIPT_IN";
@@ -662,6 +665,7 @@ public partial class ErpPendingReceiptService
         ErpPendingReceiptService owner,
         MySqlConnector.MySqlConnection? ownedConnection) : IAsyncDisposable
     {
+        /// <summary>异步释放服务资源。</summary>
         public async ValueTask DisposeAsync()
         {
             owner._helperConnection = null;

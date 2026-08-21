@@ -6,6 +6,9 @@ using System.Threading.Tasks;
 
 namespace ModernWMS.WMS.Entities.ViewModels
 {
+    /// <summary>
+    /// ASN summary input view model.
+    /// </summary>
     public class AnsSummaryInputViewModel
     {
         #region constructor

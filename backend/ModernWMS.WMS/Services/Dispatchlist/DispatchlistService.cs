@@ -16,6 +16,9 @@ using ModernWMS.WMS.Services.Dispatchlist;
 
 namespace ModernWMS.WMS.Services;
 
+/// <summary>
+/// 表示 DispatchlistService 类型。
+/// </summary>
 public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlistService
 {
     private const string OutboundDeliveryAuthority = "delivered-delivery";
@@ -25,6 +28,9 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
     private readonly IDispatchSignNotificationClient? _dispatchSignNotificationClient;
     private readonly IStockAllocationMutationService? _stockAllocationMutationService;
 
+    /// <summary>
+    /// 初始化 DispatchlistService 的新实例。
+    /// </summary>
     public DispatchlistService(IMySqlConnectionFactory connectionFactory,
         IStringLocalizer<Core.MultiLanguage> stringLocalizer,
         FunctionHelper functionHelper,
@@ -38,6 +44,9 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
         _stockAllocationMutationService = stockAllocationMutationService;
     }
 
+    /// <summary>
+    /// 执行 PageAsync 操作。
+    /// </summary>
     public async Task<(List<DispatchlistViewModel> data, int totals)> PageAsync(
         PageSearch pageSearch, CurrentUser currentUser)
     {
@@ -77,6 +86,9 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
         return ((await grid.ReadAsync<DispatchlistViewModel>()).AsList(), totals);
     }
 
+    /// <summary>
+    /// 执行 GetByDispatchlistNo 操作。
+    /// </summary>
     public async Task<List<DispatchlistViewModel>> GetByDispatchlistNo(
         string dispatch_no, CurrentUser currentUser)
     {
@@ -88,6 +100,9 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
             """, new { dispatch_no, tenantId = currentUser.tenant_id })).AsList();
     }
 
+    /// <summary>
+    /// 执行 UpdateAsycn 操作。
+    /// </summary>
     public async Task<(bool flag, string msg)> UpdateAsycn(
         List<DispatchlistViewModel> viewModels, CurrentUser currentUser)
     {
@@ -156,6 +171,9 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
         catch { await transaction.RollbackAsync(); throw; }
     }
 
+    /// <summary>
+    /// 执行 GetPickListByDispatchID 操作。
+    /// </summary>
     public async Task<List<DispatchpicklistViewModel>> GetPickListByDispatchID(
         int dispatch_id, CurrentUser currentUser)
     {
@@ -177,6 +195,9 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
             """, new { dispatch_id, tenantId = currentUser.tenant_id })).AsList();
     }
 
+    /// <summary>
+    /// 执行 AdvancedDispatchlistPageAsync 操作。
+    /// </summary>
     public async Task<(List<PreDispatchlistViewModel> data, int totals)> AdvancedDispatchlistPageAsync(
         PageSearch pageSearch, CurrentUser currentUser)
     {
@@ -211,6 +232,9 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
         return ((await grid.ReadAsync<PreDispatchlistViewModel>()).AsList(), totals);
     }
 
+    /// <summary>
+    /// 执行 GetAllAsync 操作。
+    /// </summary>
     public async Task<List<DispatchlistDetailViewModel>> GetAllAsync(
         string dispatch_no, CurrentUser currentUser)
     {
@@ -221,6 +245,9 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
             """, new { dispatch_no, tenantId = currentUser.tenant_id })).AsList();
     }
 
+    /// <summary>
+    /// 执行 AddAsync 操作。
+    /// </summary>
     public async Task<(bool flag, string msg)> AddAsync(
         List<DispatchlistAddViewModel> viewModel, CurrentUser currentUser)
     {
@@ -249,6 +276,9 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
         catch { await transaction.RollbackAsync(); throw; }
     }
 
+    /// <summary>
+    /// 执行 PreparePickingAsync 操作。
+    /// </summary>
     public async Task<(bool flag, string msg)> PreparePickingAsync(string dispatchNo, int warehouseId,
         int goodsOwnerId, List<DispatchlistAddViewModel> viewModels, CurrentUser currentUser)
     {
@@ -298,6 +328,9 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
         catch { await transaction.RollbackAsync(); throw; }
     }
 
+    /// <summary>
+    /// 执行 DeleteAsync 操作。
+    /// </summary>
     public async Task<(bool flag, string msg)> DeleteAsync(string dispatch_no, CurrentUser currentUser)
     {
         await using var connection=await _connectionFactory.OpenConnectionAsync();
@@ -315,6 +348,9 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
 
     // Remaining workflow methods are implemented below with the same connection/transaction boundary.
 
+    /// <summary>
+    /// 执行 ConfirmOrderCheck 操作。
+    /// </summary>
     public async Task<List<DispatchlistConfirmDetailViewModel>> ConfirmOrderCheck(
         string dispatch_no, CurrentUser currentUser)
     {
@@ -356,6 +392,9 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
         return rows;
     }
 
+    /// <summary>
+    /// 执行 ConfirmOrder 操作。
+    /// </summary>
     public async Task<(bool flag,string msg)> ConfirmOrder(
         List<DispatchlistConfirmDetailViewModel> viewModels,CurrentUser currentUser)
     {
@@ -428,6 +467,9 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
         catch { await transaction.RollbackAsync(); throw; }
     }
 
+    /// <summary>
+    /// 执行 CancelOrderOpration 操作。
+    /// </summary>
     public async Task<(bool flag,string msg)> CancelOrderOpration(CancelOrderOprationViewModel viewModel,CurrentUser currentUser)
     {
         await using var connection=await _connectionFactory.OpenConnectionAsync();
@@ -497,6 +539,9 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
         catch { await transaction.RollbackAsync(); throw; }
     }
 
+    /// <summary>
+    /// 执行 ConfirmPickByDispatchNo 操作。
+    /// </summary>
     public Task<(bool flag,string msg)> ConfirmPickByDispatchNo(string dispatch_no,CurrentUser currentUser)=>
         ExecutePickTransitionAsync("""
             UPDATE `wms_dispatchpicklist` p INNER JOIN `wms_dispatchlist` d ON p.`dispatchlist_id`=d.`id`
@@ -507,12 +552,21 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
               WHERE `dispatch_status`=2 AND `dispatch_no`=@dispatch_no AND `tenant_id`=@tenantId;
             """,new{dispatch_no,tenantId=currentUser.tenant_id,now=DateTime.Now,userName=currentUser.user_name,userId=currentUser.user_id});
 
+    /// <summary>
+    /// 执行 ConfirmPickDetail 操作。
+    /// </summary>
     public async Task<(bool flag,string msg)> ConfirmPickDetail(List<int> picklist_id,CurrentUser currentUser)=>
         await SetPickerAsync(picklist_id,currentUser,true);
 
+    /// <summary>
+    /// 执行 CancelConfirmPickDetail 操作。
+    /// </summary>
     public async Task<(bool flag,string msg)> CancelConfirmPickDetail(List<int> picklist_id,CurrentUser currentUser)=>
         await SetPickerAsync(picklist_id,currentUser,false);
 
+    /// <summary>
+    /// 执行 Package 操作。
+    /// </summary>
     public async Task<(bool flag,string msg)> Package(List<DispatchlistPackageViewModel> viewModels,CurrentUser currentUser)
     {
         await using var connection=await _connectionFactory.OpenConnectionAsync();
@@ -533,6 +587,9 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
         catch { await transaction.RollbackAsync(); throw; }
     }
 
+    /// <summary>
+    /// 执行 Weight 操作。
+    /// </summary>
     public async Task<(bool flag,string msg)> Weight(List<DispatchlistWeightViewModel> viewModels,CurrentUser currentUser)
     {
         await using var connection=await _connectionFactory.OpenConnectionAsync();
@@ -562,6 +619,9 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
         catch { await transaction.RollbackAsync(); throw; }
     }
 
+    /// <summary>
+    /// 执行 Delivery 操作。
+    /// </summary>
     public async Task<(bool flag,string msg)> Delivery(List<DispatchlistDeliveryViewModel> viewModels,CurrentUser currentUser)
     {
         if(!await HasActionAuthorityAsync(currentUser,OutboundDeliveryAuthority))return(false,"没有出库操作权限");
@@ -665,6 +725,9 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
         catch{await transaction.RollbackAsync();throw;}
     }
 
+    /// <summary>
+    /// 执行 SetFreightfee 操作。
+    /// </summary>
     public async Task<(bool flag,string msg)> SetFreightfee(List<DispatchlistFreightfeeViewModel> viewModels)
     {
         await using var connection=await _connectionFactory.OpenConnectionAsync();
@@ -686,6 +749,9 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
         catch{await transaction.RollbackAsync();throw;}
     }
 
+    /// <summary>
+    /// 执行 SignForArrival 操作。
+    /// </summary>
     public async Task<(bool flag,string msg)> SignForArrival(List<DispatchlistSignViewModel> viewModels)
     {
         await using var connection=await _connectionFactory.OpenConnectionAsync();
@@ -707,6 +773,9 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
         return(true,_stringLocalizer["operation_success"]);
     }
 
+    /// <summary>
+    /// 执行 GetOrderCode 操作。
+    /// </summary>
     public async Task<string> GetOrderCode(CurrentUser currentUser)
     {
         await using var connection=await _connectionFactory.OpenConnectionAsync();
@@ -715,6 +784,9 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
         var maxDate=maxNo.Substring(0,8);var maxDateNo=maxNo.Substring(9,4);if(date!=maxDate)return date+"-0001";int.TryParse(maxDateNo,out var number);return date+"-"+(number+1).ToString("0000");
     }
 
+    /// <summary>
+    /// 执行 Import 操作。
+    /// </summary>
     public async Task<(bool flag,string msg)> Import(List<DispatchlistImportViewModel> viewModels,CurrentUser currentUser)
     {
         var codes=viewModels.Select(t=>t.sku_code).Distinct().ToArray();var groups=viewModels.Select(t=>t.import_group).Distinct().ToList();var groupCodes=await _functionHelper.GetFormNoListAsync("Dispatchlist",groups.Count);var map=groups.Select((g,i)=>(g,i)).ToDictionary(t=>t.g,t=>groupCodes[t.i]);
@@ -732,6 +804,9 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
         catch{await transaction.RollbackAsync();throw;}
     }
 
+    /// <summary>
+    /// 执行 GetOrderCodeList 操作。
+    /// </summary>
     public async Task<List<string>> GetOrderCodeList(CurrentUser currentUser,int cnt)
     {
         await using var connection=await _connectionFactory.OpenConnectionAsync();var maxNo=await connection.ExecuteScalarAsync<string?>("SELECT MAX(`dispatch_no`) FROM `wms_dispatchlist` WHERE `tenant_id`=@tenantId;",new{tenantId=currentUser.tenant_id});var date=DateTime.Now.ToString("yyyyMMdd");var result=new List<string>();
@@ -739,6 +814,9 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
         var maxDate=maxNo.Substring(0,8);var maxDateNo=maxNo.Substring(9,4);int.TryParse(maxDateNo,out var number);for(var i=1;i<=cnt;i++)result.Add(date+"-"+(date==maxDate?number+cnt:cnt).ToString("0000"));return result;
     }
 
+    /// <summary>
+    /// 执行 GetPackageOrWeightCode 操作。
+    /// </summary>
     public string GetPackageOrWeightCode(){var date=DateTime.Now.ToString("yyyyMMdd");var start=new DateTime(1970,1,1,8,0,0);var stamp=Convert.ToInt32(DateTime.Now.Subtract(start).TotalSeconds);return date+stamp;}
 
     private async Task<bool> HasActionAuthorityAsync(CurrentUser currentUser,string requiredAuthority)

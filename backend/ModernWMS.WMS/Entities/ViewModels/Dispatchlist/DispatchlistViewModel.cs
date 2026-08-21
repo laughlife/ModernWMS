@@ -226,11 +226,20 @@ namespace ModernWMS.WMS.Entities.ViewModels
         [MaxLength(256, ErrorMessage = "MaxLength")]
         public string carrier { get; set; } = string.Empty;
 
+        /// <summary>
+        /// 获取或设置 carrier_warehouse_id。
+        /// </summary>
         public long? carrier_warehouse_id { get; set; }
 
+        /// <summary>
+        /// 获取或设置 carrier_unit。
+        /// </summary>
         [MaxLength(256, ErrorMessage = "MaxLength")]
         public string carrier_unit { get; set; } = string.Empty;
 
+        /// <summary>
+        /// 获取或设置 volume_divisor。
+        /// </summary>
         public int? volume_divisor { get; set; }
 
         /// <summary>
@@ -346,6 +355,9 @@ namespace ModernWMS.WMS.Entities.ViewModels
         /// </summary>
         public int box_count { get; set; } = 0;
 
+        /// <summary>
+        /// 获取或设置 fba_shipment_id。
+        /// </summary>
         public long fba_shipment_id { get; set; } = 0;
 
         /// <summary>

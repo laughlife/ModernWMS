@@ -13,6 +13,7 @@ using MySqlConnector;
 
 namespace ModernWMS.WMS.Services;
 
+/// <summary>Provides role-menu and role-warehouse operations.</summary>
 public class RolemenuService : BaseService<RolemenuEntity>, IRolemenuService
 {
     private const int MaxMenuActionAuthorityLength = 64;
@@ -21,12 +22,14 @@ public class RolemenuService : BaseService<RolemenuEntity>, IRolemenuService
     private readonly IMySqlConnectionFactory _connectionFactory;
     private readonly IStringLocalizer<Core.MultiLanguage> _stringLocalizer;
 
+    /// <summary>Initializes the service.</summary>
     public RolemenuService(IMySqlConnectionFactory connectionFactory, IStringLocalizer<Core.MultiLanguage> stringLocalizer)
     {
         _connectionFactory = connectionFactory ?? throw new ArgumentNullException(nameof(connectionFactory));
         _stringLocalizer = stringLocalizer ?? throw new ArgumentNullException(nameof(stringLocalizer));
     }
 
+    /// <summary>Gets all role-menu records for the current tenant.</summary>
     public async Task<List<RolemenuListViewModel>> GetAllAsync(CurrentUser currentUser)
     {
         await using var db = await _connectionFactory.OpenConnectionAsync();
@@ -38,6 +41,7 @@ public class RolemenuService : BaseService<RolemenuEntity>, IRolemenuService
             """, new { tenantId = currentUser.tenant_id })).AsList();
     }
 
+    /// <summary>Gets a role-menu record by role id.</summary>
     public async Task<RolemenuBothViewModel> GetAsync(int userrole_id)
     {
         await using var db = await _connectionFactory.OpenConnectionAsync();
@@ -60,6 +64,7 @@ public class RolemenuService : BaseService<RolemenuEntity>, IRolemenuService
         };
     }
 
+    /// <summary>Gets all available menus for the current tenant.</summary>
     public async Task<List<MenuViewModel>> GetAllMenusAsync(CurrentUser currentUser)
     {
         await using var db = await _connectionFactory.OpenConnectionAsync();
@@ -67,6 +72,7 @@ public class RolemenuService : BaseService<RolemenuEntity>, IRolemenuService
         return rows.Select(x => ToMenu(x, false)).ToList();
     }
 
+    /// <summary>Gets menus assigned to a role.</summary>
     public async Task<List<MenuViewModel>> GetMenusByRoleId(int userrole_id, CurrentUser currentUser)
     {
         await using var db = await _connectionFactory.OpenConnectionAsync();
@@ -87,6 +93,7 @@ public class RolemenuService : BaseService<RolemenuEntity>, IRolemenuService
         return menus.Select(row => ToMenu(row, false)).ToList();
     }
 
+    /// <summary>Adds role-menu assignments.</summary>
     public async Task<(int id, string msg)> AddAsync(RolemenuBothViewModel viewModel, CurrentUser currentUser)
     {
         await using var db = await _connectionFactory.OpenConnectionAsync();
@@ -99,6 +106,7 @@ public class RolemenuService : BaseService<RolemenuEntity>, IRolemenuService
         return result.flag ? (viewModel.userrole_id, result.msg) : (0, result.msg);
     }
 
+    /// <summary>Updates role-menu assignments.</summary>
     public async Task<(bool flag, string msg)> UpdateAsync(RolemenuBothViewModel viewModel, CurrentUser currentUser)
     {
         await using var db = await _connectionFactory.OpenConnectionAsync();
@@ -110,6 +118,7 @@ public class RolemenuService : BaseService<RolemenuEntity>, IRolemenuService
         return await BatchUpdateAsync(CreateBatch(viewModel), currentUser);
     }
 
+    /// <summary>Updates multiple role-menu assignments.</summary>
     public async Task<(bool flag, string msg)> BatchUpdateAsync(RolemenuBatchViewModel viewModel, CurrentUser currentUser)
     {
         await using var db = await _connectionFactory.OpenConnectionAsync();
@@ -123,6 +132,7 @@ public class RolemenuService : BaseService<RolemenuEntity>, IRolemenuService
         catch { await tx.RollbackAsync(); throw; }
     }
 
+    /// <summary>Gets warehouses assigned to a role.</summary>
     public async Task<List<long>> GetWarehouseIdsAsync(int userrole_id, CurrentUser currentUser)
     {
         await EnsureWarehouseManagementAllowedAsync(currentUser);
@@ -131,6 +141,7 @@ public class RolemenuService : BaseService<RolemenuEntity>, IRolemenuService
         return (await db.QueryAsync<long>("SELECT DISTINCT `warehouse_id` FROM `wms_role_warehouse` WHERE `role_id`=@roleId ORDER BY `warehouse_id`;", new { roleId=userrole_id })).AsList();
     }
 
+    /// <summary>Replaces the warehouses assigned to a role.</summary>
     public async Task<(bool flag, string msg)> ReplaceWarehousesAsync(RoleWarehouseBindingViewModel viewModel, CurrentUser currentUser)
     {
         await EnsureWarehouseManagementAllowedAsync(currentUser);
@@ -227,6 +238,7 @@ public class RolemenuService : BaseService<RolemenuEntity>, IRolemenuService
         return(true,_stringLocalizer["save_success"]);
     }
 
+    /// <summary>Deletes role-menu assignments.</summary>
     public async Task<(bool flag,string msg)> DeleteAsync(int userrole_id,CurrentUser currentUser)
     {
         await using var db=await _connectionFactory.OpenConnectionAsync();

@@ -9,6 +9,9 @@ namespace ModernWMS.Core.DBContext.Entities;
 [Table("erp_purchase_task_item")]
 public class ErpPurchaseTaskItemEntity
 {
+    /// <summary>
+    /// 获取或设置 id。
+    /// </summary>
     [Key]
     public long id { get; set; }
 

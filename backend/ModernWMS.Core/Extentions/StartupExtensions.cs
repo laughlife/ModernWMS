@@ -24,8 +24,14 @@ using ModernWMS.Core.Database;
 
 namespace ModernWMS.Core.Extentions
 {
+    /// <summary>
+    /// 表示 StartupExtensions 类型。
+    /// </summary>
     public static class StartupExtensions
     {
+        /// <summary>
+        /// 执行 AddExtensionsService 操作。
+        /// </summary>
         public static void AddExtensionsService(this IServiceCollection services, IConfiguration configuration)
         {
             services.AddLocalization();
@@ -102,6 +108,9 @@ namespace ModernWMS.Core.Extentions
             services.AddScoped<FunctionHelper>();
         }
 
+        /// <summary>
+        /// 执行 UseExtensionsConfigure 操作。
+        /// </summary>
         public static void UseExtensionsConfigure(this IApplicationBuilder app, IWebHostEnvironment env, IServiceProvider serviceProvider, IConfiguration configuration)
         {
             if (env.IsDevelopment())

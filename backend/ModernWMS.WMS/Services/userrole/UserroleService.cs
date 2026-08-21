@@ -11,6 +11,9 @@ using ModernWMS.WMS.IServices;
 
 namespace ModernWMS.WMS.Services;
 
+/// <summary>
+/// 提供用户角色维护及系统保留角色保护。
+/// </summary>
 public class UserroleService : BaseService<UserroleEntity>, IUserroleService
 {
     private const string AdminRoleName = "admin";
@@ -18,6 +21,11 @@ public class UserroleService : BaseService<UserroleEntity>, IUserroleService
     private readonly IMySqlConnectionFactory _connectionFactory;
     private readonly IStringLocalizer<Core.MultiLanguage> _stringLocalizer;
 
+    /// <summary>
+    /// 初始化用户角色服务。
+    /// </summary>
+    /// <param name="connectionFactory">MySQL 连接工厂。</param>
+    /// <param name="stringLocalizer">多语言文本提供器。</param>
     public UserroleService(IMySqlConnectionFactory connectionFactory,
         IStringLocalizer<Core.MultiLanguage> stringLocalizer)
     {
@@ -25,6 +33,7 @@ public class UserroleService : BaseService<UserroleEntity>, IUserroleService
         _stringLocalizer = stringLocalizer ?? throw new ArgumentNullException(nameof(stringLocalizer));
     }
 
+    /// <inheritdoc />
     public async Task<(bool flag, string msg)> BulkSaveAsync(List<UserroleViewModel> viewModels, CurrentUser currentUser)
     {
         var messages = new StringBuilder();
@@ -114,6 +123,7 @@ public class UserroleService : BaseService<UserroleEntity>, IUserroleService
         catch { await transaction.RollbackAsync(); throw; }
     }
 
+    /// <inheritdoc />
     public async Task<List<UserroleViewModel>> GetAllAsync(CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -123,6 +133,7 @@ public class UserroleService : BaseService<UserroleEntity>, IUserroleService
             """, new { tenantId = currentUser.tenant_id })).AsList();
     }
 
+    /// <inheritdoc />
     public async Task<UserroleViewModel> GetAsync(int id)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -132,6 +143,7 @@ public class UserroleService : BaseService<UserroleEntity>, IUserroleService
             """, new { id });
     }
 
+    /// <inheritdoc />
     public async Task<(int id, string msg)> AddAsync(UserroleViewModel viewModel, CurrentUser currentUser)
     {
         viewModel.role_name = NormalizeRoleName(viewModel.role_name);
@@ -153,6 +165,7 @@ public class UserroleService : BaseService<UserroleEntity>, IUserroleService
         catch { await transaction.RollbackAsync(); throw; }
     }
 
+    /// <inheritdoc />
     public async Task<(bool flag, string msg)> UpdateAsync(UserroleViewModel viewModel, CurrentUser currentUser)
     {
         viewModel.role_name = NormalizeRoleName(viewModel.role_name);
@@ -183,6 +196,7 @@ public class UserroleService : BaseService<UserroleEntity>, IUserroleService
         catch { await transaction.RollbackAsync(); throw; }
     }
 
+    /// <inheritdoc />
     public async Task<(bool flag, string msg)> DeleteAsync(int id, CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();

@@ -53,6 +53,7 @@ public class StockadjustService : BaseService<StockadjustEntity>, IStockadjustSe
     private readonly IStringLocalizer<ModernWMS.Core.MultiLanguage> _stringLocalizer;
     private readonly IStockAllocationMutationService _stockMutationService;
 
+    /// <summary>初始化库存调整服务。</summary>
     public StockadjustService(IMySqlConnectionFactory connectionFactory,
         IStringLocalizer<ModernWMS.Core.MultiLanguage> stringLocalizer,
         IStockAllocationMutationService stockMutationService)
@@ -62,6 +63,7 @@ public class StockadjustService : BaseService<StockadjustEntity>, IStockadjustSe
         _stockMutationService = stockMutationService;
     }
 
+    /// <inheritdoc />
     public async Task<(List<StockadjustViewModel> data, int totals)> PageAsync(PageSearch pageSearch, CurrentUser currentUser)
     {
         var filter = DapperSearchBuilder.Build(pageSearch.searchObjects, SearchColumns);
@@ -80,6 +82,7 @@ public class StockadjustService : BaseService<StockadjustEntity>, IStockadjustSe
         return ((await result.ReadAsync<StockadjustViewModel>()).AsList(), totals);
     }
 
+    /// <inheritdoc />
     public async Task<List<StockadjustViewModel>> GetAllAsync(CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -88,6 +91,7 @@ public class StockadjustService : BaseService<StockadjustEntity>, IStockadjustSe
             """, new { tenantId = currentUser.tenant_id })).AsList();
     }
 
+    /// <inheritdoc />
     public async Task<StockadjustViewModel> GetAsync(int id)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -96,6 +100,7 @@ public class StockadjustService : BaseService<StockadjustEntity>, IStockadjustSe
             """, new { id });
     }
 
+    /// <inheritdoc />
     public async Task<(int id, string msg)> AddAsync(StockadjustViewModel viewModel, CurrentUser currentUser)
     {
         var now = DateTime.Now;
@@ -133,6 +138,7 @@ public class StockadjustService : BaseService<StockadjustEntity>, IStockadjustSe
         return id > 0 ? (id, _stringLocalizer["save_success"]) : (0, _stringLocalizer["save_failed"]);
     }
 
+    /// <inheritdoc />
     public async Task<(bool flag, string msg)> UpdateAsync(StockadjustViewModel viewModel)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -177,6 +183,7 @@ public class StockadjustService : BaseService<StockadjustEntity>, IStockadjustSe
             : (false, _stringLocalizer["not_exists_entity"]);
     }
 
+    /// <inheritdoc />
     public async Task<(bool flag, string msg)> DeleteAsync(int id)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -201,6 +208,7 @@ public class StockadjustService : BaseService<StockadjustEntity>, IStockadjustSe
             : (false, _stringLocalizer["not_exists_entity"]);
     }
 
+    /// <inheritdoc />
     public async Task<(bool flag, string msg)> ConfirmAdjustment(int id)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();

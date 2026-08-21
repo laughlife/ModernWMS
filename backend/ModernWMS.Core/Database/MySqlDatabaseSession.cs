@@ -10,6 +10,9 @@ namespace ModernWMS.Core.Database;
 public sealed class MySqlDatabaseSessionFactory(IMySqlConnectionFactory connectionFactory)
     : IDatabaseSessionFactory
 {
+    /// <summary>
+    /// 执行 BeginAsync 操作。
+    /// </summary>
     public async ValueTask<IDatabaseSession> BeginAsync(
         IsolationLevel isolationLevel,
         CancellationToken cancellationToken = default)

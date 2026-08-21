@@ -126,6 +126,10 @@ namespace ModernWMS.Core.Controller
         }
         #endregion
         #region hello world
+        /// <summary>
+        /// 返回服务连通性检查结果。
+        /// </summary>
+        /// <returns>服务返回的问候信息。</returns>
         [AllowAnonymous]
         [HttpPost("/hello-world")]
         public ResultModel<string> hello_world()

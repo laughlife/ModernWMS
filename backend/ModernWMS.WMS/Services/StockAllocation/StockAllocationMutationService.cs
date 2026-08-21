@@ -16,6 +16,7 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
     private const string CanonicalMode = "CANONICAL_ERP";
     private const string SavepointName = "mwms_stock_allocation_mutation";
 
+    /// <inheritdoc />
     public async Task PrelockReservationOwnersAsync(
         IDbConnection connection,
         IDbTransaction transaction,
@@ -47,6 +48,7 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
             requests.Select(x => x.AllocationId).Distinct().ToArray(), cancellationToken);
     }
 
+    /// <inheritdoc />
     public async Task PrelockAsync(
         IDbConnection connection,
         IDbTransaction transaction,
@@ -106,6 +108,7 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
         }
     }
 
+    /// <inheritdoc />
     public Task<StockAllocationMutationResult> AdjustAvailableAsync(
         IDbConnection connection,
         IDbTransaction transaction,
@@ -122,6 +125,7 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
             MutationKind.Adjust, quantityDelta, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<StockAllocationMutationResult> ReserveAsync(
         IDbConnection connection,
         IDbTransaction transaction,
@@ -136,6 +140,7 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
             MutationKind.Reserve, quantity, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<StockAllocationMutationResult> ReleaseAsync(
         IDbConnection connection,
         IDbTransaction transaction,
@@ -150,6 +155,7 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
             MutationKind.Release, quantity, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<StockAllocationMutationResult> ShipLockedAsync(
         IDbConnection connection,
         IDbTransaction transaction,
@@ -164,6 +170,7 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
             MutationKind.ShipLocked, quantity, cancellationToken);
     }
 
+    /// <inheritdoc />
     public async Task<StockAllocationMutationResult> MoveLocationAsync(
         IDbConnection connection,
         IDbTransaction transaction,

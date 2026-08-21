@@ -30,6 +30,9 @@ namespace ModernWMS.Core.Controller
             }
         }
 
+        /// <summary>
+        /// 初始化 BaseController 的新实例。
+        /// </summary>
         public BaseController()
         {
         }

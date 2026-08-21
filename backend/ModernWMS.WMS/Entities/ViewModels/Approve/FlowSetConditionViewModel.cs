@@ -7,6 +7,9 @@ using System.Threading.Tasks;
 
 namespace ModernWMS.WMS.Entities.ViewModels.Approve
 {
+    /// <summary>
+    /// Workflow condition view model.
+    /// </summary>
     public class FlowSetConditionViewModel
     {
         /// <summary>

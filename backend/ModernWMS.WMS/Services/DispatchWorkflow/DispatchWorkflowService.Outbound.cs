@@ -9,18 +9,30 @@ using MySqlConnector;
 
 namespace ModernWMS.WMS.Services.DispatchWorkflow;
 
+/// <summary>
+/// 表示 DispatchWorkflowService 类型。
+/// </summary>
 public partial class DispatchWorkflowService
 {
+    /// <summary>
+    /// 执行 ConfirmOutboundAsync 操作。
+    /// </summary>
     public Task<OutboundCommandResult> ConfirmOutboundAsync(int orderId, OutboundCommandRequest request,
         CurrentUser currentUser, CancellationToken cancellationToken = default) =>
         ExecuteOutboundMutationAsync(orderId, request, currentUser, DispatchWorkflowOperation.ConfirmOutbound,
             DispatchOrderStatus.PendingOutbound, DispatchOrderStatus.Outbound, true, cancellationToken);
 
+    /// <summary>
+    /// 执行 CancelOutboundAsync 操作。
+    /// </summary>
     public Task<OutboundCommandResult> CancelOutboundAsync(int orderId, OutboundCommandRequest request,
         CurrentUser currentUser, CancellationToken cancellationToken = default) =>
         ExecuteOutboundMutationAsync(orderId, request, currentUser, DispatchWorkflowOperation.CancelOutbound,
             DispatchOrderStatus.Outbound, DispatchOrderStatus.PendingOutbound, false, cancellationToken);
 
+    /// <summary>
+    /// 执行 SignAsync 操作。
+    /// </summary>
     public async Task<SignDispatchOrderResult> SignAsync(int orderId, SignDispatchOrderRequest request,
         CurrentUser currentUser, CancellationToken cancellationToken = default)
     {
@@ -543,16 +555,34 @@ public partial class DispatchWorkflowService
     }
 }
 
+/// <summary>
+/// 表示 DispatchWorkflowCommandException 类型。
+/// </summary>
 public sealed partial class DispatchWorkflowCommandException
 {
+    /// <summary>
+    /// 执行 StockConflict 操作。
+    /// </summary>
     public static DispatchWorkflowCommandException StockConflict(string detail) => new("STOCK_CONFLICT", detail);
+    /// <summary>
+    /// 执行 StatusNotAllowedForOutbound 操作。
+    /// </summary>
     public static DispatchWorkflowCommandException StatusNotAllowedForOutbound(bool confirming) =>
         new("STATUS_NOT_ALLOWED", confirming ? "only a pending-outbound order can be confirmed" : "only an outbound order can be cancelled");
+    /// <summary>
+    /// 执行 SignedOrderCannotBeCancelled 操作。
+    /// </summary>
     public static DispatchWorkflowCommandException SignedOrderCannotBeCancelled() =>
         new("ORDER_ALREADY_SIGNED", "a signed outbound order cannot be cancelled");
+    /// <summary>
+    /// 执行 CanonicalOutboundCannotBeCancelled 操作。
+    /// </summary>
     public static DispatchWorkflowCommandException CanonicalOutboundCannotBeCancelled() =>
         new("OUTBOUND_REVERSAL_NOT_SUPPORTED",
             "统一ERP库存模式不支持已出库库存的无损撤销，请停止操作并按库存流水执行人工向前修复");
+    /// <summary>
+    /// 执行 StatusNotAllowedForSigning 操作。
+    /// </summary>
     public static DispatchWorkflowCommandException StatusNotAllowedForSigning() =>
         new("STATUS_NOT_ALLOWED", "only an outbound order can be signed");
 }

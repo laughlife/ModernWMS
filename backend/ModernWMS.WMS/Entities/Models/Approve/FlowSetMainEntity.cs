@@ -9,6 +9,9 @@ using System.Threading.Tasks;
 
 namespace ModernWMS.WMS.Entities.Models.Approve
 {
+    /// <summary>
+    /// 表示 FlowSetMainEntity 类型。
+    /// </summary>
     [Table("flowsetmain")]
     public class FlowSetMainEntity : BaseModel
     {

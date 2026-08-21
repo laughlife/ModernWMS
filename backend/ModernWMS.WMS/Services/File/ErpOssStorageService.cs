@@ -25,6 +25,9 @@ public class ErpOssStorageService : IErpOssStorageService
     private readonly IErpOssDataSource _dataSource;
     private readonly IErpOssClientFactory _clientFactory;
 
+    /// <summary>
+    /// 初始化 ErpOssStorageService 的新实例。
+    /// </summary>
     public ErpOssStorageService(IMySqlConnectionFactory connectionFactory)
         : this(new DapperErpOssDataSource(connectionFactory), AlibabaErpOssClientFactory.Instance)
     {
@@ -36,6 +39,9 @@ public class ErpOssStorageService : IErpOssStorageService
         _clientFactory = clientFactory ?? throw new ArgumentNullException(nameof(clientFactory));
     }
 
+    /// <summary>
+    /// 执行 UploadImageAsync 操作。
+    /// </summary>
     public async Task<OssFileUploadViewModel> UploadImageAsync(IFormFile file, long shipmentId, string category)
     {
         if (file == null || file.Length == 0)
@@ -88,6 +94,9 @@ public class ErpOssStorageService : IErpOssStorageService
         };
     }
 
+    /// <summary>
+    /// 执行 CreateAccessUrlAsync 操作。
+    /// </summary>
     public async Task<string> CreateAccessUrlAsync(string path)
     {
         var normalizedPath = path?.Trim().TrimStart('/') ?? string.Empty;

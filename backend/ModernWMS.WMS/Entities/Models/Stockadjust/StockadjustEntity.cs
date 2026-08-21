@@ -80,8 +80,14 @@ namespace ModernWMS.WMS.Entities.Models
         /// </summary>
         public int source_table_id { get; set; } = 0;
 
+        /// <summary>
+        /// 获取或设置 erp_stock_id。
+        /// </summary>
         public long? erp_stock_id { get; set; }
 
+        /// <summary>
+        /// 获取或设置 stock_allocation_id。
+        /// </summary>
         public long? stock_allocation_id { get; set; }
 
         /// <summary>

@@ -13,6 +13,7 @@ public static class SellFoxCartonParser
     private static readonly string[] IdentityKeys =
         ["boxId", "box_id", "cartonId", "carton_id", "id"];
 
+    /// <summary>Parses SellFox carton JSON into normalized carton records.</summary>
     public static SellFoxCartonParseResult Parse(string? cartonsJson, bool allowEmpty = false)
     {
         if (string.IsNullOrWhiteSpace(cartonsJson))

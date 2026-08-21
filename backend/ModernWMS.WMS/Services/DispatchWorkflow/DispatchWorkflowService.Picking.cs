@@ -8,8 +8,14 @@ using MySqlConnector;
 
 namespace ModernWMS.WMS.Services.DispatchWorkflow;
 
+/// <summary>
+/// 表示 DispatchWorkflowService 类型。
+/// </summary>
 public partial class DispatchWorkflowService
 {
+    /// <summary>
+    /// 执行 CompletePickingAsync 操作。
+    /// </summary>
     public async Task<CompletePickingResult> CompletePickingAsync(int orderId,CompletePickingRequest request,CurrentUser user,
         CancellationToken ct=default)
     {
@@ -242,14 +248,38 @@ public partial class DispatchWorkflowService
     private sealed class AvailableStockRow:StockEntity{public int available_qty{get;set;}}
 }
 
+/// <summary>
+/// 表示 DispatchWorkflowCommandException 类型。
+/// </summary>
 public sealed partial class DispatchWorkflowCommandException:InvalidOperationException
 {
     private DispatchWorkflowCommandException(string code,string detail):base(string.IsNullOrWhiteSpace(detail)?code:$"{code}: {detail}")=>ErrorCode=code;
+    /// <summary>
+    /// 获取或设置 ErrorCode。
+    /// </summary>
     public string ErrorCode{get;}
+    /// <summary>
+    /// 执行 SourceChanged 操作。
+    /// </summary>
     public static DispatchWorkflowCommandException SourceChanged(string detail="packing task source changed during picking completion")=>new("SOURCE_CHANGED",detail);
+    /// <summary>
+    /// 执行 StockShortage 操作。
+    /// </summary>
     public static DispatchWorkflowCommandException StockShortage(string detail)=>new("STOCK_SHORTAGE",detail);
+    /// <summary>
+    /// 执行 SkuMappingMissing 操作。
+    /// </summary>
     public static DispatchWorkflowCommandException SkuMappingMissing(string detail)=>new("SKU_MAPPING_MISSING",detail);
+    /// <summary>
+    /// 执行 SkuMappingConflict 操作。
+    /// </summary>
     public static DispatchWorkflowCommandException SkuMappingConflict(string detail)=>new("SKU_MAPPING_CONFLICT",detail);
+    /// <summary>
+    /// 执行 ConcurrencyConflict 操作。
+    /// </summary>
     public static DispatchWorkflowCommandException ConcurrencyConflict()=>new("CONCURRENCY_CONFLICT","row version does not match");
+    /// <summary>
+    /// 执行 StatusNotAllowed 操作。
+    /// </summary>
     public static DispatchWorkflowCommandException StatusNotAllowed()=>new("STATUS_NOT_ALLOWED","only a pending-pick order can be completed");
 }

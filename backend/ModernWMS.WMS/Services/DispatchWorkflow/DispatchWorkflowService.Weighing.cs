@@ -9,8 +9,14 @@ using ModernWMS.WMS.Services.PackingTask;
 
 namespace ModernWMS.WMS.Services.DispatchWorkflow;
 
+/// <summary>
+/// 表示 DispatchWorkflowService 类型。
+/// </summary>
 public partial class DispatchWorkflowService
 {
+    /// <summary>
+    /// 执行 GetTaskBoxesAsync 操作。
+    /// </summary>
     public async Task<List<WeighingBoxViewModel>> GetTaskBoxesAsync(int orderId,int taskId,CurrentUser user,CancellationToken ct=default)
     {
         if(orderId<=0||taskId<=0)throw new ArgumentException("order id and packing task id are required");
@@ -33,6 +39,9 @@ public partial class DispatchWorkflowService
         return boxes;
     }
 
+    /// <summary>
+    /// 执行 SaveWeighingBoxAsync 操作。
+    /// </summary>
     public Task<WeighingCommandResult> SaveWeighingBoxAsync(int orderId,int boxId,SaveWeighingBoxRequest r,CurrentUser u,CancellationToken ct=default)
     {
         if(boxId<=0||r.box_row_version<0||r.weight<=0||r.length<=0||r.width<=0||r.height<=0)throw new ArgumentException("box, row version and four positive measurements are required",nameof(r));
@@ -40,6 +49,9 @@ public partial class DispatchWorkflowService
         {var b=FindAvailableBox(o,boxId);if(b.row_version!=r.box_row_version)throw DispatchWorkflowCommandException.ConcurrencyConflict();ApplyMeasurement(b,r.weight,r.length,r.width,r.height,null,u,now);UpdateTaskMeasuredCount(o,b.packing_task_id,now);return Task.CompletedTask;},ct);
     }
 
+    /// <summary>
+    /// 执行 CopyWeighingBoxAsync 操作。
+    /// </summary>
     public Task<WeighingCommandResult> CopyWeighingBoxAsync(int orderId,int targetId,CopyWeighingBoxRequest r,CurrentUser u,CancellationToken ct=default)
     {
         if(r.source_box_id<=0||targetId<=0||r.source_box_id==targetId||r.target_box_row_version<0)throw new ArgumentException("different existing source and target boxes are required",nameof(r));
@@ -47,6 +59,9 @@ public partial class DispatchWorkflowService
         {var s=FindAvailableBox(o,r.source_box_id);var t=FindAvailableBox(o,targetId);if(s.packing_task_id!=t.packing_task_id)throw DispatchWorkflowCommandException.BoxNotAvailable("measurements may only be copied inside one packing task");if(t.row_version!=r.target_box_row_version)throw DispatchWorkflowCommandException.ConcurrencyConflict();if(!HasCompleteMeasurement(s))throw DispatchWorkflowCommandException.WeighingIncomplete("source box has no complete WMS measurement");ApplyMeasurement(t,s.weight!.Value,s.length!.Value,s.width!.Value,s.height!.Value,s.id,u,now);UpdateTaskMeasuredCount(o,t.packing_task_id,now);return Task.CompletedTask;},ct);
     }
 
+    /// <summary>
+    /// 执行 CompleteTaskWeighingAsync 操作。
+    /// </summary>
     public Task<WeighingCommandResult> CompleteTaskWeighingAsync(int orderId,int taskId,WeighingOrderCommandRequest r,CurrentUser u,CancellationToken ct=default)
     {
         if(taskId<=0)throw new ArgumentException("packing task id is required",nameof(taskId));
@@ -54,10 +69,16 @@ public partial class DispatchWorkflowService
         {var t=o.packing_tasks.SingleOrDefault(x=>x.id==taskId&&x.is_active)??throw new KeyNotFoundException($"packing task not found in dispatch order: {taskId}");ValidateCompletedPackingTask(t);var boxes=t.boxes.Where(x=>!x.is_invalidated).ToList();t.measured_box_count=boxes.Count;t.expected_box_count=boxes.Count;t.packing_plan_status="COMPLETED";t.status=DispatchOrderStatus.PendingOutbound;t.last_update_time=now;t.row_version++;return Task.CompletedTask;},ct);
     }
 
+    /// <summary>
+    /// 执行 CompleteOrderWeighingAsync 操作。
+    /// </summary>
     public Task<WeighingCommandResult> CompleteOrderWeighingAsync(int orderId,WeighingOrderCommandRequest r,CurrentUser u,CancellationToken ct=default)=>
         ExecuteWeighingMutationAsync(orderId,r.request_id,r.request_id,r.row_version,DispatchWorkflowOperation.CompleteWeighing,[DispatchOrderStatus.Weighing],u,(o,_,_)=>
         {var tasks=o.packing_tasks.Where(x=>x.is_active).ToList();if(tasks.Count==0||tasks.Any(t=>t.status!=DispatchOrderStatus.PendingOutbound||t.boxes.Count(x=>!x.is_invalidated)==0||t.boxes.Count(x=>!x.is_invalidated)!=t.expected_box_count||t.boxes.Where(x=>!x.is_invalidated).Any(x=>!HasCompleteMeasurement(x))))throw DispatchWorkflowCommandException.WeighingIncomplete("every active packing task must finish all box measurements");o.status=DispatchOrderStatus.PendingOutbound;return Task.CompletedTask;},ct);
 
+    /// <summary>
+    /// 执行 StartWeighingAsync 操作。
+    /// </summary>
     public async Task<WeighingCommandResult> StartWeighingAsync(int orderId,WeighingOrderCommandRequest r,CurrentUser u,CancellationToken ct=default)
     {
         ValidateOrderCommand(orderId,r.request_id,r.row_version);
@@ -165,10 +186,25 @@ public partial class DispatchWorkflowService
     private static string ScopedRequestId(string kind,string resource,string client){if(string.IsNullOrWhiteSpace(client)||client.Length>64||client!=client.Trim())throw new ArgumentException("request_id must be non-empty, canonical and at most 64 characters");return HashText($"{kind}|{resource}|{client}");}
 }
 
+/// <summary>
+/// 表示 DispatchWorkflowCommandException 类型。
+/// </summary>
 public sealed partial class DispatchWorkflowCommandException
 {
+    /// <summary>
+    /// 执行 StatusNotAllowedForWeighing 操作。
+    /// </summary>
     public static DispatchWorkflowCommandException StatusNotAllowedForWeighing()=>new("STATUS_NOT_ALLOWED","weighing command is not allowed for the current order status");
+    /// <summary>
+    /// 执行 SourceBoxIdentityUnsupported 操作。
+    /// </summary>
     public static DispatchWorkflowCommandException SourceBoxIdentityUnsupported(string detail)=>new("SOURCE_BOX_ID_UNSUPPORTED",detail);
+    /// <summary>
+    /// 执行 BoxNotAvailable 操作。
+    /// </summary>
     public static DispatchWorkflowCommandException BoxNotAvailable(string detail)=>new("BOX_NOT_AVAILABLE",detail);
+    /// <summary>
+    /// 执行 WeighingIncomplete 操作。
+    /// </summary>
     public static DispatchWorkflowCommandException WeighingIncomplete(string detail)=>new("WEIGHING_INCOMPLETE",detail);
 }

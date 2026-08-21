@@ -14,6 +14,7 @@ using MySqlConnector;
 
 namespace ModernWMS.WMS.Services;
 
+/// <summary>库存加工业务服务。</summary>
 public class StockprocessService : BaseService<StockprocessEntity>, IStockprocessService
 {
     private static readonly IReadOnlyDictionary<string, string> SearchColumns =
@@ -41,6 +42,7 @@ public class StockprocessService : BaseService<StockprocessEntity>, IStockproces
     private readonly FunctionHelper _functionHelper;
     private readonly IStockAllocationMutationService _stockMutationService;
 
+    /// <summary>初始化库存加工服务。</summary>
     public StockprocessService(IMySqlConnectionFactory connectionFactory,
         IStringLocalizer<Core.MultiLanguage> stringLocalizer, FunctionHelper functionHelper,
         IStockAllocationMutationService stockMutationService)
@@ -51,6 +53,7 @@ public class StockprocessService : BaseService<StockprocessEntity>, IStockproces
         _stockMutationService = stockMutationService ?? throw new ArgumentNullException(nameof(stockMutationService));
     }
 
+    /// <inheritdoc />
     public async Task<(List<StockprocessGetViewModel> data, int totals)> PageAsync(
         PageSearch pageSearch, CurrentUser currentUser)
     {
@@ -70,6 +73,7 @@ public class StockprocessService : BaseService<StockprocessEntity>, IStockproces
         return ((await grid.ReadAsync<StockprocessGetViewModel>()).AsList(), totals);
     }
 
+    /// <inheritdoc />
     public async Task<List<StockprocessGetViewModel>> GetAllAsync(CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -78,6 +82,7 @@ public class StockprocessService : BaseService<StockprocessEntity>, IStockproces
             """, new { tenantId = currentUser.tenant_id })).AsList();
     }
 
+    /// <inheritdoc />
     public async Task<StockprocessWithDetailViewModel> GetAsync(int id)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -102,6 +107,7 @@ public class StockprocessService : BaseService<StockprocessEntity>, IStockproces
         return master;
     }
 
+    /// <inheritdoc />
     public async Task<(int id, string msg)> AddAsync(StockprocessViewModel viewModel, CurrentUser currentUser)
     {
         var jobCode = await _functionHelper.GetFormNoAsync("Stockprocess");
@@ -184,6 +190,7 @@ public class StockprocessService : BaseService<StockprocessEntity>, IStockproces
         catch { await transaction.RollbackAsync(); throw; }
     }
 
+    /// <inheritdoc />
     public async Task<(bool flag, string msg)> UpdateAsync(StockprocessViewModel viewModel)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -207,6 +214,7 @@ public class StockprocessService : BaseService<StockprocessEntity>, IStockproces
         catch { await transaction.RollbackAsync(); throw; }
     }
 
+    /// <inheritdoc />
     public async Task<(bool flag, string msg)> DeleteAsync(int id)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -227,6 +235,7 @@ public class StockprocessService : BaseService<StockprocessEntity>, IStockproces
         catch { await transaction.RollbackAsync(); throw; }
     }
 
+    /// <inheritdoc />
     public async Task<(bool flag, string msg)> ConfirmAdjustment(int id, CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -351,6 +360,7 @@ public class StockprocessService : BaseService<StockprocessEntity>, IStockproces
         catch { await transaction.RollbackAsync(); throw; }
     }
 
+    /// <inheritdoc />
     public async Task<(bool flag, string msg)> ConfirmProcess(int id, CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -375,12 +385,14 @@ public class StockprocessService : BaseService<StockprocessEntity>, IStockproces
         catch { await transaction.RollbackAsync(); throw; }
     }
 
+    /// <inheritdoc />
     public async Task<string> GetOrderCode(CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         return await GetNextCodeAsync(connection, null, "wms_stockprocess", currentUser.tenant_id);
     }
 
+    /// <inheritdoc />
     public async Task<string> GetAdjustOrderCode(CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();

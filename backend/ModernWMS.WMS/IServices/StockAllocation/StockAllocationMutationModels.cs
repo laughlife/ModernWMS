@@ -37,21 +37,33 @@ public sealed record StockReservationMutationContext(
     long? ExistingReservationId = null,
     long? ExistingReservationItemId = null);
 
+/// <summary>
+/// 表示 StockReservationPrelockRequest 类型。
+/// </summary>
 public sealed record StockReservationPrelockRequest(
     StockMutationContext Context,
     long ErpStockId,
     long AllocationId,
     string EventType);
 
+/// <summary>
+/// 表示 StockQuantitySnapshot 类型。
+/// </summary>
 public sealed record StockQuantitySnapshot(
     long AvailableQty,
     long OccupiedQty,
     long TotalQty);
 
+/// <summary>
+/// 表示 StockAllocationQuantitySnapshot 类型。
+/// </summary>
 public sealed record StockAllocationQuantitySnapshot(
     long AllocatedQty,
     long OccupiedQty);
 
+/// <summary>
+/// 表示 StockAllocationMutationChange 类型。
+/// </summary>
 public sealed record StockAllocationMutationChange(
     long AllocationId,
     string EventType,
@@ -59,6 +71,9 @@ public sealed record StockAllocationMutationChange(
     StockAllocationQuantitySnapshot Before,
     StockAllocationQuantitySnapshot After);
 
+/// <summary>
+/// 表示 StockAllocationMutationResult 类型。
+/// </summary>
 public sealed record StockAllocationMutationResult(
     string OperationKey,
     string MutationType,
@@ -78,6 +93,9 @@ public sealed record StockAllocationMutationResult(
 /// </summary>
 public sealed class StockAllocationTransactionFatalException : InvalidOperationException
 {
+    /// <summary>
+    /// 初始化 StockAllocationTransactionFatalException 的新实例。
+    /// </summary>
     public StockAllocationTransactionFatalException(string message, Exception innerException)
         : base(message, innerException)
     {

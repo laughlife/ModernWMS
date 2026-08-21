@@ -10,16 +10,37 @@ namespace ModernWMS.Core.DBContext.Entities;
 [Table("wms_erp_goods_owner_map")]
 public class ErpGoodsOwnerMapEntity : BaseModel
 {
+    /// <summary>
+    /// 获取或设置 erp_dept_id。
+    /// </summary>
     public long erp_dept_id { get; set; }
+    /// <summary>
+    /// 获取或设置 erp_order_user_id。
+    /// </summary>
     public long erp_order_user_id { get; set; }
+    /// <summary>
+    /// 获取或设置 wms_goods_owner_id。
+    /// </summary>
     public int wms_goods_owner_id { get; set; }
 
+    /// <summary>
+    /// 获取或设置 dept_name。
+    /// </summary>
     [MaxLength(128)]
     public string dept_name { get; set; } = string.Empty;
 
+    /// <summary>
+    /// 获取或设置 order_user_name。
+    /// </summary>
     [MaxLength(128)]
     public string order_user_name { get; set; } = string.Empty;
 
+    /// <summary>
+    /// 获取或设置 last_sync_time。
+    /// </summary>
     public DateTime last_sync_time { get; set; } = DateTime.Now;
+    /// <summary>
+    /// 获取或设置 tenant_id。
+    /// </summary>
     public long tenant_id { get; set; } = 1;
 }

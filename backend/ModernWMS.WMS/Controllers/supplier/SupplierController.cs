@@ -18,6 +18,9 @@ namespace ModernWMS.WMS.Controllers
         private readonly ISupplierService _supplierService;
         private readonly IStringLocalizer<ModernWMS.Core.MultiLanguage> _stringLocalizer;
 
+        /// <summary>
+        /// 初始化 SupplierController 的新实例。
+        /// </summary>
         public SupplierController(
             ISupplierService supplierService,
             IStringLocalizer<ModernWMS.Core.MultiLanguage> stringLocalizer)

@@ -8,8 +8,14 @@ using MySqlConnector;
 
 namespace ModernWMS.WMS.Services.DispatchWorkflow;
 
+/// <summary>
+/// 表示 DispatchWorkflowService 类型。
+/// </summary>
 public partial class DispatchWorkflowService
 {
+    /// <summary>
+    /// 执行 CreateAsync 操作。
+    /// </summary>
     public async Task<DispatchOrderDetailViewModel> CreateAsync(CreateDispatchOrderRequest request, CurrentUser currentUser,
         CancellationToken cancellationToken = default)
     {

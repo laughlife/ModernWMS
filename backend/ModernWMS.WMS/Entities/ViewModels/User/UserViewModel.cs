@@ -8,10 +8,16 @@ using System.Threading.Tasks;
 
 namespace ModernWMS.WMS.Entities.ViewModels
 {
+    /// <summary>
+    /// 表示 UserViewModel 类型。
+    /// </summary>
     public class UserViewModel
     {
         #region constructor
 
+        /// <summary>
+        /// 初始化 UserViewModel 的新实例。
+        /// </summary>
         public UserViewModel()
         {
         }

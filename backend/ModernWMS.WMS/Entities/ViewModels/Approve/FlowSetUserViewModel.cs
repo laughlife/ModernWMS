@@ -7,6 +7,9 @@ using System.ComponentModel.DataAnnotations;
 
 namespace ModernWMS.WMS.Entities.ViewModels
 {
+    /// <summary>
+    /// Workflow user assignment view model.
+    /// </summary>
     public class FlowSetUserViewModel
     {
         #region constructor

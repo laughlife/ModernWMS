@@ -113,8 +113,10 @@ namespace ModernWMS.WMS.Services
 
         private sealed class FlowSetMainRow
         {
+            /// <summary>流程节点标识。</summary>
             public int id { get; set; }
 
+            /// <summary>流程节点菜单。</summary>
             public string menu { get; set; } = string.Empty;
         }
 

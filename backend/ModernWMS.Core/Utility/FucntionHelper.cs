@@ -11,12 +11,18 @@ using ModernWMS.Core.Utility;
 
 namespace ModernWMS.Core;
 
+/// <summary>
+/// 表示 FunctionHelper 类型。
+/// </summary>
 public class FunctionHelper
 {
     private readonly IMySqlConnectionFactory _connectionFactory;
     private readonly IHttpContextAccessor _accessor;
     private readonly IOptions<TokenSettings> _tokenSettings;
 
+    /// <summary>
+    /// 初始化 FunctionHelper 的新实例。
+    /// </summary>
     public FunctionHelper(IMySqlConnectionFactory connectionFactory,
         IHttpContextAccessor accessor,
         IOptions<TokenSettings> tokenSettings)
@@ -131,8 +137,17 @@ public class FunctionHelper
     /// <summary>重置规则。</summary>
     public enum ResetRule
     {
+        /// <summary>
+        /// 表示 Year 枚举值。
+        /// </summary>
         Year,
+        /// <summary>
+        /// 表示 Month 枚举值。
+        /// </summary>
         Month,
+        /// <summary>
+        /// 表示 Day 枚举值。
+        /// </summary>
         Day
     }
 }

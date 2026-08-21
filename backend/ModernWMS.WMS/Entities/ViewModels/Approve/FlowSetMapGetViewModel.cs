@@ -9,6 +9,9 @@ using ModernWMS.WMS.Entities.ViewModels.Approve;
 
 namespace ModernWMS.WMS.Entities.ViewModels
 {
+    /// <summary>
+    /// Workflow map query view model.
+    /// </summary>
     public class FlowSetMapGetViewModel
     {
         #region constructor

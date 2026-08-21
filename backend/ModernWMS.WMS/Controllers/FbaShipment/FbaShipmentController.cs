@@ -18,6 +18,9 @@ public class FbaShipmentController : BaseController
 {
     private readonly IFbaShipmentService _fbaShipmentService;
 
+    /// <summary>
+    /// 初始化 FbaShipmentController 的新实例。
+    /// </summary>
     public FbaShipmentController(IFbaShipmentService fbaShipmentService)
     {
         _fbaShipmentService = fbaShipmentService;

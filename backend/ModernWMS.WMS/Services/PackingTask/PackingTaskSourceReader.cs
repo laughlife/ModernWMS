@@ -27,6 +27,7 @@ public sealed class PackingTaskSourceReader : IPackingTaskSourceReader
         Task<(IReadOnlyList<ErpPackingTaskEntity> Tasks, IReadOnlyList<ErpPackingTaskItemEntity> Items)>>?
         _sourceLoader;
 
+    /// <summary>Initializes the source reader.</summary>
     public PackingTaskSourceReader(IMySqlConnectionFactory connectionFactory)
     {
         _connectionFactory = connectionFactory ?? throw new ArgumentNullException(nameof(connectionFactory));
@@ -50,6 +51,7 @@ public sealed class PackingTaskSourceReader : IPackingTaskSourceReader
         _sourceLoader = sourceLoader ?? throw new ArgumentNullException(nameof(sourceLoader));
     }
 
+    /// <summary>Checks whether the source schema is available.</summary>
     public async Task<PackingTaskSourceCapability> VerifyCapabilityAsync(
         CancellationToken cancellationToken = default)
     {
@@ -89,6 +91,7 @@ public sealed class PackingTaskSourceReader : IPackingTaskSourceReader
         }
     }
 
+    /// <summary>Reads packing-task snapshots from the source database.</summary>
     public async Task<IReadOnlyList<PackingTaskSourceSnapshot>> ReadAsync(
         IReadOnlyCollection<long> sourceTaskIds,
         CancellationToken cancellationToken = default)

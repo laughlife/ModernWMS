@@ -21,6 +21,9 @@ public class ErpOssFileController : BaseController
     private readonly IErpOssStorageService _erpOssStorageService;
     private readonly ILogger<ErpOssFileController> _logger;
 
+    /// <summary>
+    /// 初始化 ErpOssFileController 的新实例。
+    /// </summary>
     public ErpOssFileController(
         IErpOssStorageService erpOssStorageService,
         ILogger<ErpOssFileController> logger)

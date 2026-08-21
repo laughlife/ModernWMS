@@ -19,11 +19,17 @@ public class PackingTaskQueryController : BaseController
 {
     private readonly IPackingTaskQueryService _packingTaskQueryService;
 
+    /// <summary>
+    /// 初始化 PackingTaskQueryController 的新实例。
+    /// </summary>
     public PackingTaskQueryController(IPackingTaskQueryService packingTaskQueryService)
     {
         _packingTaskQueryService = packingTaskQueryService;
     }
 
+    /// <summary>
+    /// 执行 PageAsync 操作。
+    /// </summary>
     [HttpPost("page")]
     public async Task<ResultModel<PageData<PackingTaskQueryViewModel>>> PageAsync(PageSearch pageSearch)
     {

@@ -22,6 +22,9 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
     private MySqlConnector.MySqlConnection? _activeConnection;
     private MySqlConnector.MySqlTransaction? _activeTransaction;
 
+    /// <summary>
+    /// 初始化 ErpPendingReceiptService 的新实例。
+    /// </summary>
     public ErpPendingReceiptService(IMySqlConnectionFactory connectionFactory, IWarehouseAccessService warehouseAccessService)
     {
         _connectionFactory = connectionFactory;
@@ -118,6 +121,7 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
         return warehouseId;
     }
 
+    /// <summary>获取待收货单物流信息。</summary>
     public async Task<ErpPendingReceiptLogisticsViewModel?> GetLogisticsAsync(long shipmentId)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();

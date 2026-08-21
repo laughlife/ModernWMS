@@ -8,12 +8,18 @@ using ModernWMS.WMS.IServices.DispatchWorkflow;
 
 namespace ModernWMS.WMS.Services.DispatchWorkflow;
 
+/// <summary>
+/// 表示 DispatchOrderQueryService 类型。
+/// </summary>
 public sealed class DispatchOrderQueryService : IDispatchOrderQueryService
 {
     private readonly IMySqlConnectionFactory _connectionFactory;
     private readonly IWarehouseAccessService _warehouseAccessService;
     private readonly IDispatchWorkflowService _workflowService;
 
+    /// <summary>
+    /// 初始化 DispatchOrderQueryService 的新实例。
+    /// </summary>
     public DispatchOrderQueryService(IMySqlConnectionFactory connectionFactory,
         IWarehouseAccessService warehouseAccessService, IDispatchWorkflowService workflowService)
     {
@@ -22,6 +28,9 @@ public sealed class DispatchOrderQueryService : IDispatchOrderQueryService
         _workflowService = workflowService;
     }
 
+    /// <summary>
+    /// 执行 PageAsync 操作。
+    /// </summary>
     public async Task<DispatchOrderPageResult> PageAsync(DispatchOrderPageRequest request, CurrentUser currentUser,
         CancellationToken cancellationToken = default)
     {
@@ -138,6 +147,9 @@ public sealed class DispatchOrderQueryService : IDispatchOrderQueryService
             order, carrierByOrder.GetValueOrDefault(order.id))).ToList(), totals);
     }
 
+    /// <summary>
+    /// 执行 CountsAsync 操作。
+    /// </summary>
     public async Task<DispatchOrderStatusCounts> CountsAsync(long warehouseId, CurrentUser currentUser,
         CancellationToken cancellationToken = default)
     {
@@ -153,6 +165,9 @@ public sealed class DispatchOrderQueryService : IDispatchOrderQueryService
         return new DispatchOrderStatusCounts(counts);
     }
 
+    /// <summary>
+    /// 执行 GetAsync 操作。
+    /// </summary>
     public async Task<DispatchOrderDetailViewModel> GetAsync(int orderId, CurrentUser currentUser,
         CancellationToken cancellationToken = default)
     {

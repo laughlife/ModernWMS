@@ -8,8 +8,14 @@ using System.Xml.Linq;
 
 namespace ModernWMS.WMS.Entities.ViewModels
 {
+    /// <summary>
+    /// 表示 RegisterViewModel 类型。
+    /// </summary>
     public class RegisterViewModel
     {
+        /// <summary>
+        /// 初始化 RegisterViewModel 的新实例。
+        /// </summary>
         public RegisterViewModel()
         {
 

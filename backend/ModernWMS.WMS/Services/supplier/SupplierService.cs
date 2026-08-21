@@ -30,6 +30,10 @@ namespace ModernWMS.WMS.Services
 
         private readonly IMySqlConnectionFactory _connectionFactory;
 
+        /// <summary>
+        /// 初始化供应商查询服务。
+        /// </summary>
+        /// <param name="connectionFactory">MySQL 连接工厂。</param>
         public SupplierService(IMySqlConnectionFactory connectionFactory)
         {
             _connectionFactory = connectionFactory;
