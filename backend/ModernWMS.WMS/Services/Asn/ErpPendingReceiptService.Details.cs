@@ -293,8 +293,16 @@ public partial class ErpPendingReceiptService
         string LocationState,
         List<ErpReceiptAllocationViewModel> Allocations);
 
-    private sealed record HistoricalReceiptAllocationRow(
-        long stock_record_id, int? warehouse_area_id, string warehouse_area_name,
-        int? goods_location_id, string goods_location_name,
-        int goods_owner_id, string goods_owner_name, long qty, string location_state);
+    private sealed class HistoricalReceiptAllocationRow
+    {
+        public long stock_record_id { get; set; }
+        public int? warehouse_area_id { get; set; }
+        public string warehouse_area_name { get; set; } = string.Empty;
+        public int? goods_location_id { get; set; }
+        public string goods_location_name { get; set; } = string.Empty;
+        public int goods_owner_id { get; set; }
+        public string goods_owner_name { get; set; } = string.Empty;
+        public long qty { get; set; }
+        public string location_state { get; set; } = string.Empty;
+    }
 }
