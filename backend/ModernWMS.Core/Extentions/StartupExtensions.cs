@@ -338,7 +338,6 @@ namespace ModernWMS.Core.Extentions
                         var recurringJobId = job.GetType().FullName ?? job.GetType().Name;
                         Hangfire.RecurringJob.AddOrUpdate(
                             recurringJobId,
-                            "wms",
                             () => job.Execute(),
                             job.CronExpression,
                             new RecurringJobOptions

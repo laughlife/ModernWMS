@@ -3,6 +3,8 @@
  * developer：AMo
  */
 
+using Hangfire;
+
 namespace ModernWMS.Core.Job
 {
     /// <summary>
@@ -19,6 +21,7 @@ namespace ModernWMS.Core.Job
         /// Execute
         /// </summary>
         /// <returns></returns>
+        [Queue("wms")]
         Task Execute();
     }
 }
