@@ -507,10 +507,12 @@ public partial class ErpPendingReceiptService
         long allocated_qty,
         long occupied_qty,
         string location_state);
-    private sealed record StockAllocationInvariant(
-        long available_qty,
-        long stock_occupied_qty,
-        long total_qty,
-        long allocated_qty,
-        long occupied_qty);
+    private sealed class StockAllocationInvariant
+    {
+        public long available_qty { get; init; }
+        public long stock_occupied_qty { get; init; }
+        public long total_qty { get; init; }
+        public long allocated_qty { get; init; }
+        public long occupied_qty { get; init; }
+    }
 }
