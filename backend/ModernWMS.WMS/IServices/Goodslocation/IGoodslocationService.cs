@@ -41,7 +41,7 @@
          /// </summary>
          /// <param name="id">primary key</param>
          /// <returns></returns>
-         Task<GoodslocationViewModel> GetAsync(int id);
+         Task<GoodslocationViewModel?> GetAsync(int id);
          /// <summary>
          /// add a new record
          /// </summary>

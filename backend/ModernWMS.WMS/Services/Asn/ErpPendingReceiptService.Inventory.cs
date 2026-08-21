@@ -16,7 +16,7 @@ public partial class ErpPendingReceiptService
 
     private async Task LockShipmentAsync(long shipmentId)
     {
-        await ScalarAsync<long?>(
+        await ScalarOrDefaultAsync<long>(
             "SELECT id FROM trk_logistics_info WHERE id = @id AND deleted = b'0' FOR UPDATE",
             ("@id", shipmentId));
     }
@@ -233,7 +233,7 @@ public partial class ErpPendingReceiptService
         DateTime now,
         int? explicitAreaId = null)
     {
-        var warehouseTenantId = await ScalarAsync<long?>(
+        var warehouseTenantId = await ScalarOrDefaultAsync<long>(
             "SELECT tenant_id FROM wms_warehouse WHERE erp_warehouse_id=@erpWarehouseId LIMIT 1 FOR UPDATE",
             ("@erpWarehouseId", shipment.to_warehouse_id));
         if (warehouseTenantId != null && warehouseTenantId != currentUser.tenant_id)
@@ -250,7 +250,7 @@ public partial class ErpPendingReceiptService
                 throw new InvalidOperationException("收货仓库已停用");
             }
         }
-        var warehouseId = await ScalarAsync<int?>(
+        var warehouseId = await ScalarOrDefaultAsync<int>(
             "SELECT id FROM wms_warehouse WHERE erp_warehouse_id=@erpWarehouseId AND tenant_id=@tenantId AND is_valid=1 LIMIT 1 FOR UPDATE",
             ("@erpWarehouseId", shipment.to_warehouse_id), ("@tenantId", currentUser.tenant_id));
         if (warehouseId == null)
@@ -261,7 +261,7 @@ public partial class ErpPendingReceiptService
         int areaId;
         if (explicitAreaId != null)
         {
-            var areaValid = await ScalarAsync<bool?>(
+            var areaValid = await ScalarOrDefaultAsync<bool>(
                 "SELECT is_valid FROM wms_warehousearea WHERE id=@areaId AND warehouse_id=@warehouseId AND tenant_id=@tenantId LIMIT 1",
                 ("@areaId", explicitAreaId.Value), ("@warehouseId", warehouseId.Value),
                 ("@tenantId", currentUser.tenant_id));
@@ -290,7 +290,7 @@ public partial class ErpPendingReceiptService
         var areaProperty = await ScalarAsync<byte>(
             "SELECT area_property FROM wms_warehousearea WHERE id=@areaId",
             ("@areaId", areaId));
-        var operatorGroupName = await ScalarAsync<string>(
+        var operatorGroupName = await ScalarReferenceOrDefaultAsync<string>(
             """
             WITH RECURSIVE dept_chain AS
             (
@@ -312,10 +312,10 @@ public partial class ErpPendingReceiptService
              LIMIT 1
             """,
             ("@deptId", product.dept_id), ("@tenantId", currentUser.tenant_id),
-            ("@areaId", areaId));
+            ("@areaId", areaId)) ?? string.Empty;
         var autoLocationTag = $"AREA-AUTO-{areaId}";
 
-        var locationId = await ScalarAsync<int?>(
+        var locationId = await ScalarOrDefaultAsync<int>(
             "SELECT id FROM wms_goodslocation WHERE warehouse_id=@warehouseId AND warehouse_area_id=@areaId AND tag_number=@tag AND tenant_id=@tenantId AND is_valid=1 LIMIT 1 FOR UPDATE",
             ("@warehouseId", warehouseId.Value), ("@areaId", areaId),
             ("@tag", autoLocationTag), ("@tenantId", currentUser.tenant_id));
@@ -352,7 +352,7 @@ public partial class ErpPendingReceiptService
         }
         var commodity = await ReadCommodityAsync(product.commodity_id.Value)
             ?? throw new InvalidOperationException($"ERP 商品 {product.commodity_id} 不存在或已删除");
-        var mappedSkuId = await ScalarAsync<int?>(
+        var mappedSkuId = await ScalarOrDefaultAsync<int>(
             "SELECT wms_sku_id FROM wms_erp_commodity_map WHERE tenant_id=@tenantId AND erp_commodity_id=@commodityId LIMIT 1 FOR UPDATE",
             ("@tenantId", currentUser.tenant_id), ("@commodityId", product.commodity_id));
         if (mappedSkuId != null)
@@ -441,7 +441,7 @@ public partial class ErpPendingReceiptService
     {
         var deptId = product.dept_id ?? 0;
         var userId = product.order_user_id ?? 0;
-        var mappedOwnerId = await ScalarAsync<int?>(
+        var mappedOwnerId = await ScalarOrDefaultAsync<int>(
             "SELECT wms_goods_owner_id FROM wms_erp_goods_owner_map WHERE tenant_id=@tenantId AND erp_dept_id=@deptId AND erp_order_user_id=@userId LIMIT 1 FOR UPDATE",
             ("@tenantId", currentUser.tenant_id), ("@deptId", deptId), ("@userId", userId));
         if (mappedOwnerId != null)
@@ -683,8 +683,42 @@ public partial class ErpPendingReceiptService
 
     private async Task<T> ScalarAsync<T>(string sql, params (string Name, object? Value)[] parameters)
     {
+        T? value;
         if (_activeConnection != null)
-            return await _activeConnection.ExecuteScalarAsync<T>(sql, CreateParameters(parameters), _activeTransaction);
+        {
+            value = await _activeConnection.ExecuteScalarAsync<T>(
+                sql, CreateParameters(parameters), _activeTransaction);
+        }
+        else
+        {
+            await using var connection = await _connectionFactory.OpenConnectionAsync();
+            value = await connection.ExecuteScalarAsync<T>(sql, CreateParameters(parameters));
+        }
+        if (value is null)
+            throw new InvalidOperationException("标量查询未返回必需值");
+        return value;
+    }
+
+    private async Task<T?> ScalarOrDefaultAsync<T>(
+        string sql,
+        params (string Name, object? Value)[] parameters)
+        where T : struct
+    {
+        if (_activeConnection != null)
+            return await _activeConnection.ExecuteScalarAsync<T?>(
+                sql, CreateParameters(parameters), _activeTransaction);
+        await using var connection = await _connectionFactory.OpenConnectionAsync();
+        return await connection.ExecuteScalarAsync<T?>(sql, CreateParameters(parameters));
+    }
+
+    private async Task<T?> ScalarReferenceOrDefaultAsync<T>(
+        string sql,
+        params (string Name, object? Value)[] parameters)
+        where T : class
+    {
+        if (_activeConnection != null)
+            return await _activeConnection.ExecuteScalarAsync<T>(
+                sql, CreateParameters(parameters), _activeTransaction);
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         return await connection.ExecuteScalarAsync<T>(sql, CreateParameters(parameters));
     }

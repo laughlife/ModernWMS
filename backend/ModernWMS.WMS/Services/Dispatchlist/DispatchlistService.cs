@@ -641,6 +641,14 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
                 return await RollbackResult((false,"发货单同时包含新旧库存引用，已拒绝出库"),transaction);
             if(canonical)
             {
+                var canonicalPicks=picks.Select(pick=>new
+                {
+                    Pick=pick,
+                    ErpStockId=pick.erp_stock_id
+                        ??throw new InvalidOperationException("出库拣货明细缺少ERP库存引用"),
+                    AllocationId=pick.stock_allocation_id
+                        ??throw new InvalidOperationException("出库拣货明细缺少库位分配引用")
+                }).ToArray();
                 var runtimes=(await connection.QueryAsync<DispatchRuntimeRow>("""
                     SELECT stock.`id` ErpStockId,config.`mode` Mode,
                            config.`maintenance_enabled` MaintenanceEnabled,stock.`warehouse_id` ErpWarehouseId
@@ -649,29 +657,29 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
                         ON config.`tenant_id`=@tenantId AND config.`erp_warehouse_id`=stock.`warehouse_id`
                      WHERE stock.`id` IN @stockIds AND stock.`deleted`=b'0';
                     """,new{tenantId=currentUser.tenant_id,
-                        stockIds=picks.Select(x=>x.erp_stock_id!.Value).Distinct().ToArray()},transaction)).AsList();
-                if(runtimes.Count!=picks.Select(x=>x.erp_stock_id).Distinct().Count()
+                        stockIds=canonicalPicks.Select(x=>x.ErpStockId).Distinct().ToArray()},transaction)).AsList();
+                if(runtimes.Count!=canonicalPicks.Select(x=>x.ErpStockId).Distinct().Count()
                     ||runtimes.Any(x=>x.MaintenanceEnabled||x.Mode!=CanonicalInventoryMode))
                     return await RollbackResult((false,"ERP仓库未处于可写的统一库存模式，已拒绝出库"),transaction);
                 var mutation=_stockAllocationMutationService
                     ??throw new InvalidOperationException("统一ERP库存模式未注册库存分配变更服务，操作已拒绝");
-                var shipPrelocks=picks.Select(pick=>new StockReservationPrelockRequest(
+                var shipPrelocks=canonicalPicks.Select(entry=>new StockReservationPrelockRequest(
                     BuildLegacyDispatchMutationContext(currentUser,
-                        runtimes.Single(x=>x.ErpStockId==pick.erp_stock_id!.Value).ErpWarehouseId,
-                        "DISPATCH_SHIP_OUT",pick.dispatchlist_id,pick.id,pick.erp_stock_id.Value,
-                        pick.stock_allocation_id!.Value,pick.picked_qty,$"LEGACY:{pick.dispatchlist_id}",
-                        pick.reservation_id,pick.reservation_item_id),pick.erp_stock_id.Value,
-                    pick.stock_allocation_id.Value,"SHIP_OUT")).ToArray();
+                        runtimes.Single(x=>x.ErpStockId==entry.ErpStockId).ErpWarehouseId,
+                        "DISPATCH_SHIP_OUT",entry.Pick.dispatchlist_id,entry.Pick.id,entry.ErpStockId,
+                        entry.AllocationId,entry.Pick.picked_qty,$"LEGACY:{entry.Pick.dispatchlist_id}",
+                        entry.Pick.reservation_id,entry.Pick.reservation_item_id),entry.ErpStockId,
+                    entry.AllocationId,"SHIP_OUT")).ToArray();
                 await mutation.PrelockReservationOwnersAsync(connection,transaction,currentUser.tenant_id,
                     runtimes.Select(x=>x.ErpWarehouseId).Distinct().OrderBy(x=>x).ToArray(),shipPrelocks);
-                foreach(var pick in picks.OrderBy(x=>x.erp_stock_id).ThenBy(x=>x.stock_allocation_id).ThenBy(x=>x.id))
+                foreach(var entry in canonicalPicks.OrderBy(x=>x.ErpStockId).ThenBy(x=>x.AllocationId).ThenBy(x=>x.Pick.id))
                     await mutation.ShipLockedAsync(connection,transaction,
                         BuildLegacyDispatchMutationContext(currentUser,
-                            runtimes.Single(x=>x.ErpStockId==pick.erp_stock_id!.Value).ErpWarehouseId,
-                            "DISPATCH_SHIP_OUT",pick.dispatchlist_id,
-                            pick.id,pick.erp_stock_id!.Value,pick.stock_allocation_id!.Value,pick.picked_qty,
-                            $"LEGACY:{pick.dispatchlist_id}",pick.reservation_id,pick.reservation_item_id),
-                        pick.erp_stock_id.Value,pick.stock_allocation_id.Value,pick.picked_qty);
+                            runtimes.Single(x=>x.ErpStockId==entry.ErpStockId).ErpWarehouseId,
+                            "DISPATCH_SHIP_OUT",entry.Pick.dispatchlist_id,
+                            entry.Pick.id,entry.ErpStockId,entry.AllocationId,entry.Pick.picked_qty,
+                            $"LEGACY:{entry.Pick.dispatchlist_id}",entry.Pick.reservation_id,entry.Pick.reservation_item_id),
+                        entry.ErpStockId,entry.AllocationId,entry.Pick.picked_qty);
             }
             else
             {

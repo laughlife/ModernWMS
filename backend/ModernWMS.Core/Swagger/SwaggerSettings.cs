@@ -11,19 +11,19 @@ namespace ModernWMS.Core.Swagger
         /// <summary>
         /// SwaggerDoc Name
         /// </summary>
-        public string Name { get; set; }
+        public string Name { get; set; } = string.Empty;
         /// <summary>
         /// OpenApiInfo Title
         /// </summary>
-        public string ApiTitle { get; set; }
+        public string ApiTitle { get; set; } = string.Empty;
         /// <summary>
         /// OpenApiInfo Version
         /// </summary>
-        public string ApiVersion { get; set; }
+        public string ApiVersion { get; set; } = string.Empty;
         /// <summary>
         /// OpenApiInfo Description
         /// </summary>
-        public string Description { get; set; }
+        public string Description { get; set; } = string.Empty;
         /// <summary>
         /// Whether to turn on authorization verification
         /// </summary>
@@ -32,7 +32,7 @@ namespace ModernWMS.Core.Swagger
         /// <summary>
         /// Included XML documents
         /// </summary>
-        public List<string> XmlFiles { get; set; }
+        public List<string> XmlFiles { get; set; } = [];
          
     }
 }

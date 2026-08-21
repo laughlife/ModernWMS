@@ -21,16 +21,16 @@ public partial class ErpPendingReceiptService
             product.default_warehouse_area_id = area?.Id;
             product.default_warehouse_area_name = area?.Name ?? string.Empty;
 
-            var ownerId = await ScalarAsync<int?>(
+            var ownerId = await ScalarOrDefaultAsync<int>(
                 "SELECT wms_goods_owner_id FROM wms_erp_goods_owner_map WHERE tenant_id=@tenantId AND erp_dept_id=@deptId AND erp_order_user_id=@userId LIMIT 1",
                 ("@tenantId", currentUser.tenant_id), ("@deptId", product.dept_id ?? 0),
                 ("@userId", product.order_user_id ?? 0));
             product.default_goods_owner_id = ownerId;
             product.default_goods_owner_name = ownerId == null
                 ? BuildDefaultGoodsOwnerName(product)
-                : await ScalarAsync<string>(
+                : await ScalarReferenceOrDefaultAsync<string>(
                     "SELECT goods_owner_name FROM wms_goodsowner WHERE id=@id AND tenant_id=@tenantId AND is_valid=1 LIMIT 1",
-                    ("@id", ownerId.Value), ("@tenantId", currentUser.tenant_id));
+                    ("@id", ownerId.Value), ("@tenantId", currentUser.tenant_id)) ?? string.Empty;
             if (string.IsNullOrWhiteSpace(product.default_goods_owner_name))
             {
                 product.default_goods_owner_id = null;
@@ -112,9 +112,9 @@ public partial class ErpPendingReceiptService
             }
             else
             {
-                ownerName = await ScalarAsync<string>(
+                ownerName = await ScalarReferenceOrDefaultAsync<string>(
                     "SELECT goods_owner_name FROM wms_goodsowner WHERE id=@id AND tenant_id=@tenantId AND is_valid=1 LIMIT 1",
-                    ("@id", ownerId), ("@tenantId", currentUser.tenant_id));
+                    ("@id", ownerId), ("@tenantId", currentUser.tenant_id)) ?? string.Empty;
                 if (string.IsNullOrWhiteSpace(ownerName))
                 {
                     throw new InvalidOperationException($"商品 {product.sku} 选择的库存所属人无效");
@@ -142,7 +142,7 @@ public partial class ErpPendingReceiptService
         ErpPendingReceiptProductViewModel product,
         CurrentUser currentUser)
     {
-        var warehouseId = await ScalarAsync<int?>(
+        var warehouseId = await ScalarOrDefaultAsync<int>(
             "SELECT id FROM wms_warehouse WHERE erp_warehouse_id=@erpWarehouseId AND tenant_id=@tenantId AND is_valid=1 LIMIT 1",
             ("@erpWarehouseId", shipment.to_warehouse_id), ("@tenantId", currentUser.tenant_id));
         return warehouseId == null

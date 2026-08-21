@@ -99,7 +99,7 @@ namespace ModernWMS.Core.Utility
         /// <returns></returns>
         public static string ObjToString(this object thisValue)
         {
-            if (thisValue != null) return thisValue.ToString().Trim();
+            if (thisValue != null) return thisValue.ToString()?.Trim() ?? "";
             return "";
         }
         /// <summary>
@@ -110,7 +110,7 @@ namespace ModernWMS.Core.Utility
         /// <returns></returns>
         public static string ObjToString(this object thisValue, string errorValue)
         {
-            if (thisValue != null) return thisValue.ToString().Trim();
+            if (thisValue != null) return thisValue.ToString()?.Trim() ?? errorValue;
             return errorValue;
         }
         /// <summary>

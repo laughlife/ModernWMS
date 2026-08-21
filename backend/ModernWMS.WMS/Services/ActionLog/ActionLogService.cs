@@ -50,7 +50,7 @@ namespace ModernWMS.WMS.Services
         /// <summary>
         ///ActionLog  constructor
         /// </summary>
-        /// <param name="dBContext">The DBContext</param>
+        /// <param name="connectionFactory">Shared MySQL connection factory.</param>
         /// <param name="stringLocalizer">Localizer</param>
         public ActionLogService(
             IMySqlConnectionFactory connectionFactory

@@ -158,6 +158,7 @@ namespace ModernWMS.WMS.IServices
         /// get pick list by dispatch_id
         /// </summary>
         /// <param name="dispatch_id">dispatch_id</param>
+        /// <param name="currentUser">current user</param>
         /// <returns></returns>
         Task<List<DispatchpicklistViewModel>> GetPickListByDispatchID(int dispatch_id, CurrentUser currentUser);
 

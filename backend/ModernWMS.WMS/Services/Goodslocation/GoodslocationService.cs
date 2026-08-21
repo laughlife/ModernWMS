@@ -114,7 +114,7 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
     /// <summary>
     /// 执行 GetAsync 操作。
     /// </summary>
-    public async Task<GoodslocationViewModel> GetAsync(int id)
+    public async Task<GoodslocationViewModel?> GetAsync(int id)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         return await connection.QuerySingleOrDefaultAsync<GoodslocationViewModel>($"""

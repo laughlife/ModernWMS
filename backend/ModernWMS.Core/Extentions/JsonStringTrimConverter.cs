@@ -25,7 +25,7 @@ namespace ModernWMS.Core.Extentions
         /// <param name="existingValue">The existing value of object being read.</param>
         /// <param name="serializer">The calling serializer.</param>
         /// <returns></returns>
-        public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
+        public override object? ReadJson(JsonReader reader, Type objectType, object? existingValue, JsonSerializer serializer)
         {
             if (objectType == typeof(string) && reader.Value != null)
             {
@@ -35,7 +35,7 @@ namespace ModernWMS.Core.Extentions
                 }
                 else
                 {
-                    return (reader.Value as string).Trim();
+                    return (reader.Value as string)?.Trim();
                 }
             }
             return reader.Value;
@@ -46,10 +46,9 @@ namespace ModernWMS.Core.Extentions
         /// <param name="writer">The Newtonsoft.Json.JsonWriter to write to.</param>
         /// <param name="value">The value.</param>
         /// <param name="serializer">The calling serializer.</param>
-        public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
+        public override void WriteJson(JsonWriter writer, object? value, JsonSerializer serializer)
         {
-            var text = (string)value;
-            if (text == null)
+            if (value is not string text)
             {
                 writer.WriteNull();
             }

@@ -39,6 +39,7 @@ namespace ModernWMS.WMS.Controllers
         /// </summary>
         /// <param name="dispatchlistService">dispatchlist Service</param>
         /// <param name="stringLocalizer">Localizer</param>
+        /// <param name="dispatchlistPickingService">拣货流程服务。</param>
         public DispatchlistController(
             IDispatchlistService dispatchlistService
           , IStringLocalizer<ModernWMS.Core.MultiLanguage> stringLocalizer

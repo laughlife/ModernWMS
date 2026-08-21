@@ -19,7 +19,8 @@ namespace ModernWMS.Core.Utility
         /// <returns></returns>
         public static T DeserializeObject<T>(string json) where T : class
         {
-            return JsonConvert.DeserializeObject<T>(json);
+            return JsonConvert.DeserializeObject<T>(json)
+                ?? throw new JsonSerializationException($"JSON content cannot be deserialized to {typeof(T).FullName}.");
         }
 
         /// <summary>

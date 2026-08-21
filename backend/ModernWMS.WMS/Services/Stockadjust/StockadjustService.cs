@@ -92,7 +92,7 @@ public class StockadjustService : BaseService<StockadjustEntity>, IStockadjustSe
     }
 
     /// <inheritdoc />
-    public async Task<StockadjustViewModel> GetAsync(int id)
+    public async Task<StockadjustViewModel?> GetAsync(int id)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         return await connection.QuerySingleOrDefaultAsync<StockadjustViewModel>($"""

@@ -51,6 +51,7 @@ namespace ModernWMS.WMS.IServices
         /// add a new record
         /// </summary>
         /// <param name="viewModel">viewmodel</param>
+        /// <param name="currentUser">current user</param>
         /// <returns></returns>
         Task<(int id, string msg)> AddAsync(PrintSolutionViewModel viewModel, CurrentUser currentUser);
 

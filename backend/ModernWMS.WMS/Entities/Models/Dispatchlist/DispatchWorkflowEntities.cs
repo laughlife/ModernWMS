@@ -581,11 +581,8 @@ public class WeighingBoxEntity : BaseModel
     public List<WeighingBoxItemEntity> items { get; set; } = [];
 }
 
-/// <summary>
-/// 表示 WeighingBoxItemEntity 类型。
-/// </summary>
-[Table("weighing_box_item")]
 /// <summary>Quantity of one packing-task item assigned to a weighing box.</summary>
+[Table("weighing_box_item")]
 public class WeighingBoxItemEntity : BaseModel
 {
     /// <summary>

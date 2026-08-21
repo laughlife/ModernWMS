@@ -71,7 +71,7 @@ namespace ModernWMS.Core.Middleware
                 var ip = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
                 if (string.IsNullOrEmpty(ip))
                 {
-                    ip = context.Connection.RemoteIpAddress.ToString();
+                    ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
                 }
                 logger.LogError($"\r\n\r\nIP:{ip},Exception：{e.Message}\r\nStackTrace：{e.StackTrace}");
 

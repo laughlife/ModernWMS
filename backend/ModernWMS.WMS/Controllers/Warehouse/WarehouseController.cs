@@ -40,6 +40,7 @@ namespace ModernWMS.WMS.Controllers
          /// constructor
          /// </summary>
          /// <param name="warehouseService">warehouse Service</param>
+        /// <param name="warehouseAccessService">仓库访问权限服务。</param>
         /// <param name="stringLocalizer">Localizer</param>
          public WarehouseController(
              IWarehouseService warehouseService

@@ -44,12 +44,13 @@ namespace ModernWMS.WMS.IServices
         /// </summary>
         /// <param name="id">primary key</param>
         /// <returns></returns>
-        Task<UserViewModel> GetAsync(int id);
+        Task<UserViewModel?> GetAsync(int id);
 
         /// <summary>
         /// add a new data
         /// </summary>
         /// <param name="viewModel">viewmodel</param>
+        /// <param name="currentUser">current user</param>
         /// <returns></returns>
         Task<(int id, string msg)> AddAsync(UserViewModel viewModel, CurrentUser currentUser);
 

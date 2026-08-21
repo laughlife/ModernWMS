@@ -110,9 +110,13 @@ namespace ModernWMS.Core.Middleware
             HttpRequestRewindExtensions.EnableBuffering(request);
             var body = request.Body;
 
-            var buffer = new byte[Convert.ToInt32(request.ContentLength)];
-            await request.Body.ReadAsync(buffer, 0, buffer.Length);
-            var bodyAsText = Encoding.UTF8.GetString(buffer);
+            using var reader = new StreamReader(
+                body,
+                Encoding.UTF8,
+                detectEncodingFromByteOrderMarks: false,
+                bufferSize: 1024,
+                leaveOpen: true);
+            var bodyAsText = await reader.ReadToEndAsync();
             body.Seek(0, SeekOrigin.Begin);
             request.Body = body;
 

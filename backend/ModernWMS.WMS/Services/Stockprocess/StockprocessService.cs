@@ -83,7 +83,7 @@ public class StockprocessService : BaseService<StockprocessEntity>, IStockproces
     }
 
     /// <inheritdoc />
-    public async Task<StockprocessWithDetailViewModel> GetAsync(int id)
+    public async Task<StockprocessWithDetailViewModel?> GetAsync(int id)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         var master = await connection.QuerySingleOrDefaultAsync<StockprocessWithDetailViewModel>($"""
@@ -290,6 +290,10 @@ public class StockprocessService : BaseService<StockprocessEntity>, IStockproces
             {
                 if (canonical)
                 {
+                    var erpStockId = detail.erp_stock_id
+                        ?? throw new InvalidOperationException("加工明细缺少ERP库存引用");
+                    var stockAllocationId = detail.stock_allocation_id
+                        ?? throw new InvalidOperationException("加工明细缺少库位分配引用");
                     await _stockMutationService.AdjustAvailableAsync(
                         connection, transaction,
                         CanonicalInventorySupport.Context(
@@ -298,7 +302,7 @@ public class StockprocessService : BaseService<StockprocessEntity>, IStockproces
                             detail.is_source ? "STOCK_PROCESS_CONSUME" : "STOCK_PROCESS_PRODUCE",
                             id, detail.id, currentUser, entity.creator,
                             detail.is_source ? "加工来源扣减" : "加工目标增加"),
-                        detail.erp_stock_id.Value, detail.stock_allocation_id.Value,
+                        erpStockId, stockAllocationId,
                         detail.is_source ? -detail.qty : detail.qty);
                     await connection.ExecuteAsync("""
                         UPDATE `wms_stockprocessdetail`
@@ -468,7 +472,7 @@ public class StockprocessService : BaseService<StockprocessEntity>, IStockproces
                 detail.erp_stock_id, detail.stock_allocation_id, detail.is_source, detail.is_update_stock,
                 detail.series_number, detail.expiry_date, detail.price, detail.putaway_date }, transaction);
 
-    private static async Task<string> GetNextCodeAsync(MySqlConnection connection, IDbTransaction transaction,
+    private static async Task<string> GetNextCodeAsync(MySqlConnection connection, IDbTransaction? transaction,
         string tableName, long tenantId)
     {
         var maxNo = await connection.QuerySingleOrDefaultAsync<string>(

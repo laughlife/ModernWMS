@@ -134,7 +134,7 @@ public class UserroleService : BaseService<UserroleEntity>, IUserroleService
     }
 
     /// <inheritdoc />
-    public async Task<UserroleViewModel> GetAsync(int id)
+    public async Task<UserroleViewModel?> GetAsync(int id)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         return await connection.QuerySingleOrDefaultAsync<UserroleViewModel>("""

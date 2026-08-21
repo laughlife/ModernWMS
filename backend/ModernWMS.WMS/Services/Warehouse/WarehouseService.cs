@@ -101,7 +101,7 @@ public class WarehouseService : BaseService<WarehouseEntity>, IWarehouseService
     }
 
     /// <inheritdoc />
-    public async Task<WarehouseViewModel> GetAsync(int id, CurrentUser currentUser)
+    public async Task<WarehouseViewModel?> GetAsync(int id, CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         return await connection.QuerySingleOrDefaultAsync<WarehouseViewModel>($"""

@@ -21,7 +21,7 @@ namespace ModernWMS.WMS.Entities.Models
         /// foreign table
         /// </summary>
         [ForeignKey("flowsetmain_id")]
-        public FlowSetMainEntity FlowMainSet { get; set; }
+        public FlowSetMainEntity? FlowMainSet { get; set; }
 
         #endregion foreign table
 

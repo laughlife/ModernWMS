@@ -90,7 +90,7 @@ public class StockmoveService : BaseService<StockmoveEntity>, IStockmoveService
     }
 
     /// <inheritdoc />
-    public async Task<StockmoveViewModel> GetAsync(int id)
+    public async Task<StockmoveViewModel?> GetAsync(int id)
     {
         await using var db=await _connectionFactory.OpenConnectionAsync();
         return await db.QuerySingleOrDefaultAsync<StockmoveViewModel>($"{ViewSql} WHERE m.`id`=@id LIMIT 1;",new { id });

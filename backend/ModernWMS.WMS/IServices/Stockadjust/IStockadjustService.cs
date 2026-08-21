@@ -33,7 +33,7 @@
          /// </summary>
          /// <param name="id">primary key</param>
          /// <returns></returns>
-         Task<StockadjustViewModel> GetAsync(int id);
+         Task<StockadjustViewModel?> GetAsync(int id);
          /// <summary>
          /// add a new record
          /// </summary>

@@ -32,7 +32,7 @@ using ModernWMS.Core.Models;
          /// </summary>
          /// <param name="id">primary key</param>
          /// <returns></returns>
-         Task<UserroleViewModel> GetAsync(int id);
+         Task<UserroleViewModel?> GetAsync(int id);
         /// <summary>
         /// add a new record
         /// </summary>
@@ -52,6 +52,7 @@ using ModernWMS.Core.Models;
          /// delete a record
          /// </summary>
          /// <param name="id">id</param>
+         /// <param name="currentUser">current user</param>
          /// <returns></returns>
          Task<(bool flag, string msg)> DeleteAsync(int id, CurrentUser currentUser);
          #endregion

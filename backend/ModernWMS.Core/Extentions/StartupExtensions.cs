@@ -209,7 +209,7 @@ namespace ModernWMS.Core.Extentions
         {
             var swaggerSettings = configuration.GetSection("SwaggerSettings");
 
-            if (swaggerSettings != null && swaggerSettings["Name"].Equals("ModernWMS"))
+            if (string.Equals(swaggerSettings["Name"], "ModernWMS", StringComparison.Ordinal))
             {
                 app.UseSwagger();
 
@@ -335,7 +335,16 @@ namespace ModernWMS.Core.Extentions
                     var job = scope.ServiceProvider.GetService(implementType) as Core.Job.IJob;
                     if (job != null)
                     {
-                        Hangfire.RecurringJob.AddOrUpdate(() => job.Execute(), job.CronExpression, TimeZoneInfo.Local, "wms");
+                        var recurringJobId = job.GetType().FullName ?? job.GetType().Name;
+                        Hangfire.RecurringJob.AddOrUpdate(
+                            recurringJobId,
+                            "wms",
+                            () => job.Execute(),
+                            job.CronExpression,
+                            new RecurringJobOptions
+                            {
+                                TimeZone = TimeZoneInfo.Local
+                            });
                     }
                 }
             }

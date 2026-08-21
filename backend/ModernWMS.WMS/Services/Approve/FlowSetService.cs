@@ -55,7 +55,7 @@ namespace ModernWMS.WMS.Services
         /// </summary>
         /// <param name="id"></param>
         /// <returns></returns>
-        public async Task<FlowSetMapGetViewModel> GetFlowSetMap(int id)
+        public async Task<FlowSetMapGetViewModel?> GetFlowSetMap(int id)
         {
             await using var connection = await _connectionFactory.OpenConnectionAsync();
             var main_data = await connection.QuerySingleOrDefaultAsync<FlowSetMainRow>("""
@@ -103,12 +103,7 @@ namespace ModernWMS.WMS.Services
                 flowset.filter_list = filter_data.Where(t => t.node_guid == flowset.node_guid).ToList();
             }
             var flow_list = BuildFlow(flowset_vm);
-            var res = new FlowSetMapGetViewModel();
-            if (flow_list.Count() > 0)
-            {
-                res = flow_list.FirstOrDefault();
-            }
-            return res;
+            return flow_list.FirstOrDefault();
         }
 
         private sealed class FlowSetMainRow

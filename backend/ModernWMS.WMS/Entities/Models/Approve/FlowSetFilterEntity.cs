@@ -20,7 +20,7 @@ namespace ModernWMS.WMS.Entities.Models
         /// foreign table
         /// </summary>
         [ForeignKey("flowset_id")]
-        public FlowSetEntity FlowSet { get; set; }
+        public FlowSetEntity? FlowSet { get; set; }
 
         #endregion foreign table
 

@@ -85,7 +85,7 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
         var pageSize = Math.Clamp(pageSearch.pageSize, 1, 200);
         shipments = shipments.Skip((pageIndex - 1) * pageSize).Take(pageSize).ToList();
 
-        var wmsWarehouseId = await ScalarAsync<int?>(
+        var wmsWarehouseId = await ScalarOrDefaultAsync<int>(
             """
             SELECT id FROM wms_warehouse
              WHERE erp_warehouse_id=@erpId AND tenant_id=@tenantId AND is_valid=1
@@ -271,6 +271,7 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
             var actualReceiptQty = input.items.Sum(t => t.actual_receipt_qty);
             var lossQty = input.items.Sum(t => t.loss_qty);
             var inboundQty = checked(actualReceiptQty - lossQty);
+            var lossReason = input.loss_reason?.Trim() ?? string.Empty;
 
             var freightPaymentStatus = input.receipt_freight_payment_status?.Trim().ToUpperInvariant() ?? string.Empty;
             if (freightPaymentStatus is not ("NO_PAY" or "PAY"))
@@ -282,7 +283,7 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
             {
                 return (false, "支付运费时必须填写大于 0 的金额", 0);
             }
-            if (lossQty > 0 && string.IsNullOrWhiteSpace(input.loss_reason))
+            if (lossQty > 0 && string.IsNullOrWhiteSpace(lossReason))
             {
                 return (false, "存在损耗时必须填写损耗原因", 0);
             }
@@ -310,7 +311,7 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
                 receipt_freight_files_json = SerializeImages(
                     freightPaymentStatus == "PAY" ? input.receipt_freight_files : []),
                 receipt_files_json = SerializeImages(input.receipt_files),
-                loss_reason = lossQty > 0 ? input.loss_reason.Trim() : string.Empty,
+                loss_reason = lossQty > 0 ? lossReason : string.Empty,
                 loss_files_json = SerializeImages(lossQty > 0 ? input.loss_files : []),
                 receipt_remark = input.receipt_remark?.Trim() ?? string.Empty,
                 creator = Truncate(currentUser.user_name, 64),

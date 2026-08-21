@@ -24,7 +24,7 @@ namespace ModernWMS.WMS.Entities.Models
         /// foreign table
         /// </summary>
         [ForeignKey("dispatchlist_id")]
-        public DispatchlistEntity Dispatchlist { get; set; }
+        public DispatchlistEntity? Dispatchlist { get; set; }
 
         #endregion foreign table
 

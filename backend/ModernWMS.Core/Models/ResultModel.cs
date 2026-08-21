@@ -20,7 +20,7 @@
         /// <summary>
         /// data
         /// </summary>
-        public T Data { get; set; }
+        public T? Data { get; set; }
 
         /// <summary>
         /// success
@@ -43,7 +43,7 @@
         /// <param name="code">status code</param>
         /// <param name="data">data</param>
         /// <returns></returns>
-        public static ResultModel<T> Error(string str, int code = 400, T data = default)
+        public static ResultModel<T> Error(string str, int code = 400, T? data = default)
         {
             return new ResultModel<T> { Data = data, ErrorMessage = str, IsSuccess = false, Code = code };
         }

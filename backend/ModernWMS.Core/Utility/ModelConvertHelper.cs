@@ -40,8 +40,7 @@ namespace ModernWMS.Core.Utility
                         {
                             continue;
                         }
-                        string TypeName = pi.PropertyType.FullName;
-                        string value = dr[tempName] == DBNull.Value ? "" : Convert.ToString(dr[tempName]);
+                        string value = dr[tempName] == DBNull.Value ? "" : Convert.ToString(dr[tempName]) ?? "";
                         colvalue = value;
                         if (pi.PropertyType.Name.ToLower().Contains("datetime"))
                         {
@@ -90,7 +89,11 @@ namespace ModernWMS.Core.Utility
                             Type genericTypeDefinition = pi.PropertyType.GetGenericTypeDefinition();
                             if (genericTypeDefinition == typeof(Nullable<>))
                             {
-                                pi.SetValue(t, string.IsNullOrEmpty(value) ? null : Convert.ChangeType(value, Nullable.GetUnderlyingType(pi.PropertyType)), null);
+                                Type? underlyingType = Nullable.GetUnderlyingType(pi.PropertyType);
+                                if (underlyingType != null)
+                                {
+                                    pi.SetValue(t, string.IsNullOrEmpty(value) ? null : Convert.ChangeType(value, underlyingType), null);
+                                }
                             }
                         }
                     }

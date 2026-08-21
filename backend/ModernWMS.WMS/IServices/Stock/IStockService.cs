@@ -79,7 +79,7 @@ namespace ModernWMS.WMS.IServices
         /// <summary>
         /// stock age page search
         /// </summary>
-        /// <param name="pageSearch">args</param>
+        /// <param name="input">库龄分页查询条件。</param>
         /// <param name="currentUser">currentUser</param>
         /// <returns></returns>
         Task<(List<StockAgeViewModel> data, int totals)> StockAgePageAsync(StockAgeSearchViewModel input, CurrentUser currentUser);

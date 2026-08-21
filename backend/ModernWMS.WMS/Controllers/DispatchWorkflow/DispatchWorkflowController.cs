@@ -9,14 +9,11 @@ using Microsoft.AspNetCore.Http;
 
 namespace ModernWMS.WMS.Controllers.DispatchWorkflow;
 
-/// <summary>
-/// 表示 DispatchWorkflowController 类型。
-/// </summary>
+/// <summary>提供出库单拣货、装箱、称重及出库流程接口。</summary>
 [Route("dispatch-workflow")]
 [ApiController]
 [Authorize]
 [ApiExplorerSettings(GroupName = "WMS")]
-/// <summary>提供出库单拣货、装箱、称重及出库流程接口。</summary>
 public sealed class DispatchWorkflowController : BaseController
 {
     private readonly IDispatchWorkflowService _workflowService;

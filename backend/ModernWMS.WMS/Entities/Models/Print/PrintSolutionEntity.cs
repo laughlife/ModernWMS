@@ -38,7 +38,7 @@ namespace ModernWMS.WMS.Entities.Models
         /// <summary>
         /// config_json
         /// </summary>
-        public string config_json { get; set; }
+        public string config_json { get; set; } = string.Empty;
 
         /// <summary>
         /// report_length

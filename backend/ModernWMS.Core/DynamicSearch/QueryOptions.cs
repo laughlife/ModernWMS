@@ -56,10 +56,10 @@
         /// <summary>
         /// value
         /// </summary>
-        public string value { get; set; }
+        public string value { get; set; } = string.Empty;
         /// <summary>
         /// text
         /// </summary>
-        public string text { get; set; }
+        public string text { get; set; } = string.Empty;
     }
 }

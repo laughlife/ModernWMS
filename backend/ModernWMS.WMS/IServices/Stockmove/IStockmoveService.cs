@@ -33,7 +33,7 @@
          /// </summary>
          /// <param name="id">primary key</param>
          /// <returns></returns>
-         Task<StockmoveViewModel> GetAsync(int id);
+         Task<StockmoveViewModel?> GetAsync(int id);
          /// <summary>
          /// add a new record
          /// </summary>
@@ -45,6 +45,7 @@
         /// confirm move
         /// </summary>
         /// <param name="id">id</param>
+        /// <param name="currentUser">current user</param>
         /// <returns></returns>
         Task<(bool flag, string msg)> Confirm(int id, CurrentUser currentUser);
  

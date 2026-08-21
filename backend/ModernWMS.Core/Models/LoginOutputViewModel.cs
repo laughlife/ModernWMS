@@ -8,12 +8,12 @@
         /// <summary>
         /// user's num
         /// </summary>
-        public string user_num { get; set; }
+        public string user_num { get; set; } = string.Empty;
 
         /// <summary>
         /// user's name
         /// </summary>
-        public string user_name { get; set; }
+        public string user_name { get; set; } = string.Empty;
 
         /// <summary>
         ///  user's id
@@ -23,7 +23,7 @@
         /// <summary>
         ///  user's role
         /// </summary>
-        public string user_role { get; set; }
+        public string user_role { get; set; } = string.Empty;
 
         /// <summary>
         ///  id of user's role
@@ -43,12 +43,12 @@
         /// <summary>
         /// token
         /// </summary>
-        public string access_token { get; set; }
+        public string access_token { get; set; } = string.Empty;
 
         /// <summary>
         /// refresh token
         /// </summary>
-        public string refresh_token { get; set; }
+        public string refresh_token { get; set; } = string.Empty;
 
     }
 }

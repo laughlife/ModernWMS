@@ -30,8 +30,8 @@ namespace ModernWMS.Core.DynamicSearch
             Type targetType = typeof(T);
             TypeInfo typeInfo = targetType.GetTypeInfo();
             var parameter = Expression.Parameter(targetType, "m");
-            Expression expression = null;
-            Func<Expression, Expression, Expression> Append = (exp1, exp2) =>
+            Expression? expression = null;
+            Func<Expression?, Expression, Expression> Append = (exp1, exp2) =>
             {
                 if (exp1 == null)
                 {
@@ -50,7 +50,7 @@ namespace ModernWMS.Core.DynamicSearch
                 }
                 if (item.Text.Length == 0)
                 {
-                    item.Text = item.Value.ToString();
+                    item.Text = Convert.ToString(item.Value) ?? string.Empty;
                 }
                 Type realType = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
                 if (item.Text.Length > 0)
@@ -107,7 +107,7 @@ namespace ModernWMS.Core.DynamicSearch
             }
             if (expression == null)
             {
-                return null;
+                return True<T>();
             }
             return ((Expression<Func<T, bool>>)Expression.Lambda(expression, parameter));
         }

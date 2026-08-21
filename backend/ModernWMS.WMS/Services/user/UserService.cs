@@ -127,7 +127,7 @@ namespace ModernWMS.WMS.Services
         /// </summary>
         /// <returns></returns>
         /// <inheritdoc />
-        public async Task<UserViewModel> GetAsync(int id)
+        public async Task<UserViewModel?> GetAsync(int id)
         {
             await using var connection = await _connectionFactory.OpenConnectionAsync();
             var entity = await connection.QuerySingleOrDefaultAsync<userEntity>($"""

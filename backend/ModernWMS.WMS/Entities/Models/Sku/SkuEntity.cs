@@ -22,7 +22,7 @@ namespace ModernWMS.WMS.Entities.Models
         /// navigational properties
         /// </summary>
         [ForeignKey("spu_id")]
-        public SpuEntity Spu { get; set; }
+        public SpuEntity? Spu { get; set; }
 
         #endregion
 

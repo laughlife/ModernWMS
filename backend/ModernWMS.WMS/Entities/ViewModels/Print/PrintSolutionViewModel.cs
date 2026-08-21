@@ -58,7 +58,7 @@ namespace ModernWMS.WMS.Entities.ViewModels
         /// config_json
         /// </summary>
         [Display(Name = "config_json")]
-        public string config_json { get; set; }
+        public string config_json { get; set; } = string.Empty;
 
         /// <summary>
         /// report_length

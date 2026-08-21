@@ -19,7 +19,7 @@ namespace ModernWMS.WMS.Entities.Models
         /// navigational properties
         /// </summary>
         [ForeignKey("sku_id")]
-        public SkuEntity Sku { get; set; }
+        public SkuEntity? Sku { get; set; }
 
         #endregion
 

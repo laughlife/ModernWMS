@@ -29,12 +29,11 @@ namespace ModernWMS.Core.JWT
         /// <typeparam name="T">type of value</typeparam>
         /// <param name="key">key</param>
         /// <returns></returns>
-        public T Get<T>(string key)
+        public T? Get<T>(string key)
         {
             if (string.IsNullOrWhiteSpace(key))
                 throw new ArgumentNullException(nameof(key));
-            T value;
-            _cache.TryGetValue<T>(key, out value);
+            _cache.TryGetValue<T>(key, out T? value);
             return value;
         }
 
@@ -49,9 +48,6 @@ namespace ModernWMS.Core.JWT
             if (string.IsNullOrWhiteSpace(key))
                 throw new ArgumentNullException(nameof(key));
 
-            T v;
-            if (_cache.TryGetValue(key, out v))
-                _cache.Remove(key);
             _cache.Set(key, value);
         }
 
@@ -60,14 +56,12 @@ namespace ModernWMS.Core.JWT
         /// </summary>
         /// <param name="key">key</param>
         /// <param name="value">value</param>
+        /// <param name="span">sliding expiration duration</param>
         public void Set_SlidingExpire<T>(string key, T value, TimeSpan span)
         {
             if (string.IsNullOrWhiteSpace(key))
                 throw new ArgumentNullException(nameof(key));
 
-            T v;
-            if (_cache.TryGetValue(key, out v))
-                _cache.Remove(key);
             _cache.Set(key, value, new MemoryCacheEntryOptions()
             {
                 SlidingExpiration = span
@@ -83,9 +77,6 @@ namespace ModernWMS.Core.JWT
             if (string.IsNullOrWhiteSpace(key))
                 throw new ArgumentNullException(nameof(key));
 
-            T v;
-            if (_cache.TryGetValue(key, out v))
-                _cache.Remove(key);
             _cache.Set(key, value, span);
         }
 
@@ -97,9 +88,6 @@ namespace ModernWMS.Core.JWT
             if (string.IsNullOrWhiteSpace(key))
                 throw new ArgumentNullException(nameof(key));
 
-            T v;
-            if (_cache.TryGetValue(key, out v))
-                _cache.Remove(key);
             _cache.Set(key, value, new MemoryCacheEntryOptions()
             {
                 SlidingExpiration = slidingSpan,
@@ -138,8 +126,7 @@ namespace ModernWMS.Core.JWT
             var  key = $"ModernWMS_{type}_{userID}";
             if (string.IsNullOrWhiteSpace(key))
                 throw new ArgumentNullException(nameof(key));
-            T value;
-            if (_cache.TryGetValue<T>(key, out value))
+            if (_cache.TryGetValue<T>(key, out T? value) && value is not null)
             {
                 Set_SlidingExpire(key, value,  TimeSpan.FromMinutes(expireMinute) );
                 return true;

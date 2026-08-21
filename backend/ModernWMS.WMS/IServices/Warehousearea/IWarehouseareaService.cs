@@ -40,6 +40,7 @@
          /// Get a record by id
          /// </summary>
          /// <param name="id">primary key</param>
+         /// <param name="currentUser">current user</param>
          /// <returns></returns>
          Task<WarehouseareaViewModel> GetAsync(int id, CurrentUser currentUser);
          /// <summary>
@@ -61,6 +62,7 @@
          /// delete a record
          /// </summary>
          /// <param name="id">id</param>
+         /// <param name="currentUser">current user</param>
          /// <returns></returns>
          Task<(bool flag, string msg)> DeleteAsync(int id, CurrentUser currentUser);
 

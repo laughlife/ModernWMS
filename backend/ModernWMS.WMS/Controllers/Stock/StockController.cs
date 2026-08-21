@@ -174,7 +174,7 @@ namespace ModernWMS.WMS.Controllers
         /// <summary>
         /// stock age page search
         /// </summary>
-        /// <param name="pageSearch">args</param>
+        /// <param name="input">库龄分页查询条件。</param>
         /// <returns></returns>
         [HttpPost("stock-age-list")]
         public async Task<ResultModel<PageData<StockAgeViewModel>>> StockAgePageAsync(StockAgeSearchViewModel input)

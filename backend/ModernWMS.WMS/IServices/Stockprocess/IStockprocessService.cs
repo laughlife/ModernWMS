@@ -33,7 +33,7 @@
          /// </summary>
          /// <param name="id">primary key</param>
          /// <returns></returns>
-         Task<StockprocessWithDetailViewModel> GetAsync(int id);
+         Task<StockprocessWithDetailViewModel?> GetAsync(int id);
          /// <summary>
          /// add a new record
          /// </summary>
@@ -59,6 +59,7 @@
         /// confirm processing
         /// </summary>
         /// <param name="id">id</param>
+        /// <param name="currentUser">current user</param>
         /// <returns></returns>
         Task<(bool flag, string msg)> ConfirmProcess(int id, CurrentUser currentUser);
 

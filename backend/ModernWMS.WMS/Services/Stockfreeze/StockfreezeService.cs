@@ -97,7 +97,7 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
     }
 
     /// <inheritdoc />
-    public async Task<StockfreezeViewModel> GetAsync(int id)
+    public async Task<StockfreezeViewModel?> GetAsync(int id)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         return await connection.QuerySingleOrDefaultAsync<StockfreezeViewModel>($"""
@@ -242,6 +242,11 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
                     """, new { tenantId = currentUser.tenant_id,
                         allocationId = allocation.AllocationId }, transaction);
                 var operationKey = $"MWMS:FRZ:{id}";
+                var reservationOwner = viewModel.job_type
+                    ? null
+                    : sourceFreeze ?? throw new InvalidOperationException(
+                        "统一库存模式解冻必须明确关联有效的源冻结单");
+                var reservationOwnerId = reservationOwner?.id ?? id;
                 var context = CanonicalInventorySupport.Context(
                     currentUser.tenant_id, route.ErpWarehouseId, operationKey,
                     viewModel.job_type ? "STOCK_FREEZE_RESERVE" : "STOCK_FREEZE_RELEASE", id, id,
@@ -249,11 +254,11 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
                 {
                     Reservation = new StockReservationMutationContext(
                         "WMS_RESERVATION_V1",operationKey,"MODERN_WMS","STOCK_FREEZE",
-                        viewModel.job_type?id:sourceFreeze!.id,jobCode,null,null,
-                        "STOCK_FREEZE",viewModel.job_type?id:sourceFreeze.id,
-                        $"STOCK_FREEZE:{(viewModel.job_type?id:sourceFreeze.id)}:{allocation.AllocationId}",
-                        viewModel.job_type?null:sourceFreeze.reservation_id,
-                        viewModel.job_type?null:sourceFreeze.reservation_item_id)
+                        reservationOwnerId,jobCode,null,null,
+                        "STOCK_FREEZE",reservationOwnerId,
+                        $"STOCK_FREEZE:{reservationOwnerId}:{allocation.AllocationId}",
+                        reservationOwner?.reservation_id,
+                        reservationOwner?.reservation_item_id)
                 };
                 StockAllocationMutationResult mutationResult;
                 if (viewModel.job_type)
@@ -266,6 +271,9 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
                 }
                 else
                 {
+                    var releaseSource = reservationOwner
+                        ?? throw new InvalidOperationException(
+                            "统一库存模式解冻必须明确关联有效的源冻结单");
                     var quantity = await connection.ExecuteScalarAsync<long>("""
                         SELECT reserve_qty-COALESCE(released_qty,0)
                           FROM (
@@ -287,7 +295,7 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
                           ) hold_qty;
                         """, new { tenantId = currentUser.tenant_id,
                             erpStockId = allocation.ErpStockId, allocationId = allocation.AllocationId,
-                            sourceFreezeId = sourceFreeze!.id }, transaction);
+                            sourceFreezeId = releaseSource.id }, transaction);
                     if (quantity <= 0)
                         throw new InvalidOperationException("源冻结单已全部解冻或没有可解冻持有量");
                     if (quantity > allocation.OccupiedQty)
