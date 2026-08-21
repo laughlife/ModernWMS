@@ -168,7 +168,7 @@ public partial class ErpPendingReceiptService
                         [
                             new ErpReceiptAllocationViewModel
                             {
-                                warehouse_area_id = row.warehouse_area_id,
+                                warehouse_area_id = checked((int)row.warehouse_area_id),
                                 warehouse_area_name = row.warehouse_area_name,
                                 goods_owner_name = row.order_user_name,
                                 qty = row.inbound_qty
@@ -198,7 +198,7 @@ public partial class ErpPendingReceiptService
                 main_image = product?.main_image ?? string.Empty,
                 dept_name = row.dept_name,
                 order_user_name = row.order_user_name,
-                warehouse_area_id = row.warehouse_area_id,
+                warehouse_area_id = checked((int)row.warehouse_area_id),
                 warehouse_area_name = row.warehouse_area_name,
                 warehouse_id = row.warehouse_id,
                 warehouse_name = row.warehouse_name,
@@ -267,10 +267,11 @@ public partial class ErpPendingReceiptService
         long id, long? stock_record_id, long shipment_id, long? erp_stock_id,
         string purchase_no, string shipment_batch_no,
         long? commodity_id, string commodity_sku, string commodity_name, string dept_name,
-        string order_user_name, int warehouse_area_id, string warehouse_area_name, long warehouse_id,
-        string warehouse_name, string lifecycle_status, string location_state, string data_source,
+        string order_user_name, long warehouse_area_id, string warehouse_area_name,
         DateTime receipt_time, long actual_receipt_qty, long loss_qty, long inbound_qty,
-        decimal? total_weight, decimal? total_volume, string product_snapshot_json);
+        decimal? total_weight, decimal? total_volume, string product_snapshot_json,
+        long warehouse_id, string warehouse_name, string lifecycle_status, string data_source,
+        string location_state);
 
     private sealed record HistoricalReceiptAllocation(
         string LocationState,
