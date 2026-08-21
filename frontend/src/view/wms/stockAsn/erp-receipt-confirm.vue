@@ -94,61 +94,66 @@
                       <div
                         v-for="(allocation, allocationIndex) in item.allocations"
                         :key="`${item.sourceItemKey}-${allocationIndex}`"
-                        class="receiptAllocationRow"
+                        class="receiptAllocationEntry"
                       >
-                        <v-select
-                          v-model="allocation.warehouseAreaId"
-                          :items="data.warehouseAreaOptions"
-                          item-title="area_name"
-                          item-value="id"
-                          :label="$t('wms.erpPendingReceipt.warehouse_area_name')"
-                          variant="outlined"
-                          density="compact"
-                          clearable
-                          hide-details="auto"
-                          @update:model-value="method.syncAllocationLocation(allocation)"
-                        ></v-select>
-                        <v-select
-                          v-model="allocation.goodsLocationId"
-                          :items="method.locationOptions(allocation)"
-                          item-title="location_name"
-                          item-value="id"
-                          label="库位（可空）"
-                          variant="outlined"
-                          density="compact"
-                          clearable
-                          :disabled="!allocation.warehouseAreaId"
-                          hide-details="auto"
-                        ></v-select>
-                        <v-select
-                          v-model="allocation.goodsOwnerId"
-                          :items="method.ownerOptions(item)"
-                          item-title="goods_owner_name"
-                          item-value="id"
-                          :label="$t('wms.erpPendingReceipt.stock_owner')"
-                          variant="outlined"
-                          density="compact"
-                          hide-details="auto"
-                        ></v-select>
-                        <v-text-field
-                          v-model.number="allocation.qty"
-                          type="number"
-                          min="1"
-                          step="1"
-                          :label="$t('wms.erpPendingReceipt.allocation_qty')"
-                          variant="outlined"
-                          density="compact"
-                          hide-details="auto"
-                        ></v-text-field>
-                        <v-btn
-                          icon="mdi-delete-outline"
-                          size="small"
-                          variant="text"
-                          color="error"
-                          :disabled="item.allocations.length <= 1"
-                          :aria-label="$t('wms.erpPendingReceipt.remove_owner')"
-                          @click="method.removeAllocation(item, allocationIndex)"
-                        ></v-btn>
+                        <div class="receiptAllocationRow">
+                          <v-select
+                            v-model="allocation.warehouseAreaId"
+                            :items="data.warehouseAreaOptions"
+                            item-title="area_name"
+                            item-value="id"
+                            :label="$t('wms.erpPendingReceipt.warehouse_area_name')"
+                            variant="outlined"
+                            density="compact"
+                            clearable
+                            hide-details="auto"
+                            @update:model-value="method.syncAllocationLocation(allocation)"
+                          ></v-select>
+                          <v-select
+                            v-model="allocation.goodsLocationId"
+                            :items="method.locationOptions(allocation)"
+                            item-title="location_name"
+                            item-value="id"
+                            label="库位（可空）"
+                            variant="outlined"
+                            density="compact"
+                            clearable
+                            :disabled="!allocation.warehouseAreaId"
+                            hide-details="auto"
+                          ></v-select>
+                          <v-select
+                            v-model="allocation.goodsOwnerId"
+                            :items="method.ownerOptions(item)"
+                            item-title="goods_owner_name"
+                            item-value="id"
+                            :label="$t('wms.erpPendingReceipt.stock_owner')"
+                            variant="outlined"
+                            density="compact"
+                            hide-details="auto"
+                          ></v-select>
+                          <v-text-field
+                            v-model.number="allocation.qty"
+                            type="number"
+                            min="1"
+                            step="1"
+                            :label="$t('wms.erpPendingReceipt.allocation_qty')"
+                            variant="outlined"
+                            density="compact"
+                            hide-details="auto"
+                          ></v-text-field>
+                          <v-btn
+                            icon="mdi-delete-outline"
+                            size="small"
+                            variant="text"
+                            color="error"
+                            :disabled="item.allocations.length <= 1"
+                            :aria-label="$t('wms.erpPendingReceipt.remove_owner')"
+                            @click="method.removeAllocation(item, allocationIndex)"
+                          ></v-btn>
+                        </div>
+                        <div v-if="method.autoAllocationHint(item, allocation)" class="receiptAutoAllocationHint">
+                          {{ method.autoAllocationHint(item, allocation) }}
+                        </div>
                       </div>
                       <div class="receiptAllocationFooter">
                         <v-btn size="small" variant="tonal" prepend-icon="mdi-account-plus-outline" @click="method.addAllocation(item)">
@@ -544,6 +549,14 @@ const method = reactive({
   locationOptions: (allocation: ReceiptAllocationForm) => allocation.warehouseAreaId == null
     ? []
     : data.goodsLocationOptions.filter((location) => location.warehouse_area_id === allocation.warehouseAreaId),
+  autoAllocationHint: (item: ReceiptItemForm, allocation: ReceiptAllocationForm) => {
+    if (allocation.warehouseAreaId !== item.defaultWarehouseAreaId || !item.defaultWarehouseAreaName) return ''
+    const locations = method.locationOptions(allocation)
+    const locationHint = allocation.goodsLocationId == null && locations.length === 1
+      ? `；确认入库时将自动使用唯一库位：${locations[0].location_name}`
+      : ''
+    return `已按小组自动分配库区：${item.defaultWarehouseAreaName}${locationHint}`
+  },
   syncAllocationLocation: (allocation: ReceiptAllocationForm) => {
     if (allocation.warehouseAreaId == null
       || !method.locationOptions(allocation).some((location) => location.id === allocation.goodsLocationId)) {
@@ -717,12 +730,21 @@ defineExpose({
   text-align: left;
 }
 
+.receiptAllocationEntry {
+  margin-bottom: 8px;
+}
+
 .receiptAllocationRow {
   display: grid;
   grid-template-columns: minmax(125px, 1fr) minmax(125px, 1fr) minmax(145px, 1fr) 105px 36px;
   gap: 8px;
   align-items: start;
-  margin-bottom: 8px;
+}
+
+.receiptAutoAllocationHint {
+  margin-top: 4px;
+  color: rgb(var(--v-theme-primary));
+  font-size: 12px;
 }
 
 .receiptAllocationFooter {
