@@ -62,7 +62,7 @@ namespace ModernWMS.WMS.Entities.ViewModels
         /// <summary>
         /// warehouse_area_id
         /// </summary>
-        public int warehouse_area_id { get; set; } = 0;
+        public int? warehouse_area_id { get; set; }
 
         /// <summary>
         /// location_name
@@ -149,7 +149,7 @@ namespace ModernWMS.WMS.Entities.ViewModels
         /// <summary>
         /// goods_location_id
         /// </summary>
-        public int goods_location_id { get; set; } = 0;
+        public int? goods_location_id { get; set; }
 
         /// <summary>
         /// expiry_date

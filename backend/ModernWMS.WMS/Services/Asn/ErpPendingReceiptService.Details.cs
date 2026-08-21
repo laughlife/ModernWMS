@@ -100,7 +100,8 @@ public partial class ErpPendingReceiptService
                        COALESCE(l.`purchase_no`,'') AS `purchase_no`,
                        COALESCE(l.`shipment_batch_no`,'') AS `shipment_batch_no`,i.`commodity_id`,
                        i.`commodity_sku`,i.`commodity_name`,i.`dept_name`,i.`order_user_name`,
-                       i.`warehouse_area_id`,i.`warehouse_area_name`,i.`receipt_time`,
+                       i.`warehouse_area_id`,i.`warehouse_area_name`,
+                       i.`goods_location_id`,i.`goods_location_name`,i.`receipt_time`,
                        i.`actual_receipt_qty`,i.`loss_qty`,i.`inbound_qty`,i.`total_weight`,i.`total_volume`,
                        l.`product_snapshot_json`,l.`to_warehouse_id` AS `warehouse_id`,
                        COALESCE(l.`to_warehouse_name`,'') AS `warehouse_name`,
@@ -116,7 +117,8 @@ public partial class ErpPendingReceiptService
                        COALESCE(l.`purchase_no`,'') AS `purchase_no`,
                        COALESCE(l.`shipment_batch_no`,'') AS `shipment_batch_no`,h.`commodity_id`,
                        h.`commodity_sku`,h.`commodity_name`,h.`dept_name`,h.`order_user_name`,
-                       0 AS `warehouse_area_id`,'' AS `warehouse_area_name`,
+                       NULL AS `warehouse_area_id`,'' AS `warehouse_area_name`,
+                       NULL AS `goods_location_id`,'' AS `goods_location_name`,
                        COALESCE(h.`receipt_time`,l.`receipt_time`,l.`update_time`) AS `receipt_time`,
                        h.`inbound_qty` AS `actual_receipt_qty`,0 AS `loss_qty`,h.`inbound_qty`,
                        NULL AS `total_weight`,NULL AS `total_volume`,l.`product_snapshot_json`,
@@ -174,8 +176,10 @@ public partial class ErpPendingReceiptService
                         [
                             new ErpReceiptAllocationViewModel
                             {
-                                warehouse_area_id = checked((int)row.warehouse_area_id),
+                                warehouse_area_id = row.warehouse_area_id,
                                 warehouse_area_name = row.warehouse_area_name,
+                                goods_location_id = row.goods_location_id,
+                                goods_location_name = row.goods_location_name,
                                 goods_owner_name = row.order_user_name,
                                 qty = row.inbound_qty
                             }
@@ -204,8 +208,10 @@ public partial class ErpPendingReceiptService
                 main_image = product?.main_image ?? string.Empty,
                 dept_name = row.dept_name,
                 order_user_name = row.order_user_name,
-                warehouse_area_id = checked((int)row.warehouse_area_id),
+                warehouse_area_id = row.warehouse_area_id,
                 warehouse_area_name = row.warehouse_area_name,
+                goods_location_id = row.goods_location_id,
+                goods_location_name = row.goods_location_name,
                 warehouse_id = row.warehouse_id,
                 warehouse_name = row.warehouse_name,
                 lifecycle_status = row.lifecycle_status,
@@ -236,8 +242,8 @@ public partial class ErpPendingReceiptService
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         var rows = await connection.QueryAsync<HistoricalReceiptAllocationRow>("""
             SELECT log.`erp_stock_record_id` AS `stock_record_id`,a.`warehouse_area_id`,
-                   CASE WHEN a.`location_state`='UNLOCATED' THEN '待确认库位'
-                        ELSE COALESCE(area.`area_name`,location.`warehouse_area_name`,'') END AS `warehouse_area_name`,
+                   COALESCE(area.`area_name`,location.`warehouse_area_name`,'') AS `warehouse_area_name`,
+                   a.`goods_location_id`,COALESCE(location.`location_name`,'') AS `goods_location_name`,
                    a.`goods_owner_id`,COALESCE(owner.`goods_owner_name`,'') AS `goods_owner_name`,
                    SUM(log.`allocated_delta`) AS `qty`,a.`location_state`
               FROM `wms_erp_stock_allocation_log` log
@@ -251,8 +257,9 @@ public partial class ErpPendingReceiptService
                 ON owner.`id`=a.`goods_owner_id` AND owner.`tenant_id`=a.`tenant_id`
              WHERE log.`tenant_id`=@tenantId AND log.`erp_stock_record_id` IN @stockRecordIds
                AND log.`biz_type`='RECEIPT_IN' AND log.`allocated_delta`>0
-             GROUP BY log.`erp_stock_record_id`,a.`warehouse_area_id`,a.`location_state`,
-                      area.`area_name`,location.`warehouse_area_name`,a.`goods_owner_id`,owner.`goods_owner_name`
+              GROUP BY log.`erp_stock_record_id`,a.`warehouse_area_id`,a.`goods_location_id`,a.`location_state`,
+                       area.`area_name`,location.`warehouse_area_name`,location.`location_name`,
+                       a.`goods_owner_id`,owner.`goods_owner_name`
              ORDER BY log.`erp_stock_record_id`,a.`location_state`,a.`warehouse_area_id`,a.`goods_owner_id`;
             """, new { tenantId, stockRecordIds });
         return rows.GroupBy(t => t.stock_record_id).ToDictionary(
@@ -263,6 +270,8 @@ public partial class ErpPendingReceiptService
                 {
                     warehouse_area_id = row.warehouse_area_id,
                     warehouse_area_name = row.warehouse_area_name,
+                    goods_location_id = row.goods_location_id,
+                    goods_location_name = row.goods_location_name,
                     goods_owner_id = row.goods_owner_id,
                     goods_owner_name = row.goods_owner_name,
                     qty = row.qty
@@ -273,7 +282,8 @@ public partial class ErpPendingReceiptService
         long id, long? stock_record_id, long shipment_id, long? erp_stock_id,
         string purchase_no, string shipment_batch_no,
         long? commodity_id, string commodity_sku, string commodity_name, string dept_name,
-        string order_user_name, long warehouse_area_id, string warehouse_area_name,
+        string order_user_name, int? warehouse_area_id, string warehouse_area_name,
+        int? goods_location_id, string goods_location_name,
         DateTime receipt_time, long actual_receipt_qty, long loss_qty, long inbound_qty,
         decimal? total_weight, decimal? total_volume, string product_snapshot_json,
         long warehouse_id, string warehouse_name, string lifecycle_status, string data_source,
@@ -284,6 +294,7 @@ public partial class ErpPendingReceiptService
         List<ErpReceiptAllocationViewModel> Allocations);
 
     private sealed record HistoricalReceiptAllocationRow(
-        long stock_record_id, int warehouse_area_id, string warehouse_area_name,
+        long stock_record_id, int? warehouse_area_id, string warehouse_area_name,
+        int? goods_location_id, string goods_location_name,
         int goods_owner_id, string goods_owner_name, long qty, string location_state);
 }

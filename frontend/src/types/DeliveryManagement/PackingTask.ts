@@ -42,7 +42,7 @@ export interface SelectableStockVO {
   spu_code: string
   commodity_name: string
   main_image: string
-  goods_location_id: number
+  goods_location_id: number | null
   location_name: string
   warehouse_id: number
   warehouse_name: string

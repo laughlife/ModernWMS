@@ -61,7 +61,7 @@ namespace ModernWMS.WMS.Entities.ViewModels
         /// goods_location_id
         /// </summary>
         [Display(Name = "goods_location_id")]
-        public int goods_location_id { get; set; } = 0;
+        public int? goods_location_id { get; set; }
 
         /// <summary>
         /// sku_id

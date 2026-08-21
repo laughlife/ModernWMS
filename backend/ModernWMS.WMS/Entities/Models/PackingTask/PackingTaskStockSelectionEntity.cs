@@ -33,7 +33,7 @@ public class PackingTaskStockSelectionEntity : BaseModel
     /// <summary>Quantity selected from the stock row.</summary>
     public int qty { get; set; }
     /// <summary>Goods-location identifier for the selected stock.</summary>
-    public int goods_location_id { get; set; }
+    public int? goods_location_id { get; set; }
     /// <summary>Goods-owner identifier for the selected stock.</summary>
     public int goods_owner_id { get; set; }
     /// <summary>SKU code stored with the selection snapshot.</summary>

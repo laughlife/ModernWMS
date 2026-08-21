@@ -791,11 +791,11 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
                  )
                  OR
                  (
-                   allocation.`location_state`='ACTIVE'
+                   allocation.`location_state` IN ('ACTIVE','UNLOCATED')
+                   AND allocation.`goods_location_id` IS NOT NULL
                    AND
                    (
                      allocation.`warehouse_area_id` IS NULL
-                     OR allocation.`goods_location_id` IS NULL
                      OR NOT EXISTS
                      (
                        SELECT 1
@@ -806,16 +806,28 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
                         WHERE location.`id`=allocation.`goods_location_id`
                           AND location.`warehouse_area_id`=allocation.`warehouse_area_id`
                           AND location.`tenant_id`=@tenantId
+                          AND location.`is_valid`=1
                           AND warehouse.`erp_warehouse_id`=@warehouseId
                      )
                    )
                  )
                  OR
                  (
-                   allocation.`location_state`='UNLOCATED'
-                   AND
-                   (allocation.`warehouse_area_id` IS NOT NULL
-                    OR allocation.`goods_location_id` IS NOT NULL)
+                   allocation.`location_state` IN ('ACTIVE','UNLOCATED')
+                   AND allocation.`goods_location_id` IS NULL
+                   AND allocation.`warehouse_area_id` IS NOT NULL
+                   AND NOT EXISTS
+                   (
+                     SELECT 1
+                       FROM `wms_warehousearea` area
+                       JOIN `wms_warehouse` warehouse
+                         ON warehouse.`id`=area.`warehouse_id`
+                        AND warehouse.`tenant_id`=@tenantId
+                      WHERE area.`id`=allocation.`warehouse_area_id`
+                        AND area.`tenant_id`=@tenantId
+                        AND area.`is_valid`=1
+                        AND warehouse.`erp_warehouse_id`=@warehouseId
+                   )
                  )
                  OR allocation.`location_state` NOT IN ('ACTIVE','UNLOCATED','RETIRED')
                )
@@ -838,9 +850,13 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
     {
         if (string.Equals(allocation.LocationState, "RETIRED", StringComparison.Ordinal))
             throw new InvalidOperationException("已退役的位置分配不能执行库存变更");
-        if (kind is MutationKind.Reserve or MutationKind.Release or MutationKind.ShipLocked
+        if (kind is MutationKind.Reserve or MutationKind.ShipLocked
             && !string.Equals(allocation.LocationState, "ACTIVE", StringComparison.Ordinal))
-            throw new InvalidOperationException("待确认库位不可预占、释放或出库");
+            throw new InvalidOperationException("待确认库位不可新增预占或出库");
+        if (kind is MutationKind.Release
+            && !string.Equals(allocation.LocationState, "ACTIVE", StringComparison.Ordinal)
+            && !string.Equals(allocation.LocationState, "UNLOCATED", StringComparison.Ordinal))
+            throw new InvalidOperationException("仅有效库位或待确认库位允许释放预占");
     }
 
     private static void EnsureMoveSourceUsable(AllocationRow allocation)

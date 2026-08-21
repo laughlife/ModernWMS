@@ -158,7 +158,8 @@ export interface ErpReceiptConfirmInput {
     actual_receipt_qty: number
     loss_qty: number
     allocations: Array<{
-      warehouse_area_id: number
+      warehouse_area_id: number | null
+      goods_location_id: number | null
       goods_owner_id: number
       qty: number
     }>

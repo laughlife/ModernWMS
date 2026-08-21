@@ -112,7 +112,8 @@ public partial class ErpPendingReceiptService
                 INSERT INTO wms_erp_receipt_item
                     (receipt_id, shipment_id, source_item_key, task_item_id, allocation_id,
                      commodity_id, commodity_sku, commodity_name, dept_id, order_user_id,
-                     dept_name, order_user_name, warehouse_area_id, warehouse_area_name,
+                      dept_name, order_user_name, warehouse_area_id, warehouse_area_name,
+                      goods_location_id, goods_location_name,
                      shipment_qty, actual_receipt_qty, loss_qty, inbound_qty, erp_stock_id,
                      wms_sku_id, wms_stock_id, primary_stock_allocation_id,
                      receipt_time, total_weight, total_volume,
@@ -120,7 +121,8 @@ public partial class ErpPendingReceiptService
                 VALUES
                     (@receiptId, @shipmentId, @sourceItemKey, @taskItemId, @allocationId,
                      @commodityId, @sku, @name, @deptId, @orderUserId,
-                     @deptName, @orderUserName, @areaId, @areaName,
+                      @deptName, @orderUserName, @areaId, @areaName,
+                      @locationId, @locationName,
                      @shipmentQty, @actualQty, @lossQty, @inboundQty, @erpStockId,
                      @wmsSkuId, NULL, @primaryStockAllocationId,
                      @now, NULL, NULL, @now, @tenantId)
@@ -132,7 +134,9 @@ public partial class ErpPendingReceiptService
                 ("@deptId", product.dept_id), ("@orderUserId", product.order_user_id),
                 ("@deptName", Truncate(primaryArea?.OperatorGroupName ?? product.dept_name, 128)),
                 ("@orderUserName", Truncate(product.order_user_name, 128)),
-                ("@areaId", primaryArea?.AreaId ?? 0), ("@areaName", Truncate(primaryArea?.AreaName, 128)),
+                ("@areaId", primaryArea?.AreaId), ("@areaName", Truncate(primaryArea?.AreaName, 128)),
+                ("@locationId", primaryArea?.LocationId),
+                ("@locationName", Truncate(primaryArea?.LocationName, 128)),
                 ("@shipmentQty", item.shipment_qty), ("@actualQty", item.actual_receipt_qty),
                 ("@lossQty", item.loss_qty), ("@inboundQty", itemInboundQty),
                 ("@erpStockId", erpStockId), ("@wmsSkuId", wmsSkuId),
@@ -148,13 +152,17 @@ public partial class ErpPendingReceiptService
                         """
                         INSERT INTO wms_receipt_item_owner
                             (receipt_item_id, warehouse_area_id, warehouse_area_name,
+                             goods_location_id, goods_location_name,
                              goods_owner_id, goods_owner_name, qty, create_time, tenant_id)
                         VALUES
                             (@receiptItemId, @areaId, @areaName,
+                             @locationId, @locationName,
                              @ownerId, @ownerName, @qty, @now, @tenantId)
                         """,
                         ("@receiptItemId", receiptItemId),
                         ("@areaId", allocation.AreaId), ("@areaName", Truncate(allocation.AreaName, 128)),
+                        ("@locationId", allocation.LocationId),
+                        ("@locationName", Truncate(allocation.LocationName, 128)),
                         ("@ownerId", allocation.GoodsOwnerId), ("@ownerName", Truncate(allocation.GoodsOwnerName, 255)),
                         ("@qty", allocation.Qty), ("@now", now),
                         ("@tenantId", currentUser.tenant_id));
@@ -226,12 +234,12 @@ public partial class ErpPendingReceiptService
         }
     }
 
-    private async Task<ReceiptAreaLocation> EnsureReceiptAreaLocationAsync(
+    private async Task<ReceiptAreaLocation> ResolveReceiptStorageAsync(
         ErpLogisticsInfoEntity shipment,
         ErpPendingReceiptProductViewModel product,
         CurrentUser currentUser,
-        DateTime now,
-        int? explicitAreaId = null)
+        int? explicitAreaId,
+        int? explicitLocationId)
     {
         var warehouseTenantId = await ScalarOrDefaultAsync<long>(
             "SELECT tenant_id FROM wms_warehouse WHERE erp_warehouse_id=@erpWarehouseId LIMIT 1 FOR UPDATE",
@@ -255,41 +263,36 @@ public partial class ErpPendingReceiptService
             ("@erpWarehouseId", shipment.to_warehouse_id), ("@tenantId", currentUser.tenant_id));
         if (warehouseId == null)
         {
-            throw new InvalidOperationException($"收货仓库 {shipment.to_warehouse_name} 尚未映射到WMS仓库");
+            throw new InvalidOperationException($"ERP收货仓 {shipment.to_warehouse_name} 未关联当前WMS仓库");
         }
 
-        int areaId;
-        if (explicitAreaId != null)
+        int? areaId = explicitAreaId > 0 ? explicitAreaId : null;
+        if (areaId != null)
         {
             var areaValid = await ScalarOrDefaultAsync<bool>(
                 "SELECT is_valid FROM wms_warehousearea WHERE id=@areaId AND warehouse_id=@warehouseId AND tenant_id=@tenantId LIMIT 1",
-                ("@areaId", explicitAreaId.Value), ("@warehouseId", warehouseId.Value),
+                ("@areaId", areaId.Value), ("@warehouseId", warehouseId.Value),
                 ("@tenantId", currentUser.tenant_id));
             if (areaValid != true)
             {
                 throw new InvalidOperationException("所选库区无效或不属于当前收货仓库");
             }
-            areaId = explicitAreaId.Value;
         }
         else
         {
             var resolvedArea = await ResolveDefaultAreaAsync(warehouseId.Value, product.dept_id, currentUser);
-            if (resolvedArea == null)
-            {
-                var deptLabel = string.IsNullOrWhiteSpace(product.dept_name)
-                    ? product.dept_id?.ToString() ?? "未知小组"
-                    : product.dept_name;
-                throw new InvalidOperationException($"商品 {product.sku} 所属小组 {deptLabel} 未找到可用库区");
-            }
-            areaId = resolvedArea.Id;
+            areaId = resolvedArea?.Id;
+        }
+
+        if (areaId == null)
+        {
+            var warehouseRoute = ReceiptStorageRoutePolicy.Resolve(null, null);
+            return new ReceiptAreaLocation(null, string.Empty, null, string.Empty, string.Empty, warehouseRoute.LocationState);
         }
 
         var areaName = await ScalarAsync<string>(
             "SELECT area_name FROM wms_warehousearea WHERE id=@areaId",
-            ("@areaId", areaId));
-        var areaProperty = await ScalarAsync<byte>(
-            "SELECT area_property FROM wms_warehousearea WHERE id=@areaId",
-            ("@areaId", areaId));
+            ("@areaId", areaId.Value));
         var operatorGroupName = await ScalarReferenceOrDefaultAsync<string>(
             """
             WITH RECURSIVE dept_chain AS
@@ -312,33 +315,39 @@ public partial class ErpPendingReceiptService
              LIMIT 1
             """,
             ("@deptId", product.dept_id), ("@tenantId", currentUser.tenant_id),
-            ("@areaId", areaId)) ?? string.Empty;
-        var autoLocationTag = $"AREA-AUTO-{areaId}";
+            ("@areaId", areaId.Value)) ?? string.Empty;
 
-        var locationId = await ScalarOrDefaultAsync<int>(
-            "SELECT id FROM wms_goodslocation WHERE warehouse_id=@warehouseId AND warehouse_area_id=@areaId AND tag_number=@tag AND tenant_id=@tenantId AND is_valid=1 LIMIT 1 FOR UPDATE",
-            ("@warehouseId", warehouseId.Value), ("@areaId", areaId),
-            ("@tag", autoLocationTag), ("@tenantId", currentUser.tenant_id));
+        int? locationId = explicitLocationId > 0 ? explicitLocationId : null;
+        string locationName = string.Empty;
         if (locationId != null)
         {
-            return new ReceiptAreaLocation(locationId.Value, areaId, areaName, operatorGroupName);
+            locationName = await ScalarReferenceOrDefaultAsync<string>(
+                "SELECT location_name FROM wms_goodslocation WHERE id=@locationId AND warehouse_id=@warehouseId AND warehouse_area_id=@areaId AND tenant_id=@tenantId AND is_valid=1 LIMIT 1",
+                ("@locationId", locationId.Value), ("@warehouseId", warehouseId.Value),
+                ("@areaId", areaId.Value), ("@tenantId", currentUser.tenant_id)) ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(locationName))
+            {
+                throw new InvalidOperationException("所选库位无效或不属于当前库区");
+            }
+        }
+        else
+        {
+            var uniqueLocation = await ResolveUniqueLocationAsync(
+                warehouseId.Value,
+                areaId.Value,
+                currentUser.tenant_id);
+            locationId = uniqueLocation?.Id;
+            locationName = uniqueLocation?.Name ?? string.Empty;
         }
 
-        await ExecuteAsync(
-            """
-            INSERT INTO wms_goodslocation
-                (warehouse_id,warehouse_name,warehouse_area_name,warehouse_area_property,location_name,
-                 location_length,location_width,location_heigth,location_volume,location_load,
-                 roadway_number,shelf_number,layer_number,tag_number,create_time,last_update_time,
-                 is_valid,tenant_id,warehouse_area_id)
-            VALUES (@warehouseId,@warehouseName,@areaName,@areaProperty,@areaName,0,0,0,0,0,
-                    '','','',@tag,@now,@now,1,@tenantId,@areaId)
-            """,
-            ("@warehouseId", warehouseId.Value), ("@warehouseName", shipment.to_warehouse_name ?? "有座山深圳仓"),
-            ("@areaName", areaName), ("@areaProperty", areaProperty), ("@tag", autoLocationTag),
-            ("@now", now), ("@tenantId", currentUser.tenant_id), ("@areaId", areaId));
-        var createdLocationId = await ScalarAsync<int>("SELECT LAST_INSERT_ID()");
-        return new ReceiptAreaLocation(createdLocationId, areaId, areaName, operatorGroupName);
+        var route = ReceiptStorageRoutePolicy.Resolve(areaId, locationId);
+        return new ReceiptAreaLocation(
+            route.GoodsLocationId,
+            locationName,
+            route.WarehouseAreaId,
+            areaName,
+            operatorGroupName,
+            route.LocationState);
     }
 
     private async Task<int> EnsureWmsSkuAsync(
@@ -604,21 +613,26 @@ public partial class ErpPendingReceiptService
     }
 
     private sealed record ReceiptAreaLocation(
-        int LocationId,
-        int AreaId,
-        string AreaName,
-        string OperatorGroupName);
-
-    private sealed record ReceiptAllocation(
-        int LocationId,
-        int AreaId,
+        int? LocationId,
+        string LocationName,
+        int? AreaId,
         string AreaName,
         string OperatorGroupName,
+        string LocationState);
+
+    private sealed record ReceiptAllocation(
+        int? LocationId,
+        string LocationName,
+        int? AreaId,
+        string AreaName,
+        string OperatorGroupName,
+        string LocationState,
         int GoodsOwnerId,
         string GoodsOwnerName,
         long Qty);
 
     private sealed record AreaReference(int Id, string Name);
+    private sealed record LocationReference(int Id, string Name);
 
     private static DynamicParameters CreateParameters(params (string Name, object? Value)[] parameters)
     {

@@ -119,8 +119,8 @@ public class StockService : BaseService<StockEntity>, IStockService
     {
         var filter = DapperSearchBuilder.Build(page.searchObjects, StockSelectColumns);
         AddPage(filter.Parameters, page, user.tenant_id);
-        var clauses = new List<string> { "(q.`inventory_mode`='LEGACY_READ' OR q.`location_state`='ACTIVE')" };
-        if (page.sqlTitle == "") clauses.Add("q.`qty_available`>0");
+        var clauses = new List<string>();
+        if (page.sqlTitle == "") clauses.Add("(q.`qty_available`>0 OR q.`qty_pending_location`>0)");
         else if (page.sqlTitle == "frozen") clauses.Add("q.`is_freeze`=1");
         if (filter.Sql.Length > 0) clauses.Add(filter.Sql);
         return await QueryPageAsync<StockViewModel>(UnifiedInventoryCte, StockSelectSql,
@@ -165,18 +165,26 @@ public class StockService : BaseService<StockEntity>, IStockService
             offset = (input.pageIndex - 1) * input.pageSize, pageSize = input.pageSize
         });
         const string select = """
-            SELECT d.`dispatch_no`,wh.`warehouse_name`,gl.`location_name`,spu.`spu_name`,spu.`spu_code`,sku.`sku_name`,sku.`sku_code`,
+            SELECT d.`dispatch_no`,COALESCE(wh_location.`warehouse_name`,wh_erp.`warehouse_name`,'') `warehouse_name`,
+                   COALESCE(gl.`location_name`,'') `location_name`,spu.`spu_name`,spu.`spu_code`,sku.`sku_name`,sku.`sku_code`,
                    p.`series_number`,p.`price`,p.`expiry_date`,p.`putaway_date`,d.`create_time` delivery_date,go.`goods_owner_name`,
                    SUM(p.`picked_qty`) delivery_qty,SUM(p.`picked_qty`*sku.`price`) delivery_amount
             FROM `wms_dispatchlist` d JOIN `wms_dispatchpicklist` p ON p.`dispatchlist_id`=d.`id`
             JOIN `wms_sku` sku ON sku.`id`=d.`sku_id` JOIN `wms_spu` spu ON spu.`id`=sku.`spu_id`
-            JOIN `wms_goodslocation` gl ON gl.`id`=p.`goods_location_id` JOIN `wms_warehouse` wh ON wh.`id`=gl.`warehouse_id`
+            LEFT JOIN `wms_goodslocation` gl ON gl.`id`=p.`goods_location_id`
+            LEFT JOIN `wms_warehouse` wh_location ON wh_location.`id`=gl.`warehouse_id`
+            LEFT JOIN `wms_erp_stock_allocation` allocation ON allocation.`id`=p.`stock_allocation_id`
+            LEFT JOIN `trk_stock` stock ON stock.`id`=COALESCE(p.`erp_stock_id`,allocation.`erp_stock_id`) AND stock.`deleted`=b'0'
+            LEFT JOIN `wms_warehouse` wh_erp ON wh_erp.`tenant_id`=d.`tenant_id`
+              AND wh_erp.`erp_warehouse_id`=stock.`warehouse_id` AND wh_erp.`is_valid`=1
             JOIN `wms_goodsowner` go ON go.`id`=p.`goods_owner_id`
             WHERE d.`tenant_id`=@tenantId AND d.`dispatch_status`>=6
               AND (@delivery_date_from=@minDate OR d.`create_time`>=@delivery_date_from) AND (@delivery_date_to=@minDate OR d.`create_time`<=@delivery_date_to)
               AND spu.`spu_name` LIKE @spuName ESCAPE '!' AND spu.`spu_code` LIKE @spuCode ESCAPE '!'
-              AND sku.`sku_name` LIKE @skuName ESCAPE '!' AND sku.`sku_code` LIKE @skuCode ESCAPE '!' AND wh.`warehouse_name` LIKE @warehouseName ESCAPE '!'
-            GROUP BY d.`dispatch_no`,wh.`warehouse_name`,gl.`location_name`,spu.`spu_name`,spu.`spu_code`,sku.`sku_name`,sku.`sku_code`,
+              AND sku.`sku_name` LIKE @skuName ESCAPE '!' AND sku.`sku_code` LIKE @skuCode ESCAPE '!'
+              AND COALESCE(wh_location.`warehouse_name`,wh_erp.`warehouse_name`,'') LIKE @warehouseName ESCAPE '!'
+            GROUP BY d.`dispatch_no`,COALESCE(wh_location.`warehouse_name`,wh_erp.`warehouse_name`,''),COALESCE(gl.`location_name`,''),
+                     spu.`spu_name`,spu.`spu_code`,sku.`sku_name`,sku.`sku_code`,
                      p.`series_number`,p.`price`,p.`expiry_date`,p.`putaway_date`,d.`create_time`,p.`goods_owner_id`,go.`goods_owner_name`
             """;
         return await QueryPageAsync<DeliveryStatisticViewModel>("", select, "1=1", "q.`delivery_date` DESC", p);
@@ -286,9 +294,9 @@ public class StockService : BaseService<StockEntity>, IStockService
           SELECT 0 id,stock.`id` erp_stock_id,a.`id` stock_allocation_id,'CANONICAL_ERP' inventory_mode,a.`location_state`,
                  a.`location_state`='UNLOCATED' is_pending_location,map.`wms_sku_id` sku_id,
                  a.`goods_location_id`,a.`goods_owner_id`,a.`warehouse_area_id`,
-                 CASE WHEN a.`location_state`='UNLOCATED' THEN '待确认库区' ELSE COALESCE(gl.`warehouse_area_name`,'') END warehouse_area_name,
+                 COALESCE(area.`area_name`,gl.`warehouse_area_name`,'') warehouse_area_name,
                  wm.`warehouse_id`,wm.`warehouse_name`,
-                 CASE WHEN a.`location_state`='UNLOCATED' THEN '待确认库位' ELSE COALESCE(gl.`location_name`,'') END location_name,
+                 COALESCE(gl.`location_name`,'') location_name,
                  spu.`spu_code`,spu.`spu_name`,sku.`sku_code`,sku.`sku_name`,sku.`unit`,COALESCE(go.`goods_owner_name`,'') goods_owner_name,
                  a.`series_number`,a.`expiry_date`,a.`price`,a.`putaway_date`,a.`allocated_qty` qty,
                  CASE WHEN a.`location_state`='ACTIVE' THEN a.`allocated_qty`-a.`occupied_qty` ELSE 0 END qty_available,
@@ -307,6 +315,7 @@ public class StockService : BaseService<StockEntity>, IStockService
           LEFT JOIN `wms_erp_goods_owner_map` owner_map ON owner_map.`tenant_id`=a.`tenant_id`
             AND owner_map.`erp_dept_id`=stock.`dept_id` AND owner_map.`erp_order_user_id`=stock.`order_user_id`
           LEFT JOIN `wms_goodsowner` go ON go.`id`=a.`goods_owner_id`
+          LEFT JOIN `wms_warehousearea` area ON area.`id`=a.`warehouse_area_id` AND area.`tenant_id`=a.`tenant_id`
           LEFT JOIN `wms_goodslocation` gl ON gl.`id`=a.`goods_location_id` AND gl.`warehouse_id`=wm.`warehouse_id`
           WHERE a.`tenant_id`=@tenantId AND a.`location_state`<>'RETIRED'
         ), canonical_inventory AS (

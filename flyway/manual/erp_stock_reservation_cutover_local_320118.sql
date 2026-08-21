@@ -152,8 +152,13 @@ main: BEGIN
     SELECT legacy_stock.id AS legacy_stock_id,
            MIN(receipt_item.erp_stock_id) AS erp_stock_id,
            COUNT(DISTINCT receipt_item.erp_stock_id) AS erp_stock_count,
-           legacy_stock.tenant_id, legacy_stock.sku_id, legacy_stock.goods_location_id,
-           location.warehouse_area_id, legacy_stock.goods_owner_id,
+           legacy_stock.tenant_id, legacy_stock.sku_id,
+           legacy_stock.goods_location_id AS legacy_goods_location_id,
+           CASE WHEN location.tag_number LIKE 'AREA-AUTO-%'
+                THEN NULL ELSE legacy_stock.goods_location_id END AS goods_location_id,
+           location.warehouse_area_id,
+           'ACTIVE' AS target_location_state,
+           legacy_stock.goods_owner_id,
            legacy_stock.series_number, legacy_stock.expiry_date, legacy_stock.price,
            DATE(legacy_stock.putaway_date) AS putaway_date, legacy_stock.qty
       FROM wms_stock legacy_stock
@@ -166,7 +171,11 @@ main: BEGIN
      WHERE legacy_stock.tenant_id=1 AND legacy_stock.qty>0
        AND warehouse.erp_warehouse_id=320118
      GROUP BY legacy_stock.id,legacy_stock.tenant_id,legacy_stock.sku_id,
-              legacy_stock.goods_location_id,location.warehouse_area_id,
+               legacy_stock.goods_location_id,
+               CASE WHEN location.tag_number LIKE 'AREA-AUTO-%'
+                    THEN NULL ELSE legacy_stock.goods_location_id END,
+               location.warehouse_area_id,
+               'ACTIVE',
               legacy_stock.goods_owner_id,legacy_stock.series_number,
               legacy_stock.expiry_date,legacy_stock.price,DATE(legacy_stock.putaway_date),
               legacy_stock.qty;
@@ -178,10 +187,18 @@ main: BEGIN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = '旧WMS库存必须精确为57行/57stock/35772';
     END IF;
 
+    SELECT COUNT(*),COUNT(DISTINCT legacy_goods_location_id)
+      INTO v_count,v_qty
+      FROM tmp_wms_legacy_stock_map
+     WHERE target_location_state='ACTIVE' AND goods_location_id IS NULL;
+    IF v_count<>57 OR v_qty<>9 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = '历史AREA-AUTO假库位事实必须精确为57行/9库位';
+    END IF;
+
     SELECT COUNT(*) INTO v_count
       FROM tmp_wms_legacy_stock_map map
       LEFT JOIN trk_stock stock ON stock.id=map.erp_stock_id AND stock.deleted=b'0'
-      LEFT JOIN wms_goodslocation location ON location.id=map.goods_location_id
+      LEFT JOIN wms_goodslocation location ON location.id=map.legacy_goods_location_id
       LEFT JOIN wms_warehousearea area ON area.id=map.warehouse_area_id
       LEFT JOIN wms_warehouse warehouse ON warehouse.id=location.warehouse_id
       LEFT JOIN wms_erp_goods_owner_map owner_map
@@ -248,23 +265,23 @@ main: BEGIN
          series_number,expiry_date,price,putaway_date,allocated_qty,occupied_qty,
          location_state,row_version,creator,create_time,updater,update_time)
     SELECT map.tenant_id,map.erp_stock_id,map.warehouse_area_id,map.goods_location_id,
-           map.goods_owner_id,map.series_number,map.expiry_date,map.price,map.putaway_date,
-           map.qty,stock.occupied_qty,'ACTIVE',0,
+            map.goods_owner_id,map.series_number,map.expiry_date,map.price,map.putaway_date,
+            map.qty,stock.occupied_qty,map.target_location_state,0,
            'reservation-cutover',NOW(6),'reservation-cutover',NOW(6)
       FROM tmp_wms_legacy_stock_map map
       JOIN trk_stock stock ON stock.id=map.erp_stock_id;
     IF ROW_COUNT() <> 57 THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'ACTIVE allocation必须插入57行';
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = '旧WMS位置分解必须插入57行';
     END IF;
 
-    -- PO2608050004 等只有ERP余额、没有旧WMS位置的数量进入UNLOCATED，绝不伪造库位。
+    -- PO2608050004 等只有ERP余额、没有旧WMS位置的数量保留为仓库级ACTIVE，绝不伪造库区/库位。
     INSERT INTO wms_erp_stock_allocation
         (tenant_id,erp_stock_id,warehouse_area_id,goods_location_id,goods_owner_id,
          series_number,expiry_date,price,putaway_date,allocated_qty,occupied_qty,
          location_state,row_version,creator,create_time,updater,update_time)
     SELECT 1,stock.id,NULL,NULL,owner_map.wms_goods_owner_id,
            '', '9999-12-31 00:00:00.000000',0,CURRENT_DATE,
-           stock.total_qty-COALESCE(mapped.qty,0),stock.occupied_qty,'UNLOCATED',0,
+           stock.total_qty-COALESCE(mapped.qty,0),stock.occupied_qty,'ACTIVE',0,
            'reservation-cutover',NOW(6),'reservation-cutover',NOW(6)
       FROM trk_stock stock
       JOIN wms_erp_goods_owner_map owner_map
@@ -277,7 +294,7 @@ main: BEGIN
      WHERE stock.warehouse_id=320118 AND stock.deleted=b'0'
        AND stock.total_qty>COALESCE(mapped.qty,0);
     IF ROW_COUNT() <> 1 THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'UNLOCATED必须精确插入1行';
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = '仓库级ACTIVE必须精确插入1行';
     END IF;
 
     SELECT COUNT(*) INTO v_count
@@ -314,9 +331,11 @@ main: BEGIN
       JOIN trk_stock_reservation_item item
         ON item.tenant_id=reservation.tenant_id AND item.reservation_id=reservation.id
        AND item.deleted=b'0'
+      JOIN tmp_wms_legacy_stock_map legacy ON legacy.erp_stock_id=item.stock_id
       JOIN wms_erp_stock_allocation allocation
-        ON allocation.tenant_id=1 AND allocation.erp_stock_id=item.stock_id
-       AND allocation.location_state='ACTIVE'
+         ON allocation.tenant_id=1 AND allocation.erp_stock_id=item.stock_id
+        AND allocation.warehouse_area_id <=> legacy.warehouse_area_id
+        AND allocation.goods_location_id <=> legacy.goods_location_id
       JOIN trk_stock_reservation_command command_header
         ON command_header.tenant_id=1 AND command_header.reservation_id=reservation.id
        AND command_header.action='CLAIM_ORPHAN' AND command_header.result_status='SUCCEEDED'
@@ -385,8 +404,9 @@ main: BEGIN
        AND item.stock_id=legacy.erp_stock_id AND item.remaining_qty=pick.pick_qty
        AND item.deleted=b'0'
       JOIN wms_erp_stock_allocation allocation
-        ON allocation.tenant_id=1 AND allocation.erp_stock_id=legacy.erp_stock_id
-       AND allocation.location_state='ACTIVE'
+         ON allocation.tenant_id=1 AND allocation.erp_stock_id=legacy.erp_stock_id
+        AND allocation.warehouse_area_id <=> legacy.warehouse_area_id
+        AND allocation.goods_location_id <=> legacy.goods_location_id
      WHERE pick.id IN (1,2,3,4) AND pick.is_update_stock=0
        AND pick.reservation_id IS NULL AND pick.reservation_item_id IS NULL;
 
@@ -402,7 +422,9 @@ main: BEGIN
        SET pick.erp_stock_id=owner.erp_stock_id,
            pick.stock_allocation_id=owner.allocation_id,
            pick.reservation_id=owner.reservation_id,
-           pick.reservation_item_id=owner.reservation_item_id
+           pick.reservation_item_id=owner.reservation_item_id,
+           pick.stock_id=0,
+           pick.goods_location_id=NULL
      WHERE pick.id IN (1,2,3,4) AND pick.is_update_stock=0
        AND pick.reservation_id IS NULL AND pick.reservation_item_id IS NULL;
     IF ROW_COUNT()<>4 THEN
@@ -452,8 +474,9 @@ main: BEGIN
         ON source_task.sellfox_task_id=selection.sellfox_task_id
       JOIN tmp_wms_legacy_stock_map legacy ON legacy.legacy_stock_id=selection.stock_id
       JOIN wms_erp_stock_allocation allocation
-        ON allocation.tenant_id=1 AND allocation.erp_stock_id=legacy.erp_stock_id
-       AND allocation.location_state='ACTIVE'
+         ON allocation.tenant_id=1 AND allocation.erp_stock_id=legacy.erp_stock_id
+        AND allocation.warehouse_area_id <=> legacy.warehouse_area_id
+        AND allocation.goods_location_id <=> legacy.goods_location_id
      WHERE selection.tenant_id=1 AND selection.id IN (5,6)
     UNION ALL
     SELECT 'PENDING_PICK',pick.id,task.source_task_id,task.source_task_no,
@@ -464,8 +487,9 @@ main: BEGIN
       JOIN wms_dispatch_packing_task task ON task.id=task_item.packing_task_id
       JOIN tmp_wms_legacy_stock_map legacy ON legacy.legacy_stock_id=pick.stock_id
       JOIN wms_erp_stock_allocation allocation
-        ON allocation.tenant_id=1 AND allocation.erp_stock_id=legacy.erp_stock_id
-       AND allocation.location_state='ACTIVE'
+         ON allocation.tenant_id=1 AND allocation.erp_stock_id=legacy.erp_stock_id
+        AND allocation.warehouse_area_id <=> legacy.warehouse_area_id
+        AND allocation.goods_location_id <=> legacy.goods_location_id
      WHERE pick.id IN (5,6,7,8) AND pick.is_update_stock=0;
 
     SELECT COUNT(*),COALESCE(SUM(action_qty),0),COUNT(DISTINCT task_id)
@@ -744,7 +768,8 @@ main: BEGIN
       ON source.source_kind='PACKING_SELECTION' AND source.source_row_id=selection.id
        SET selection.erp_stock_id=source.stock_id,selection.stock_allocation_id=source.allocation_id,
            selection.reservation_id=source.reservation_id,
-           selection.reservation_item_id=source.reservation_item_id
+           selection.reservation_item_id=source.reservation_item_id,
+           selection.stock_id=0,selection.goods_location_id=NULL
      WHERE selection.tenant_id=1 AND selection.id IN (5,6)
        AND selection.reservation_id IS NULL AND selection.reservation_item_id IS NULL;
     IF ROW_COUNT()<>2 THEN
@@ -755,7 +780,8 @@ main: BEGIN
     JOIN tmp_wms_new_owner source
       ON source.source_kind='PENDING_PICK' AND source.source_row_id=pick.id
        SET pick.erp_stock_id=source.stock_id,pick.stock_allocation_id=source.allocation_id,
-           pick.reservation_id=source.reservation_id,pick.reservation_item_id=source.reservation_item_id
+           pick.reservation_id=source.reservation_id,pick.reservation_item_id=source.reservation_item_id,
+           pick.stock_id=0,pick.goods_location_id=NULL
      WHERE pick.id IN (5,6,7,8) AND pick.is_update_stock=0
        AND pick.reservation_id IS NULL AND pick.reservation_item_id IS NULL;
     IF ROW_COUNT()<>4 THEN
@@ -847,7 +873,8 @@ main: BEGIN
     SELECT COUNT(*) INTO v_count FROM wms_packing_task_stock_selection
      WHERE tenant_id=1 AND id IN (5,6)
        AND (reservation_id IS NULL OR reservation_item_id IS NULL
-            OR erp_stock_id IS NULL OR stock_allocation_id IS NULL);
+             OR erp_stock_id IS NULL OR stock_allocation_id IS NULL
+             OR stock_id<>0 OR goods_location_id IS NOT NULL);
     IF v_count<>0 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'selection仍有无主库存引用';
     END IF;
@@ -855,7 +882,8 @@ main: BEGIN
     SELECT COUNT(*) INTO v_count FROM wms_dispatchpicklist
      WHERE id IN (1,2,3,4,5,6,7,8) AND is_update_stock=0
        AND (reservation_id IS NULL OR reservation_item_id IS NULL
-            OR erp_stock_id IS NULL OR stock_allocation_id IS NULL);
+             OR erp_stock_id IS NULL OR stock_allocation_id IS NULL
+             OR stock_id<>0 OR goods_location_id IS NOT NULL);
     IF v_count<>0 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'pending pick仍有无主库存引用';
     END IF;

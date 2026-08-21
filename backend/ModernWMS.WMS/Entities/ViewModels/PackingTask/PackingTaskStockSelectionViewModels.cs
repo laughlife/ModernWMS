@@ -111,7 +111,7 @@ public class SelectableStockViewModel
     /// <summary>
     /// 获取或设置 goods_location_id。
     /// </summary>
-    public int goods_location_id { get; set; }
+    public int? goods_location_id { get; set; }
     /// <summary>
     /// 获取或设置 location_name。
     /// </summary>

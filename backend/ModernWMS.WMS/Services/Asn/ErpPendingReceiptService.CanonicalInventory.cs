@@ -13,7 +13,6 @@ namespace ModernWMS.WMS.Services;
 public partial class ErpPendingReceiptService
 {
     private const string CanonicalInventoryMode = "CANONICAL_ERP";
-    private const string ActiveAllocationState = "ACTIVE";
 
     private async Task EnsureCanonicalInventoryWriteEnabledAsync(long erpWarehouseId, long tenantId)
     {
@@ -297,15 +296,16 @@ public partial class ErpPendingReceiptService
                     VALUES
                         (@tenantId,@erpStockId,@areaId,@locationId,@ownerId,
                          '','9999-12-31 00:00:00.000000',@price,@putawayDate,@qty,0,
-                         'ACTIVE',0,@operatorName,@now,@operatorName,@now)
+                          @locationState,0,@operatorName,@now,@operatorName,@now)
                     """,
                     ("@tenantId", currentUser.tenant_id), ("@erpStockId", posting.StockId),
                     ("@areaId", allocation.AreaId), ("@locationId", allocation.LocationId),
                     ("@ownerId", allocation.GoodsOwnerId), ("@price", price),
                     ("@putawayDate", putawayDate), ("@qty", allocation.Qty),
+                    ("@locationState", allocation.LocationState),
                     ("@operatorName", Truncate(currentUser.user_name, 128)), ("@now", now));
                 var allocationId = await ScalarAsync<long>("SELECT LAST_INSERT_ID()");
-                row = new StockAllocationBalance(allocationId, 0, 0, ActiveAllocationState);
+                row = new StockAllocationBalance(allocationId, 0, 0, allocation.LocationState);
                 created = true;
             }
             catch (MySqlException ex) when (ex.Number == 1062)
@@ -331,12 +331,13 @@ public partial class ErpPendingReceiptService
                 """
                 UPDATE wms_erp_stock_allocation
                    SET allocated_qty=@afterAllocated,occupied_qty=@afterOccupied,
-                       location_state='ACTIVE',row_version=row_version+1,
+                        location_state=@locationState,row_version=row_version+1,
                        updater=@operatorName,update_time=@now
                  WHERE id=@allocationId AND tenant_id=@tenantId
                    AND allocated_qty=@beforeAllocated AND occupied_qty=@beforeOccupied
                 """,
                 ("@afterAllocated", afterAllocated), ("@afterOccupied", afterOccupied),
+                ("@locationState", allocation.LocationState),
                 ("@operatorName", Truncate(currentUser.user_name, 128)), ("@now", now),
                 ("@allocationId", row.id), ("@tenantId", currentUser.tenant_id),
                 ("@beforeAllocated", row.allocated_qty), ("@beforeOccupied", row.occupied_qty));
@@ -383,8 +384,8 @@ public partial class ErpPendingReceiptService
             SELECT id,allocated_qty,occupied_qty,location_state
              FROM wms_erp_stock_allocation
              WHERE tenant_id=@tenantId AND erp_stock_id=@erpStockId
-               AND warehouse_area_id=@areaId
-               AND goods_location_id=@locationId AND goods_owner_id=@ownerId
+               AND warehouse_area_id <=> @areaId
+               AND goods_location_id <=> @locationId AND goods_owner_id=@ownerId
                AND series_number='' AND expiry_date='9999-12-31 00:00:00.000000'
                AND price=@price AND putaway_date=@putawayDate
              LIMIT 1 FOR UPDATE
@@ -412,13 +413,16 @@ public partial class ErpPendingReceiptService
             """
             SELECT COUNT(*)
               FROM trk_stock stock
-              JOIN wms_warehouse warehouse
+              LEFT JOIN wms_warehouse warehouse
                 ON warehouse.erp_warehouse_id=stock.warehouse_id
                AND warehouse.tenant_id=@tenantId AND warehouse.is_valid=1
-              JOIN wms_goodslocation location
+              LEFT JOIN wms_warehousearea area
+                ON area.id=@areaId AND area.warehouse_id=warehouse.id
+               AND area.tenant_id=@tenantId AND area.is_valid=1
+              LEFT JOIN wms_goodslocation location
                 ON location.id=@locationId
                AND location.warehouse_id=warehouse.id
-               AND location.warehouse_area_id=@areaId
+               AND location.warehouse_area_id=area.id
                AND location.tenant_id=@tenantId AND location.is_valid=1
               JOIN wms_erp_goods_owner_map owner_map
                 ON owner_map.wms_goods_owner_id=@ownerId
@@ -427,6 +431,8 @@ public partial class ErpPendingReceiptService
                AND owner_map.tenant_id=@tenantId
              WHERE stock.id=@erpStockId AND stock.deleted=b'0'
                AND stock.warehouse_id=@erpWarehouseId
+               AND (@areaId IS NULL OR area.id IS NOT NULL)
+               AND (@locationId IS NULL OR location.id IS NOT NULL)
             """,
             ("@tenantId", tenantId), ("@locationId", allocation.LocationId),
             ("@areaId", allocation.AreaId), ("@ownerId", allocation.GoodsOwnerId),

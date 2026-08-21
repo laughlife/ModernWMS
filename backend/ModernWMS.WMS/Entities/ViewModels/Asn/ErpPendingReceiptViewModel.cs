@@ -197,6 +197,14 @@ public class ErpPendingReceiptProductViewModel
     /// </summary>
     public string default_warehouse_area_name { get; set; } = string.Empty;
     /// <summary>
+    /// 获取或设置 default_goods_location_id。
+    /// </summary>
+    public int? default_goods_location_id { get; set; }
+    /// <summary>
+    /// 获取或设置 default_goods_location_name。
+    /// </summary>
+    public string default_goods_location_name { get; set; } = string.Empty;
+    /// <summary>
     /// 获取或设置 default_goods_owner_id。
     /// </summary>
     public long? default_goods_owner_id { get; set; }
@@ -254,11 +262,19 @@ public class ErpReceiptDetailViewModel
     /// <summary>
     /// 获取或设置 warehouse_area_id。
     /// </summary>
-    public int warehouse_area_id { get; set; }
+    public int? warehouse_area_id { get; set; }
     /// <summary>
     /// 获取或设置 warehouse_area_name。
     /// </summary>
     public string warehouse_area_name { get; set; } = string.Empty;
+    /// <summary>
+    /// 获取或设置 goods_location_id。
+    /// </summary>
+    public int? goods_location_id { get; set; }
+    /// <summary>
+    /// 获取或设置 goods_location_name。
+    /// </summary>
+    public string goods_location_name { get; set; } = string.Empty;
     /// <summary>
     /// 获取或设置 warehouse_id。
     /// </summary>
@@ -321,11 +337,19 @@ public class ErpReceiptAllocationViewModel
     /// <summary>
     /// 获取或设置 warehouse_area_id。
     /// </summary>
-    public int warehouse_area_id { get; set; }
+    public int? warehouse_area_id { get; set; }
     /// <summary>
     /// 获取或设置 warehouse_area_name。
     /// </summary>
     public string warehouse_area_name { get; set; } = string.Empty;
+    /// <summary>
+    /// 获取或设置 goods_location_id。
+    /// </summary>
+    public int? goods_location_id { get; set; }
+    /// <summary>
+    /// 获取或设置 goods_location_name。
+    /// </summary>
+    public string goods_location_name { get; set; } = string.Empty;
     /// <summary>
     /// 获取或设置 goods_owner_id。
     /// </summary>

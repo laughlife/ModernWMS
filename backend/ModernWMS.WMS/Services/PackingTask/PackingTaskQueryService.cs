@@ -634,7 +634,7 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                           WHERE image_map.`tenant_id`=@TenantId
                             AND image_map.`wms_sku_id`=map.`wms_sku_id`
                             AND commodity.`img_url`<>'' ORDER BY image_map.`id` LIMIT 1),'') AS main_image,
-                       allocation.`goods_location_id`,location.`location_name`,
+                       allocation.`goods_location_id`,COALESCE(location.`location_name`,'') AS `location_name`,
                        allocation.`goods_owner_id`,COALESCE(owner.`goods_owner_name`,'') AS goods_owner_name,
                        allocation.`allocated_qty` AS qty,
                        allocation.`allocated_qty`-allocation.`occupied_qty` AS free_qty,
@@ -647,9 +647,10 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                     AND map.`erp_commodity_id`=stock.`commodity_id` AND map.`wms_sku_id`>0
                   JOIN `wms_sku` sku ON sku.`id`=map.`wms_sku_id`
                   JOIN `wms_spu` spu ON spu.`id`=sku.`spu_id`
-                  JOIN `wms_goodslocation` location ON location.`id`=allocation.`goods_location_id`
-                    AND location.`warehouse_id`=@WarehouseId AND location.`is_valid`=1
-                    AND location.`warehouse_area_property`<>5
+                  LEFT JOIN `wms_warehousearea` area ON area.`id`=allocation.`warehouse_area_id`
+                    AND area.`warehouse_id`=@WarehouseId AND area.`tenant_id`=@TenantId AND area.`is_valid`=1
+                  LEFT JOIN `wms_goodslocation` location ON location.`id`=allocation.`goods_location_id`
+                     AND location.`warehouse_id`=@WarehouseId AND location.`is_valid`=1
                   LEFT JOIN `wms_goodsowner` owner ON owner.`id`=allocation.`goods_owner_id`
                   LEFT JOIN (
                     SELECT `stock_allocation_id`,SUM(`qty`) selected_qty
@@ -667,7 +668,10 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                        OR owner.`goods_owner_name` NOT LIKE CONCAT('%',@CreateName,'%')))
                    AND (@HasKeyword=0 OR sku.`sku_code` LIKE @KeywordPattern
                      OR spu.`spu_code` LIKE @KeywordPattern OR spu.`spu_name` LIKE @KeywordPattern)
-                   AND (@HasLocation=0 OR location.`location_name` LIKE @LocationPattern)
+                   AND (allocation.`warehouse_area_id` IS NULL OR area.`id` IS NOT NULL)
+                   AND (allocation.`goods_location_id` IS NULL OR location.`id` IS NOT NULL)
+                   AND COALESCE(location.`warehouse_area_property`,area.`area_property`,0)<>5
+                   AND (@HasLocation=0 OR COALESCE(location.`location_name`,'') LIKE @LocationPattern)
                    AND (@HasOwner=0 OR owner.`goods_owner_name` LIKE @OwnerPattern)
                  ORDER BY allocation.`id`;
                 """, new
@@ -1349,7 +1353,7 @@ public class PackingTaskQueryService : IPackingTaskQueryService
             public string spu_code { get; init; } = string.Empty;
             public string commodity_name { get; init; } = string.Empty;
             public string main_image { get; init; } = string.Empty;
-            public int goods_location_id { get; init; }
+            public int? goods_location_id { get; init; }
             public string location_name { get; init; } = string.Empty;
             public int goods_owner_id { get; init; }
             public string goods_owner_name { get; init; } = string.Empty;
@@ -1366,7 +1370,7 @@ public class PackingTaskQueryService : IPackingTaskQueryService
             public long erp_stock_id { get; init; }
             public int sku_id { get; init; }
             public string sku_code { get; init; } = string.Empty;
-            public int goods_location_id { get; init; }
+            public int? goods_location_id { get; init; }
             public int goods_owner_id { get; init; }
             public string goods_owner_name { get; init; } = string.Empty;
             public long allocated_qty { get; init; }

@@ -9,7 +9,7 @@ export interface StockAgeStatisticVo {
   qty: number,
   goods_owner_name: string,
   series_number: string,
-  goods_location_id: number,
+  goods_location_id: number | null,
   expiry_date: string,
   price: number,
   putaway_date: string,

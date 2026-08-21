@@ -7,7 +7,7 @@ export interface StockLocationVO {
     allocation_consistent: boolean
     warehouse_id: number
     warehouse_name: string
-    warehouse_area_id: number
+    warehouse_area_id: number | null
     location_name: string
     warehouse_area_name: string
     spu_code: string

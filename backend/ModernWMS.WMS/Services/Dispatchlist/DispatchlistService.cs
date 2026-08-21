@@ -183,14 +183,23 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
               p.`goods_owner_id`,p.`goods_location_id`,p.`sku_id`,
               p.`pick_qty`,p.`picked_qty`,COALESCE(o.`goods_owner_name`,'') `goods_owner_name`,
               sku.`sku_code`,spu.`spu_code`,spu.`spu_description`,spu.`spu_name`,sku.`bar_code`,
-              l.`location_name`,l.`warehouse_area_name`,l.`warehouse_area_property`,l.`warehouse_name`,
+              COALESCE(l.`location_name`,'') `location_name`,
+              COALESCE(area.`area_name`,l.`warehouse_area_name`,'') `warehouse_area_name`,
+              COALESCE(l.`warehouse_area_property`,area.`area_property`,0) `warehouse_area_property`,
+              COALESCE(wh.`warehouse_name`,l.`warehouse_name`,'') `warehouse_name`,
               p.`series_number`,p.`expiry_date`,p.`price`,p.`picker`,p.`picker_id`,p.`putaway_date`
             FROM `wms_dispatchpicklist` p
             INNER JOIN `wms_dispatchlist` d ON p.`dispatchlist_id`=d.`id`
             INNER JOIN `wms_sku` sku ON p.`sku_id`=sku.`id`
             INNER JOIN `wms_spu` spu ON sku.`spu_id`=spu.`id`
             LEFT JOIN `wms_goodsowner` o ON p.`goods_owner_id`=o.`id`
-            INNER JOIN `wms_goodslocation` l ON p.`goods_location_id`=l.`id`
+            LEFT JOIN `wms_erp_stock_allocation` allocation ON allocation.`id`=p.`stock_allocation_id`
+            LEFT JOIN `trk_stock` stock ON stock.`id`=allocation.`erp_stock_id` AND stock.`deleted`=b'0'
+            LEFT JOIN `wms_warehouse` wh ON wh.`erp_warehouse_id`=stock.`warehouse_id`
+              AND wh.`tenant_id`=d.`tenant_id` AND wh.`is_valid`=1
+            LEFT JOIN `wms_warehousearea` area ON area.`id`=allocation.`warehouse_area_id`
+              AND area.`tenant_id`=d.`tenant_id`
+            LEFT JOIN `wms_goodslocation` l ON p.`goods_location_id`=l.`id`
             WHERE p.`dispatchlist_id`=@dispatch_id AND d.`tenant_id`=@tenantId;
             """, new { dispatch_id, tenantId = currentUser.tenant_id })).AsList();
     }
@@ -879,11 +888,15 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
                 AND stock.`warehouse_id`=@erpWarehouseId AND stock.`deleted`=b'0'
               JOIN `wms_erp_commodity_map` map ON map.`tenant_id`=allocation.`tenant_id`
                 AND map.`erp_commodity_id`=stock.`commodity_id` AND map.`wms_sku_id` IN @skuIds
-              JOIN `wms_goodslocation` location ON location.`id`=allocation.`goods_location_id`
+              LEFT JOIN `wms_warehousearea` area ON area.`id`=allocation.`warehouse_area_id`
+                AND area.`warehouse_id`=@warehouseId AND area.`tenant_id`=@tenantId AND area.`is_valid`=1
+              LEFT JOIN `wms_goodslocation` location ON location.`id`=allocation.`goods_location_id`
                 AND location.`warehouse_id`=@warehouseId AND location.`is_valid`=1
-                AND location.`warehouse_area_property`<>5
              WHERE allocation.`tenant_id`=@tenantId AND allocation.`goods_owner_id`=@goodsOwnerId
                AND allocation.`location_state`='ACTIVE'
+               AND (allocation.`warehouse_area_id` IS NULL OR area.`id` IS NOT NULL)
+               AND (allocation.`goods_location_id` IS NULL OR location.`id` IS NOT NULL)
+               AND COALESCE(location.`warehouse_area_property`,area.`area_property`,0)<>5
                AND allocation.`allocated_qty`>allocation.`occupied_qty`
              ORDER BY map.`wms_sku_id`,QtyAvailable DESC,allocation.`id`;
             """,new{tenantId=user.tenant_id,erpWarehouseId,warehouseId,goodsOwnerId,
@@ -1043,7 +1056,7 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
     private sealed class CanonicalAvailableStockRow
     {
         public long StockAllocationId{get;init;} public long ErpStockId{get;init;} public int SkuId{get;init;}
-        public int GoodsLocationId{get;init;} public int GoodsOwnerId{get;init;}
+        public int? GoodsLocationId{get;init;} public int GoodsOwnerId{get;init;}
         public string SeriesNumber{get;init;}=string.Empty; public DateTime? ExpiryDate{get;init;}
         public decimal Price{get;init;} public DateTime? PutawayDate{get;init;} public long QtyAvailable{get;init;}
     }

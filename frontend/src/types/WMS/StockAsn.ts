@@ -126,8 +126,10 @@ export interface ErpPendingReceiptProductVO {
   usage_type: string
   order_user_name: string
   dept_name: string
-  default_warehouse_area_id?: number | null
+  default_warehouse_area_id: number | null
   default_warehouse_area_name: string
+  default_goods_location_id: number | null
+  default_goods_location_name: string
   default_goods_owner_id?: number | null
   default_goods_owner_name: string
 }
@@ -177,8 +179,10 @@ export interface ErpReceiptDetailVO {
   main_image: string
   dept_name: string
   order_user_name: string
-  warehouse_area_id: number
+  warehouse_area_id: number | null
   warehouse_area_name: string
+  goods_location_id: number | null
+  goods_location_name: string
   warehouse_id: number
   warehouse_name: string
   lifecycle_status: string
@@ -195,8 +199,10 @@ export interface ErpReceiptDetailVO {
 }
 
 export interface ErpReceiptAllocationVO {
-  warehouse_area_id: number
+  warehouse_area_id: number | null
   warehouse_area_name: string
+  goods_location_id: number | null
+  goods_location_name: string
   goods_owner_id: number
   goods_owner_name: string
   qty: number

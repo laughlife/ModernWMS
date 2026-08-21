@@ -241,10 +241,10 @@ public partial class DispatchWorkflowService
     }
     private sealed record PickingAllocation(DispatchPackingTaskItemEntity Item,int StockId,long? ErpStockId,
         long? StockAllocationId,long? ReservationId,long? ReservationItemId,
-        int GoodsOwnerId,int GoodsLocationId,int SkuId,string SeriesNumber,
+        int GoodsOwnerId,int? GoodsLocationId,int SkuId,string SeriesNumber,
         DateTime? ExpiryDate,decimal Price,DateTime? PutawayDate,int Quantity,int SelectionId);
     private sealed class BoundSelectionRow{public int id{get;init;}public int packing_task_id{get;init;}public long sellfox_item_id{get;init;}public int stock_id{get;init;}public long? erp_stock_id{get;init;}public long? stock_allocation_id{get;init;}public long? reservation_id{get;init;}public long? reservation_item_id{get;init;}public int wms_sku_id{get;init;}public int qty{get;init;}}
-    private sealed class CanonicalPickingStock{public long StockAllocationId{get;init;}public long ErpStockId{get;init;}public int SkuId{get;init;}public int GoodsOwnerId{get;init;}public int GoodsLocationId{get;init;}public string SeriesNumber{get;init;}=string.Empty;public DateTime? ExpiryDate{get;init;}public decimal Price{get;init;}public DateTime? PutawayDate{get;init;}public long AllocatedQty{get;init;}public long OccupiedQty{get;init;}public string LocationState{get;init;}=string.Empty;}
+    private sealed class CanonicalPickingStock{public long StockAllocationId{get;init;}public long ErpStockId{get;init;}public int SkuId{get;init;}public int GoodsOwnerId{get;init;}public int? GoodsLocationId{get;init;}public string SeriesNumber{get;init;}=string.Empty;public DateTime? ExpiryDate{get;init;}public decimal Price{get;init;}public DateTime? PutawayDate{get;init;}public long AllocatedQty{get;init;}public long OccupiedQty{get;init;}public string LocationState{get;init;}=string.Empty;}
     private sealed class AvailableStockRow:StockEntity{public int available_qty{get;set;}}
 }
 
