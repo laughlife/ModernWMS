@@ -44,6 +44,7 @@ main: BEGIN
     DECLARE v_before_occupied BIGINT;
     DECLARE v_before_total BIGINT;
     DECLARE v_before_allocation_occupied BIGINT;
+    DECLARE v_missing_owner_id INT;
 
     DECLARE EXIT HANDLER FOR SQLEXCEPTION
     BEGIN
@@ -288,19 +289,21 @@ main: BEGIN
     SELECT COUNT(*) INTO v_count
       FROM tmp_v2_legacy_map map
       JOIN trk_stock stock ON stock.id=map.erp_stock_id
-     WHERE (map.erp_stock_id=1412 AND map.legacy_qty=386 AND stock.total_qty=786)
-        OR (map.erp_stock_id=1437 AND map.legacy_qty=0 AND stock.total_qty=300)
-        OR (map.erp_stock_id=1504 AND map.legacy_qty=900 AND stock.total_qty=500)
-        OR (map.erp_stock_id=1516 AND map.legacy_qty=250 AND stock.total_qty=500);
-    IF v_count<>4 THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='四条已知旧WMS/ERP差异事实已变化';
+     WHERE (map.erp_stock_id=1412 AND map.legacy_qty=786 AND stock.total_qty=386)
+        OR (map.erp_stock_id=1426 AND map.legacy_qty=1000 AND stock.total_qty=500)
+        OR (map.erp_stock_id=1431 AND map.legacy_qty=300 AND stock.total_qty=0)
+        OR (map.erp_stock_id=1437 AND map.legacy_qty=300 AND stock.total_qty=0)
+        OR (map.erp_stock_id=1504 AND map.legacy_qty=500 AND stock.total_qty=900)
+        OR (map.erp_stock_id=1516 AND map.legacy_qty=500 AND stock.total_qty=250);
+    IF v_count<>6 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='六条已知旧WMS/ERP差异事实已变化';
     END IF;
     SELECT COUNT(*) INTO v_count
       FROM tmp_v2_legacy_map map
       JOIN trk_stock stock ON stock.id=map.erp_stock_id
      WHERE map.legacy_qty<>stock.total_qty;
-    IF v_count<>4 THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='旧WMS/ERP数量差异必须精确为4条';
+    IF v_count<>6 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='旧WMS/ERP数量差异必须精确为6条';
     END IF;
 
     -- 无旧WMS的3条库存按部门链唯一真实库区落为UNLOCATED。
@@ -346,6 +349,36 @@ main: BEGIN
     SELECT COUNT(*),SUM(stock_id IN (1456,1539,1547)) INTO v_count,v_qty FROM tmp_v2_missing_area;
     IF v_count<>3 OR v_qty<>3 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='无旧WMS库存必须精确为1456/1539/1547';
+    END IF;
+
+    -- 生产恢复副本新增stock1547；按真实部门+跟单员精确补齐货主，禁止复用同部门其它货主。
+    SELECT COUNT(*),MIN(wms_goods_owner_id) INTO v_count,v_missing_owner_id
+      FROM wms_erp_goods_owner_map
+     WHERE tenant_id=1 AND erp_dept_id=998848666 AND erp_order_user_id=256;
+    IF v_count=0 THEN
+        INSERT INTO wms_goodsowner
+            (goods_owner_name,city,address,manager,contact_tel,creator,
+             create_time,last_update_time,is_valid,tenant_id)
+        SELECT CONCAT(dept.name,' / ',user.nickname),'','','','','reservation-cutover-v2',
+               NOW(6),NOW(6),1,1
+          FROM system_dept dept
+          JOIN system_users user ON user.id=256 AND user.deleted=b'0'
+         WHERE dept.id=998848666 AND dept.deleted=b'0';
+        IF ROW_COUNT()<>1 THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='stock1547真实货主主数据不存在';
+        END IF;
+        SET v_missing_owner_id=LAST_INSERT_ID();
+        INSERT INTO wms_erp_goods_owner_map
+            (erp_dept_id,erp_order_user_id,wms_goods_owner_id,dept_name,order_user_name,last_sync_time,tenant_id)
+        SELECT dept.id,user.id,v_missing_owner_id,dept.name,user.nickname,NOW(6),1
+          FROM system_dept dept
+          JOIN system_users user ON user.id=256 AND user.deleted=b'0'
+         WHERE dept.id=998848666 AND dept.deleted=b'0';
+        IF ROW_COUNT()<>1 THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='stock1547真实货主映射写入失败';
+        END IF;
+    ELSEIF v_count<>1 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='stock1547真实货主映射不唯一';
     END IF;
 
     SELECT COUNT(*) INTO v_count
@@ -532,9 +565,9 @@ main: BEGIN
      ORDER BY selection.id;
 
     INSERT INTO tmp_v2_new_owner
-        (source_kind,source_row_id,task_id,task_no,source_item_id,stock_id,
+        (seq,source_kind,source_row_id,task_id,task_no,source_item_id,stock_id,
          allocation_id,action_qty,source_line_key)
-    SELECT 'PENDING_PICK',pick.id,task.source_task_id,task.source_task_no,
+    SELECT 7,'PENDING_PICK',pick.id,task.source_task_id,task.source_task_no,
            task_item.source_item_id,map.erp_stock_id,allocation.id,pick.pick_qty,
            CONCAT('PENDING_PICK:',pick.id,':',task_item.source_item_id)
       FROM wms_dispatchpicklist pick
@@ -934,17 +967,18 @@ main: BEGIN
     END IF;
 
     -- 删除前证明所有活跃业务不再引用目标旧库存；wms_stock_record作为历史审计保留。
-    SELECT
-      (SELECT COUNT(*) FROM wms_dispatchpicklist pick
-        JOIN tmp_v2_legacy_map map ON map.legacy_stock_id=pick.stock_id)
-      +(SELECT COUNT(*) FROM wms_packing_task_stock_selection selection
-        JOIN tmp_v2_legacy_map map ON map.legacy_stock_id=selection.stock_id
-        WHERE selection.tenant_id=1)
-      +(SELECT COUNT(*) FROM wms_erp_receipt_item item
-        JOIN tmp_v2_legacy_map map ON map.legacy_stock_id=item.wms_stock_id
-        WHERE item.tenant_id=1)
-      INTO v_count;
-    IF v_count<>0 THEN
+    SELECT COUNT(*) INTO v_count
+      FROM wms_dispatchpicklist pick
+      JOIN tmp_v2_legacy_map map ON map.legacy_stock_id=pick.stock_id;
+    SELECT COUNT(*) INTO v_qty
+      FROM wms_packing_task_stock_selection selection
+      JOIN tmp_v2_legacy_map map ON map.legacy_stock_id=selection.stock_id
+     WHERE selection.tenant_id=1;
+    SELECT COUNT(*) INTO v_aux
+      FROM wms_erp_receipt_item item
+      JOIN tmp_v2_legacy_map map ON map.legacy_stock_id=item.wms_stock_id
+     WHERE item.tenant_id=1;
+    IF v_count+v_qty+v_aux<>0 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='仍有pick/selection/receipt引用目标wms_stock';
     END IF;
 
