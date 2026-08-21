@@ -28,18 +28,9 @@ public partial class ErpPendingReceiptService
             """,
             new { tenantId, erpWarehouseId },
             _activeTransaction);
-        if (config == null)
-        {
-            throw new InvalidOperationException("收货仓库尚未配置唯一库存运行模式，禁止写入库存");
-        }
-        if (config.maintenance_enabled)
-        {
-            throw new InvalidOperationException("库存正在维护切换，暂不允许签收入库");
-        }
-        if (!string.Equals(config.mode, CanonicalInventoryMode, StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException("收货仓库尚未切换到 ERP 唯一库存模式，禁止继续写入旧库存");
-        }
+        InventoryRuntimePolicy.EnsureWriteAllowed(
+            config?.mode,
+            config?.maintenance_enabled ?? false);
         // The shared config-row lock lets normal inventory commands run concurrently while a
         // maintenance-window UPDATE waits for every in-flight command to release its shared lock.
         // CANONICAL_ERP may only be enabled after the ERP migration has enforced one active POOL

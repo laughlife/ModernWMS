@@ -244,7 +244,7 @@ public class StockService : BaseService<StockEntity>, IStockService
     private const string UnifiedInventoryCte = """
         WITH warehouse_mode AS (
           SELECT wh.`id` warehouse_id,wh.`warehouse_name`,wh.`erp_warehouse_id`,
-                 COALESCE(cfg.`mode`,'LEGACY_READ') inventory_mode
+                 COALESCE(cfg.`mode`,'CANONICAL_ERP') inventory_mode
           FROM `wms_warehouse` wh
           LEFT JOIN `wms_inventory_runtime_config` cfg
             ON cfg.`tenant_id`=wh.`tenant_id` AND cfg.`erp_warehouse_id`=wh.`erp_warehouse_id`
