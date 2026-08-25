@@ -52,3 +52,17 @@
 - 数据库初始化、迁移、服务启动链路属于“高风险链路”，必须串行执行：一轮只允许一个链路在运行，不允许多工具/多任务重复触发自动迁移。
 - 若有阻塞，先停当前主链路并确认资源状态再恢复，不用再叠加新任务。
 - 不得擅自启动、重启或停止用户的开发服务/进程（如后端、`dotnet watch`、前端 dev server 等）；确需启动验证时，必须事先获得用户明确授权，并在验证完成后立即清理，不得遗留常驻进程占用构建输出或端口。
+
+<!-- BEGIN ERP MEM0 MANAGED BLOCK -->
+## ERP 统一 Mem0 协作规则
+
+- 本仓库 `ModernWMS` 是统一 ERP 系统的仓储管理系统。
+- 关联仓库及职责：`ruoyi-vue-pro`（后端主项目）、`yudao-ui-admin-vue3`（管理后台前端）、`xxl-job`（调度中心）、`fbashipment-sync`（FBA 同步服务，历史名称 `FBAShipmentSync`）。
+- 五个仓库共享 Mem0 身份：`user_id=liwei`、`project_id/app_id=erp`。
+- 开始非简单任务前，先在统一 ERP 范围内语义搜索 Mem0；写入前先搜索，避免重复。
+- 决策优先级：用户当前明确要求；当前代码和配置事实；Mem0 中标记为 `CURRENT` 的记录；历史记录；推断。
+- 修改接口、数据库、权限、状态、枚举、定时任务、消息结构或跨系统同步逻辑时，必须检查五个仓库的跨仓库影响。
+- 记忆应合理标明 `decision`、`convention`、`constraint`、`architecture`、`learning` 或 `repository-fact`；涉及仓库时写明准确名称和职责。
+- 新决策取代旧决策时，将旧记录标记为 `superseded`，避免冲突。
+- 不得向 Mem0 保存密钥、密码、令牌、私钥、个人敏感信息或完整生产数据。
+<!-- END ERP MEM0 MANAGED BLOCK -->
