@@ -1,20 +1,27 @@
 # ModernWMS 仓库协作说明
 
-本文件补充 `/mnt/d/ai-dev/AGENTS.md`。跨项目协作统一使用 `agentic_tools` MCP Memory 总线。
+本文件补充 `/root/erp/AGENTS.md`；如有冲突，以父级文件和用户当前明确要求为准。
 
-## MCP Memory 联调总线
+<!-- BEGIN ERP MEM0 MANAGED BLOCK -->
+## ERP 工作区与统一 Mem0
 
-- 每次开始跨项目任务前，必须先使用 `agentic_tools` 检索相关 Memory，`workingDirectory` 固定为 `D:\ai-dev\workspace`；用户提供 Memory ID 时必须使用 `get_memory` 精确读取。
-- ERP、前端、XXL-JOB 或其它项目交接统一写入 MCP Memory；除非用户明确要求形成仓库文档，禁止仅为传递任务新建或更新 Markdown。
-- 写入 Memory 至少包含：目标项目、背景、接口路径或影响范围、字段/参数定义、期望行为、验收标准、优先级及关联 Memory ID（如有）。
-- 完成共享数据库、API 或跨仓契约变更后必须写入 Memory，并向用户报告 Memory ID、标题和用途。
+- 本仓库路径为 `/root/erp/ModernWMS`，负责仓储管理系统。
+- 关联仓库为 `/root/erp/ruoyi-vue-pro`（ERP 后端主项目）、`/root/erp/yudao-ui-admin-vue3`（管理后台前端）、`/root/erp/xxl-job`（调度中心）、`/root/erp/fbashipment-sync`（FBA 同步服务，`FBAShipmentSync` 仅为历史名称）。
+- 五个仓库共享 Mem0 身份：`user_id=liwei`、`project_id/app_id=erp`；长期记忆统一归属该身份，不按本地目录隔离。
+- 开始非简单任务前，先在统一 ERP 范围内语义搜索 Mem0；写入前先搜索，避免重复。
+- 决策优先级：用户当前明确要求 > 当前代码和配置事实 > Mem0 中标记为 `CURRENT` 的记录 > 历史记录 > 推断。
+- 修改接口、数据库、权限、状态、枚举、定时任务、消息结构或跨系统同步逻辑时，必须检查全部五个仓库的跨仓库影响。
+- 记忆应标明 `decision`、`convention`、`constraint`、`architecture`、`learning` 或 `repository-fact` 等类型，并写明准确仓库名称和职责。
+- 新决策取代旧决策时，将旧记录标记为 `superseded`；不得保留相互冲突的当前事实。
+- 严禁向 Mem0 保存密钥、密码、令牌、私钥、个人敏感信息或完整生产数据。
+<!-- END ERP MEM0 MANAGED BLOCK -->
 
 ## 范围与架构
 
 - 本仓库负责仓储管理应用，包括 ASP.NET Core 后端、Dapper/MySqlConnector 数据访问、Flyway 结构迁移、WMS 领域服务和 Vue 前端。
 - 后端依赖方向为：`ModernWMS` Web Host -> `ModernWMS.WMS` 业务域 -> `ModernWMS.Core` 基础设施。
 - 核心业务包括 ASN/收货、出库、库存、调整、冻结、移库、加工、盘点、仓库/库位、货主/SKU、打印、运费、用户/角色/菜单和操作日志。
-- 除非用户明确要求，不得检查或修改独立的同级项目 `FBAShipmentSync`。
+- 跨仓任务按影响范围检查上述 ERP 仓库；仅修改用户授权范围内的文件和系统。
 
 ## 共享数据库与 ERP 边界
 
@@ -41,7 +48,7 @@
 ## 文档与变更纪律
 
 - 仓库技术细节可保留在 `docs/`；根目录业务说明在明确整理前仍是有效参考。
-- 跨仓库理解和任务交接统一写入 MCP Memory；只有用户明确要求或确有长期维护价值时才写入 `/mnt/d/ai-dev/doc/`。
+- 跨仓库理解和任务交接统一写入 Mem0；只有用户明确要求或确有长期维护价值时，才在对应仓库的 `docs/` 中维护文档。
 - 保护当前已有的大量工作区改动，避免大范围格式化或换行符变化。
 - 遵循顶层自动提交规则：完成修改和适用验证后，只暂存当前任务文件，并立即使用建议的中文说明提交。
 
@@ -52,17 +59,3 @@
 - 数据库初始化、迁移、服务启动链路属于“高风险链路”，必须串行执行：一轮只允许一个链路在运行，不允许多工具/多任务重复触发自动迁移。
 - 若有阻塞，先停当前主链路并确认资源状态再恢复，不用再叠加新任务。
 - 不得擅自启动、重启或停止用户的开发服务/进程（如后端、`dotnet watch`、前端 dev server 等）；确需启动验证时，必须事先获得用户明确授权，并在验证完成后立即清理，不得遗留常驻进程占用构建输出或端口。
-
-<!-- BEGIN ERP MEM0 MANAGED BLOCK -->
-## ERP 统一 Mem0 协作规则
-
-- 本仓库 `ModernWMS` 是统一 ERP 系统的仓储管理系统。
-- 关联仓库及职责：`ruoyi-vue-pro`（后端主项目）、`yudao-ui-admin-vue3`（管理后台前端）、`xxl-job`（调度中心）、`fbashipment-sync`（FBA 同步服务，历史名称 `FBAShipmentSync`）。
-- 五个仓库共享 Mem0 身份：`user_id=liwei`、`project_id/app_id=erp`。
-- 开始非简单任务前，先在统一 ERP 范围内语义搜索 Mem0；写入前先搜索，避免重复。
-- 决策优先级：用户当前明确要求；当前代码和配置事实；Mem0 中标记为 `CURRENT` 的记录；历史记录；推断。
-- 修改接口、数据库、权限、状态、枚举、定时任务、消息结构或跨系统同步逻辑时，必须检查五个仓库的跨仓库影响。
-- 记忆应合理标明 `decision`、`convention`、`constraint`、`architecture`、`learning` 或 `repository-fact`；涉及仓库时写明准确名称和职责。
-- 新决策取代旧决策时，将旧记录标记为 `superseded`，避免冲突。
-- 不得向 Mem0 保存密钥、密码、令牌、私钥、个人敏感信息或完整生产数据。
-<!-- END ERP MEM0 MANAGED BLOCK -->
