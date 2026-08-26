@@ -55,6 +55,7 @@ BEGIN
       JOIN `wms_goodslocation` location ON location.`id` = legacy_stock.`goods_location_id`
       JOIN `wms_warehouse` warehouse ON warehouse.`id` = location.`warehouse_id`
      WHERE selection.`tenant_id` = p_tenant_id
+       AND selection.`status` = 'ACTIVE'
        AND warehouse.`erp_warehouse_id` = p_erp_warehouse_id;
     IF v_count <> 0 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = '仍有旧WMS装箱锁定，必须先完成或撤销';

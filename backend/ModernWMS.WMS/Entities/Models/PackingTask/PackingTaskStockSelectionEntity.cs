@@ -68,31 +68,4 @@ public class PackingTaskStockSelectionEntity : BaseModel
     /// <summary>System operation that last changed the lifecycle.</summary>
     [MaxLength(32)] public string operation_source { get; set; } = "MODERN_WMS";
 
-    /// <summary>Whether this row currently owns a stock binding.</summary>
-    [NotMapped]
-    public bool IsActive => string.Equals(status, ActiveStatus, StringComparison.Ordinal);
-
-    /// <summary>Marks an active binding as cancelled while retaining its audit trail.</summary>
-    public void Cancel(long actorId, string actorName, string reason, string operationSource, DateTime cancelledAt)
-    {
-        if (!IsActive) throw new InvalidOperationException("Only an active stock selection can be cancelled.");
-        status = CancelledStatus;
-        cancelled_by = actorId;
-        cancelled_by_name = actorName;
-        cancelled_at = cancelledAt;
-        cancel_reason = reason;
-        operation_source = operationSource;
-        last_update_time = cancelledAt;
-        row_version = checked(row_version + 1);
-    }
-
-    /// <summary>Marks an active binding as transferred into picking.</summary>
-    public void Transfer(string operationSource, DateTime transferredAt)
-    {
-        if (!IsActive) throw new InvalidOperationException("Only an active stock selection can be transferred.");
-        status = TransferredStatus;
-        operation_source = operationSource;
-        last_update_time = transferredAt;
-        row_version = checked(row_version + 1);
-    }
 }

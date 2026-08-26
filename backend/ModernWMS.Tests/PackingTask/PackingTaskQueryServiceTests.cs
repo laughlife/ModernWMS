@@ -1,10 +1,12 @@
+using System.Reflection;
+using System.Reflection.Emit;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Configuration;
 using ModernWMS.Core.Database;
 using ModernWMS.Core.DBContext.Entities;
 using ModernWMS.Core.DynamicSearch;
 using ModernWMS.Core.JWT;
 using ModernWMS.Core.Models;
-using ModernWMS.WMS.Entities.Models.PackingTask;
 using ModernWMS.WMS.Entities.ViewModels.PackingTask;
 using ModernWMS.WMS.Services;
 
@@ -231,91 +233,95 @@ public class PackingTaskQueryServiceTests
     }
 
     [Fact]
-    public void Stock_selection_manual_cancel_preserves_binding_and_records_actor_and_reason()
+    public void Packing_selection_production_sql_never_physically_deletes_and_every_reference_is_active_scoped()
     {
-        var cancelledAt = new DateTime(2026, 8, 26, 10, 30, 0, DateTimeKind.Utc);
-        var selection = Selection(status: PackingTaskStockSelectionEntity.ActiveStatus);
+        var commands = PackingSelectionProductionSql();
 
-        selection.Cancel(
-            actorId: 42,
-            actorName: "审核员",
-            reason: "用户取消装箱任务库存选择",
-            operationSource: "WMS_MANUAL_CANCEL",
-            cancelledAt);
-
-        Assert.Equal(7, selection.id);
-        Assert.Equal(7001, selection.reservation_id);
-        Assert.Equal(7002, selection.reservation_item_id);
-        Assert.Equal(PackingTaskStockSelectionEntity.CancelledStatus, selection.status);
-        Assert.Equal(42, selection.cancelled_by);
-        Assert.Equal("审核员", selection.cancelled_by_name);
-        Assert.Equal(cancelledAt, selection.cancelled_at);
-        Assert.Equal("用户取消装箱任务库存选择", selection.cancel_reason);
-        Assert.Equal("WMS_MANUAL_CANCEL", selection.operation_source);
-        Assert.Equal(4, selection.row_version);
-        Assert.False(selection.IsActive);
+        Assert.NotEmpty(commands);
+        Assert.DoesNotContain(commands, sql => Regex.IsMatch(
+            sql, @"DELETE\s+FROM\s+`?wms_packing_task_stock_selection`?", RegexOptions.IgnoreCase));
+        Assert.All(commands, sql =>
+        {
+            var normalized = sql.Replace("`", string.Empty, StringComparison.Ordinal);
+            if (Regex.IsMatch(normalized,
+                @"INSERT\s+INTO\s+wms_packing_task_stock_selection", RegexOptions.IgnoreCase))
+            {
+                Assert.Contains("status", normalized, StringComparison.OrdinalIgnoreCase);
+                Assert.Contains("'ACTIVE'", normalized, StringComparison.Ordinal);
+                return;
+            }
+            var tableReferences = Regex.Matches(
+                normalized, @"\bwms_packing_task_stock_selection\b", RegexOptions.IgnoreCase).Count;
+            var activeGuards = Regex.Matches(
+                normalized, @"(?:\b\w+\.)?\bstatus\s*=\s*'ACTIVE'", RegexOptions.IgnoreCase).Count;
+            Assert.True(activeGuards >= tableReferences,
+                $"Every packing selection table reference must be ACTIVE-scoped. SQL: {sql}");
+        });
     }
 
     [Fact]
-    public void Stock_selection_pending_pick_rollback_preserves_binding_and_records_actor_and_reason()
+    public void Packing_selection_cancel_and_rollback_sql_preserves_rows_with_actor_reason_and_version()
     {
-        var cancelledAt = new DateTime(2026, 8, 26, 11, 0, 0, DateTimeKind.Utc);
-        var selection = Selection(status: PackingTaskStockSelectionEntity.ActiveStatus);
+        var commands = PackingSelectionProductionSql();
+        var manualCancels = commands.Where(sql => sql.Contains("WMS_MANUAL_CANCEL", StringComparison.Ordinal)).ToList();
+        var rollback = Assert.Single(commands, sql => sql.Contains("DISPATCH_ROLLBACK", StringComparison.Ordinal));
 
-        selection.Cancel(
-            actorId: 51,
-            actorName: "回退操作员",
-            reason: "待拣货回退释放库存选择",
-            operationSource: "DISPATCH_ROLLBACK",
-            cancelledAt);
-
-        Assert.Equal(7, selection.id);
-        Assert.Equal(12, selection.stock_id);
-        Assert.Equal(7001, selection.reservation_id);
-        Assert.Equal(PackingTaskStockSelectionEntity.CancelledStatus, selection.status);
-        Assert.Equal(51, selection.cancelled_by);
-        Assert.Equal("回退操作员", selection.cancelled_by_name);
-        Assert.Equal("待拣货回退释放库存选择", selection.cancel_reason);
-        Assert.Equal(cancelledAt, selection.cancelled_at);
-        Assert.Equal("DISPATCH_ROLLBACK", selection.operation_source);
+        Assert.Equal(2, manualCancels.Count);
+        Assert.All(manualCancels, sql =>
+            AssertCancellationTransition(sql, "用户取消装箱任务库存选择"));
+        AssertCancellationTransition(rollback, "待拣货回退释放库存选择");
     }
 
     [Fact]
-    public void Stock_selection_completed_picking_preserves_binding_as_transferred()
+    public void Packing_selection_completed_picking_sql_transfers_instead_of_deleting()
     {
-        var transferredAt = new DateTime(2026, 8, 26, 12, 0, 0, DateTimeKind.Utc);
-        var selection = Selection(status: PackingTaskStockSelectionEntity.ActiveStatus);
+        var transfer = Assert.Single(PackingSelectionProductionSql(),
+            sql => sql.Contains("DISPATCH_PICKING", StringComparison.Ordinal));
 
-        selection.Transfer("DISPATCH_PICKING", transferredAt);
-
-        Assert.Equal(7, selection.id);
-        Assert.Equal(7001, selection.reservation_id);
-        Assert.Equal(7002, selection.reservation_item_id);
-        Assert.Equal(PackingTaskStockSelectionEntity.TransferredStatus, selection.status);
-        Assert.Equal("DISPATCH_PICKING", selection.operation_source);
-        Assert.Equal(transferredAt, selection.last_update_time);
-        Assert.Equal(4, selection.row_version);
-        Assert.Null(selection.cancelled_at);
-        Assert.False(selection.IsActive);
+        Assert.Contains("SET `status`='TRANSFERRED'", transfer, StringComparison.Ordinal);
+        Assert.Contains("`last_update_time`=@now", transfer, StringComparison.Ordinal);
+        Assert.Contains("`row_version`=`row_version`+1", transfer, StringComparison.Ordinal);
+        Assert.Contains("AND `status`='ACTIVE'", transfer, StringComparison.Ordinal);
+        Assert.DoesNotContain("DELETE", transfer, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public void Stock_selection_active_view_ignores_historical_rows_and_allows_rebinding()
+    public void Packing_selection_save_sql_ignores_history_and_inserts_a_new_active_cycle()
     {
-        var cancelled = Selection(status: PackingTaskStockSelectionEntity.CancelledStatus);
-        var transferred = Selection(status: PackingTaskStockSelectionEntity.TransferredStatus);
-        transferred.id = 8;
-        var rebound = Selection(status: PackingTaskStockSelectionEntity.ActiveStatus);
-        rebound.id = 9;
-        rebound.reservation_id = 8001;
-        rebound.reservation_item_id = 8002;
+        var commands = PackingSelectionProductionSql();
+        var existingLookups = commands.Where(sql =>
+            sql.Contains("FOR UPDATE", StringComparison.OrdinalIgnoreCase)
+            && sql.Contains("sellfox_item_id", StringComparison.OrdinalIgnoreCase)
+            && (sql.Contains("stock_id = @StockId", StringComparison.OrdinalIgnoreCase)
+                || sql.Contains("`stock_allocation_id`=@AllocationId", StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+        var inserts = commands.Where(sql => Regex.IsMatch(sql,
+            @"INSERT\s+INTO\s+`?wms_packing_task_stock_selection`?", RegexOptions.IgnoreCase)).ToList();
 
-        var active = new[] { cancelled, transferred, rebound }.Where(row => row.IsActive).ToList();
+        Assert.Equal(2, existingLookups.Count);
+        Assert.All(existingLookups, sql => Assert.Matches(
+            @"`?status`?\s*=\s*'ACTIVE'", sql));
+        Assert.Equal(2, inserts.Count);
+        Assert.All(inserts, sql =>
+        {
+            Assert.Contains("status", sql, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("'ACTIVE'", sql, StringComparison.Ordinal);
+            Assert.DoesNotContain("ON DUPLICATE KEY", sql, StringComparison.OrdinalIgnoreCase);
+        });
+    }
 
-        Assert.Same(rebound, Assert.Single(active));
-        Assert.Equal(9, rebound.id);
-        Assert.Equal(PackingTaskStockSelectionEntity.ActiveStatus, rebound.status);
-        Assert.Equal(8001, rebound.reservation_id);
+    [Fact]
+    public void Packing_selection_cutover_guard_counts_only_active_legacy_locks()
+    {
+        var script = File.ReadAllText(FindRepositoryFile("flyway", "manual", "erp_stock_allocation_cutover.sql"));
+        const string guardMessage = "仍有旧WMS装箱锁定，必须先完成或撤销";
+        var guardEnd = script.IndexOf(guardMessage, StringComparison.Ordinal);
+        Assert.True(guardEnd > 0, "Cutover packing-selection guard was not found.");
+        var guardStart = script.LastIndexOf("SELECT COUNT(*) INTO v_count", guardEnd, StringComparison.Ordinal);
+        Assert.True(guardStart >= 0, "Cutover packing-selection count query was not found.");
+        var guardSql = script[guardStart..guardEnd];
+
+        Assert.Matches(@"selection\.`status`\s*=\s*'ACTIVE'", guardSql);
     }
 
     private static PackingTaskQueryService CreateService(
@@ -347,20 +353,78 @@ public class PackingTaskQueryServiceTests
 
     private static CurrentUser CurrentTenant() => new() { tenant_id = 1 };
 
-    private static PackingTaskStockSelectionEntity Selection(string status) => new()
+    private static void AssertCancellationTransition(string sql, string reason)
     {
-        id = 7,
-        tenant_id = 1,
-        sellfox_task_id = 101,
-        sellfox_item_id = 1001,
-        stock_id = 12,
-        reservation_id = 7001,
-        reservation_item_id = 7002,
-        qty = 6,
-        status = status,
-        row_version = 3,
-        operation_source = "MODERN_WMS"
+        Assert.Contains("SET `status`='CANCELLED'", sql, StringComparison.Ordinal);
+        Assert.Contains("`cancelled_by`=", sql, StringComparison.Ordinal);
+        Assert.Contains("`cancelled_by_name`=", sql, StringComparison.Ordinal);
+        Assert.Contains("`cancelled_at`=", sql, StringComparison.Ordinal);
+        Assert.Contains($"`cancel_reason`='{reason}'", sql, StringComparison.Ordinal);
+        Assert.Contains("`row_version`=`row_version`+1", sql, StringComparison.Ordinal);
+        Assert.Matches(@"`status`\s*=\s*'ACTIVE'", sql);
+        Assert.DoesNotContain("DELETE", sql, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static IReadOnlyList<string> PackingSelectionProductionSql() =>
+        typeof(PackingTaskQueryService).Assembly.GetTypes()
+            .Where(type => type.Namespace?.StartsWith("ModernWMS.WMS.Services", StringComparison.Ordinal) == true)
+            .SelectMany(type => type.GetMethods(
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance))
+            .SelectMany(ReadStringLiterals)
+            .Where(value => value.Contains("wms_packing_task_stock_selection", StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+    private static IEnumerable<string> ReadStringLiterals(MethodInfo method)
+    {
+        var body = method.GetMethodBody();
+        var il = body?.GetILAsByteArray();
+        if (il == null) yield break;
+
+        for (var offset = 0; offset < il.Length;)
+        {
+            var value = il[offset++];
+            var key = value == 0xfe
+                ? (ushort)(0xfe00 | il[offset++])
+                : value;
+            if (!OpCodesByValue.TryGetValue(key, out var opCode)) yield break;
+            if (opCode == OpCodes.Ldstr)
+            {
+                var token = BitConverter.ToInt32(il, offset);
+                yield return method.Module.ResolveString(token);
+            }
+            offset += OperandSize(opCode.OperandType, il, offset);
+        }
+    }
+
+    private static int OperandSize(OperandType operandType, byte[] il, int offset) => operandType switch
+    {
+        OperandType.InlineNone => 0,
+        OperandType.ShortInlineBrTarget or OperandType.ShortInlineI or OperandType.ShortInlineVar => 1,
+        OperandType.InlineVar => 2,
+        OperandType.InlineI or OperandType.InlineBrTarget or OperandType.InlineField
+            or OperandType.InlineMethod or OperandType.InlineSig or OperandType.InlineString
+            or OperandType.InlineTok or OperandType.InlineType or OperandType.ShortInlineR => 4,
+        OperandType.InlineI8 or OperandType.InlineR => 8,
+        OperandType.InlineSwitch => 4 + BitConverter.ToInt32(il, offset) * 4,
+        _ => throw new InvalidOperationException($"Unsupported IL operand type: {operandType}")
     };
+
+    private static readonly IReadOnlyDictionary<ushort, OpCode> OpCodesByValue =
+        typeof(OpCodes).GetFields(BindingFlags.Public | BindingFlags.Static)
+            .Where(field => field.FieldType == typeof(OpCode))
+            .Select(field => (OpCode)field.GetValue(null)!)
+            .ToDictionary(opCode => unchecked((ushort)opCode.Value));
+
+    private static string FindRepositoryFile(params string[] relativeSegments)
+    {
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory != null; directory = directory.Parent)
+        {
+            var candidate = Path.Combine([directory.FullName, .. relativeSegments]);
+            if (File.Exists(candidate)) return candidate;
+        }
+        throw new FileNotFoundException($"Repository file not found: {Path.Combine(relativeSegments)}");
+    }
 
     private sealed class InMemoryPackingTaskQueryDataSource : IPackingTaskQueryDataSource
     {
