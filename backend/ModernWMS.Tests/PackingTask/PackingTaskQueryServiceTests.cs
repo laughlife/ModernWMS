@@ -4,6 +4,7 @@ using ModernWMS.Core.DBContext.Entities;
 using ModernWMS.Core.DynamicSearch;
 using ModernWMS.Core.JWT;
 using ModernWMS.Core.Models;
+using ModernWMS.WMS.Entities.Models.PackingTask;
 using ModernWMS.WMS.Entities.ViewModels.PackingTask;
 using ModernWMS.WMS.Services;
 
@@ -229,6 +230,94 @@ public class PackingTaskQueryServiceTests
         Assert.Equal("已取消选择，锁定库存已释放", message);
     }
 
+    [Fact]
+    public void Stock_selection_manual_cancel_preserves_binding_and_records_actor_and_reason()
+    {
+        var cancelledAt = new DateTime(2026, 8, 26, 10, 30, 0, DateTimeKind.Utc);
+        var selection = Selection(status: PackingTaskStockSelectionEntity.ActiveStatus);
+
+        selection.Cancel(
+            actorId: 42,
+            actorName: "审核员",
+            reason: "用户取消装箱任务库存选择",
+            operationSource: "WMS_MANUAL_CANCEL",
+            cancelledAt);
+
+        Assert.Equal(7, selection.id);
+        Assert.Equal(7001, selection.reservation_id);
+        Assert.Equal(7002, selection.reservation_item_id);
+        Assert.Equal(PackingTaskStockSelectionEntity.CancelledStatus, selection.status);
+        Assert.Equal(42, selection.cancelled_by);
+        Assert.Equal("审核员", selection.cancelled_by_name);
+        Assert.Equal(cancelledAt, selection.cancelled_at);
+        Assert.Equal("用户取消装箱任务库存选择", selection.cancel_reason);
+        Assert.Equal("WMS_MANUAL_CANCEL", selection.operation_source);
+        Assert.Equal(4, selection.row_version);
+        Assert.False(selection.IsActive);
+    }
+
+    [Fact]
+    public void Stock_selection_pending_pick_rollback_preserves_binding_and_records_actor_and_reason()
+    {
+        var cancelledAt = new DateTime(2026, 8, 26, 11, 0, 0, DateTimeKind.Utc);
+        var selection = Selection(status: PackingTaskStockSelectionEntity.ActiveStatus);
+
+        selection.Cancel(
+            actorId: 51,
+            actorName: "回退操作员",
+            reason: "待拣货回退释放库存选择",
+            operationSource: "DISPATCH_ROLLBACK",
+            cancelledAt);
+
+        Assert.Equal(7, selection.id);
+        Assert.Equal(12, selection.stock_id);
+        Assert.Equal(7001, selection.reservation_id);
+        Assert.Equal(PackingTaskStockSelectionEntity.CancelledStatus, selection.status);
+        Assert.Equal(51, selection.cancelled_by);
+        Assert.Equal("回退操作员", selection.cancelled_by_name);
+        Assert.Equal("待拣货回退释放库存选择", selection.cancel_reason);
+        Assert.Equal(cancelledAt, selection.cancelled_at);
+        Assert.Equal("DISPATCH_ROLLBACK", selection.operation_source);
+    }
+
+    [Fact]
+    public void Stock_selection_completed_picking_preserves_binding_as_transferred()
+    {
+        var transferredAt = new DateTime(2026, 8, 26, 12, 0, 0, DateTimeKind.Utc);
+        var selection = Selection(status: PackingTaskStockSelectionEntity.ActiveStatus);
+
+        selection.Transfer("DISPATCH_PICKING", transferredAt);
+
+        Assert.Equal(7, selection.id);
+        Assert.Equal(7001, selection.reservation_id);
+        Assert.Equal(7002, selection.reservation_item_id);
+        Assert.Equal(PackingTaskStockSelectionEntity.TransferredStatus, selection.status);
+        Assert.Equal("DISPATCH_PICKING", selection.operation_source);
+        Assert.Equal(transferredAt, selection.last_update_time);
+        Assert.Equal(4, selection.row_version);
+        Assert.Null(selection.cancelled_at);
+        Assert.False(selection.IsActive);
+    }
+
+    [Fact]
+    public void Stock_selection_active_view_ignores_historical_rows_and_allows_rebinding()
+    {
+        var cancelled = Selection(status: PackingTaskStockSelectionEntity.CancelledStatus);
+        var transferred = Selection(status: PackingTaskStockSelectionEntity.TransferredStatus);
+        transferred.id = 8;
+        var rebound = Selection(status: PackingTaskStockSelectionEntity.ActiveStatus);
+        rebound.id = 9;
+        rebound.reservation_id = 8001;
+        rebound.reservation_item_id = 8002;
+
+        var active = new[] { cancelled, transferred, rebound }.Where(row => row.IsActive).ToList();
+
+        Assert.Same(rebound, Assert.Single(active));
+        Assert.Equal(9, rebound.id);
+        Assert.Equal(PackingTaskStockSelectionEntity.ActiveStatus, rebound.status);
+        Assert.Equal(8001, rebound.reservation_id);
+    }
+
     private static PackingTaskQueryService CreateService(
         IPackingTaskQueryDataSource source,
         bool enabled = true,
@@ -257,6 +346,21 @@ public class PackingTaskQueryServiceTests
         };
 
     private static CurrentUser CurrentTenant() => new() { tenant_id = 1 };
+
+    private static PackingTaskStockSelectionEntity Selection(string status) => new()
+    {
+        id = 7,
+        tenant_id = 1,
+        sellfox_task_id = 101,
+        sellfox_item_id = 1001,
+        stock_id = 12,
+        reservation_id = 7001,
+        reservation_item_id = 7002,
+        qty = 6,
+        status = status,
+        row_version = 3,
+        operation_source = "MODERN_WMS"
+    };
 
     private sealed class InMemoryPackingTaskQueryDataSource : IPackingTaskQueryDataSource
     {

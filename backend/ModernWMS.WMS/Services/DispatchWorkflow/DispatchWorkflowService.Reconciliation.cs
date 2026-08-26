@@ -147,6 +147,7 @@ public partial class DispatchWorkflowService
                        selection.`reservation_id`,selection.`reservation_item_id`,selection.`qty`
                   FROM `wms_packing_task_stock_selection` selection
                  WHERE selection.`tenant_id`=@tenantId AND selection.`sellfox_task_id`=@sourceTaskId
+                   AND selection.`status`='ACTIVE'
                    AND selection.`erp_stock_id` IS NOT NULL AND selection.`stock_allocation_id` IS NOT NULL
                  ORDER BY selection.`stock_allocation_id`,selection.`id` FOR UPDATE;
                 """,new{tenantId=order.tenant_id,sourceTaskId=task.source_task_id},tx,cancellationToken:ct))).AsList();
@@ -177,11 +178,28 @@ public partial class DispatchWorkflowService
                         row.stock_allocation_id,row.qty,$"{requestIdentity}:{task.id}",
                         row.reservation_id,row.reservation_item_id),
                     row.erp_stock_id,row.stock_allocation_id,row.qty,ct);
-            if (reserved.Count > 0)
-                await c.ExecuteAsync(new CommandDefinition(
-                    "DELETE FROM `wms_packing_task_stock_selection` WHERE `id` IN @ids;",
-                    new{ids=reserved.Select(x=>x.id).ToArray()},tx,cancellationToken:ct));
         }
+        var now=DateTime.Now;
+        await c.ExecuteAsync(new CommandDefinition("""
+            UPDATE `wms_packing_task_stock_selection`
+               SET `status`='CANCELLED',`cancelled_by`=@cancelledBy,
+                   `cancelled_by_name`=@cancelledByName,`cancelled_at`=@now,
+                   `cancel_reason`=@cancelReason,
+                   `operation_source`='DISPATCH_RECONCILIATION',
+                   `last_update_time`=@now,`row_version`=`row_version`+1
+             WHERE `tenant_id`=@tenantId AND `sellfox_task_id`=@sourceTaskId
+               AND `status`='ACTIVE';
+            """,new
+        {
+            tenantId=order.tenant_id,
+            sourceTaskId=task.source_task_id,
+            cancelledBy=user.user_id,
+            cancelledByName=user.user_name??string.Empty,
+            cancelReason=requestIdentity=="SOURCE_CANCEL"
+                ? "装箱任务来源取消释放库存选择"
+                : "拣货前重建释放库存选择",
+            now
+        },tx,cancellationToken:ct));
         await c.ExecuteAsync(new CommandDefinition("DELETE FROM `wms_dispatchpicklist` WHERE `packing_task_item_id` IN @ids AND `is_update_stock`=0;",
             new{ids},tx,cancellationToken:ct));
     }

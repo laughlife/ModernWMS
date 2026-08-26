@@ -93,8 +93,11 @@ public partial class DispatchWorkflowService
                         skuId=a.SkuId,a.Quantity,now,series=a.SeriesNumber,userId=user.user_id,name=user.user_name,
                         expiry=a.ExpiryDate,a.Price,putaway=a.PutawayDate},tx,cancellationToken:ct));
             await c.ExecuteAsync(new CommandDefinition("""
-                DELETE FROM `wms_packing_task_stock_selection` WHERE `id` IN @selectionIds;
-                """,new{selectionIds=allocations.Select(x=>x.SelectionId).Distinct().ToArray()},tx,cancellationToken:ct));
+                UPDATE `wms_packing_task_stock_selection`
+                   SET `status`='TRANSFERRED',`operation_source`='DISPATCH_PICKING',
+                       `last_update_time`=@now,`row_version`=`row_version`+1
+                 WHERE `id` IN @selectionIds AND `status`='ACTIVE';
+                """,new{selectionIds=allocations.Select(x=>x.SelectionId).Distinct().ToArray(),now},tx,cancellationToken:ct));
             await c.ExecuteAsync(new CommandDefinition("""
                 UPDATE `wms_dispatch_packing_task` SET `status`=@status,`last_update_time`=@now,`row_version`=`row_version`+1
                 WHERE `dispatch_order_id`=@orderId AND `is_active`=1;
@@ -145,6 +148,7 @@ public partial class DispatchWorkflowService
             FROM `wms_packing_task_stock_selection` s
             INNER JOIN `wms_dispatch_packing_task` t ON t.`source_task_id`=s.`sellfox_task_id`
             WHERE s.`tenant_id`=@tenantId AND t.`id` IN @taskIds
+              AND s.`status`='ACTIVE'
               AND s.`erp_stock_id` IS NOT NULL AND s.`stock_allocation_id` IS NOT NULL
             ORDER BY s.`erp_stock_id`,s.`stock_allocation_id`,s.`id` FOR UPDATE;
             """:"""
@@ -154,6 +158,7 @@ public partial class DispatchWorkflowService
             FROM `wms_packing_task_stock_selection` s
             INNER JOIN `wms_dispatch_packing_task` t ON t.`source_task_id`=s.`sellfox_task_id`
             WHERE s.`tenant_id`=@tenantId AND t.`id` IN @taskIds
+              AND s.`status`='ACTIVE'
             ORDER BY s.`stock_id`,s.`id` FOR UPDATE;
             """;
         var bindings=(await c.QueryAsync<BoundSelectionRow>(new CommandDefinition(
@@ -166,7 +171,7 @@ public partial class DispatchWorkflowService
               -COALESCE((SELECT SUM(p.`pick_qty`) FROM `wms_dispatchpicklist` p JOIN `wms_dispatchlist` d ON d.`id`=p.`dispatchlist_id` WHERE d.`dispatch_status`>1 AND d.`dispatch_status`<6 AND p.`stock_id`=s.`id`),0)
               -COALESCE((SELECT SUM(p.`qty`) FROM `wms_stockprocessdetail` p WHERE p.`is_update_stock`=0 AND p.`sku_id`=s.`sku_id` AND p.`goods_location_id`=s.`goods_location_id` AND p.`goods_owner_id`=s.`goods_owner_id`),0)
               -COALESCE((SELECT SUM(m.`qty`) FROM `wms_stockmove` m WHERE m.`move_status`=0 AND m.`sku_id`=s.`sku_id` AND m.`orig_goods_location_id`=s.`goods_location_id` AND m.`goods_owner_id`=s.`goods_owner_id`),0)
-              -COALESCE((SELECT SUM(ps.`qty`) FROM `wms_packing_task_stock_selection` ps WHERE ps.`tenant_id`=@tenantId AND ps.`stock_id`=s.`id`),0) END) available_qty
+              -COALESCE((SELECT SUM(ps.`qty`) FROM `wms_packing_task_stock_selection` ps WHERE ps.`tenant_id`=@tenantId AND ps.`stock_id`=s.`id` AND ps.`status`='ACTIVE'),0) END) available_qty
             FROM `wms_stock` s WHERE s.`tenant_id`=@tenantId AND s.`id` IN @stockIds
             ORDER BY s.`id` FOR UPDATE;
             """,new{tenantId,stockIds},tx,cancellationToken:ct))).AsList();

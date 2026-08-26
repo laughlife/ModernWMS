@@ -53,6 +53,7 @@ public partial class DispatchWorkflowService
                            `reservation_item_id`,`qty`
                       FROM `wms_packing_task_stock_selection`
                      WHERE `tenant_id`=@tenantId AND `sellfox_task_id` IN @sourceTaskIds
+                       AND `status`='ACTIVE'
                        AND `erp_stock_id` IS NOT NULL AND `stock_allocation_id` IS NOT NULL
                      ORDER BY `erp_stock_id`,`stock_allocation_id`,`id` FOR UPDATE;
                     """,new{tenantId=order.tenant_id,sourceTaskIds},tx,cancellationToken:ct))).AsList();
@@ -72,12 +73,25 @@ public partial class DispatchWorkflowService
                         DispatchMutationContext(user,order.warehouse_id,"DISPATCH_RELEASE",order.id,row.id,row.erp_stock_id,
                             row.stock_allocation_id,row.qty,requestId,row.reservation_id,row.reservation_item_id),
                         row.erp_stock_id,row.stock_allocation_id,row.qty,ct);
-                if(reserved.Count>0)
-                    await c.ExecuteAsync(new CommandDefinition(
-                        "DELETE FROM `wms_packing_task_stock_selection` WHERE `id` IN @ids;",
-                        new{ids=reserved.Select(x=>x.id).ToArray()},tx,cancellationToken:ct));
             }
             var now = DateTime.Now;
+            await c.ExecuteAsync(new CommandDefinition("""
+                UPDATE `wms_packing_task_stock_selection`
+                   SET `status`='CANCELLED',`cancelled_by`=@cancelledBy,
+                       `cancelled_by_name`=@cancelledByName,`cancelled_at`=@now,
+                       `cancel_reason`='待拣货回退释放库存选择',
+                       `operation_source`='DISPATCH_ROLLBACK',
+                       `last_update_time`=@now,`row_version`=`row_version`+1
+                 WHERE `tenant_id`=@tenantId AND `sellfox_task_id` IN @sourceTaskIds
+                   AND `status`='ACTIVE';
+                """,new
+            {
+                tenantId=order.tenant_id,
+                sourceTaskIds=tasks.Select(x=>x.source_task_id).ToArray(),
+                cancelledBy=user.user_id,
+                cancelledByName=user.user_name??string.Empty,
+                now
+            },tx,cancellationToken:ct));
             foreach (var task in tasks)
             {
                 // 释放任务：与 CancelTaskAsync 同一不变量，active_source_task_id 置空后任务回到装箱任务列表。

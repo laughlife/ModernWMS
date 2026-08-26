@@ -12,6 +12,13 @@ namespace ModernWMS.WMS.Entities.Models.PackingTask;
 [Table("packing_task_stock_selection")]
 public class PackingTaskStockSelectionEntity : BaseModel
 {
+    /// <summary>Selection still owns the current stock binding.</summary>
+    public const string ActiveStatus = "ACTIVE";
+    /// <summary>Selection was cancelled and its reservation was released.</summary>
+    public const string CancelledStatus = "CANCELLED";
+    /// <summary>Selection was transferred into a completed picking allocation.</summary>
+    public const string TransferredStatus = "TRANSFERRED";
+
     /// <summary>Tenant owning the selection.</summary>
     public long tenant_id { get; set; } = 1;
     /// <summary>SellFox packing task identifier.</summary>
@@ -46,4 +53,46 @@ public class PackingTaskStockSelectionEntity : BaseModel
     public DateTime create_time { get; set; }
     /// <summary>Time when the selection was last updated.</summary>
     public DateTime last_update_time { get; set; }
+    /// <summary>Lifecycle status of the binding.</summary>
+    [MaxLength(16)] public string status { get; set; } = ActiveStatus;
+    /// <summary>Identifier of the user who cancelled the binding.</summary>
+    public long? cancelled_by { get; set; }
+    /// <summary>Name of the user who cancelled the binding.</summary>
+    [MaxLength(128)] public string? cancelled_by_name { get; set; }
+    /// <summary>Time when the binding was cancelled.</summary>
+    public DateTime? cancelled_at { get; set; }
+    /// <summary>Reason why the binding was cancelled.</summary>
+    [MaxLength(255)] public string? cancel_reason { get; set; }
+    /// <summary>Optimistic lifecycle version.</summary>
+    public long row_version { get; set; }
+    /// <summary>System operation that last changed the lifecycle.</summary>
+    [MaxLength(32)] public string operation_source { get; set; } = "MODERN_WMS";
+
+    /// <summary>Whether this row currently owns a stock binding.</summary>
+    [NotMapped]
+    public bool IsActive => string.Equals(status, ActiveStatus, StringComparison.Ordinal);
+
+    /// <summary>Marks an active binding as cancelled while retaining its audit trail.</summary>
+    public void Cancel(long actorId, string actorName, string reason, string operationSource, DateTime cancelledAt)
+    {
+        if (!IsActive) throw new InvalidOperationException("Only an active stock selection can be cancelled.");
+        status = CancelledStatus;
+        cancelled_by = actorId;
+        cancelled_by_name = actorName;
+        cancelled_at = cancelledAt;
+        cancel_reason = reason;
+        operation_source = operationSource;
+        last_update_time = cancelledAt;
+        row_version = checked(row_version + 1);
+    }
+
+    /// <summary>Marks an active binding as transferred into picking.</summary>
+    public void Transfer(string operationSource, DateTime transferredAt)
+    {
+        if (!IsActive) throw new InvalidOperationException("Only an active stock selection can be transferred.");
+        status = TransferredStatus;
+        operation_source = operationSource;
+        last_update_time = transferredAt;
+        row_version = checked(row_version + 1);
+    }
 }

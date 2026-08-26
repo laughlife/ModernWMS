@@ -377,7 +377,8 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                                AND m.orig_goods_location_id = stock.goods_location_id
                                AND m.goods_owner_id = stock.goods_owner_id), 0)
                          - COALESCE((SELECT SUM(s.qty) FROM wms_packing_task_stock_selection s
-                             WHERE s.tenant_id = @TenantId AND s.stock_id = stock.id), 0)
+                             WHERE s.tenant_id = @TenantId AND s.stock_id = stock.id
+                               AND s.status = 'ACTIVE'), 0)
                        ) ELSE 0 END), 0) AS AvailableQty,
                        COALESCE(MAX(selection.locked_qty), 0) AS LockedQty
                 FROM ruiyi_sellfox_packing_task_item AS item
@@ -399,6 +400,7 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                   SELECT sellfox_item_id, SUM(qty) AS locked_qty
                   FROM wms_packing_task_stock_selection
                   WHERE tenant_id = @TenantId AND sellfox_task_id IN @TaskIds
+                    AND status = 'ACTIVE'
                   GROUP BY sellfox_item_id) AS selection
                   ON selection.sellfox_item_id = item.sellfox_item_id
                 WHERE item.source_deleted = 0 AND item.sellfox_task_id IN @TaskIds
@@ -441,6 +443,7 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                       LEFT JOIN (SELECT `sellfox_item_id`,SUM(`qty`) locked_qty
                                    FROM `wms_packing_task_stock_selection`
                                   WHERE `tenant_id`=@TenantId AND `sellfox_task_id` IN @TaskIds
+                                    AND `status`='ACTIVE'
                                   GROUP BY `sellfox_item_id`) selection
                         ON selection.`sellfox_item_id`=item.`sellfox_item_id`
                      WHERE item.`source_deleted`=0 AND item.`sellfox_task_id` IN @TaskIds
@@ -522,11 +525,12 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                   SELECT stock_id, SUM(qty) AS selected_qty
                   FROM wms_packing_task_stock_selection
                   WHERE tenant_id = @TenantId AND sellfox_task_id = @TaskId AND sellfox_item_id = @ItemId
+                    AND status = 'ACTIVE'
                   GROUP BY stock_id) AS selection ON selection.stock_id = stock.id
                 LEFT JOIN (
                   SELECT stock_id, SUM(qty) AS lock_qty
                   FROM wms_packing_task_stock_selection
-                  WHERE tenant_id = @TenantId
+                  WHERE tenant_id = @TenantId AND status = 'ACTIVE'
                   GROUP BY stock_id) AS packing_lock ON packing_lock.stock_id = stock.id
                 LEFT JOIN (
                   SELECT pick.stock_id, SUM(pick.pick_qty) AS lock_qty
@@ -657,6 +661,7 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                       FROM `wms_packing_task_stock_selection`
                      WHERE `tenant_id`=@TenantId AND `sellfox_task_id`=@TaskId
                        AND `sellfox_item_id`=@ItemId AND `stock_allocation_id` IS NOT NULL
+                       AND `status`='ACTIVE'
                      GROUP BY `stock_allocation_id`) selection
                     ON selection.`stock_allocation_id`=allocation.`id`
                  WHERE allocation.`tenant_id`=@TenantId AND allocation.`location_state`='ACTIVE'
@@ -778,6 +783,7 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                     SELECT id FROM wms_packing_task_stock_selection
                     WHERE tenant_id = @TenantId AND sellfox_task_id = @TaskId
                       AND sellfox_item_id = @ItemId AND stock_id = @StockId
+                      AND status = 'ACTIVE'
                     ORDER BY id LIMIT 1 FOR UPDATE
                     """, new
                 {
@@ -789,7 +795,8 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                 var ownLockedQty = existingId == null
                     ? 0
                     : await connection.ExecuteScalarAsync<int>("""
-                        SELECT qty FROM wms_packing_task_stock_selection WHERE id = @Id;
+                        SELECT qty FROM wms_packing_task_stock_selection
+                        WHERE id = @Id AND status = 'ACTIVE';
                         """, new { Id = existingId }, transaction);
 
                 // 服务端重算可用量并直接锁定：qty - 在途/加工/移库/已选择锁定 - 本次已有锁定。
@@ -806,7 +813,8 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                         WHERE m.`move_status` = 0 AND m.`sku_id` = @SkuId
                           AND m.`orig_goods_location_id` = @LocationId AND m.`goods_owner_id` = @OwnerId), 0)
                       + COALESCE((SELECT SUM(qty) FROM `wms_packing_task_stock_selection`
-                        WHERE tenant_id = @TenantId AND stock_id = @StockId), 0)
+                        WHERE tenant_id = @TenantId AND stock_id = @StockId
+                          AND status = 'ACTIVE'), 0)
                     """, new
                 {
                     SkuId = stock.sku_id,
@@ -863,11 +871,11 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                         INSERT INTO wms_packing_task_stock_selection
                           (tenant_id, sellfox_task_id, sellfox_item_id, wms_sku_id, stock_id, qty,
                            goods_location_id, goods_owner_id, sku_code, selected_by, selected_by_name,
-                           create_time, last_update_time)
+                           create_time, last_update_time, status, operation_source)
                         VALUES
                           (@TenantId, @TaskId, @ItemId, @WmsSkuId, @StockId, @qty,
                            @goods_location_id, @goods_owner_id, @SkuCode, @SelectedBy, @SelectedByName,
-                           @Now, @Now)
+                           @Now, @Now, 'ACTIVE', 'MODERN_WMS')
                         """, values, transaction);
                 }
                 else
@@ -877,8 +885,9 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                         SET wms_sku_id = @WmsSkuId, qty = @qty,
                             goods_location_id = @goods_location_id, goods_owner_id = @goods_owner_id,
                             sku_code = @SkuCode, selected_by = @SelectedBy,
-                            selected_by_name = @SelectedByName, last_update_time = @Now
-                        WHERE id = @Id
+                            selected_by_name = @SelectedByName, last_update_time = @Now,
+                            operation_source = 'MODERN_WMS', row_version = row_version + 1
+                        WHERE id = @Id AND status = 'ACTIVE'
                         """, values, transaction);
                 }
 
@@ -928,6 +937,7 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                     ON selection.`tenant_id`=@TenantId
                    AND selection.`sellfox_task_id`=item.`sellfox_task_id`
                    AND selection.`sellfox_item_id`=item.`sellfox_item_id`
+                   AND selection.`status`='ACTIVE'
                    AND ((@AllocationId IS NOT NULL AND @AllocationId>0
                          AND selection.`stock_allocation_id`=@AllocationId)
                      OR ((@AllocationId IS NULL OR @AllocationId<=0)
@@ -992,13 +1002,21 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                             reservationId:locked.reservation_id,reservationItemId:locked.reservation_item_id),
                         locked.erp_stock_id!.Value,locked.stock_allocation_id.Value,locked.qty);
                     var affected=await connection.ExecuteAsync("""
-                        DELETE FROM `wms_packing_task_stock_selection`
+                        UPDATE `wms_packing_task_stock_selection`
+                           SET `status`='CANCELLED',`cancelled_by`=@CancelledBy,
+                               `cancelled_by_name`=@CancelledByName,`cancelled_at`=@Now,
+                               `cancel_reason`='用户取消装箱任务库存选择',
+                               `operation_source`='WMS_MANUAL_CANCEL',
+                               `last_update_time`=@Now,`row_version`=`row_version`+1
                          WHERE `id`=@Id AND `tenant_id`=@TenantId AND `erp_stock_id`=@ErpStockId
-                           AND `stock_allocation_id`=@AllocationId AND `qty`=@Qty;
+                           AND `stock_allocation_id`=@AllocationId AND `qty`=@Qty
+                           AND `status`='ACTIVE';
                         """,new
                     {
                         Id=locked.id,TenantId=currentUser.tenant_id,ErpStockId=locked.erp_stock_id,
-                        AllocationId=locked.stock_allocation_id,Qty=locked.qty
+                        AllocationId=locked.stock_allocation_id,Qty=locked.qty,
+                        CancelledBy=currentUser.user_id,
+                        CancelledByName=currentUser.user_name??string.Empty,Now=DateTime.Now
                     },transaction);
                     if(affected!=1)
                         return await RollbackResultAsync(transaction,"库存选择已变化，请刷新后重试");
@@ -1015,15 +1033,22 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                     currentUser.tenant_id,request);
                 if(!MatchesDeleteSnapshot(legacyLocked,snapshot)||legacyLocked!.stock_allocation_id is not null)
                     return await RollbackResultAsync(transaction,"库存选择已变化，请刷新后重试");
-                // 旧模式没有独立占用余额；删除选择后旧可用量查询不再扣除此行。
+                // 旧模式没有独立占用余额；取消选择后旧可用量查询不再扣除此活动行。
                 var legacyAffected=await connection.ExecuteAsync("""
-                    DELETE FROM `wms_packing_task_stock_selection`
+                    UPDATE `wms_packing_task_stock_selection`
+                       SET `status`='CANCELLED',`cancelled_by`=@CancelledBy,
+                           `cancelled_by_name`=@CancelledByName,`cancelled_at`=@Now,
+                           `cancel_reason`='用户取消装箱任务库存选择',
+                           `operation_source`='WMS_MANUAL_CANCEL',
+                           `last_update_time`=@Now,`row_version`=`row_version`+1
                      WHERE `id`=@Id AND `tenant_id`=@TenantId AND `stock_allocation_id` IS NULL
-                       AND `stock_id`=@StockId AND `qty`=@Qty;
+                       AND `stock_id`=@StockId AND `qty`=@Qty AND `status`='ACTIVE';
                     """,new
                 {
                     Id=legacyLocked.id,TenantId=currentUser.tenant_id,
-                    StockId=legacyLocked.stock_id,Qty=legacyLocked.qty
+                    StockId=legacyLocked.stock_id,Qty=legacyLocked.qty,
+                    CancelledBy=currentUser.user_id,
+                    CancelledByName=currentUser.user_name??string.Empty,Now=DateTime.Now
                 },transaction);
                 if(legacyAffected!=1)
                     return await RollbackResultAsync(transaction,"库存选择已变化，请刷新后重试");
@@ -1046,6 +1071,7 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                   FROM `wms_packing_task_stock_selection`
                  WHERE `id`=@SelectionId AND `tenant_id`=@TenantId
                    AND `sellfox_task_id`=@TaskId AND `sellfox_item_id`=@ItemId
+                   AND `status`='ACTIVE'
                  LIMIT 1 FOR UPDATE;
                 """,new
             {
@@ -1082,6 +1108,7 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                   FROM `wms_packing_task_stock_selection`
                  WHERE `tenant_id`=@TenantId AND `sellfox_task_id`=@TaskId
                    AND `sellfox_item_id`=@ItemId AND `stock_allocation_id`=@AllocationId
+                   AND `status`='ACTIVE'
                  ORDER BY `id` LIMIT 1 FOR UPDATE;
                 """, new
             {
@@ -1180,10 +1207,12 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                       (`tenant_id`,`sellfox_task_id`,`sellfox_item_id`,`wms_sku_id`,`stock_id`,
                        `erp_stock_id`,`stock_allocation_id`,`reservation_id`,`reservation_item_id`,
                        `qty`,`goods_location_id`,`goods_owner_id`,
-                       `sku_code`,`selected_by`,`selected_by_name`,`create_time`,`last_update_time`)
+                       `sku_code`,`selected_by`,`selected_by_name`,`create_time`,`last_update_time`,
+                       `status`,`operation_source`)
                     VALUES (@TenantId,@TaskId,@ItemId,@WmsSkuId,0,@ErpStockId,@AllocationId,
                       @ReservationId,@ReservationItemId,@Qty,
-                      @goods_location_id,@goods_owner_id,@SkuCode,@SelectedBy,@SelectedByName,@Now,@Now);
+                      @goods_location_id,@goods_owner_id,@SkuCode,@SelectedBy,@SelectedByName,@Now,@Now,
+                      'ACTIVE','MODERN_WMS');
                     """, values, transaction);
             }
             else
@@ -1195,8 +1224,9 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                            `reservation_id`=@ReservationId,`reservation_item_id`=@ReservationItemId,
                            `goods_location_id`=@goods_location_id,`goods_owner_id`=@goods_owner_id,
                            `sku_code`=@SkuCode,`selected_by`=@SelectedBy,
-                           `selected_by_name`=@SelectedByName,`last_update_time`=@Now
-                     WHERE `id`=@Id;
+                           `selected_by_name`=@SelectedByName,`last_update_time`=@Now,
+                           `operation_source`='MODERN_WMS',`row_version`=`row_version`+1
+                     WHERE `id`=@Id AND `status`='ACTIVE';
                     """, values, transaction);
             }
             await transaction.CommitAsync();

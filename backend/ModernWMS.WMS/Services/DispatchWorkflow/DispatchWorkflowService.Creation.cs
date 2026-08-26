@@ -129,6 +129,7 @@ public partial class DispatchWorkflowService
                    AND allocation.`id`=selection.`stock_allocation_id`
                    AND allocation.`erp_stock_id`=selection.`erp_stock_id`
                  WHERE selection.`tenant_id`=@tenantId AND selection.`sellfox_task_id` IN @taskIds
+                   AND selection.`status`='ACTIVE'
                    AND selection.`erp_stock_id` IS NOT NULL
                    AND selection.`stock_allocation_id` IS NOT NULL
                    AND allocation.`location_state`='ACTIVE'
@@ -147,13 +148,16 @@ public partial class DispatchWorkflowService
                            WHERE move.`move_status`=0 AND move.`sku_id`=stock.`sku_id`
                              AND move.`orig_goods_location_id`=stock.`goods_location_id` AND move.`goods_owner_id`=stock.`goods_owner_id`),0)
                          -COALESCE((SELECT SUM(other_selection.`qty`) FROM `wms_packing_task_stock_selection` other_selection
-                           WHERE other_selection.`tenant_id`=@tenantId AND other_selection.`stock_id`=stock.`id`),0)
+                           WHERE other_selection.`tenant_id`=@tenantId AND other_selection.`stock_id`=stock.`id`
+                             AND other_selection.`status`='ACTIVE'),0)
                          +COALESCE((SELECT SUM(task_selection.`qty`) FROM `wms_packing_task_stock_selection` task_selection
                            WHERE task_selection.`tenant_id`=@tenantId AND task_selection.`stock_id`=stock.`id`
-                             AND task_selection.`sellfox_task_id` IN @taskIds),0) END) AS AvailableBeforeTask
+                             AND task_selection.`sellfox_task_id` IN @taskIds
+                             AND task_selection.`status`='ACTIVE'),0) END) AS AvailableBeforeTask
                 FROM `wms_packing_task_stock_selection` selection
                 JOIN `wms_stock` stock ON stock.`id`=selection.`stock_id` AND stock.`tenant_id`=selection.`tenant_id`
                 WHERE selection.`tenant_id`=@tenantId AND selection.`sellfox_task_id` IN @taskIds
+                  AND selection.`status`='ACTIVE'
                 ORDER BY selection.`stock_id`,selection.`sellfox_item_id`,selection.`id` FOR UPDATE;
                 """;
         return (await connection.QueryAsync<CreationBindingRow>(new CommandDefinition(
