@@ -12,7 +12,7 @@ ERP 当前没有、也不会启用租户概念。ModernWMS 现有实现仍把 `t
 2. 运行时代码不得读取、传递、过滤、分组、关联、写入或校验任何租户字段。
 3. 删除租户条件后，查询和写入必须依靠真实业务主键、仓库、货主、所属人、任务、库存、分配、预占来源和 CAS 版本保持范围与唯一性。
 4. 已发布 Flyway 文件保持不变；结构调整通过新的版本化迁移交付，且本任务不执行实际迁移。
-5. 跨仓消费者仍依赖的物理列只作为惰性兼容列保留：允许 `NULL`、无默认值、ModernWMS 不读写，并为无租户查询建立业务索引和唯一键。
+5. ModernWMS 当前代码、历史结构和共享库存链引用到的租户列全部删除，不为 ruoyi-vue-pro 或其它消费者保留兼容列。跨仓消费者若因此报错，由对应仓库后续去除残留依赖。
 
 ## 身份、登录与权限
 
@@ -27,14 +27,14 @@ ERP 当前没有、也不会启用租户概念。ModernWMS 现有实现仍把 `t
 
 - 删除生产实体、ViewModel、接口、record 和方法签名中的租户字段或参数。
 - 删除默认 `tenant_id=0/1` 和租户相关注释。
-- Dapper 映射只选择业务需要的字段，避免因兼容列仍存在而被实体隐式接收。
+- Dapper 映射只选择业务需要的字段，删除实体中所有租户属性，不保留隐式接收入口。
 
 ### 查询、写入与真实边界
 
 - 普通主表按主键和有效状态读取；仓储资源继续按仓库、库区、库位、货主和角色仓库授权收口。
 - 任务和库存操作继续校验任务所属人、库存 `order_user_id`、ERP 仓库、SKU、库位分配、reservation/sourceLineKey 和行版本。
 - 关联改用明确的父子主键或业务外键，例如 allocation 与 `erp_stock_id`、selection 与任务/明细/allocation、库位与仓库/库区，而不是租户相等条件。
-- 写入语句不再包含 `tenant_id`；兼容列由迁移改为可空且无默认值，不能以 0/1 代填。
+- 写入语句不再包含 `tenant_id`；新迁移从数据库结构中删除全部相关租户列，不能以可空列、默认值或 0/1 代填替代删除。
 
 ### 库存分配、预占与幂等
 
@@ -59,34 +59,24 @@ ERP 当前没有、也不会启用租户概念。ModernWMS 现有实现仍把 `t
 
 ## 数据库迁移
 
-### 可删除列
+### 全量删除租户结构
 
-对 ModernWMS 独占且无跨仓运行时依赖的 `wms_*` 表，迁移先删除或替换含租户的索引/唯一键，再删除 `tenant_id`。替代约束使用主键、ERP 映射 ID、仓库/库区/库位、货主、业务号、任务、库存分配、操作键和状态等真实业务列。
+新增 Flyway 迁移覆盖 ModernWMS 当前运行链和已建立共享库存契约所引用的全部 `tenant_id` 列。迁移对每张表先删除或替换包含租户的索引、唯一键和其它约束，再删除物理列。替代约束使用主键、ERP 映射 ID、仓库/库区/库位、货主、业务号、任务、库存分配、操作键、预占来源和状态等真实业务列。
 
-只读跨仓扫描已经确认，`wms_erp_commodity_map`、`wms_erp_goods_owner_map`、`wms_goodslocation`、`wms_goodsowner`、`wms_warehousearea` 等虽被 Ruoyi 装箱查询读取，但消费者已按真实业务键关联，不读取租户列；其租户列可以在新迁移中删除。
+删除范围包括全部相关 `wms_*` 表，以及 ModernWMS 共享预占代码直接访问的四张 ERP 表：
 
-### 暂留兼容列
-
-以下物理列因 ruoyi-vue-pro 运行时仍使用而暂留，统一改为 `NULL`、无默认值，并建立不含租户的等价索引/唯一键：
-
-- `wms_erp_stock_allocation.tenant_id`
-- `wms_erp_stock_reservation_allocation.tenant_id`
-- `wms_packing_task_stock_selection.tenant_id`
-- `wms_erp_stock_allocation_log.tenant_id`
-- `wms_inventory_operation.tenant_id`
-- `wms_warehouse.tenant_id`
 - `trk_stock_reservation.tenant_id`
 - `trk_stock_reservation_item.tenant_id`
 - `trk_stock_reservation_command.tenant_id`
 - `trk_stock_reservation_command_item.tenant_id`
 
-前五列仍由 Ruoyi `PackingTaskMapper` 的兼容 INSERT 写入；`wms_warehouse` 仍被 Ruoyi WMS 模块的 MyBatis 租户拦截链访问；四张 `trk_stock_reservation*` 表仍属于 ERP 共享预占契约。ModernWMS 运行时代码不得因此继续传递或写入这些列。
+`wms_erp_stock_allocation`、`wms_erp_stock_reservation_allocation`、`wms_packing_task_stock_selection`、`wms_erp_stock_allocation_log`、`wms_inventory_operation`、`wms_warehouse` 等此前识别为跨仓引用的列也必须删除，不设置可空兼容列，不保留默认值。ruoyi-vue-pro 当前 Mapper 或租户拦截器若仍访问这些列，属于该仓未完成的去租户残留，不构成 ModernWMS 保留结构的理由。
 
 ### 安全前置检查与发布顺序
 
 - 在重建唯一键前，使用只读 SQL 对去掉租户后的业务列分组，确认重复组为零。
-- 新迁移包含明确的旧索引删除、新索引创建、列可空/删列顺序和幂等前置检查，不修改历史迁移。
-- 发布顺序为：先协调 Ruoyi 对兼容列的后续退出计划；应用 ModernWMS 新 Flyway；再发布去租户 ModernWMS 后端和前端。当前任务只提交迁移文件，不执行数据库变更。
+- 新迁移包含明确的旧索引删除、新索引创建、删列顺序和重复数据前置检查，不修改历史迁移。
+- 发布顺序为：应用 ModernWMS 新 Flyway，再发布去租户 ModernWMS 后端和前端；随后在 ruoyi-vue-pro 清理因物理列删除暴露的残留引用。当前任务只提交迁移文件，不执行数据库变更。
 
 ## 测试与验收
 
@@ -99,7 +89,7 @@ ERP 当前没有、也不会启用租户概念。ModernWMS 现有实现仍把 `t
 5. 权限回归覆盖角色菜单、角色仓库、任务所属人和库存所属人边界。
 6. 前端单元测试证明请求不发送租户字段。
 7. 编译后 SQL 契约扫描证明 `ModernWMS.Core` 与 `ModernWMS.WMS` 生产 Dapper SQL 不包含租户条件、关联或写入。
-8. Flyway 契约测试验证新索引、唯一键、兼容列和删列清单。
+8. Flyway 契约测试验证新索引、唯一键和全量删列清单，并证明没有租户兼容列。
 9. 最终运行后端相关测试与解决方案构建、前端单元测试与生产构建、全仓 `rg` 验收扫描和 `git diff --check`。
 
 ## 不在本次范围
