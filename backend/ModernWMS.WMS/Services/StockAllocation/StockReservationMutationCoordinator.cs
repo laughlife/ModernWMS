@@ -53,12 +53,12 @@ internal static class StockReservationMutationCoordinator
         var ownerSql = request.ExistingReservationId != null ? """
             SELECT `id` Id,`version` Version,`status` Status
               FROM `trk_stock_reservation`
-             WHERE `tenant_id`=@tenantId AND `id`=@existingReservationId AND `deleted`=b'0'
+             WHERE `id`=@existingReservationId AND `deleted`=b'0'
              FOR UPDATE
             """ : """
             SELECT `id` Id,`version` Version,`status` Status
               FROM `trk_stock_reservation`
-             WHERE `tenant_id`=@tenantId AND `source_system`=@sourceSystem
+             WHERE `source_system`=@sourceSystem
                AND `biz_type`=@bizType AND `biz_id`=@bizId AND `deleted`=b'0'
              FOR UPDATE
             """;
@@ -66,7 +66,6 @@ internal static class StockReservationMutationCoordinator
             ownerSql,
             new
             {
-                tenantId = context.TenantId,
                 existingReservationId = request.ExistingReservationId,
                 request.SourceSystem,
                 bizType = request.ReservationBizType,
@@ -79,21 +78,20 @@ internal static class StockReservationMutationCoordinator
                 || request.ExistingReservationItemId != null)
                 throw new InvalidOperationException("预占来源不存在，禁止释放或消费无主占用");
             var now = DateTime.Now;
-            var reservationNo = BuildReservationNo(context.TenantId, request);
+            var reservationNo = BuildReservationNo(request);
             await connection.ExecuteAsync(new CommandDefinition(
                 """
                 INSERT INTO `trk_stock_reservation`
-                    (`tenant_id`,`reservation_no`,`source_system`,`biz_type`,`biz_id`,`biz_no`,
+                    (`reservation_no`,`source_system`,`biz_type`,`biz_id`,`biz_no`,
                      `carrier_biz_type`,`carrier_biz_id`,`status`,`close_mode`,`version`,
                      `creator`,`create_time`,`updater`,`update_time`,`deleted`)
                 VALUES
-                    (@tenantId,@reservationNo,@sourceSystem,@bizType,@bizId,@bizNo,
+                    (@reservationNo,@sourceSystem,@bizType,@bizId,@bizNo,
                      @carrierBizType,@carrierBizId,'ACTIVE',NULL,0,
                      @operatorName,@now,@operatorName,@now,b'0')
                 """,
                 new
                 {
-                    tenantId = context.TenantId,
                     reservationNo,
                     request.SourceSystem,
                     bizType = request.ReservationBizType,
@@ -116,14 +114,14 @@ internal static class StockReservationMutationCoordinator
             SELECT `id` Id,`version` Version,`remaining_qty` RemainingQty,
                    `released_qty` ReleasedQty,`consumed_qty` ConsumedQty,`status` Status
               FROM `trk_stock_reservation_item`
-             WHERE `tenant_id`=@tenantId AND `id`=@existingReservationItemId
+             WHERE `id`=@existingReservationItemId
                AND `reservation_id`=@reservationId AND `stock_id`=@stockId AND `deleted`=b'0'
              FOR UPDATE
             """ : """
             SELECT `id` Id,`version` Version,`remaining_qty` RemainingQty,
                    `released_qty` ReleasedQty,`consumed_qty` ConsumedQty,`status` Status
               FROM `trk_stock_reservation_item`
-             WHERE `tenant_id`=@tenantId AND `reservation_id`=@reservationId
+             WHERE `reservation_id`=@reservationId
                AND `source_line_key`=@sourceLineKey AND `stock_id`=@stockId AND `deleted`=b'0'
              FOR UPDATE
             """;
@@ -131,7 +129,6 @@ internal static class StockReservationMutationCoordinator
             itemSql,
             new
             {
-                tenantId = context.TenantId,
                 reservationId = owner.Id,
                 existingReservationItemId = request.ExistingReservationItemId,
                 request.SourceLineKey,
@@ -148,18 +145,17 @@ internal static class StockReservationMutationCoordinator
             await connection.ExecuteAsync(new CommandDefinition(
                 """
                 INSERT INTO `trk_stock_reservation_item`
-                    (`tenant_id`,`reservation_id`,`source_line_type`,`source_line_id`,`source_line_key`,
+                    (`reservation_id`,`source_line_type`,`source_line_id`,`source_line_key`,
                      `stock_id`,`reserved_qty`,`released_qty`,`consumed_qty`,`remaining_qty`,
                      `status`,`version`,`source_snapshot_json`,`source_fingerprint`,
                      `creator`,`create_time`,`updater`,`update_time`,`deleted`)
                 VALUES
-                    (@tenantId,@reservationId,@sourceLineType,@sourceLineId,@sourceLineKey,
+                    (@reservationId,@sourceLineType,@sourceLineId,@sourceLineKey,
                      @stockId,0,0,0,0,'ACTIVE',0,NULL,@sourceFingerprint,
                      @operatorName,@now,@operatorName,@now,b'0')
                 """,
                 new
                 {
-                    tenantId = context.TenantId,
                     reservationId = owner.Id,
                     request.SourceLineType,
                     request.SourceLineId,
@@ -204,10 +200,10 @@ internal static class StockReservationMutationCoordinator
             SELECT `id` Id,`action` Action,`reservation_id` ReservationId,
                    `request_fingerprint` RequestFingerprint,`result_status` ResultStatus
               FROM `trk_stock_reservation_command`
-             WHERE `tenant_id`=@tenantId AND `namespace`=@namespace AND `command_id`=@commandId
+             WHERE `namespace`=@namespace AND `command_id`=@commandId
              FOR UPDATE
             """,
-            new { tenantId = context.TenantId, request.Namespace, request.CommandId },
+            new { request.Namespace, request.CommandId },
             transaction, cancellationToken: cancellationToken));
         if (command != null)
         {
@@ -223,12 +219,11 @@ internal static class StockReservationMutationCoordinator
             var resultRemaining = await connection.ExecuteScalarAsync<long?>(new CommandDefinition(
                 """
                 SELECT `result_remaining_qty` FROM `trk_stock_reservation_command_item`
-                 WHERE `tenant_id`=@tenantId AND `command_header_id`=@commandId
+                 WHERE `command_header_id`=@commandId
                    AND `reservation_item_id`=@reservationItemId
                 """,
                 new
                 {
-                    tenantId = context.TenantId,
                     commandId = command.Id,
                     reservationItemId = owner.ReservationItemId
                 }, transaction, cancellationToken: cancellationToken));
@@ -244,18 +239,17 @@ internal static class StockReservationMutationCoordinator
         await connection.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO `trk_stock_reservation_command`
-                (`tenant_id`,`namespace`,`command_id`,`action`,`reservation_id`,
+                (`namespace`,`command_id`,`action`,`reservation_id`,
                  `request_fingerprint`,`result_status`,`result_fingerprint`,`operator_id`,
                  `operator_name`,`complete_time`,`version`,`creator`,`create_time`,`updater`,
                  `update_time`,`deleted`)
             VALUES
-                (@tenantId,@namespace,@commandId,@action,@reservationId,
+                (@namespace,@commandId,@action,@reservationId,
                  @requestFingerprint,'PENDING',NULL,@operatorId,
                  @operatorName,NULL,0,@operatorName,@now,@operatorName,@now,b'0')
             """,
             new
             {
-                tenantId = context.TenantId,
                 request.Namespace,
                 request.CommandId,
                 action,
@@ -272,20 +266,19 @@ internal static class StockReservationMutationCoordinator
         await connection.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO `trk_stock_reservation_command_item`
-                (`tenant_id`,`command_header_id`,`line_no`,`reservation_id`,`reservation_item_id`,
+                (`command_header_id`,`line_no`,`reservation_id`,`reservation_item_id`,
                  `source_line_key`,`stock_id`,`action_qty`,`expected_reservation_version`,
                  `expected_item_version`,`allocation_plan_fingerprint`,`request_line_fingerprint`,
                  `stock_record_id`,`result_remaining_qty`,`result_line_fingerprint`,
                  `creator`,`create_time`,`updater`,`update_time`,`deleted`)
             VALUES
-                (@tenantId,@commandHeaderId,1,@reservationId,@reservationItemId,
+                (@commandHeaderId,1,@reservationId,@reservationItemId,
                  @sourceLineKey,@stockId,@quantity,@reservationVersion,
                  @itemVersion,@allocationFingerprint,@requestFingerprint,
                  NULL,NULL,NULL,@operatorName,@now,@operatorName,@now,b'0')
             """,
             new
             {
-                tenantId = context.TenantId,
                 commandHeaderId = sharedCommandId,
                 reservationId = owner.ReservationId,
                 reservationItemId = owner.ReservationItemId,
@@ -335,13 +328,12 @@ internal static class StockReservationMutationCoordinator
                SET `stock_record_id`=@stockRecordId,`result_remaining_qty`=@remainingQty,
                    `result_line_fingerprint`=@resultLineFingerprint,
                    `updater`=@operatorName,`update_time`=@now
-             WHERE `tenant_id`=@tenantId AND `command_header_id`=@commandId
+             WHERE `command_header_id`=@commandId
                AND `reservation_item_id`=@reservationItemId
                AND `stock_record_id` IS NULL
             """,
             new
             {
-                tenantId = context.TenantId,
                 commandId = state.Command.CommandId,
                 reservationItemId = state.Owner.ReservationItemId,
                 stockRecordId,
@@ -362,12 +354,11 @@ internal static class StockReservationMutationCoordinator
                SET `result_status`='SUCCEEDED',`result_fingerprint`=@resultFingerprint,
                    `complete_time`=@now,`version`=`version`+1,
                    `updater`=@operatorName,`update_time`=@now
-             WHERE `id`=@commandId AND `tenant_id`=@tenantId AND `result_status`='PENDING'
+             WHERE `id`=@commandId  AND `result_status`='PENDING'
             """,
             new
             {
                 commandId = state.Command.CommandId,
-                tenantId = context.TenantId,
                 resultFingerprint,
                 operatorName = ErpOperator(context.Operator),
                 now
@@ -378,7 +369,7 @@ internal static class StockReservationMutationCoordinator
     internal static async Task EnsureConservationAsync(
         IDbConnection connection,
         IDbTransaction transaction,
-        long tenantId,
+
         long stockId,
         long allocationId,
         MutationState state,
@@ -389,31 +380,28 @@ internal static class StockReservationMutationCoordinator
             SELECT item.`remaining_qty` ItemRemainingQty,
                    COALESCE((SELECT SUM(location_owner.`remaining_qty`)
                                FROM `wms_erp_stock_reservation_allocation` location_owner
-                              WHERE location_owner.`tenant_id`=@tenantId
-                                AND location_owner.`reservation_item_id`=item.`id`
+                              WHERE location_owner.`reservation_item_id`=item.`id`
                                 AND location_owner.`deleted`=b'0'),0) ItemLocationRemainingQty,
                    stock.`occupied_qty` StockOccupiedQty,
                    COALESCE((SELECT SUM(stock_owner.`remaining_qty`)
                                FROM `trk_stock_reservation_item` stock_owner
-                              WHERE stock_owner.`tenant_id`=@tenantId
-                                AND stock_owner.`stock_id`=@stockId
+                              WHERE stock_owner.`stock_id`=@stockId
                                 AND stock_owner.`deleted`=b'0'),0) StockOwnerRemainingQty,
                    allocation.`occupied_qty` AllocationOccupiedQty,
                    COALESCE((SELECT SUM(allocation_owner.`remaining_qty`)
                                FROM `wms_erp_stock_reservation_allocation` allocation_owner
-                              WHERE allocation_owner.`tenant_id`=@tenantId
-                                AND allocation_owner.`stock_allocation_id`=@allocationId
+                              WHERE allocation_owner.`stock_allocation_id`=@allocationId
                                 AND allocation_owner.`deleted`=b'0'),0) AllocationOwnerRemainingQty
               FROM `trk_stock_reservation_item` item
               JOIN `trk_stock` stock ON stock.`id`=@stockId AND stock.`deleted`=b'0'
               JOIN `wms_erp_stock_allocation` allocation
-                ON allocation.`id`=@allocationId AND allocation.`tenant_id`=@tenantId
-             WHERE item.`id`=@reservationItemId AND item.`tenant_id`=@tenantId
+                ON allocation.`id`=@allocationId
+             WHERE item.`id`=@reservationItemId
                AND item.`stock_id`=@stockId AND item.`deleted`=b'0'
             """,
             new
             {
-                tenantId,
+
                 stockId,
                 allocationId,
                 reservationItemId = state.Owner.ReservationItemId
@@ -437,11 +425,11 @@ internal static class StockReservationMutationCoordinator
                    `consumed_qty` ConsumedQty,`remaining_qty` RemainingQty,
                    `status` Status,`row_version` RowVersion
               FROM `wms_erp_stock_reservation_allocation`
-             WHERE `tenant_id`=@tenantId AND `reservation_item_id`=@reservationItemId
+             WHERE `reservation_item_id`=@reservationItemId
                AND `stock_allocation_id`=@allocationId AND `deleted`=b'0'
              FOR UPDATE
             """,
-            new { tenantId = context.TenantId, reservationItemId, allocationId },
+            new { reservationItemId, allocationId },
             transaction, cancellationToken: cancellationToken));
         if (row != null) return row;
         if (eventType != "LOCK")
@@ -450,16 +438,15 @@ internal static class StockReservationMutationCoordinator
         await connection.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO `wms_erp_stock_reservation_allocation`
-                (`tenant_id`,`reservation_item_id`,`erp_stock_id`,`stock_allocation_id`,
+                (`reservation_item_id`,`erp_stock_id`,`stock_allocation_id`,
                  `reserved_qty`,`released_qty`,`consumed_qty`,`remaining_qty`,`status`,
                  `row_version`,`creator`,`create_time`,`updater`,`update_time`,`deleted`)
             VALUES
-                (@tenantId,@reservationItemId,@stockId,@allocationId,
+                (@reservationItemId,@stockId,@allocationId,
                  0,0,0,0,'ACTIVE',0,@operatorName,@now,@operatorName,@now,b'0')
             """,
             new
             {
-                tenantId = context.TenantId,
                 reservationItemId,
                 stockId,
                 allocationId,
@@ -491,13 +478,12 @@ internal static class StockReservationMutationCoordinator
                    `consumed_qty`=`consumed_qty`+@consumedDelta,
                    `remaining_qty`=@remainingAfter,`status`=@status,
                    `version`=`version`+1,`updater`=@operatorName,`update_time`=@now
-             WHERE `id`=@id AND `tenant_id`=@tenantId AND `version`=@expectedVersion
+             WHERE `id`=@id  AND `version`=@expectedVersion
                AND `remaining_qty`=@beforeRemaining
             """,
             new
             {
                 id = owner.ReservationItemId,
-                tenantId = context.TenantId,
                 reservedDelta,
                 releasedDelta,
                 consumedDelta,
@@ -529,12 +515,11 @@ internal static class StockReservationMutationCoordinator
                SET `reserved_qty`=@reserved,`released_qty`=@released,
                    `consumed_qty`=@consumed,`remaining_qty`=@remaining,`status`=@status,
                    `row_version`=`row_version`+1,`updater`=@operatorName,`update_time`=@now
-             WHERE `id`=@id AND `tenant_id`=@tenantId AND `row_version`=@rowVersion
+             WHERE `id`=@id  AND `row_version`=@rowVersion
             """,
             new
             {
                 row.Id,
-                tenantId = context.TenantId,
                 reserved,
                 released,
                 consumed,
@@ -557,9 +542,9 @@ internal static class StockReservationMutationCoordinator
                    COALESCE(SUM(`released_qty`),0) ReleasedQty,
                    COALESCE(SUM(`consumed_qty`),0) ConsumedQty
               FROM `trk_stock_reservation_item`
-             WHERE `tenant_id`=@tenantId AND `reservation_id`=@reservationId AND `deleted`=b'0'
+             WHERE `reservation_id`=@reservationId AND `deleted`=b'0'
             """,
-            new { tenantId = context.TenantId, reservationId }, transaction,
+            new { reservationId }, transaction,
             cancellationToken: cancellationToken));
         var status = totals.RemainingQty > 0
             ? totals.ReleasedQty + totals.ConsumedQty > 0 ? "PARTIALLY_SETTLED" : "ACTIVE"
@@ -573,12 +558,11 @@ internal static class StockReservationMutationCoordinator
             UPDATE `trk_stock_reservation`
                SET `status`=@status,`close_mode`=@closeMode,`version`=`version`+1,
                    `updater`=@operatorName,`update_time`=@now
-             WHERE `id`=@reservationId AND `tenant_id`=@tenantId
+             WHERE `id`=@reservationId
             """,
             new
             {
                 reservationId,
-                tenantId = context.TenantId,
                 status,
                 closeMode,
                 operatorName = ErpOperator(context.Operator),
@@ -637,8 +621,8 @@ internal static class StockReservationMutationCoordinator
             : releasedDelta > 0 && consumedDelta > 0 ? "MIXED_CLOSED"
             : consumedDelta > 0 ? "CONSUMED" : "RELEASED";
 
-    private static string BuildReservationNo(long tenantId, StockReservationMutationContext request) =>
-        "MWMS-" + Hash($"{tenantId}|{request.SourceSystem}|{request.ReservationBizType}|{request.ReservationBizId}")[..59];
+    private static string BuildReservationNo(StockReservationMutationContext request) =>
+        "MWMS-" + Hash($"{request.SourceSystem}|{request.ReservationBizType}|{request.ReservationBizId}")[..59];
 
     private static string Hash(string value) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();

@@ -86,8 +86,4 @@ public class WmsStockRecordEntity : BaseModel
     /// 获取或设置 operate_time。
     /// </summary>
     public DateTime operate_time { get; set; } = DateTime.Now;
-    /// <summary>
-    /// 获取或设置 tenant_id。
-    /// </summary>
-    public long tenant_id { get; set; } = 1;
 }

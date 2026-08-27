@@ -55,10 +55,6 @@ namespace ModernWMS.WMS.Entities.Models
         /// </summary>
         public bool is_valid { get; set; } = true;
 
-        /// <summary>
-        /// the tenant id
-        /// </summary>
-        public long tenant_id { get; set; } = 1;
         #endregion
     }
 }

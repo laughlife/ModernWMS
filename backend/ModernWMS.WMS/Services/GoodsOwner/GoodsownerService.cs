@@ -38,20 +38,18 @@ internal sealed record GoodsownerData(
     string creator,
     DateTime create_time,
     DateTime last_update_time,
-    bool is_valid,
-    long tenant_id);
+    bool is_valid);
 
 internal interface IGoodsownerDataSource
 {
-    Task<(List<GoodsownerData> Rows, int Total)> PageAsync(PageSearch pageSearch, long tenantId);
-    Task<List<GoodsownerData>> GetAllAsync(long tenantId);
+    Task<(List<GoodsownerData> Rows, int Total)> PageAsync(PageSearch pageSearch);
+    Task<List<GoodsownerData>> GetAllAsync();
     Task<GoodsownerData?> GetAsync(int id);
     Task<GoodsownerAddResult> AddAsync(GoodsownerData owner);
     Task<GoodsownerWriteStatus> UpdateAsync(GoodsownerData owner);
     Task<bool> DeleteAsync(int id);
     Task<GoodsownerImportResult> ImportAsync(
-        IReadOnlyCollection<GoodsownerData> owners,
-        long tenantId);
+        IReadOnlyCollection<GoodsownerData> owners);
 }
 
 /// <summary>
@@ -81,21 +79,19 @@ public class GoodsownerService : BaseService<GoodsownerEntity>, IGoodsownerServi
     }
 
     /// <summary>
-    /// Page search for the current tenant.
     /// </summary>
     public async Task<(List<GoodsownerViewModel> data, int totals)> PageAsync(
         PageSearch pageSearch,
         CurrentUser currentUser)
     {
-        var (rows, total) = await _dataSource.PageAsync(pageSearch, currentUser.tenant_id);
+        var (rows, total) = await _dataSource.PageAsync(pageSearch);
         return (rows.Select(ToViewModel).ToList(), total);
     }
 
     /// <summary>
-    /// Gets all records for the current tenant.
     /// </summary>
     public async Task<List<GoodsownerViewModel>> GetAllAsync(CurrentUser currentUser) =>
-        (await _dataSource.GetAllAsync(currentUser.tenant_id)).Select(ToViewModel).ToList();
+        (await _dataSource.GetAllAsync()).Select(ToViewModel).ToList();
 
     /// <summary>
     /// Gets one record by id.
@@ -124,8 +120,7 @@ public class GoodsownerService : BaseService<GoodsownerEntity>, IGoodsownerServi
             currentUser.user_name,
             now,
             now,
-            viewModel.is_valid,
-            currentUser.tenant_id));
+            viewModel.is_valid));
 
         return result.Status switch
         {
@@ -137,7 +132,6 @@ public class GoodsownerService : BaseService<GoodsownerEntity>, IGoodsownerServi
     }
 
     /// <summary>
-    /// Updates one record without changing its creator, creation time, or tenant.
     /// </summary>
     public async Task<(bool flag, string msg)> UpdateAsync(GoodsownerViewModel viewModel)
     {
@@ -151,8 +145,7 @@ public class GoodsownerService : BaseService<GoodsownerEntity>, IGoodsownerServi
             viewModel.creator,
             viewModel.create_time,
             DateTime.Now,
-            viewModel.is_valid,
-            0));
+            viewModel.is_valid));
 
         return result switch
         {
@@ -197,9 +190,8 @@ public class GoodsownerService : BaseService<GoodsownerEntity>, IGoodsownerServi
             currentUser.user_name,
             now,
             now,
-            true,
-            currentUser.tenant_id)).ToList();
-        var result = await _dataSource.ImportAsync(rows, currentUser.tenant_id);
+            true)).ToList();
+        var result = await _dataSource.ImportAsync(rows);
 
         if (result.DuplicateNames.Count > 0)
         {
@@ -246,8 +238,7 @@ public class GoodsownerService : BaseService<GoodsownerEntity>, IGoodsownerServi
             owner.`creator`,
             owner.`create_time`,
             owner.`last_update_time`,
-            owner.`is_valid`,
-            owner.`tenant_id`
+            owner.`is_valid`
             """;
 
         private static readonly IReadOnlyDictionary<string, SearchField> SearchFields =
@@ -263,7 +254,6 @@ public class GoodsownerService : BaseService<GoodsownerEntity>, IGoodsownerServi
                 ["create_time"] = new("owner.`create_time`", typeof(DateTime), false),
                 ["last_update_time"] = new("owner.`last_update_time`", typeof(DateTime), false),
                 ["is_valid"] = new("owner.`is_valid`", typeof(bool), false),
-                ["tenant_id"] = new("owner.`tenant_id`", typeof(long), false)
             };
 
         private readonly IMySqlConnectionFactory _connectionFactory;
@@ -275,14 +265,10 @@ public class GoodsownerService : BaseService<GoodsownerEntity>, IGoodsownerServi
         }
 
         public async Task<(List<GoodsownerData> Rows, int Total)> PageAsync(
-            PageSearch pageSearch,
-            long tenantId)
+            PageSearch pageSearch)
         {
             var filter = BuildFilter(pageSearch.searchObjects);
-            var where = string.IsNullOrWhiteSpace(filter.Sql)
-                ? "owner.`tenant_id` = @tenant_id"
-                : $"owner.`tenant_id` = @tenant_id AND {filter.Sql}";
-            filter.Parameters.Add("tenant_id", tenantId);
+            var whereClause = string.IsNullOrWhiteSpace(filter.Sql) ? string.Empty : $"WHERE {filter.Sql}";
             filter.Parameters.Add("offset", (pageSearch.pageIndex - 1) * pageSearch.pageSize);
             filter.Parameters.Add("page_size", pageSearch.pageSize);
 
@@ -290,11 +276,11 @@ public class GoodsownerService : BaseService<GoodsownerEntity>, IGoodsownerServi
             using var result = await connection.QueryMultipleAsync($"""
                 SELECT COUNT(*)
                 FROM `wms_goodsowner` AS owner
-                WHERE {where};
+                {whereClause};
 
                 SELECT {Projection}
                 FROM `wms_goodsowner` AS owner
-                WHERE {where}
+                {whereClause}
                 ORDER BY owner.`create_time` DESC
                 LIMIT @page_size OFFSET @offset;
                 """, filter.Parameters);
@@ -303,15 +289,14 @@ public class GoodsownerService : BaseService<GoodsownerEntity>, IGoodsownerServi
             return (rows, total);
         }
 
-        public async Task<List<GoodsownerData>> GetAllAsync(long tenantId)
+        public async Task<List<GoodsownerData>> GetAllAsync()
         {
             await using var connection = await _connectionFactory.OpenConnectionAsync();
             return (await connection.QueryAsync<GoodsownerData>($"""
                 SELECT {Projection}
                 FROM `wms_goodsowner` AS owner
-                WHERE owner.`tenant_id` = @tenantId
                 ORDER BY owner.`create_time` DESC;
-                """, new { tenantId })).AsList();
+                """)).AsList();
         }
 
         public async Task<GoodsownerData?> GetAsync(int id)
@@ -335,8 +320,7 @@ public class GoodsownerService : BaseService<GoodsownerEntity>, IGoodsownerServi
                     SELECT EXISTS(
                         SELECT 1
                         FROM `wms_goodsowner`
-                        WHERE `tenant_id` = @tenant_id
-                          AND `goods_owner_name` = @goods_owner_name);
+                        WHERE `goods_owner_name` = @goods_owner_name);
                     """, owner, transaction);
                 if (duplicate)
                 {
@@ -375,13 +359,13 @@ public class GoodsownerService : BaseService<GoodsownerEntity>, IGoodsownerServi
                     return GoodsownerWriteStatus.NotFound;
                 }
 
-                var parameters = owner with { tenant_id = original.tenant_id };
+                var parameters = owner;
                 var duplicate = await connection.ExecuteScalarAsync<bool>("""
                     SELECT EXISTS(
                         SELECT 1
                         FROM `wms_goodsowner`
                         WHERE `id` <> @id
-                          AND `tenant_id` = @tenant_id
+
                           AND `goods_owner_name` = @goods_owner_name);
                     """, parameters, transaction);
                 if (duplicate)
@@ -432,8 +416,7 @@ public class GoodsownerService : BaseService<GoodsownerEntity>, IGoodsownerServi
         }
 
         public async Task<GoodsownerImportResult> ImportAsync(
-            IReadOnlyCollection<GoodsownerData> owners,
-            long tenantId)
+            IReadOnlyCollection<GoodsownerData> owners)
         {
             if (owners.Count == 0)
             {
@@ -449,10 +432,9 @@ public class GoodsownerService : BaseService<GoodsownerEntity>, IGoodsownerServi
                 var duplicates = (await connection.QueryAsync<string>("""
                     SELECT `goods_owner_name`
                     FROM `wms_goodsowner`
-                    WHERE `tenant_id` = @tenantId
-                      AND `goods_owner_name` IN @names
+                    WHERE `goods_owner_name` IN @names
                     FOR UPDATE;
-                    """, new { tenantId, names }, transaction))
+                    """, new { names }, transaction))
                     .ToHashSet(StringComparer.Ordinal);
                 if (duplicates.Count > 0)
                 {
@@ -463,10 +445,10 @@ public class GoodsownerService : BaseService<GoodsownerEntity>, IGoodsownerServi
                 var affected = await connection.ExecuteAsync("""
                     INSERT INTO `wms_goodsowner`
                         (`goods_owner_name`, `city`, `address`, `manager`, `contact_tel`,
-                         `creator`, `create_time`, `last_update_time`, `is_valid`, `tenant_id`)
+                         `creator`, `create_time`, `last_update_time`, `is_valid`)
                     VALUES
                         (@goods_owner_name, @city, @address, @manager, @contact_tel,
-                         @creator, @create_time, @last_update_time, @is_valid, @tenant_id);
+                         @creator, @create_time, @last_update_time, @is_valid);
                     """, owners, transaction);
                 await transaction.CommitAsync();
                 return new GoodsownerImportResult(
@@ -487,10 +469,10 @@ public class GoodsownerService : BaseService<GoodsownerEntity>, IGoodsownerServi
             await connection.ExecuteScalarAsync<int>("""
                 INSERT INTO `wms_goodsowner`
                     (`goods_owner_name`, `city`, `address`, `manager`, `contact_tel`,
-                     `creator`, `create_time`, `last_update_time`, `is_valid`, `tenant_id`)
+                     `creator`, `create_time`, `last_update_time`, `is_valid`)
                 VALUES
                     (@goods_owner_name, @city, @address, @manager, @contact_tel,
-                     @creator, @create_time, @last_update_time, @is_valid, @tenant_id);
+                     @creator, @create_time, @last_update_time, @is_valid);
                 SELECT LAST_INSERT_ID();
                 """, owner, transaction);
 

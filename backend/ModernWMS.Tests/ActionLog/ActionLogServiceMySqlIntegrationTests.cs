@@ -12,7 +12,7 @@ namespace ModernWMS.Tests.ActionLog;
 public sealed class ActionLogServiceMySqlIntegrationTests
 {
     [Database.DevelopmentMySqlFact]
-    public async Task Add_and_page_are_tenant_scoped_and_parameterized()
+    public async Task Add_and_page_are_parameterized_and_user_filtered()
     {
         var sourceConnectionString = Environment.GetEnvironmentVariable("MODERNWMS_TEST_MYSQL")!;
         var source = new MySqlConnectionStringBuilder(sourceConnectionString);
@@ -45,17 +45,16 @@ public sealed class ActionLogServiceMySqlIntegrationTests
                     `vue_path` VARCHAR(64) NOT NULL,
                     `user_name` VARCHAR(128) NOT NULL,
                     `action_content` VARCHAR(2000) NOT NULL,
-                    `action_time` DATETIME(6) NOT NULL,
-                    `tenant_id` BIGINT NOT NULL
+                    `action_time` DATETIME(6) NOT NULL
                 ) ENGINE=InnoDB;
                 INSERT INTO `wms_action_log`
-                    (`vue_path`,`user_name`,`action_content`,`action_time`,`tenant_id`)
-                VALUES ('stock','other','其他租户',UTC_TIMESTAMP(6),2);
+                    (`vue_path`,`user_name`,`action_content`,`action_time`)
+                VALUES ('stock','other','其他用户',UTC_TIMESTAMP(6));
                 """);
 
             await using var factory = new MySqlConnectionFactory(isolated.ConnectionString);
             var service = new ActionLogService(factory, new EchoLocalizer());
-            var currentUser = new CurrentUser { tenant_id = 1, user_name = "alice" };
+            var currentUser = new CurrentUser { user_name = "alice" };
 
             Assert.True(await service.AddLogAsync("stock", "新增库存", currentUser));
             Assert.True(await service.AddLogAsync("dispatch", "生成拣货单", currentUser));

@@ -20,7 +20,6 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
     public async Task PrelockReservationOwnersAsync(
         IDbConnection connection,
         IDbTransaction transaction,
-        long tenantId,
         IReadOnlyCollection<long> erpWarehouseIds,
         IReadOnlyCollection<StockReservationPrelockRequest> requests,
         CancellationToken cancellationToken = default)
@@ -29,9 +28,8 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
         ArgumentNullException.ThrowIfNull(requests);
         if (requests.Count == 0) return;
         var warehouseIds = ValidateIds(erpWarehouseIds, nameof(erpWarehouseIds));
-        if (requests.Any(x => x.Context.TenantId != tenantId))
             throw new InvalidOperationException("批量预锁包含跨租户预占来源");
-        await LockRuntimeConfigsAsync(connection, transaction, tenantId, warehouseIds, cancellationToken);
+        await LockRuntimeConfigsAsync(connection, transaction, warehouseIds, cancellationToken);
         foreach (var request in requests
                      .OrderBy(x => x.Context.Reservation?.ExistingReservationId ?? long.MaxValue)
                      .ThenBy(x => x.Context.Reservation?.SourceSystem, StringComparer.Ordinal)
@@ -43,7 +41,7 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
             await StockReservationMutationCoordinator.LockOwnerAsync(
                 connection, transaction, request.Context, request.ErpStockId,
                 request.EventType, cancellationToken);
-        await PrelockAsync(connection, transaction, tenantId, warehouseIds,
+        await PrelockAsync(connection, transaction, warehouseIds,
             requests.Select(x => x.ErpStockId).Distinct().ToArray(),
             requests.Select(x => x.AllocationId).Distinct().ToArray(), cancellationToken);
     }
@@ -52,20 +50,18 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
     public async Task PrelockAsync(
         IDbConnection connection,
         IDbTransaction transaction,
-        long tenantId,
         IReadOnlyCollection<long> erpWarehouseIds,
         IReadOnlyCollection<long> erpStockIds,
         IReadOnlyCollection<long> allocationIds,
         CancellationToken cancellationToken = default)
     {
         ValidateConnectionAndTransaction(connection, transaction);
-        if (tenantId <= 0) throw new ArgumentOutOfRangeException(nameof(tenantId));
         var warehouseIds = ValidateIds(erpWarehouseIds, nameof(erpWarehouseIds));
         var stockIds = ValidateIds(erpStockIds, nameof(erpStockIds));
         var requestedAllocationIds = ValidateIds(allocationIds, nameof(allocationIds), false);
 
         await LockRuntimeConfigsAsync(
-            connection, transaction, tenantId, warehouseIds, cancellationToken);
+            connection, transaction, warehouseIds, cancellationToken);
 
         var lockedStocks = (await connection.QueryAsync<StockRow>(new CommandDefinition(
             """
@@ -90,11 +86,11 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
             SELECT `id` Id,`erp_stock_id` ErpStockId,`allocated_qty` AllocatedQty,
                    `occupied_qty` OccupiedQty,`location_state` LocationState
               FROM `wms_erp_stock_allocation`
-             WHERE `tenant_id`=@tenantId AND `erp_stock_id` IN @stockIds
+             WHERE `erp_stock_id` IN @stockIds
                AND `id` IN @allocationIds
              ORDER BY `erp_stock_id`,`id` FOR UPDATE
             """,
-            new { tenantId, stockIds, allocationIds = requestedAllocationIds },
+            new { stockIds, allocationIds = requestedAllocationIds },
             transaction,
             cancellationToken: cancellationToken))).AsList();
         if (allocations.Count != requestedAllocationIds.Length)
@@ -104,7 +100,7 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
             var ids = allocations.Where(t => t.ErpStockId == stock.Id).Select(t => t.Id).ToArray();
             if (ids.Length > 0)
                 await EnsureAllocationReferencesAsync(
-                    connection, transaction, tenantId, stock, ids, cancellationToken);
+                    connection, transaction, stock, ids, cancellationToken);
         }
     }
 
@@ -192,7 +188,7 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
         try
         {
             await EnsureRuntimeAllowsMutationAsync(
-                connection, transaction, context.TenantId, context.ErpWarehouseId, cancellationToken);
+                connection, transaction, context.ErpWarehouseId, cancellationToken);
             var stock = await LockStockAsync(connection, transaction, erpStockId, cancellationToken);
             EnsureWarehouseUnchanged(erpStockId, context.ErpWarehouseId, stock.WarehouseId);
 
@@ -201,7 +197,6 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
             var allocations = await LockAllocationsAsync(
                 connection,
                 transaction,
-                context.TenantId,
                 erpStockId,
                 [sourceAllocationId, targetAllocationId],
                 cancellationToken);
@@ -210,7 +205,6 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
             await EnsureAllocationReferencesAsync(
                 connection,
                 transaction,
-                context.TenantId,
                 stock,
                 [sourceAllocationId, targetAllocationId],
                 cancellationToken);
@@ -234,7 +228,7 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
                     throw IdempotencyConflict(context.OperationKey);
                 var replay = BuildMoveReplay(context, stock, source, target, quantity, existingLogs);
                 await EnsureConservationAsync(
-                    connection, transaction, context.TenantId, stock.Id, cancellationToken);
+                    connection, transaction, stock.Id, cancellationToken);
                 await ReleaseSavepointAsync(connection, transaction);
                 return replay;
             }
@@ -289,7 +283,7 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
                     connection, transaction, context, stock.Id, null, change, now, null,
                     cancellationToken);
 
-            await EnsureConservationAsync(connection, transaction, context.TenantId, stock.Id, cancellationToken);
+            await EnsureConservationAsync(connection, transaction, stock.Id, cancellationToken);
             await CompleteInventoryOperationAsync(
                 connection, transaction, context, null, now, cancellationToken);
             await ReleaseSavepointAsync(connection, transaction);
@@ -319,7 +313,7 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
         try
         {
             await EnsureRuntimeAllowsMutationAsync(
-                connection, transaction, context.TenantId, context.ErpWarehouseId, cancellationToken);
+                connection, transaction, context.ErpWarehouseId, cancellationToken);
             var deltas = MutationDeltas.For(kind, quantity);
             StockReservationMutationCoordinator.LockedOwner? reservationOwner = null;
             if (StockReservationMutationCoordinator.RequiresReservation(deltas.EventType))
@@ -330,12 +324,11 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
             var allocation = (await LockAllocationsAsync(
                 connection,
                 transaction,
-                context.TenantId,
                 erpStockId,
                 [allocationId],
                 cancellationToken)).Single();
             await EnsureAllocationReferencesAsync(
-                connection, transaction, context.TenantId, stock, [allocationId], cancellationToken);
+                connection, transaction, stock, [allocationId], cancellationToken);
             StockReservationMutationCoordinator.MutationState? reservationState = null;
             if (reservationOwner != null)
                 reservationState = await StockReservationMutationCoordinator.BeginMutationAsync(
@@ -372,7 +365,7 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
                     operation.ErpStockRecordId.Value,
                     cancellationToken);
                 await EnsureConservationAsync(
-                    connection, transaction, context.TenantId, stock.Id, cancellationToken);
+                    connection, transaction, stock.Id, cancellationToken);
                 await ReleaseSavepointAsync(connection, transaction);
                 return replay with
                 {
@@ -417,9 +410,9 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
                 reservationState, cancellationToken);
             if (reservationState != null)
                 await StockReservationMutationCoordinator.EnsureConservationAsync(
-                    connection, transaction, context.TenantId, stock.Id, allocationId,
+                    connection, transaction, stock.Id, allocationId,
                     reservationState, cancellationToken);
-            await EnsureConservationAsync(connection, transaction, context.TenantId, stock.Id, cancellationToken);
+            await EnsureConservationAsync(connection, transaction, stock.Id, cancellationToken);
             if (reservationState != null)
                 await StockReservationMutationCoordinator.CompleteAsync(
                     connection, transaction, context, reservationState, recordId, cancellationToken);
@@ -453,7 +446,6 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
         ValidateConnectionAndTransaction(connection, transaction);
         ArgumentNullException.ThrowIfNull(context);
         if (erpStockId <= 0) throw new ArgumentOutOfRangeException(nameof(erpStockId));
-        if (context.TenantId <= 0) throw new ArgumentOutOfRangeException(nameof(context.TenantId));
         if (context.ErpWarehouseId <= 0) throw new ArgumentOutOfRangeException(nameof(context.ErpWarehouseId));
         EnsureRequiredLength(context.OperationKey, 64, nameof(context.OperationKey));
         EnsureRequiredLength(context.BizType, 32, nameof(context.BizType));
@@ -522,9 +514,9 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
                    `counterpart_allocation_id` CounterpartAllocationId,`quantity` Quantity,
                    `result_status` ResultStatus,`erp_stock_record_id` ErpStockRecordId
               FROM `wms_inventory_operation`
-             WHERE `tenant_id`=@tenantId AND `operation_key`=@operationKey
+             WHERE `operation_key`=@operationKey
             """,
-            new { tenantId = context.TenantId, operationKey = context.OperationKey },
+            new { operationKey = context.OperationKey },
             transaction,
             cancellationToken: cancellationToken));
         if (snapshot == null) return null;
@@ -536,10 +528,10 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
                    `counterpart_allocation_id` CounterpartAllocationId,`quantity` Quantity,
                    `result_status` ResultStatus,`erp_stock_record_id` ErpStockRecordId
               FROM `wms_inventory_operation`
-             WHERE `id`=@id AND `tenant_id`=@tenantId
+             WHERE `id`=@id
              FOR UPDATE
             """,
-            new { snapshot.Id, tenantId = context.TenantId },
+            new { snapshot.Id},
             transaction,
             cancellationToken: cancellationToken));
     }
@@ -560,19 +552,18 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
         await connection.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO `wms_inventory_operation`
-                (`tenant_id`,`operation_key`,`shared_command_id`,`reservation_id`,`reservation_item_id`,
+                (`operation_key`,`shared_command_id`,`reservation_id`,`reservation_item_id`,
                  `biz_type`,`biz_id`,`biz_item_id`,`mutation_type`,
                  `erp_stock_id`,`allocation_id`,`counterpart_allocation_id`,`quantity`,
                  `result_status`,`erp_stock_record_id`,`operator`,`create_time`,`update_time`)
             VALUES
-                (@tenantId,@operationKey,@sharedCommandId,@reservationId,@reservationItemId,
+                (@operationKey,@sharedCommandId,@reservationId,@reservationItemId,
                  @bizType,@bizId,@bizItemId,@mutationType,
                  @erpStockId,@allocationId,@counterpartAllocationId,@quantity,
                  'PENDING',NULL,@operatorName,@now,@now)
             """,
             new
             {
-                tenantId = context.TenantId,
                 operationKey = context.OperationKey,
                 sharedCommandId = reservationState?.Command.CommandId,
                 reservationId = reservationState?.Owner.ReservationId,
@@ -603,12 +594,11 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
             UPDATE `wms_inventory_operation`
                SET `result_status`='SUCCEEDED',`erp_stock_record_id`=@erpStockRecordId,
                    `update_time`=@now
-             WHERE `tenant_id`=@tenantId AND `operation_key`=@operationKey
+             WHERE `operation_key`=@operationKey
                AND `result_status`='PENDING'
             """,
             new
             {
-                tenantId = context.TenantId,
                 operationKey = context.OperationKey,
                 erpStockRecordId,
                 now
@@ -660,10 +650,10 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
                    `after_allocated_qty` AfterAllocatedQty,`before_occupied_qty` BeforeOccupiedQty,
                    `after_occupied_qty` AfterOccupiedQty
              FROM `wms_erp_stock_allocation_log`
-             WHERE `tenant_id`=@tenantId AND `operation_key`=@operationKey
+             WHERE `operation_key`=@operationKey
              ORDER BY `allocation_id`,`event_type`
             """,
-            new { tenantId = context.TenantId, operationKey = context.OperationKey },
+            new { operationKey = context.OperationKey },
             transaction,
             cancellationToken: cancellationToken))).AsList();
 
@@ -698,11 +688,10 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
     private static async Task EnsureRuntimeAllowsMutationAsync(
         IDbConnection connection,
         IDbTransaction transaction,
-        long tenantId,
         long warehouseId,
         CancellationToken cancellationToken)
         => await LockRuntimeConfigsAsync(
-            connection, transaction, tenantId, [warehouseId], cancellationToken);
+            connection, transaction, [warehouseId], cancellationToken);
 
     /// <summary>
     /// Normal inventory transactions take shared runtime-gate locks so they do
@@ -712,7 +701,6 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
     private static async Task LockRuntimeConfigsAsync(
         IDbConnection connection,
         IDbTransaction transaction,
-        long tenantId,
         IReadOnlyCollection<long> warehouseIds,
         CancellationToken cancellationToken)
     {
@@ -722,11 +710,11 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
             SELECT `erp_warehouse_id` WarehouseId,`mode` Mode,
                    `maintenance_enabled` MaintenanceEnabled
               FROM `wms_inventory_runtime_config`
-             WHERE `tenant_id`=@tenantId AND `erp_warehouse_id` IN @ids
+             WHERE `erp_warehouse_id` IN @ids
              ORDER BY `erp_warehouse_id`
              LOCK IN SHARE MODE
             """,
-            new { tenantId, ids }, transaction, cancellationToken: cancellationToken))).AsList();
+            new { ids }, transaction, cancellationToken: cancellationToken))).AsList();
         if (configs.Count != ids.Length)
             throw new InvalidOperationException("一个或多个ERP仓库尚未配置WMS统一库存模式");
         var maintenance = configs.FirstOrDefault(t => t.MaintenanceEnabled);
@@ -743,7 +731,6 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
     private static async Task<List<AllocationRow>> LockAllocationsAsync(
         IDbConnection connection,
         IDbTransaction transaction,
-        long tenantId,
         long erpStockId,
         IReadOnlyCollection<long> allocationIds,
         CancellationToken cancellationToken)
@@ -754,10 +741,10 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
             SELECT `id` Id,`erp_stock_id` ErpStockId,`allocated_qty` AllocatedQty,
                    `occupied_qty` OccupiedQty,`location_state` LocationState
               FROM `wms_erp_stock_allocation`
-             WHERE `tenant_id`=@tenantId AND `erp_stock_id`=@erpStockId AND `id` IN @ids
+             WHERE `erp_stock_id`=@erpStockId AND `id` IN @ids
              ORDER BY `id` FOR UPDATE
             """,
-            new { tenantId, erpStockId, ids }, transaction, cancellationToken: cancellationToken))).AsList();
+            new { erpStockId, ids }, transaction, cancellationToken: cancellationToken))).AsList();
         if (rows.Count != ids.Length)
             throw new KeyNotFoundException("库存位置分配不存在、跨租户或不属于指定ERP库存");
         return rows;
@@ -766,7 +753,6 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
     private static async Task EnsureAllocationReferencesAsync(
         IDbConnection connection,
         IDbTransaction transaction,
-        long tenantId,
         StockRow stock,
         IReadOnlyCollection<long> allocationIds,
         CancellationToken cancellationToken)
@@ -775,8 +761,7 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
             """
             SELECT COUNT(*)
               FROM `wms_erp_stock_allocation` allocation
-             WHERE allocation.`tenant_id`=@tenantId
-               AND allocation.`erp_stock_id`=@erpStockId
+             WHERE allocation.`erp_stock_id`=@erpStockId
                AND allocation.`id` IN @allocationIds
                AND
                (
@@ -784,8 +769,7 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
                  (
                    SELECT 1
                      FROM `wms_erp_goods_owner_map` owner_map
-                    WHERE owner_map.`tenant_id`=@tenantId
-                      AND owner_map.`wms_goods_owner_id`=allocation.`goods_owner_id`
+                    WHERE owner_map.`wms_goods_owner_id`=allocation.`goods_owner_id`
                       AND owner_map.`erp_dept_id` <=> @deptId
                       AND owner_map.`erp_order_user_id` <=> @orderUserId
                  )
@@ -802,10 +786,10 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
                          FROM `wms_goodslocation` location
                          JOIN `wms_warehouse` warehouse
                            ON warehouse.`id`=location.`warehouse_id`
-                          AND warehouse.`tenant_id`=@tenantId
+
                         WHERE location.`id`=allocation.`goods_location_id`
                           AND location.`warehouse_area_id`=allocation.`warehouse_area_id`
-                          AND location.`tenant_id`=@tenantId
+
                           AND location.`is_valid`=1
                           AND warehouse.`erp_warehouse_id`=@warehouseId
                      )
@@ -822,9 +806,9 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
                        FROM `wms_warehousearea` area
                        JOIN `wms_warehouse` warehouse
                          ON warehouse.`id`=area.`warehouse_id`
-                        AND warehouse.`tenant_id`=@tenantId
+
                       WHERE area.`id`=allocation.`warehouse_area_id`
-                        AND area.`tenant_id`=@tenantId
+
                         AND area.`is_valid`=1
                         AND warehouse.`erp_warehouse_id`=@warehouseId
                    )
@@ -834,7 +818,7 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
             """,
             new
             {
-                tenantId,
+
                 erpStockId = stock.Id,
                 allocationIds,
                 warehouseId = stock.WarehouseId,
@@ -954,14 +938,13 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
                SET `allocated_qty`=@allocatedQty,`occupied_qty`=@occupiedQty,
                    `location_state`=@afterLocationState,
                    `row_version`=`row_version`+1,`updater`=@operatorName,`update_time`=@now
-             WHERE `id`=@id AND `tenant_id`=@tenantId
+             WHERE `id`=@id
                AND `allocated_qty`=@beforeAllocatedQty AND `occupied_qty`=@beforeOccupiedQty
                AND `location_state`=@beforeLocationState
             """,
             new
             {
                 id = change.Before.Id,
-                tenantId = context.TenantId,
                 allocatedQty = change.After.AllocatedQty,
                 occupiedQty = change.After.OccupiedQty,
                 afterLocationState = change.After.LocationState,
@@ -1061,13 +1044,13 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
         await connection.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO `wms_erp_stock_allocation_log`
-                (`tenant_id`,`operation_key`,`shared_command_id`,`reservation_id`,`reservation_item_id`,
+                (`operation_key`,`shared_command_id`,`reservation_id`,`reservation_item_id`,
                  `biz_type`,`biz_id`,`biz_item_id`,`event_type`,
                  `erp_stock_id`,`allocation_id`,`counterpart_allocation_id`,`erp_stock_record_id`,
                  `allocated_delta`,`occupied_delta`,`before_allocated_qty`,`after_allocated_qty`,
                  `before_occupied_qty`,`after_occupied_qty`,`operator`,`operate_time`,`remark`)
             VALUES
-                (@tenantId,@operationKey,@sharedCommandId,@reservationId,@reservationItemId,
+                (@operationKey,@sharedCommandId,@reservationId,@reservationItemId,
                  @bizType,@bizId,@bizItemId,@eventType,
                  @erpStockId,@allocationId,@counterpartAllocationId,@erpStockRecordId,
                  @allocatedDelta,@occupiedDelta,@beforeAllocated,@afterAllocated,
@@ -1075,7 +1058,6 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
             """,
             new
             {
-                tenantId = context.TenantId,
                 operationKey = context.OperationKey,
                 sharedCommandId = reservationState?.Command.CommandId,
                 reservationId = reservationState?.Owner.ReservationId,
@@ -1102,7 +1084,6 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
     private static async Task EnsureConservationAsync(
         IDbConnection connection,
         IDbTransaction transaction,
-        long tenantId,
         long erpStockId,
         CancellationToken cancellationToken)
     {
@@ -1113,11 +1094,11 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
                    COALESCE(SUM(CASE WHEN a.`location_state`<>'RETIRED' THEN a.`occupied_qty` ELSE 0 END),0) AllocationOccupiedQty
               FROM `trk_stock` s
               LEFT JOIN `wms_erp_stock_allocation` a
-                ON a.`tenant_id`=@tenantId AND a.`erp_stock_id`=s.`id`
+                ON a.`erp_stock_id`=s.`id`
              WHERE s.`id`=@erpStockId AND s.`deleted`=b'0'
              GROUP BY s.`id`,s.`available_qty`,s.`occupied_qty`,s.`total_qty`
             """,
-            new { tenantId, erpStockId }, transaction, cancellationToken: cancellationToken));
+            new { erpStockId }, transaction, cancellationToken: cancellationToken));
         if (state.TotalQty != state.AllocatedQty
             || state.OccupiedQty != state.AllocationOccupiedQty
             || state.AvailableQty != checked(state.AllocatedQty - state.AllocationOccupiedQty))

@@ -80,10 +80,6 @@ namespace ModernWMS.WMS.Entities.Models
         /// </summary>
         public DateTime last_update_time { get; set; } = UtilConvert.MinDate;
 
-        /// <summary>
-        /// tenant_id
-        /// </summary>
-        public long tenant_id { get; set; } = 0;
 
         /// <summary>
         /// 获取或设置 erp_stock_id。

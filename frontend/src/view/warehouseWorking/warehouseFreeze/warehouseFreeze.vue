@@ -186,7 +186,6 @@ const data = reactive({
     handler: '',
     handle_time: '',
     last_update_time: '',
-    tenant_id: 0,
     warehouse_name: '',
     location_name: '',
     spu_code: '',
@@ -195,7 +194,7 @@ const data = reactive({
     series_number: '',
     creator: '',
     create_time: ''
-  },
+  } as WarehouseFreezeVO,
   tablePage: reactive({
     total: 0,
     pageIndex: 1,
@@ -222,7 +221,6 @@ const method = reactive({
       handler: '',
       handle_time: '',
       last_update_time: '',
-      tenant_id: 0,
       warehouse_name: '',
       location_name: '',
       spu_code: '',

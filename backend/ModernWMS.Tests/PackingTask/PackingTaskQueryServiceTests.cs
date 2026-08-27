@@ -32,7 +32,7 @@ public class PackingTaskQueryServiceTests
         var source = new InMemoryPackingTaskQueryDataSource();
         var service = CreateService(source, enabled: false);
 
-        var result = await service.PageAsync(new PageSearch(), CurrentTenant());
+        var result = await service.PageAsync(new PageSearch(), CurrentUserContext());
 
         Assert.False(result.IsSuccess);
         Assert.Equal(0, result.Totals);
@@ -41,7 +41,7 @@ public class PackingTaskQueryServiceTests
     }
 
     [Fact]
-    public async Task PageAsync_returns_tasks_from_all_warehouses_without_tenant_binding()
+    public async Task PageAsync_returns_tasks_from_all_warehouses()
     {
         var source = new InMemoryPackingTaskQueryDataSource();
         source.Tasks.AddRange([
@@ -49,7 +49,7 @@ public class PackingTaskQueryServiceTests
             Task(2, 102, "OTHER-WAREHOUSE", 9, DateTime.UtcNow)
         ]);
 
-        var result = await CreateService(source).PageAsync(new PageSearch(), CurrentTenant());
+        var result = await CreateService(source).PageAsync(new PageSearch(), CurrentUserContext());
 
         Assert.True(result.IsSuccess);
         Assert.Equal(2, result.Totals);
@@ -83,7 +83,7 @@ public class PackingTaskQueryServiceTests
             }
         ]);
 
-        var result = await CreateService(source).PageAsync(new PageSearch(), CurrentTenant());
+        var result = await CreateService(source).PageAsync(new PageSearch(), CurrentUserContext());
 
         Assert.True(result.IsSuccess);
         Assert.Equal(4, result.Totals);
@@ -114,7 +114,7 @@ public class PackingTaskQueryServiceTests
             searchObjects = [new SearchObject { Name = "keyword", Text = "FNSKU-HIT" }]
         };
 
-        var result = await CreateService(source).PageAsync(page, CurrentTenant());
+        var result = await CreateService(source).PageAsync(page, CurrentUserContext());
 
         Assert.True(result.IsSuccess);
         Assert.Equal(1, result.Totals);
@@ -139,7 +139,7 @@ public class PackingTaskQueryServiceTests
             searchObjects = [new SearchObject { Name = "warehouse_id", Text = "320118" }]
         };
 
-        var result = await service.PageAsync(page, CurrentTenant());
+        var result = await service.PageAsync(page, CurrentUserContext());
 
         Assert.Equal(102, Assert.Single(result.Data).sellfox_task_id);
         Assert.Contains(320118, access.CheckedWarehouseIds);
@@ -157,7 +157,7 @@ public class PackingTaskQueryServiceTests
         var access = new ModernWMS.Tests.DispatchWorkflow.RecordingWarehouseAccess { DefaultWarehouseId = 9 };
 
         var result = await CreateService(source, access: access.Contract)
-            .PageAsync(new PageSearch(), CurrentTenant());
+            .PageAsync(new PageSearch(), CurrentUserContext());
 
         Assert.Equal(102, Assert.Single(result.Data).sellfox_task_id);
     }
@@ -175,7 +175,7 @@ public class PackingTaskQueryServiceTests
         var access = new ModernWMS.Tests.DispatchWorkflow.RecordingWarehouseAccess();
 
         var result = await CreateService(source, access: access.Contract)
-            .PageAsync(new PageSearch(), CurrentTenant());
+            .PageAsync(new PageSearch(), CurrentUserContext());
 
         var item = Assert.Single(Assert.Single(result.Data).item_list);
         Assert.Equal("SKU-BASE", item.stock_sku_code);
@@ -193,7 +193,7 @@ public class PackingTaskQueryServiceTests
         });
         source.AvailabilityByItemId[11] = new PackingTaskStockAvailability("SKU-BASE", 100, 30);
 
-        var result = await CreateService(source).PageAsync(new PageSearch(), CurrentTenant());
+        var result = await CreateService(source).PageAsync(new PageSearch(), CurrentUserContext());
 
         var item = Assert.Single(Assert.Single(result.Data).item_list);
         Assert.Equal(100, item.stock_available_qty);
@@ -205,7 +205,7 @@ public class PackingTaskQueryServiceTests
     {
         var source = new InMemoryPackingTaskQueryDataSource();
 
-        await CreateService(source).PageAsync(new PageSearch { pageIndex = -2, pageSize = 500 }, CurrentTenant());
+        await CreateService(source).PageAsync(new PageSearch { pageIndex = -2, pageSize = 500 }, CurrentUserContext());
 
         var request = Assert.Single(source.PageRequests);
         Assert.Equal(0, request.Offset);
@@ -226,7 +226,7 @@ public class PackingTaskQueryServiceTests
                 stock_id = 12,
                 qty = 0
             },
-            CurrentTenant());
+            CurrentUserContext());
 
         Assert.True(flag);
         Assert.Equal("已取消选择，锁定库存已释放", message);
@@ -351,7 +351,7 @@ public class PackingTaskQueryServiceTests
             source_deleted = deleted
         };
 
-    private static CurrentUser CurrentTenant() => new() { tenant_id = 1 };
+    private static CurrentUser CurrentUserContext() => new();
 
     private static void AssertCancellationTransition(string sql, string reason)
     {

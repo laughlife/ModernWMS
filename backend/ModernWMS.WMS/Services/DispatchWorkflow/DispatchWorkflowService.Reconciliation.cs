@@ -42,10 +42,10 @@ public partial class DispatchWorkflowService
             if(snapshots.Count!=tasks.Count) throw new InvalidOperationException("one or more packing tasks are missing during reconciliation");
             if(snapshots.Where(x=>!x.IsCancelled).Any(x=>x.WarehouseId!=order.warehouse_id))
                 throw new InvalidOperationException("packing task warehouse changed; order reconciliation rejected");
-            var runtime = await LoadInventoryRuntimeAsync(connection, tx, order.tenant_id,
+            var runtime = await LoadInventoryRuntimeAsync(connection, tx,
                 order.warehouse_id, cancellationToken);
             // 兼容本功能上线前已生成的待拣货单：选择记录仍在时补齐可用量快照。
-            var legacyBindings=await LoadCreationBindingRowsAsync(connection,tx,order.tenant_id,
+            var legacyBindings=await LoadCreationBindingRowsAsync(connection,tx,
                 tasks.Select(x=>x.source_task_id).ToArray(),runtime.Mode == CanonicalInventoryMode,cancellationToken);
             var legacyRequiredQty=legacyBindings.GroupBy(x=>(x.TaskId,x.ItemId))
                 .ToDictionary(x=>x.Key,x=>x.Sum(row=>row.LockedQty));
@@ -146,11 +146,11 @@ public partial class DispatchWorkflowService
                 SELECT selection.`id`,selection.`erp_stock_id`,selection.`stock_allocation_id`,
                        selection.`reservation_id`,selection.`reservation_item_id`,selection.`qty`
                   FROM `wms_packing_task_stock_selection` selection
-                 WHERE selection.`tenant_id`=@tenantId AND selection.`sellfox_task_id`=@sourceTaskId
+                 WHERE selection.`sellfox_task_id`=@sourceTaskId
                    AND selection.`status`='ACTIVE'
                    AND selection.`erp_stock_id` IS NOT NULL AND selection.`stock_allocation_id` IS NOT NULL
                  ORDER BY selection.`stock_allocation_id`,selection.`id` FOR UPDATE;
-                """,new{tenantId=order.tenant_id,sourceTaskId=task.source_task_id},tx,cancellationToken:ct))).AsList();
+                """,new { sourceTaskId=task.source_task_id},tx,cancellationToken:ct))).AsList();
             var pickReservations=(await c.QueryAsync<ReservedAllocationRow>(new CommandDefinition("""
                 SELECT `id`,`erp_stock_id`,`stock_allocation_id`,`reservation_id`,
                        `reservation_item_id`,`picked_qty` AS qty
@@ -170,7 +170,7 @@ public partial class DispatchWorkflowService
                         row.reservation_id,row.reservation_item_id),row.erp_stock_id,
                     row.stock_allocation_id,"UNLOCK")).ToArray();
                 await RequireStockAllocationMutationService().PrelockReservationOwnersAsync(c,tx,
-                    order.tenant_id,[order.warehouse_id],prelocks,ct);
+                    [order.warehouse_id],prelocks,ct);
             }
             foreach (var row in allReservations.OrderBy(x=>x.erp_stock_id).ThenBy(x=>x.stock_allocation_id).ThenBy(x=>x.id))
                 await RequireStockAllocationMutationService().ReleaseAsync(c,tx,
@@ -187,11 +187,10 @@ public partial class DispatchWorkflowService
                    `cancel_reason`=@cancelReason,
                    `operation_source`='DISPATCH_RECONCILIATION',
                    `last_update_time`=@now,`row_version`=`row_version`+1
-             WHERE `tenant_id`=@tenantId AND `sellfox_task_id`=@sourceTaskId
+             WHERE `sellfox_task_id`=@sourceTaskId
                AND `status`='ACTIVE';
             """,new
         {
-            tenantId=order.tenant_id,
             sourceTaskId=task.source_task_id,
             cancelledBy=user.user_id,
             cancelledByName=user.user_name??string.Empty,

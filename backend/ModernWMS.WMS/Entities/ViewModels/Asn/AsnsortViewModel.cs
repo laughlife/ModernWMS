@@ -65,9 +65,5 @@ namespace ModernWMS.WMS.Entities.ViewModels
         /// </summary>
         public bool is_valid { get; set; } = true;
 
-        /// <summary>
-        /// tenant_id
-        /// </summary>
-        public long tenant_id { get; set; } = 1;
     }
 }

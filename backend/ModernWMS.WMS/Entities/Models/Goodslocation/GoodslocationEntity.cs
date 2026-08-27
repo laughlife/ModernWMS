@@ -105,10 +105,6 @@ namespace ModernWMS.WMS.Entities.Models
         /// </summary>
         public bool is_valid { get; set; } = false;
 
-        /// <summary>
-        /// tenant_id
-        /// </summary>
-        public long tenant_id { get; set; }  = 0;
 
         /// <summary>
         /// warehouse_area_id

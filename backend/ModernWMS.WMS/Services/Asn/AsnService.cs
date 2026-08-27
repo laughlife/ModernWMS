@@ -64,7 +64,7 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
     public async Task<(List<AsnViewModel> data, int totals)> PageAsync(PageSearch pageSearch, CurrentUser currentUser)
     {
         var filter = DapperSearchBuilder.Build(pageSearch.searchObjects, DetailSearch);
-        var clauses = new List<string>{"a.`tenant_id`=@tenantId"};
+        var clauses = new List<string>();
         var title = pageSearch.sqlTitle.ToLowerInvariant();
         if (title.Contains("asn_status:alltodo")) clauses.Add("a.`asn_status`<=3");
         else if (title.Contains("asn_status"))
@@ -73,10 +73,9 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
             clauses.Add("a.`asn_status`=@status"); filter.Parameters.Add("status",status);
         }
         if (!string.IsNullOrWhiteSpace(filter.Sql)) clauses.Add(filter.Sql);
-        filter.Parameters.Add("tenantId",currentUser.tenant_id);
         filter.Parameters.Add("offset",(pageSearch.pageIndex-1)*pageSearch.pageSize);
         filter.Parameters.Add("pageSize",pageSearch.pageSize);
-        var where=string.Join(" AND ",clauses);
+        var where=clauses.Count==0 ? "1=1" : string.Join(" AND ",clauses);
         await using var connection=await _connectionFactory.OpenConnectionAsync();
         using var grid=await connection.QueryMultipleAsync($"""
             SELECT COUNT(*) FROM `wms_asn` a JOIN `wms_asnmaster` m ON m.`id`=a.`asnmaster_id`
@@ -105,15 +104,15 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
           INSERT INTO `wms_asn` (`asnmaster_id`,`asn_no`,`asn_status`,`spu_id`,`sku_id`,`asn_qty`,`actual_qty`,
           `arrival_time`,`unload_time`,`unload_person_id`,`unload_person`,`sorted_qty`,`shortage_qty`,`more_qty`,`damage_qty`,
           `weight`,`volume`,`supplier_id`,`supplier_name`,`goods_owner_id`,`goods_owner_name`,`creator`,`create_time`,
-          `last_update_time`,`is_valid`,`tenant_id`,`expiry_date`,`price`)
+          `last_update_time`,`is_valid`,`expiry_date`,`price`)
           VALUES (@asnmaster_id,@no,@asn_status,@spu_id,@sku_id,@asn_qty,@actual_qty,@arrival_time,@unload_time,
           @unload_person_id,@unload_person,@sorted_qty,@shortage_qty,@more_qty,@damage_qty,@weight,@volume,@supplier_id,
-          @supplier_name,@goods_owner_id,@goods_owner_name,@creator,@now,@now,@is_valid,@tenant_id,@expiry_date,@price);
+          @supplier_name,@goods_owner_id,@goods_owner_name,@creator,@now,@now,@is_valid,@expiry_date,@price);
           SELECT LAST_INSERT_ID();
           """,new{vm.asnmaster_id,no,vm.asn_status,vm.spu_id,vm.sku_id,vm.asn_qty,vm.actual_qty,vm.arrival_time,vm.unload_time,
               vm.unload_person_id,vm.unload_person,vm.sorted_qty,vm.shortage_qty,vm.more_qty,vm.damage_qty,vm.weight,vm.volume,
               vm.supplier_id,vm.supplier_name,vm.goods_owner_id,vm.goods_owner_name,creator=user.user_name,now,vm.is_valid,
-              tenant_id=user.tenant_id,vm.expiry_date,vm.price});
+              vm.expiry_date,vm.price});
         return id>0?(id,_stringLocalizer["save_success"]):(0,_stringLocalizer["save_failed"]);
     }
 
@@ -121,7 +120,7 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
     public async Task<string> GetOrderCode(CurrentUser user)
     {
         await using var c=await _connectionFactory.OpenConnectionAsync();
-        var maxNo=await c.ExecuteScalarAsync<string?>("SELECT MAX(`asn_no`) FROM `wms_asn` WHERE `tenant_id`=@tenantId;",new{tenantId=user.tenant_id});
+        var maxNo=await c.ExecuteScalarAsync<string?>("SELECT MAX(`asn_no`) FROM `wms_asn`;");
         var date=DateTime.Now.ToString("yyyyMMdd");
         if(string.IsNullOrEmpty(maxNo)) return date+"-0001";
         try { return date==maxNo[..8]?date+"-"+(int.Parse(maxNo[9..])+1).ToString("0000"):date+"-0001"; }
@@ -221,12 +220,12 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
         foreach(var v in rows.Where(v=>asns.Any(e=>e.id==v.asn_id)))
         {
             var quantities=v.sorted_qty>1&&v.is_auto_num?Enumerable.Repeat(1,v.sorted_qty).ToList():[v.sorted_qty];
-            var sns=v.sorted_qty>1&&v.is_auto_num?await _functionHelper.GetFormNoListAsync("Asnsort",v.sorted_qty,user.tenant_id,"sn")
+            var sns=v.sorted_qty>1&&v.is_auto_num?await _functionHelper.GetFormNoListAsync("Asnsort",v.sorted_qty,"sn")
                 :[await _functionHelper.GetFormNoAsync("Asnsort","sn")];
             for(var i=0;i<quantities.Count;i++)await c.ExecuteAsync("""
-              INSERT INTO `wms_asnsort` (`asn_id`,`sorted_qty`,`series_number`,`putaway_qty`,`creator`,`create_time`,`last_update_time`,`is_valid`,`tenant_id`)
-              VALUES (@asnId,@qty,@sn,0,@creator,@now,@now,1,@tenantId);
-              """,new{asnId=v.asn_id,qty=quantities[i],sn=sns[i],creator=user.user_name,now=DateTime.Now,tenantId=user.tenant_id},tx);
+              INSERT INTO `wms_asnsort` (`asn_id`,`sorted_qty`,`series_number`,`putaway_qty`,`creator`,`create_time`,`last_update_time`,`is_valid`)
+              VALUES (@asnId,@qty,@sn,0,@creator,@now,@now,1);
+              """,new{asnId=v.asn_id,qty=quantities[i],sn=sns[i],creator=user.user_name,now=DateTime.Now},tx);
         }
         foreach(var e in asns){var qty=rows.Where(x=>x.asn_id==e.id).Sum(x=>x.sorted_qty);var expiry=rows.First(x=>x.asn_id==e.id).expiry_date;
             await c.ExecuteAsync("UPDATE `wms_asn` SET `sorted_qty`=`sorted_qty`+@qty,`expiry_date`=@expiry,`last_update_time`=@now WHERE `id`=@id;",
@@ -240,7 +239,7 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
         await using var c=await _connectionFactory.OpenConnectionAsync();
         return (await c.QueryAsync<AsnsortViewModel>("""
           SELECT s.`id`,s.`asn_id`,s.`sorted_qty`,s.`series_number`,s.`putaway_qty`,a.`expiry_date`,s.`creator`,
-          s.`create_time`,s.`last_update_time`,s.`is_valid`,s.`tenant_id` FROM `wms_asn` a JOIN `wms_asnsort` s ON s.`asn_id`=a.`id`
+          s.`create_time`,s.`last_update_time`,s.`is_valid` FROM `wms_asn` a JOIN `wms_asnsort` s ON s.`asn_id`=a.`id`
           WHERE a.`id`=@asn_id;
           """,new{asn_id})).AsList();
     }
@@ -254,8 +253,8 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
         var del=rows.Where(x=>x.id<0).Select(x=>-x.id).ToList();if(del.Count>0)await c.ExecuteAsync("DELETE FROM `wms_asnsort` WHERE `id` IN @del;",new{del},tx);
         foreach(var r in rows.Where(x=>x.id>0&&x.sorted_qty>0))await c.ExecuteAsync("""
           UPDATE `wms_asnsort` SET `asn_id`=@asn_id,`sorted_qty`=@sorted_qty,`series_number`=@series_number,
-          `putaway_qty`=@putaway_qty,`creator`=@creator,`create_time`=@create_time,`last_update_time`=@now,`is_valid`=1,`tenant_id`=@tenant_id WHERE `id`=@id;
-          """,new{r.id,r.asn_id,r.sorted_qty,r.series_number,r.putaway_qty,r.creator,r.create_time,now=DateTime.Now,r.tenant_id},tx);
+          `putaway_qty`=@putaway_qty,`creator`=@creator,`create_time`=@create_time,`last_update_time`=@now,`is_valid`=1 WHERE `id`=@id;
+          """,new{r.id,r.asn_id,r.sorted_qty,r.series_number,r.putaway_qty,r.creator,r.create_time,now=DateTime.Now},tx);
         var ids=rows.Select(x=>x.asn_id).Distinct().ToList();
         await c.ExecuteAsync("""
           UPDATE `wms_asn` a SET a.`sorted_qty`=(SELECT COALESCE(SUM(s.`sorted_qty`),0) FROM `wms_asnsort` s WHERE s.`asn_id`=a.`id`)
@@ -312,13 +311,13 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
         var routeSnapshots=new List<CanonicalInventorySupport.InventoryRoute>();
         foreach(var locationId in locationIds)
         {
-            var route=await CanonicalInventorySupport.GetRouteAsync(c,user.tenant_id,locationId);
+            var route=await CanonicalInventorySupport.GetRouteAsync(c,locationId);
             routeSnapshots.Add(route);
             if(route.Mode==CanonicalInventorySupport.CanonicalMode)
                 return(false,"普通ASN缺少可唯一关联的ERP采购物流库存维度，统一库存模式下禁止上架；请使用ERP签收入库流程");
         }
         await using var tx=await c.BeginTransactionAsync(IsolationLevel.Serializable);
-        await CanonicalInventorySupport.LockRoutesAsync(c,tx,user.tenant_id,routeSnapshots);
+        await CanonicalInventorySupport.LockRoutesAsync(c,tx,routeSnapshots);
         var asn=await c.QuerySingleOrDefaultAsync<AsnEntity>("SELECT * FROM `wms_asn` WHERE `id`=@id FOR UPDATE;",new{id=rows[0].asn_id},tx);
         if(asn==null)return(false,"[202]"+_stringLocalizer["not_exists_entity"]);
         var sum=rows.Sum(x=>x.putaway_qty);
@@ -343,16 +342,16 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
               """,new{skuId=asn.sku_id,locationId=vm.goods_location_id,ownerId=vm.goods_owner_id,sn=vm.series_number,expiry=asn.expiry_date,asn.price,putawayDate},tx);
             if(stockId.HasValue)await c.ExecuteAsync("UPDATE `wms_stock` SET `qty`=`qty`+@qty,`last_update_time`=@now WHERE `id`=@stockId;",new{qty=vm.putaway_qty,now=DateTime.Now,stockId},tx);
             else await c.ExecuteAsync("""
-              INSERT INTO `wms_stock` (`sku_id`,`goods_location_id`,`qty`,`goods_owner_id`,`is_freeze`,`last_update_time`,`tenant_id`,`series_number`,`expiry_date`,`price`,`putaway_date`)
-              VALUES (@skuId,@locationId,@qty,@ownerId,0,@now,@tenantId,@sn,@expiry,@price,@putawayDate);
-              """,new{skuId=asn.sku_id,locationId=vm.goods_location_id,qty=vm.putaway_qty,ownerId=asn.goods_owner_id,now=DateTime.Now,tenantId=user.tenant_id,sn=vm.series_number,expiry=asn.expiry_date,asn.price,putawayDate},tx);
+              INSERT INTO `wms_stock` (`sku_id`,`goods_location_id`,`qty`,`goods_owner_id`,`is_freeze`,`last_update_time`,`series_number`,`expiry_date`,`price`,`putaway_date`)
+              VALUES (@skuId,@locationId,@qty,@ownerId,0,@now,@sn,@expiry,@price,@putawayDate);
+              """,new{skuId=asn.sku_id,locationId=vm.goods_location_id,qty=vm.putaway_qty,ownerId=asn.goods_owner_id,now=DateTime.Now,expiry=asn.expiry_date,asn.price,putawayDate},tx);
         }
         await tx.CommitAsync();return(true,_stringLocalizer["putaway_success"]);
     }
 
     private const string MasterSelect="""
       SELECT `id`,`asn_no`,`asn_batch`,`estimated_arrival_time`,`asn_status`,`weight`,`volume`,`goods_owner_id`,
-      `goods_owner_name`,`creator`,`create_time`,`last_update_time`,`tenant_id` FROM `wms_asnmaster`
+      `goods_owner_name`,`creator`,`create_time`,`last_update_time` FROM `wms_asnmaster`
       """;
     private const string MasterDetailSelect="""
       SELECT a.`id`,a.`asnmaster_id`,a.`asn_status`,a.`spu_id`,p.`spu_code`,p.`spu_name`,a.`sku_id`,k.`sku_code`,k.`sku_name`,
@@ -363,17 +362,15 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
     private static readonly IReadOnlyDictionary<string,string> MasterSearch=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase)
     { ["id"]="m.`id`",["asn_no"]="m.`asn_no`",["asn_batch"]="m.`asn_batch`",["asn_status"]="m.`asn_status`",
       ["estimated_arrival_time"]="m.`estimated_arrival_time`",["weight"]="m.`weight`",["volume"]="m.`volume`",
-      ["goods_owner_id"]="m.`goods_owner_id`",["goods_owner_name"]="m.`goods_owner_name`",["creator"]="m.`creator`",
-      ["create_time"]="m.`create_time`",["last_update_time"]="m.`last_update_time`",["tenant_id"]="m.`tenant_id`" };
+      ["goods_owner_id"]="m.`goods_owner_id`",["goods_owner_name"]="m.`goods_owner_name`",["creator"]="m.`creator`" };
 
     /// <summary>
     /// 执行 PageAsnmasterAsync 操作。
     /// </summary>
     public async Task<(List<AsnmasterBothViewModel> data,int totals)> PageAsnmasterAsync(PageSearch pageSearch,CurrentUser user)
     {
-        var filter=DapperSearchBuilder.Build(pageSearch.searchObjects,MasterSearch);var clauses=new List<string>{"m.`tenant_id`=@tenantId"};
+        var filter=DapperSearchBuilder.Build(pageSearch.searchObjects,MasterSearch);var clauses=new List<string>();
         var title=pageSearch.sqlTitle.ToLowerInvariant();if(title.Contains("asn_status")){var status=Convert.ToByte(title.Trim().Replace("asn_status","").Replace("：","").Replace(":","").Replace("=",""));if(status!=4){clauses.Add("m.`asn_status`=@status");filter.Parameters.Add("status",status);}}
-        if(!string.IsNullOrWhiteSpace(filter.Sql))clauses.Add(filter.Sql);filter.Parameters.Add("tenantId",user.tenant_id);filter.Parameters.Add("offset",(pageSearch.pageIndex-1)*pageSearch.pageSize);filter.Parameters.Add("pageSize",pageSearch.pageSize);
         var where=string.Join(" AND ",clauses);await using var c=await _connectionFactory.OpenConnectionAsync();using var grid=await c.QueryMultipleAsync($"""
           SELECT COUNT(*) FROM `wms_asnmaster` m WHERE {where};
           SELECT m.* FROM `wms_asnmaster` m WHERE {where} ORDER BY m.`last_update_time` DESC LIMIT @pageSize OFFSET @offset;
@@ -383,7 +380,7 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
     /// <summary>获取 ASN 主数据及关联信息。</summary>
     public async Task<AsnmasterBothViewModel> GetAsnmasterAsync(int id,CurrentUser user)
     {
-        await using var c=await _connectionFactory.OpenConnectionAsync();var master=await c.QuerySingleOrDefaultAsync<AsnmasterBothViewModel>($"{MasterSelect} WHERE `id`=@id AND `tenant_id`=@tenantId LIMIT 1;",new{id,tenantId=user.tenant_id})??new();
+        await using var c=await _connectionFactory.OpenConnectionAsync();var master=await c.QuerySingleOrDefaultAsync<AsnmasterBothViewModel>($"{MasterSelect} WHERE `id`=@id  LIMIT 1;",new{id})??new();
         if(master.id>0)await FillMasterDetailsAsync(c,[master]);return master;
     }
 
@@ -394,9 +391,9 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
     {
         var no=await _functionHelper.GetFormNoAsync("Asnmaster");var now=DateTime.Now;await using var c=await _connectionFactory.OpenConnectionAsync();await using var tx=await c.BeginTransactionAsync();
         var id=await c.ExecuteScalarAsync<int>("""
-          INSERT INTO `wms_asnmaster` (`asn_no`,`asn_batch`,`estimated_arrival_time`,`asn_status`,`weight`,`volume`,`goods_owner_id`,`goods_owner_name`,`creator`,`create_time`,`last_update_time`,`tenant_id`)
-          VALUES (@no,@asn_batch,@estimated_arrival_time,0,@weight,@volume,@goods_owner_id,@goods_owner_name,@creator,@now,@now,@tenantId);SELECT LAST_INSERT_ID();
-          """,new{no,vm.asn_batch,vm.estimated_arrival_time,vm.weight,vm.volume,vm.goods_owner_id,vm.goods_owner_name,creator=user.user_name,now,tenantId=user.tenant_id},tx);
+          INSERT INTO `wms_asnmaster` (`asn_no`,`asn_batch`,`estimated_arrival_time`,`asn_status`,`weight`,`volume`,`goods_owner_id`,`goods_owner_name`,`creator`,`create_time`,`last_update_time`)
+          VALUES (@no,@asn_batch,@estimated_arrival_time,0,@weight,@volume,@goods_owner_id,@goods_owner_name,@creator,@now,@now);SELECT LAST_INSERT_ID();
+          """,new{no,vm.asn_batch,vm.estimated_arrival_time,vm.weight,vm.volume,vm.goods_owner_id,vm.goods_owner_name,creator=user.user_name,now},tx);
         foreach(var d in vm.detailList)await InsertDetailAsync(c,tx,id,no,d,vm.goods_owner_id,vm.goods_owner_name,user,now);
         await tx.CommitAsync();return id>0?(id,_stringLocalizer["save_success"]):(0,_stringLocalizer["save_failed"]);
     }
@@ -446,10 +443,10 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
     private static Task<int> InsertDetailAsync(MySqlConnector.MySqlConnection c,MySqlConnector.MySqlTransaction tx,int masterId,string no,AsnmasterDetailViewModel d,int ownerId,string ownerName,CurrentUser user,DateTime now)=>c.ExecuteAsync("""
       INSERT INTO `wms_asn` (`asnmaster_id`,`asn_no`,`asn_status`,`spu_id`,`sku_id`,`asn_qty`,`actual_qty`,`arrival_time`,
       `unload_time`,`unload_person_id`,`unload_person`,`sorted_qty`,`shortage_qty`,`more_qty`,`damage_qty`,`weight`,`volume`,
-      `supplier_id`,`supplier_name`,`goods_owner_id`,`goods_owner_name`,`creator`,`create_time`,`last_update_time`,`is_valid`,`tenant_id`,`expiry_date`,`price`)
+      `supplier_id`,`supplier_name`,`goods_owner_id`,`goods_owner_name`,`creator`,`create_time`,`last_update_time`,`is_valid`,`expiry_date`,`price`)
       VALUES (@masterId,@no,0,@spu_id,@sku_id,@asn_qty,@actual_qty,@min,@min,0,'',0,0,0,0,@weight,@volume,@supplier_id,
-      @supplier_name,@ownerId,@ownerName,@creator,@now,@now,1,@tenantId,@min,@price);
-      """,new{masterId,no,d.spu_id,d.sku_id,d.asn_qty,d.actual_qty,d.weight,d.volume,d.supplier_id,d.supplier_name,ownerId,ownerName,creator=user.user_name,now,tenantId=user.tenant_id,d.price,min=UtilConvert.MinDate},tx);
+      @supplier_name,@ownerId,@ownerName,@creator,@now,@now,1,@min,@price);
+      """,new{masterId,no,d.spu_id,d.sku_id,d.asn_qty,d.actual_qty,d.weight,d.volume,d.supplier_id,d.supplier_name,ownerId,ownerName,creator=user.user_name,now,min=UtilConvert.MinDate},tx);
 
     private async Task<(bool flag,string msg)> ChangeRowsAsync(List<int> ids,byte expected,byte next,string errorKey,string successKind,Dictionary<int,object?>? arrival,bool resetArrival=false)
     {

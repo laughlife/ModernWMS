@@ -12,7 +12,7 @@ namespace ModernWMS.Tests.Security;
 public sealed class AccountServiceMySqlIntegrationTests
 {
     [Database.DevelopmentMySqlFact]
-    public async Task Login_uses_parameterized_shared_mysql_query_and_tenant_role_boundary()
+    public async Task Login_uses_parameterized_shared_mysql_query_and_role_boundary()
     {
         var sourceConnectionString = Environment.GetEnvironmentVariable("MODERNWMS_TEST_MYSQL")!;
         var source = new MySqlConnectionStringBuilder(sourceConnectionString);
@@ -42,25 +42,23 @@ public sealed class AccountServiceMySqlIntegrationTests
             await setup.ExecuteAsync("""
                 CREATE TABLE `wms_userrole` (
                     `id` INT NOT NULL PRIMARY KEY,
-                    `role_name` VARCHAR(128) NOT NULL,
-                    `tenant_id` BIGINT NOT NULL
+                    `role_name` VARCHAR(128) NOT NULL
                 ) ENGINE=InnoDB;
                 CREATE TABLE `wms_user` (
                     `id` INT NOT NULL PRIMARY KEY,
                     `user_num` VARCHAR(128) NOT NULL,
                     `user_name` VARCHAR(128) NOT NULL,
                     `user_role` VARCHAR(128) NOT NULL,
-                    `auth_string` VARCHAR(128) NOT NULL,
-                    `tenant_id` BIGINT NOT NULL
+                    `auth_string` VARCHAR(128) NOT NULL
                 ) ENGINE=InnoDB;
                 """);
             await setup.ExecuteAsync("""
-                INSERT INTO `wms_userrole` (`id`,`role_name`,`tenant_id`) VALUES
-                    (7,'picker',1),
-                    (8,'picker',2);
-                INSERT INTO `wms_user` (`id`,`user_num`,`user_name`,`user_role`,`auth_string`,`tenant_id`) VALUES
-                    (11,'U001','alice','picker',@password,1),
-                    (12,'U002','orphan','missing-role',@password,1);
+                INSERT INTO `wms_userrole` (`id`,`role_name`) VALUES
+                    (7,'picker'),
+                    (8,'manager');
+                INSERT INTO `wms_user` (`id`,`user_num`,`user_name`,`user_role`,`auth_string`) VALUES
+                    (11,'U001','alice','picker',@password),
+                    (12,'U002','orphan','missing-role',@password);
                 """, new { password = Md5Helper.Md5Encrypt32("secret") });
 
             await using var factory = new MySqlConnectionFactory(isolated.ConnectionString);
@@ -78,7 +76,6 @@ public sealed class AccountServiceMySqlIntegrationTests
 
             Assert.Equal(11, byName.user_id);
             Assert.Equal(7, byName.userrole_id);
-            Assert.Equal(1, byName.tenant_id);
             Assert.Equal(byName.user_id, byNumber.user_id);
             Assert.Null(invalid);
         }

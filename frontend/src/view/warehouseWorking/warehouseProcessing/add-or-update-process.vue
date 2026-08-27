@@ -291,7 +291,6 @@ const method = reactive({
             goods_owner_id: record.goods_owner_id,
             goods_location_id: record.goods_location_id,
             qty: record.qty_available || 0,
-            tenant_id: 0,
             is_source: true,
             spu_code: record.spu_code,
             spu_name: record.spu_name,
@@ -320,7 +319,6 @@ const method = reactive({
           goods_owner_id: selectRecords[0].goods_owner_id,
           goods_location_id: selectRecords[0].goods_location_id,
           qty: selectRecords[0].qty_available || 0,
-          tenant_id: 0,
           is_source: true,
           spu_code: selectRecords[0].spu_code,
           spu_name: selectRecords[0].spu_name,
@@ -354,7 +352,6 @@ const method = reactive({
           goods_owner_id: 0,
           goods_location_id: 0,
           qty: 0,
-          tenant_id: 0,
           is_source: false,
           spu_code: selectRecords[0].spu_code,
           spu_name: selectRecords[0].spu_name,
@@ -382,7 +379,6 @@ const method = reactive({
             goods_owner_id: 0,
             goods_location_id: 0,
             qty: 0,
-            tenant_id: 0,
             is_source: false,
             spu_code: record.spu_code,
             spu_name: record.spu_name,
@@ -414,7 +410,7 @@ const method = reactive({
   submit: async () => {
     const validSource = await method.validSourceTable()
     const validTarget = await method.validTargetTable()
-    
+
     if (!validSource || !validTarget) {
       return
     }
@@ -470,7 +466,7 @@ const method = reactive({
 
     // 2.The properties valid.
     const errMap = await $table.validate(true)
-    
+
     if (errMap) {
       hookComponent.$message({
         type: 'error',
@@ -497,7 +493,7 @@ const method = reactive({
 
     // 2.The properties valid.
     const errMap = await $table.validate(true)
-    
+
     if (errMap) {
       hookComponent.$message({
         type: 'error',

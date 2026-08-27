@@ -17,10 +17,6 @@ public class WmsInventoryRuntimeConfigEntity
     public long id { get; set; }
 
     /// <summary>
-    /// 获取或设置 tenant_id。
-    /// </summary>
-    public long tenant_id { get; set; }
-    /// <summary>
     /// 获取或设置 erp_warehouse_id。
     /// </summary>
     public long erp_warehouse_id { get; set; }

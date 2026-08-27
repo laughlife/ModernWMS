@@ -109,7 +109,6 @@ export interface UpdateSortingVo {
   create_time: string
   last_update_time: string
   is_valid: boolean
-  tenant_id: number
 }
 
 export interface ErpPendingReceiptProductVO {

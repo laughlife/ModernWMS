@@ -40,6 +40,8 @@ public class UserroleService : BaseService<UserroleEntity>, IUserroleService
         viewModels ??= [];
         viewModels.ForEach(x => x.role_name = NormalizeRoleName(x.role_name));
         var upserts = viewModels.Where(x => x.id >= 0).ToList();
+        if (upserts.Any(x => x.id == 0 && IsAdminRole(x.role_name)))
+            return (false, _stringLocalizer[AdminRoleReservedMessageKey]);
         var deleteIds = viewModels.Where(x => x.id < 0).Select(x => -x.id).ToList();
         var requestedIds = upserts.Where(x => x.id > 0).Select(x => x.id).Concat(deleteIds).Distinct().ToArray();
 
@@ -48,11 +50,11 @@ public class UserroleService : BaseService<UserroleEntity>, IUserroleService
         try
         {
             var existing = requestedIds.Length == 0 ? [] : (await connection.QueryAsync<UserroleEntity>("""
-                SELECT `id`, `role_name`, `is_valid`, `create_time`, `last_update_time`, `tenant_id`
+                SELECT `id`, `role_name`, `is_valid`, `create_time`, `last_update_time`
                 FROM `wms_userrole`
-                WHERE `tenant_id` = @tenantId AND `id` IN @requestedIds
+                WHERE `id` IN @requestedIds
                 FOR UPDATE;
-                """, new { tenantId = currentUser.tenant_id, requestedIds }, transaction)).AsList();
+                """, new { requestedIds }, transaction)).AsList();
             var existingById = existing.ToDictionary(x => x.id);
             if (requestedIds.Any(id => !existingById.ContainsKey(id)))
                 return await RollbackResult(false, _stringLocalizer["not_exists_entity"], transaction);
@@ -85,13 +87,12 @@ public class UserroleService : BaseService<UserroleEntity>, IUserroleService
             var updateIds = workItems.Where(x => x.id > 0).Select(x => x.id).ToArray();
             var databaseDuplicates = roleNames.Length == 0 ? [] : (await connection.QueryAsync<string>("""
                 SELECT `role_name` FROM `wms_userrole`
-                WHERE `tenant_id` = @tenantId AND `role_name` IN @roleNames
+                WHERE `role_name` IN @roleNames
                   AND (`id` NOT IN @deleteIds OR @hasDeletes = 0)
                   AND (`id` NOT IN @updateIds OR @hasUpdates = 0)
                 FOR UPDATE;
                 """, new
                 {
-                    tenantId = currentUser.tenant_id,
                     roleNames,
                     deleteIds = deleteIds.Count == 0 ? [-1] : deleteIds,
                     hasDeletes = deleteIds.Count > 0 ? 1 : 0,
@@ -105,17 +106,17 @@ public class UserroleService : BaseService<UserroleEntity>, IUserroleService
             var now = DateTime.Now;
             foreach (var item in workItems.Where(x => x.id == 0))
                 await connection.ExecuteAsync("""
-                    INSERT INTO `wms_userrole` (`role_name`,`is_valid`,`create_time`,`last_update_time`,`tenant_id`)
-                    VALUES (@roleName,@isValid,@now,@now,@tenantId);
-                    """, new { roleName = item.role_name, isValid = item.is_valid, now, tenantId = currentUser.tenant_id }, transaction);
+                    INSERT INTO `wms_userrole` (`role_name`,`is_valid`,`create_time`,`last_update_time`)
+                    VALUES (@roleName,@isValid,@now,@now);
+                    """, new { roleName = item.role_name, isValid = item.is_valid, now}, transaction);
             foreach (var item in workItems.Where(x => x.id > 0))
                 await connection.ExecuteAsync("""
                     UPDATE `wms_userrole` SET `role_name`=@roleName,`is_valid`=@isValid,`last_update_time`=@now
-                    WHERE `id`=@id AND `tenant_id`=@tenantId;
-                    """, new { item.id, roleName = item.role_name, isValid = item.is_valid, now, tenantId = currentUser.tenant_id }, transaction);
+                    WHERE `id`=@id ;
+                    """, new { item.id, roleName = item.role_name, isValid = item.is_valid, now}, transaction);
             if (deleteIds.Count > 0)
-                await connection.ExecuteAsync("DELETE FROM `wms_userrole` WHERE `tenant_id`=@tenantId AND `id` IN @deleteIds;",
-                    new { tenantId = currentUser.tenant_id, deleteIds }, transaction);
+                await connection.ExecuteAsync("DELETE FROM `wms_userrole` WHERE `id` IN @deleteIds;",
+                    new { deleteIds }, transaction);
 
             await transaction.CommitAsync();
             return (true, _stringLocalizer["save_success"]);
@@ -129,8 +130,8 @@ public class UserroleService : BaseService<UserroleEntity>, IUserroleService
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         return (await connection.QueryAsync<UserroleViewModel>("""
             SELECT `id`,`role_name`,`is_valid`,`create_time`,`last_update_time`
-            FROM `wms_userrole` WHERE `tenant_id`=@tenantId;
-            """, new { tenantId = currentUser.tenant_id })).AsList();
+            FROM `wms_userrole`;
+            """)).AsList();
     }
 
     /// <inheritdoc />
@@ -152,13 +153,13 @@ public class UserroleService : BaseService<UserroleEntity>, IUserroleService
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
         try
         {
-            if (await RoleNameExistsAsync(connection, transaction, currentUser.tenant_id, viewModel.role_name))
+            if (await RoleNameExistsAsync(connection, transaction, viewModel.role_name))
                 return await RollbackResult(0, DuplicateMessage(viewModel.role_name), transaction);
             var now = DateTime.Now;
             var id = await connection.ExecuteScalarAsync<int>("""
-                INSERT INTO `wms_userrole` (`role_name`,`is_valid`,`create_time`,`last_update_time`,`tenant_id`)
-                VALUES (@roleName,@isValid,@now,@now,@tenantId); SELECT LAST_INSERT_ID();
-                """, new { roleName = viewModel.role_name, isValid = viewModel.is_valid, now, tenantId = currentUser.tenant_id }, transaction);
+                INSERT INTO `wms_userrole` (`role_name`,`is_valid`,`create_time`,`last_update_time`)
+                VALUES (@roleName,@isValid,@now,@now); SELECT LAST_INSERT_ID();
+                """, new { roleName = viewModel.role_name, isValid = viewModel.is_valid, now}, transaction);
             await transaction.CommitAsync();
             return id > 0 ? (id, _stringLocalizer["save_success"]) : (0, _stringLocalizer["save_failed"]);
         }
@@ -175,20 +176,20 @@ public class UserroleService : BaseService<UserroleEntity>, IUserroleService
         try
         {
             var entity = await connection.QuerySingleOrDefaultAsync<UserroleEntity>("""
-                SELECT `id`,`role_name`,`is_valid`,`create_time`,`last_update_time`,`tenant_id`
-                FROM `wms_userrole` WHERE `id`=@id AND `tenant_id`=@tenantId FOR UPDATE;
-                """, new { viewModel.id, tenantId = currentUser.tenant_id }, transaction);
+                SELECT `id`,`role_name`,`is_valid`,`create_time`,`last_update_time`
+                FROM `wms_userrole` WHERE `id`=@id FOR UPDATE;
+                """, new { viewModel.id}, transaction);
             if (entity == null) return await RollbackResult(false, _stringLocalizer["not_exists_entity"], transaction);
             if (IsAdminRole(entity.role_name)) return await RollbackResult(false, _stringLocalizer[AdminRoleReservedMessageKey], transaction);
-            if (await RoleNameExistsAsync(connection, transaction, currentUser.tenant_id, viewModel.role_name, viewModel.id))
+            if (await RoleNameExistsAsync(connection, transaction, viewModel.role_name, viewModel.id))
                 return await RollbackResult(false, DuplicateMessage(viewModel.role_name), transaction);
 
             await connection.ExecuteAsync("""
                 UPDATE `wms_user` SET `user_role`=@newName
-                WHERE `tenant_id`=@tenantId AND `user_role`=@oldName;
+                WHERE `user_role`=@oldName;
                 UPDATE `wms_userrole` SET `role_name`=@newName,`is_valid`=@isValid,`last_update_time`=@now
-                WHERE `id`=@id AND `tenant_id`=@tenantId;
-                """, new { id = viewModel.id, tenantId = currentUser.tenant_id, oldName = entity.role_name,
+                WHERE `id`=@id ;
+                """, new { id = viewModel.id,
                     newName = viewModel.role_name, isValid = viewModel.is_valid, now = DateTime.Now }, transaction);
             await transaction.CommitAsync();
             return (true, _stringLocalizer["save_success"]);
@@ -205,13 +206,13 @@ public class UserroleService : BaseService<UserroleEntity>, IUserroleService
         {
             var roleName = await connection.QuerySingleOrDefaultAsync<string>("""
                 SELECT `role_name` FROM `wms_userrole`
-                WHERE `id`=@id AND `tenant_id`=@tenantId FOR UPDATE;
-                """, new { id, tenantId = currentUser.tenant_id }, transaction);
+                WHERE `id`=@id FOR UPDATE;
+                """, new { id}, transaction);
             if (roleName == null) return await RollbackResult(false, _stringLocalizer["not_exists_entity"], transaction);
             if (IsAdminRole(roleName)) return await RollbackResult(false, _stringLocalizer[AdminRoleReservedMessageKey], transaction);
             var affected = await connection.ExecuteAsync(
-                "DELETE FROM `wms_userrole` WHERE `id`=@id AND `tenant_id`=@tenantId;",
-                new { id, tenantId = currentUser.tenant_id }, transaction);
+                "DELETE FROM `wms_userrole` WHERE `id`=@id ;",
+                new { id}, transaction);
             await transaction.CommitAsync();
             return affected > 0 ? (true, _stringLocalizer["delete_success"]) : (false, _stringLocalizer["delete_failed"]);
         }
@@ -226,11 +227,11 @@ public class UserroleService : BaseService<UserroleEntity>, IUserroleService
     }
 
     private static Task<bool> RoleNameExistsAsync(IDbConnection connection, IDbTransaction transaction,
-        long tenantId, string roleName, int? excludedId = null) => connection.ExecuteScalarAsync<bool>("""
+        string roleName, int? excludedId = null) => connection.ExecuteScalarAsync<bool>("""
             SELECT EXISTS(SELECT 1 FROM `wms_userrole`
-            WHERE `tenant_id`=@tenantId AND `role_name`=@roleName
+            WHERE `role_name`=@roleName
               AND (@excludedId IS NULL OR `id`<>@excludedId));
-            """, new { tenantId, roleName, excludedId }, transaction);
+            """, new { roleName, excludedId }, transaction);
 
     private string DuplicateMessage(string roleName) => string.Format(
         _stringLocalizer["exists_entity"], _stringLocalizer["role_name"], roleName);

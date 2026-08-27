@@ -42,10 +42,6 @@ namespace ModernWMS.WMS.Entities.Models
         /// </summary>
         public int sort { get; set; } = 0;
 
-        /// <summary>
-        /// tenant_id
-        /// </summary>
-        public long tenant_id { get; set; } = 1;
 
         /// <summary>
         /// actions

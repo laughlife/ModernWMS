@@ -56,10 +56,6 @@ namespace ModernWMS.WMS.Entities.ViewModels
         [Display(Name = "volume")]
         public decimal volume { get; set; } = 0;
 
-        /// <summary>
-        /// tenant_id
-        /// </summary>
-        public long tenant_id { get; set; }  =  0;
 
         /// <summary>
         /// creator

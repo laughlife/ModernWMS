@@ -85,11 +85,6 @@ namespace ModernWMS.WMS.Entities.ViewModels
         [DataType(DataType.DateTime, ErrorMessage = "DataType_DateTime")]
         public DateTime last_update_time { get; set; } = UtilConvert.MinDate;
 
-        /// <summary>
-        /// tenant_id
-        /// </summary>
-        [Display(Name = "tenant_id")]
-        public long tenant_id { get; set; }  =  0;
 
         /// <summary>
         /// adjust_status

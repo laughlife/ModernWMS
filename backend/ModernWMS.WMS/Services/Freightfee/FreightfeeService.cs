@@ -32,13 +32,12 @@ internal sealed record FreightfeeData(
     string creator,
     DateTime create_time,
     DateTime last_update_time,
-    bool is_valid,
-    long tenant_id);
+    bool is_valid);
 
 internal interface IFreightfeeDataSource
 {
-    Task<(List<FreightfeeData> Rows, int Total)> PageAsync(PageSearch pageSearch, long tenantId);
-    Task<List<FreightfeeData>> GetAllAsync(long tenantId);
+    Task<(List<FreightfeeData> Rows, int Total)> PageAsync(PageSearch pageSearch);
+    Task<List<FreightfeeData>> GetAllAsync();
     Task<FreightfeeData?> GetAsync(int id);
     Task<FreightfeeAddResult> AddAsync(FreightfeeData freightfee);
     Task<FreightfeeWriteStatus> UpdateAsync(FreightfeeData freightfee);
@@ -73,21 +72,19 @@ public class FreightfeeService : BaseService<FreightfeeEntity>, IFreightfeeServi
     }
 
     /// <summary>
-    /// Page search for the current tenant.
     /// </summary>
     public async Task<(List<FreightfeeViewModel> data, int totals)> PageAsync(
         PageSearch pageSearch,
         CurrentUser currentUser)
     {
-        var (rows, total) = await _dataSource.PageAsync(pageSearch, currentUser.tenant_id);
+        var (rows, total) = await _dataSource.PageAsync(pageSearch);
         return (rows.Select(ToViewModel).ToList(), total);
     }
 
     /// <summary>
-    /// Gets all records for the current tenant.
     /// </summary>
     public async Task<List<FreightfeeViewModel>> GetAllAsync(CurrentUser currentUser) =>
-        (await _dataSource.GetAllAsync(currentUser.tenant_id)).Select(ToViewModel).ToList();
+        (await _dataSource.GetAllAsync()).Select(ToViewModel).ToList();
 
     /// <summary>
     /// Gets one record by id.
@@ -117,8 +114,7 @@ public class FreightfeeService : BaseService<FreightfeeEntity>, IFreightfeeServi
             currentUser.user_name,
             now,
             now,
-            viewModel.is_valid,
-            currentUser.tenant_id));
+            viewModel.is_valid));
 
         return result.Status == FreightfeeWriteStatus.Succeeded && result.Id > 0
             ? (result.Id, _stringLocalizer["save_success"])
@@ -126,7 +122,6 @@ public class FreightfeeService : BaseService<FreightfeeEntity>, IFreightfeeServi
     }
 
     /// <summary>
-    /// Updates one record without changing its creator, creation time, or tenant.
     /// </summary>
     public async Task<(bool flag, string msg)> UpdateAsync(FreightfeeViewModel viewModel)
     {
@@ -141,8 +136,7 @@ public class FreightfeeService : BaseService<FreightfeeEntity>, IFreightfeeServi
             viewModel.creator,
             viewModel.create_time,
             DateTime.Now,
-            viewModel.is_valid,
-            viewModel.tenant_id));
+            viewModel.is_valid));
 
         return result switch
         {
@@ -184,8 +178,7 @@ public class FreightfeeService : BaseService<FreightfeeEntity>, IFreightfeeServi
                 currentUser.user_name,
                 now,
                 now,
-                true,
-                currentUser.tenant_id);
+                true);
         }).ToList();
 
         var affected = await _dataSource.AddRangeAsync(rows);
@@ -207,7 +200,6 @@ public class FreightfeeService : BaseService<FreightfeeEntity>, IFreightfeeServi
         create_time = row.create_time,
         last_update_time = row.last_update_time,
         is_valid = row.is_valid,
-        tenant_id = row.tenant_id
     };
 
     private sealed class DapperFreightfeeDataSource : IFreightfeeDataSource
@@ -223,8 +215,7 @@ public class FreightfeeService : BaseService<FreightfeeEntity>, IFreightfeeServi
             fee.`creator`,
             fee.`create_time`,
             fee.`last_update_time`,
-            fee.`is_valid`,
-            fee.`tenant_id`
+            fee.`is_valid`
             """;
 
         private static readonly IReadOnlyDictionary<string, string> SearchColumns =
@@ -241,7 +232,6 @@ public class FreightfeeService : BaseService<FreightfeeEntity>, IFreightfeeServi
                 ["create_time"] = "fee.`create_time`",
                 ["last_update_time"] = "fee.`last_update_time`",
                 ["is_valid"] = "fee.`is_valid`",
-                ["tenant_id"] = "fee.`tenant_id`"
             };
 
         private readonly IMySqlConnectionFactory _connectionFactory;
@@ -253,14 +243,10 @@ public class FreightfeeService : BaseService<FreightfeeEntity>, IFreightfeeServi
         }
 
         public async Task<(List<FreightfeeData> Rows, int Total)> PageAsync(
-            PageSearch pageSearch,
-            long tenantId)
+            PageSearch pageSearch)
         {
             var filter = DapperSearchBuilder.Build(pageSearch.searchObjects, SearchColumns);
-            var where = string.IsNullOrWhiteSpace(filter.Sql)
-                ? "fee.`tenant_id` = @tenant_id"
-                : $"fee.`tenant_id` = @tenant_id AND {filter.Sql}";
-            filter.Parameters.Add("tenant_id", tenantId);
+            var whereClause = string.IsNullOrWhiteSpace(filter.Sql) ? string.Empty : $"WHERE {filter.Sql}";
             filter.Parameters.Add("offset", (pageSearch.pageIndex - 1) * pageSearch.pageSize);
             filter.Parameters.Add("page_size", pageSearch.pageSize);
 
@@ -268,11 +254,11 @@ public class FreightfeeService : BaseService<FreightfeeEntity>, IFreightfeeServi
             using var result = await connection.QueryMultipleAsync($"""
                 SELECT COUNT(*)
                 FROM `wms_freightfee` AS fee
-                WHERE {where};
+                {whereClause};
 
                 SELECT {Projection}
                 FROM `wms_freightfee` AS fee
-                WHERE {where}
+                {whereClause}
                 ORDER BY fee.`create_time` DESC
                 LIMIT @page_size OFFSET @offset;
                 """, filter.Parameters);
@@ -281,14 +267,13 @@ public class FreightfeeService : BaseService<FreightfeeEntity>, IFreightfeeServi
             return (rows, total);
         }
 
-        public async Task<List<FreightfeeData>> GetAllAsync(long tenantId)
+        public async Task<List<FreightfeeData>> GetAllAsync()
         {
             await using var connection = await _connectionFactory.OpenConnectionAsync();
             return (await connection.QueryAsync<FreightfeeData>($"""
                 SELECT {Projection}
                 FROM `wms_freightfee` AS fee
-                WHERE fee.`tenant_id` = @tenantId;
-                """, new { tenantId })).AsList();
+                """)).AsList();
         }
 
         public async Task<FreightfeeData?> GetAsync(int id)
@@ -312,11 +297,11 @@ public class FreightfeeService : BaseService<FreightfeeEntity>, IFreightfeeServi
                     INSERT INTO `wms_freightfee`
                         (`carrier`, `departure_city`, `arrival_city`, `price_per_weight`,
                          `price_per_volume`, `min_payment`, `creator`, `create_time`,
-                         `last_update_time`, `is_valid`, `tenant_id`)
+                         `last_update_time`, `is_valid`)
                     VALUES
                         (@carrier, @departure_city, @arrival_city, @price_per_weight,
                          @price_per_volume, @min_payment, @creator, @create_time,
-                         @last_update_time, @is_valid, @tenant_id);
+                         @last_update_time, @is_valid);
                     SELECT LAST_INSERT_ID();
                     """, freightfee, transaction);
                 await transaction.CommitAsync();
@@ -407,11 +392,11 @@ public class FreightfeeService : BaseService<FreightfeeEntity>, IFreightfeeServi
                     INSERT INTO `wms_freightfee`
                         (`carrier`, `departure_city`, `arrival_city`, `price_per_weight`,
                          `price_per_volume`, `min_payment`, `creator`, `create_time`,
-                         `last_update_time`, `is_valid`, `tenant_id`)
+                         `last_update_time`, `is_valid`)
                     VALUES
                         (@carrier, @departure_city, @arrival_city, @price_per_weight,
                          @price_per_volume, @min_payment, @creator, @create_time,
-                         @last_update_time, @is_valid, @tenant_id);
+                         @last_update_time, @is_valid);
                     """, freightfees, transaction);
                 await transaction.CommitAsync();
                 return affected;

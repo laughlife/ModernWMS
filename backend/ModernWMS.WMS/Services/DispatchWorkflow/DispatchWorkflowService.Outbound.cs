@@ -211,8 +211,8 @@ public partial class DispatchWorkflowService
             }
             var lockedOrder = await LoadOrderForUpdateAsync(connection, transaction, orderId, cancellationToken);
             await _warehouseAccessService.EnsureAllowedAsync(lockedOrder.warehouse_id, currentUser);
-            var runtime = await LoadInventoryRuntimeAsync(connection, transaction, lockedOrder.tenant_id,
-                lockedOrder.warehouse_id, cancellationToken);
+            var runtime = await LoadInventoryRuntimeAsync(
+                connection, transaction, lockedOrder.warehouse_id, cancellationToken);
             var canonical = runtime.Mode == CanonicalInventoryMode;
             if (lockedOrder.status != requiredStatus)
                 throw DispatchWorkflowCommandException.StatusNotAllowedForOutbound(deduct);
@@ -401,7 +401,7 @@ public partial class DispatchWorkflowService
                 allocation.erp_stock_id!.Value,allocation.stock_allocation_id!.Value,
                 allocation.picked_qty,requestId,allocation.reservation_id,allocation.reservation_item_id),
             allocation.erp_stock_id.Value,allocation.stock_allocation_id.Value,"SHIP_OUT")).ToArray();
-        await mutation.PrelockReservationOwnersAsync(connection,transaction,order.tenant_id,
+        await mutation.PrelockReservationOwnersAsync(connection,transaction,
             [order.warehouse_id],prelocks,cancellationToken);
         foreach (var allocation in allocations.OrderBy(x=>x.erp_stock_id).ThenBy(x=>x.stock_allocation_id).ThenBy(x=>x.id))
         {
@@ -496,9 +496,9 @@ public partial class DispatchWorkflowService
         connection.ExecuteAsync(new CommandDefinition("""
             INSERT INTO `wms_stock_record` (`record_no`,`biz_type`,`biz_id`,`biz_item_id`,`stock_id`,`sku_id`,
               `goods_location_id`,`goods_owner_id`,`change_qty`,`before_qty`,`after_qty`,`direction`,`operator_id`,
-              `operator_name`,`remark`,`operate_time`,`tenant_id`)
+              `operator_name`,`remark`,`operate_time`)
             VALUES (@recordNo,@bizType,@orderId,@allocationId,@stockId,@skuId,@locationId,@ownerId,@delta,@before,@after,
-              @direction,@operatorId,@operatorName,@remark,@now,@tenantId);
+              @direction,@operatorId,@operatorName,@remark,@now);
             """, new
             {
                 recordNo = $"MWMS-{(deduct ? "DO" : "DI")}-{order.id}-{allocation.id}-{cycle}",
@@ -506,7 +506,7 @@ public partial class DispatchWorkflowService
                 stockId = allocation.stock_id, skuId = allocation.sku_id, locationId = allocation.goods_location_id,
                 ownerId = allocation.goods_owner_id, delta, before, after, direction = deduct ? "OUT" : "IN",
                 operatorId = user.user_id, operatorName = Truncate(user.user_name, 128),
-                remark = deduct ? "装箱任务拣货单确认出库" : "装箱任务拣货单撤回出库", now, tenantId = order.tenant_id
+                remark = deduct ? "装箱任务拣货单确认出库" : "装箱任务拣货单撤回出库", now
             }, transaction, cancellationToken: cancellationToken));
 
     private static OutboundCommandResult ToOutboundResult(DispatchOrderEntity order, string requestId) => new()

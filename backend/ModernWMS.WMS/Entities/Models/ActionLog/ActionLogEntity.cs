@@ -40,10 +40,6 @@ namespace ModernWMS.WMS.Entities.Models
         /// </summary>
         public DateTime action_time { get; set; } = UtilConvert.MinDate;
 
-        /// <summary>
-        /// tenant_id
-        /// </summary>
-        public long tenant_id { get; set; } = 1;
 
         #endregion Property
     }

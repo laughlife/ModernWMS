@@ -69,7 +69,6 @@ namespace ModernWMS.Core.Extentions
                 }
             }));
             services.AddMemoryCache();
-            services.AddScoped<MultiTenancy.ITenantProvider, MultiTenancy.TenantProvider>();
             services.AddSwaggerService(configuration, AppContext.BaseDirectory);
             services.AddTokenGeneratorService(configuration);
             services.RegisterAssembly();

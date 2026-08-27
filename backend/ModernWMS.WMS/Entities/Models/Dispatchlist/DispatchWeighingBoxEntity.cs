@@ -10,9 +10,6 @@ namespace ModernWMS.WMS.Entities.Models;
 [Table("dispatch_weighing_box")]
 public class DispatchWeighingBoxEntity : BaseModel
 {
-    /// <summary>Tenant owning the dispatch box.</summary>
-    public long tenant_id { get; set; }
-
     /// <summary>Dispatch number associated with the box.</summary>
     [MaxLength(32)]
     public string dispatch_no { get; set; } = string.Empty;

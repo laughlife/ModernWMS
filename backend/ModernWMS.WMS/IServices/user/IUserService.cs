@@ -92,7 +92,6 @@ namespace ModernWMS.WMS.IServices
         Task<(bool flag, string msg)> ChangePwd(UserChangePwdViewModel viewModel);
 
         /// <summary>
-        /// register a new tenant
         /// </summary>
         /// <param name="viewModel">viewModel</param>
         /// <returns></returns>

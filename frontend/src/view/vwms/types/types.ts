@@ -9,7 +9,6 @@ export interface warehouseInfoType {
   manager:string,
   is_valid:boolean,
   last_update_time:string,
-  tenant_id:number,
   warehouse_name:string
 }
 export interface factoryInfoType {
@@ -22,7 +21,6 @@ export interface factoryInfoType {
   warehouse_id:number,
   warehouse_name:string,
   parent_id:number,
-  tenant_id:number,
 }
 export interface shelfItemInfoType {
   id:number,
@@ -44,7 +42,6 @@ export interface shelfItemInfoType {
   create_time:string,
   last_update_time:string,
   is_valid:boolean,
-  tenant_id:number
 }
 export interface productInfoType {
   goods_location_id:number,

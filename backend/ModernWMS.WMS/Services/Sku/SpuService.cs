@@ -55,8 +55,7 @@ public class SpuService : BaseService<SpuEntity>, ISpuService
     public async Task<(List<SpuBothViewModel> data, int totals)> PageAsync(PageSearch pageSearch, CurrentUser currentUser)
     {
         var filter = DapperSearchBuilder.Build(pageSearch.searchObjects, SpuSearchColumns);
-        var where = "s.`tenant_id`=@tenantId" + (string.IsNullOrWhiteSpace(filter.Sql) ? string.Empty : $" AND {filter.Sql}");
-        filter.Parameters.Add("tenantId", currentUser.tenant_id);
+        var where = string.IsNullOrWhiteSpace(filter.Sql) ? "1=1" : filter.Sql;
         filter.Parameters.Add("offset", (pageSearch.pageIndex - 1) * pageSearch.pageSize);
         filter.Parameters.Add("pageSize", pageSearch.pageSize);
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -75,9 +74,8 @@ public class SpuService : BaseService<SpuEntity>, ISpuService
     public async Task<(List<CommodityCatalogViewModel> data, int totals)> PageCatalogAsync(PageSearch pageSearch, CurrentUser currentUser)
     {
         var filter = DapperSearchBuilder.Build(pageSearch.searchObjects, CatalogSearchColumns);
-        var where = "s.`tenant_id`=@tenantId AND s.`is_valid`=1" +
+        var where = "s.`is_valid`=1" +
                     (string.IsNullOrWhiteSpace(filter.Sql) ? string.Empty : $" AND {filter.Sql}");
-        filter.Parameters.Add("tenantId", currentUser.tenant_id);
         filter.Parameters.Add("offset", (pageSearch.pageIndex - 1) * pageSearch.pageSize);
         filter.Parameters.Add("pageSize", pageSearch.pageSize);
         await using var connection = await _connectionFactory.OpenConnectionAsync();
@@ -90,28 +88,28 @@ public class SpuService : BaseService<SpuEntity>, ISpuService
             """, filter.Parameters);
         var totals = await result.ReadSingleAsync<int>();
         var rows = (await result.ReadAsync<CommodityCatalogViewModel>()).AsList();
-        await PopulateCatalogDetailsAsync(connection, rows, currentUser.tenant_id);
+        await PopulateCatalogDetailsAsync(connection, rows);
         return (rows, totals);
     }
 
     private static async Task PopulateCatalogDetailsAsync(System.Data.Common.DbConnection connection,
-        List<CommodityCatalogViewModel> rows, long tenantId)
+        List<CommodityCatalogViewModel> rows)
     {
         if (rows.Count == 0) return;
         var skuIds = rows.Select(t => t.sku_id).Distinct().ToArray();
         using var result = await connection.QueryMultipleAsync("""
             SELECT m.`wms_sku_id`,c.`img_url` FROM `wms_erp_commodity_map` m
               INNER JOIN `erp_commodity` c ON c.`id`=CAST(m.`erp_commodity_id` AS CHAR)
-             WHERE m.`tenant_id`=@tenantId AND m.`wms_sku_id` IN @skuIds AND c.`img_url` IS NOT NULL AND c.`img_url`<>'';
+             WHERE m.`wms_sku_id` IN @skuIds AND c.`img_url` IS NOT NULL AND c.`img_url`<>'';
             SELECT r.`wms_sku_id`,r.`task_item_id`,r.`dept_name`,r.`order_user_name`,r.`inbound_qty`,r.`receipt_time`
-              FROM `wms_erp_receipt_item` r WHERE r.`tenant_id`=@tenantId AND r.`wms_sku_id` IN @skuIds;
+              FROM `wms_erp_receipt_item` r WHERE r.`wms_sku_id` IN @skuIds;
             SELECT r.`wms_sku_id`,r.`task_item_id`,DATE(r.`receipt_time`) AS `batch_date`,
                    COALESCE(t.`purchaser_name`,'') AS `purchaser_name`,COALESCE(i.`per_purchase`,0) AS `unit_cost`,r.`inbound_qty` AS `quantity`
               FROM `wms_erp_receipt_item` r
               INNER JOIN `erp_purchase_task_item` i ON i.`id`=r.`task_item_id` AND i.`deleted`=0
               INNER JOIN `erp_purchase_task` t ON t.`id`=i.`task_id` AND t.`deleted`=0
-             WHERE r.`tenant_id`=@tenantId AND r.`wms_sku_id` IN @skuIds AND r.`inbound_qty`>0;
-            """, new { tenantId, skuIds });
+             WHERE r.`wms_sku_id` IN @skuIds AND r.`inbound_qty`>0;
+            """, new { skuIds });
         var images = (await result.ReadAsync<CatalogImageRow>()).AsList();
         var receipts = (await result.ReadAsync<CatalogReceiptRow>()).AsList();
         var batches = (await result.ReadAsync<CatalogBatchRow>()).AsList();
@@ -177,8 +175,8 @@ public class SpuService : BaseService<SpuEntity>, ISpuService
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
         try
         {
-            if (await connection.ExecuteScalarAsync<bool>("SELECT EXISTS(SELECT 1 FROM `wms_spu` WHERE `tenant_id`=@tenantId AND `spu_code`=@spuCode);",
-                    new { tenantId = currentUser.tenant_id, spuCode = viewModel.spu_code }, transaction))
+            if (await connection.ExecuteScalarAsync<bool>("SELECT EXISTS(SELECT 1 FROM `wms_spu` WHERE `spu_code`=@spuCode);",
+                    new { spuCode = viewModel.spu_code }, transaction))
             {
                 await transaction.RollbackAsync();
                 return (0, DuplicateMessage(viewModel.spu_code));
@@ -186,15 +184,15 @@ public class SpuService : BaseService<SpuEntity>, ISpuService
             var now = DateTime.Now;
             var id = await connection.ExecuteScalarAsync<int>("""
                 INSERT INTO `wms_spu` (`spu_code`,`spu_name`,`spu_description`,`supplier_id`,`supplier_name`,`brand`,`origin`,
-                    `length_unit`,`volume_unit`,`weight_unit`,`creator`,`create_time`,`last_update_time`,`is_valid`,`tenant_id`)
+                    `length_unit`,`volume_unit`,`weight_unit`,`creator`,`create_time`,`last_update_time`,`is_valid`)
                 VALUES (@spu_code,@spu_name,@spu_description,@supplier_id,@supplier_name,@brand,@origin,@length_unit,@volume_unit,
-                    @weight_unit,@creator,@create_time,@last_update_time,@is_valid,@tenant_id); SELECT LAST_INSERT_ID();
+                    @weight_unit,@creator,@create_time,@last_update_time,@is_valid); SELECT LAST_INSERT_ID();
                 """, new
                 {
                     viewModel.spu_code, viewModel.spu_name, viewModel.spu_description, viewModel.supplier_id,
                     viewModel.supplier_name, viewModel.brand, viewModel.origin, viewModel.length_unit, viewModel.volume_unit,
                     viewModel.weight_unit, creator = currentUser.user_name, create_time = now, last_update_time = now,
-                    viewModel.is_valid, tenant_id = currentUser.tenant_id
+                    viewModel.is_valid
                 }, transaction);
             if (viewModel.detailList.Count > 0)
                 await InsertSkusAsync(connection, transaction, id, viewModel.detailList, viewModel.length_unit, viewModel.volume_unit, now);
@@ -211,14 +209,16 @@ public class SpuService : BaseService<SpuEntity>, ISpuService
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
         try
         {
-            var tenantId = await connection.QuerySingleOrDefaultAsync<long?>("SELECT `tenant_id` FROM `wms_spu` WHERE `id`=@id FOR UPDATE;", new { viewModel.id }, transaction);
-            if (!tenantId.HasValue)
+            var exists = await connection.QuerySingleOrDefaultAsync<long?>(
+                "SELECT `id` FROM `wms_spu` WHERE `id`=@id FOR UPDATE;",
+                new { viewModel.id }, transaction);
+            if (!exists.HasValue)
             {
                 await transaction.RollbackAsync();
                 return (false, _stringLocalizer["not_exists_entity"]);
             }
-            if (await connection.ExecuteScalarAsync<bool>("SELECT EXISTS(SELECT 1 FROM `wms_spu` WHERE `id`<>@id AND `tenant_id`=@tenantId AND `spu_code`=@spuCode);",
-                    new { viewModel.id, tenantId, spuCode = viewModel.spu_code }, transaction))
+            if (await connection.ExecuteScalarAsync<bool>("SELECT EXISTS(SELECT 1 FROM `wms_spu` WHERE `id`<>@id  AND `spu_code`=@spuCode);",
+                    new { viewModel.id, spuCode = viewModel.spu_code }, transaction))
             {
                 await transaction.RollbackAsync();
                 return (false, DuplicateMessage(viewModel.spu_code));

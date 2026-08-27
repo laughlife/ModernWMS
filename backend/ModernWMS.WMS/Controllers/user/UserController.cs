@@ -140,7 +140,6 @@ namespace ModernWMS.WMS.Controllers
         }
 
         /// <summary>
-        /// register a new tenant
         /// </summary>
         /// <param name="viewModel">args</param>
         /// <returns></returns>

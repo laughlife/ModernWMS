@@ -108,7 +108,6 @@ const data = reactive({
     handler: '',
     handle_time: '',
     last_update_time: '',
-    tenant_id: 0,
     warehouse_name: '',
     location_name: '',
     spu_code: '',

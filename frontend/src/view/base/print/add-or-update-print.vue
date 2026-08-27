@@ -164,7 +164,6 @@ const data = reactive({
     report_length: 0,
     report_width: 0,
     report_direction: 'A4',
-    tenant_id: 0
   } as PrintSolutionVO,
   table: [] as tableInterFace[],
   i18nName: '',
@@ -449,7 +448,6 @@ const method = reactive({
         report_length: data.curPaper.height,
         report_width: data.curPaper.width,
         report_direction: data.curPaper.type,
-        tenant_id: 0
       } as PrintSolutionVO
 
       const { data: res } = form.id === 0 ? await addPrintSolution(form) : await updatePrintSolution(form)
@@ -534,7 +532,6 @@ watch(
             report_length: 0,
             report_width: 0,
             report_direction: 'st',
-            tenant_id: 0
           } as PrintSolutionVO
           data.curPaper = {
             type: 'A4',

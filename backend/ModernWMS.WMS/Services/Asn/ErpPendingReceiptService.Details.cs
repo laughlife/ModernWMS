@@ -35,7 +35,6 @@ public partial class ErpPendingReceiptService
         var pageSize = Math.Clamp(pageSearch.pageSize, 1, 200);
         var parameters = new
         {
-            tenantId = currentUser.tenant_id,
             warehouseId = warehouseId.Value,
             deptName = $"%{deptName}%",
             orderUserName = $"%{orderUserName}%",
@@ -53,8 +52,7 @@ public partial class ErpPendingReceiptService
                    AND receipt_shipment.`deleted`=b'0'
                    AND receipt_shipment.`to_warehouse_id`=@warehouseId
                   JOIN `wms_erp_receipt_item` item ON item.`receipt_id`=receipt.`id`
-                 WHERE receipt.`tenant_id`=@tenantId AND item.`tenant_id`=@tenantId
-                   AND item.`erp_stock_id`>0
+                 WHERE item.`erp_stock_id`>0
             ),
             `wms_ambiguous_receipts` AS
             (
@@ -65,8 +63,7 @@ public partial class ErpPendingReceiptService
                    AND receipt_shipment.`deleted`=b'0'
                    AND receipt_shipment.`to_warehouse_id`=@warehouseId
                   JOIN `wms_erp_receipt_item` item ON item.`receipt_id`=receipt.`id`
-                 WHERE receipt.`tenant_id`=@tenantId AND item.`tenant_id`=@tenantId
-                   AND COALESCE(item.`erp_stock_id`,0)<=0
+                 WHERE COALESCE(item.`erp_stock_id`,0)<=0
             ),
             `erp_history_records` AS
             (
@@ -109,7 +106,7 @@ public partial class ErpPendingReceiptService
                        CASE WHEN i.`inbound_qty`<=0 THEN 'NONE' ELSE 'ACTIVE' END AS `location_state`
                   FROM `wms_erp_receipt_item` i
                   JOIN `trk_logistics_info` l ON l.`id`=i.`shipment_id` AND l.`deleted`=b'0'
-                 WHERE i.`tenant_id`=@tenantId AND l.`to_warehouse_id`=@warehouseId
+                 WHERE l.`to_warehouse_id`=@warehouseId
 
                 UNION ALL
 
@@ -143,11 +140,9 @@ public partial class ErpPendingReceiptService
 
         var productsByShipment = new Dictionary<long, List<ErpPendingReceiptProductViewModel>>();
         var receiptAllocationsByItem = await ReadReceiptAllocationsAsync(
-            rows.Where(t => t.data_source == "WMS_RECEIPT").Select(t => checked((int)t.id)).ToList(),
-            currentUser.tenant_id);
+            rows.Where(t => t.data_source == "WMS_RECEIPT").Select(t => checked((int)t.id)).ToList());
         var historicalAllocations = await ReadHistoricalReceiptAllocationsAsync(
-            rows.Where(t => t.stock_record_id.HasValue).Select(t => t.stock_record_id!.Value).Distinct().ToList(),
-            currentUser.tenant_id);
+            rows.Where(t => t.stock_record_id.HasValue).Select(t => t.stock_record_id!.Value).Distinct().ToList());
         var data = rows.Select(row =>
         {
             if (!productsByShipment.TryGetValue(row.shipment_id, out var products))
@@ -231,8 +226,7 @@ public partial class ErpPendingReceiptService
     }
 
     private async Task<Dictionary<long, HistoricalReceiptAllocation>> ReadHistoricalReceiptAllocationsAsync(
-        IReadOnlyCollection<long> stockRecordIds,
-        long tenantId)
+        IReadOnlyCollection<long> stockRecordIds)
     {
         if (stockRecordIds.Count == 0)
         {
@@ -248,20 +242,20 @@ public partial class ErpPendingReceiptService
                    SUM(log.`allocated_delta`) AS `qty`,a.`location_state`
               FROM `wms_erp_stock_allocation_log` log
               JOIN `wms_erp_stock_allocation` a
-                ON a.`id`=log.`allocation_id` AND a.`tenant_id`=log.`tenant_id`
+                ON a.`id`=log.`allocation_id`
               LEFT JOIN `wms_warehousearea` area
-                ON area.`id`=a.`warehouse_area_id` AND area.`tenant_id`=a.`tenant_id`
+                ON area.`id`=a.`warehouse_area_id`
               LEFT JOIN `wms_goodslocation` location
-                ON location.`id`=a.`goods_location_id` AND location.`tenant_id`=a.`tenant_id`
+                ON location.`id`=a.`goods_location_id`
               LEFT JOIN `wms_goodsowner` owner
-                ON owner.`id`=a.`goods_owner_id` AND owner.`tenant_id`=a.`tenant_id`
-             WHERE log.`tenant_id`=@tenantId AND log.`erp_stock_record_id` IN @stockRecordIds
+                ON owner.`id`=a.`goods_owner_id`
+             WHERE log.`erp_stock_record_id` IN @stockRecordIds
                AND log.`biz_type`='RECEIPT_IN' AND log.`allocated_delta`>0
               GROUP BY log.`erp_stock_record_id`,a.`warehouse_area_id`,a.`goods_location_id`,a.`location_state`,
                        area.`area_name`,location.`warehouse_area_name`,location.`location_name`,
                        a.`goods_owner_id`,owner.`goods_owner_name`
              ORDER BY log.`erp_stock_record_id`,a.`location_state`,a.`warehouse_area_id`,a.`goods_owner_id`;
-            """, new { tenantId, stockRecordIds });
+            """, new { stockRecordIds });
         return rows.GroupBy(t => t.stock_record_id).ToDictionary(
             t => t.Key,
             t => new HistoricalReceiptAllocation(

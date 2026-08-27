@@ -25,9 +25,5 @@
         /// </summary>
         public string user_role { get; set; } = "admin";
 
-        /// <summary>
-        /// tenant
-        /// </summary>
-        public long tenant_id { get; set; } = 1;
     }
 }

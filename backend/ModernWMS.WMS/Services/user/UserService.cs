@@ -74,8 +74,8 @@ namespace ModernWMS.WMS.Services
                 SELECT 'user_role' AS `code`, `role_name` AS `name`, CAST(`id` AS CHAR) AS `value`,
                        'user''s role' AS `comments`
                 FROM `wms_userrole`
-                WHERE `is_valid` = 1 AND `tenant_id` = @tenantId;
-                """, new { tenantId = currentUser.tenant_id })).AsList();
+                WHERE `is_valid` = 1 ;
+                """)).AsList();
         }
 
         /// <summary>
@@ -88,13 +88,12 @@ namespace ModernWMS.WMS.Services
         public async Task<(List<UserViewModel> data, int totals)> PageAsync(PageSearch pageSearch, CurrentUser currentUser)
         {
             var where = DapperSearchBuilder.Build(pageSearch.searchObjects, UserSearchColumns);
-            where.Parameters.Add("tenantId", currentUser.tenant_id);
             where.Parameters.Add("offset", (pageSearch.pageIndex - 1) * pageSearch.pageSize);
             where.Parameters.Add("pageSize", pageSearch.pageSize);
-            var predicates = new List<string> { "`tenant_id` = @tenantId" };
+            var predicates = new List<string>();
             if (!string.IsNullOrWhiteSpace(where.Sql)) predicates.Add(where.Sql);
             if (pageSearch.sqlTitle == "select") predicates.Add("`is_valid` = 1");
-            var whereSql = string.Join(" AND ", predicates);
+            var whereSql = predicates.Count == 0 ? "1=1" : string.Join(" AND ", predicates);
             await using var connection = await _connectionFactory.OpenConnectionAsync();
             using var grid = await connection.QueryMultipleAsync($"""
                 SELECT COUNT(*) FROM `wms_user` WHERE {whereSql};
@@ -117,8 +116,8 @@ namespace ModernWMS.WMS.Services
         {
             await using var connection = await _connectionFactory.OpenConnectionAsync();
             var data = (await connection.QueryAsync<userEntity>($"""
-                SELECT {UserColumns} FROM `wms_user` WHERE `tenant_id` = @tenantId;
-                """, new { tenantId = currentUser.tenant_id })).AsList();
+                SELECT {UserColumns} FROM `wms_user`;
+                """)).AsList();
             return data.Adapt<List<UserViewModel>>();
         }
 
@@ -155,12 +154,11 @@ namespace ModernWMS.WMS.Services
             entity.auth_string = Md5Helper.Md5Encrypt32(new_auth);
             entity.create_time = DateTime.Now;
             entity.last_update_time = DateTime.Now;
-            entity.tenant_id = currentUser.tenant_id;
             await using var connection = await _connectionFactory.OpenConnectionAsync();
             await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
             try
             {
-                if (await UserNumberExistsAsync(connection, transaction, entity.user_num, entity.tenant_id))
+                if (await UserNumberExistsAsync(connection, transaction, entity.user_num))
                     return await RollbackResult((0, string.Format(_stringLocalizer["exists_entity"],
                         _stringLocalizer["user_num"], viewModel.user_num)), transaction);
                 entity.id = await InsertUserAsync(connection, transaction, entity);
@@ -184,13 +182,13 @@ namespace ModernWMS.WMS.Services
             try
             {
                 if (await UserNumberExistsAsync(connection, transaction, viewModel.user_num,
-                        currentUser.tenant_id, viewModel.id))
+                        viewModel.id))
                     return await RollbackResult((false, string.Format(_stringLocalizer["exists_entity"],
                         _stringLocalizer["user_num"], viewModel.user_num)), transaction);
                 var entity = await connection.QuerySingleOrDefaultAsync<userEntity>($"""
                     SELECT {UserColumns} FROM `wms_user`
-                    WHERE `id` = @id AND `tenant_id` = @tenantId FOR UPDATE;
-                    """, new { viewModel.id, tenantId = currentUser.tenant_id }, transaction);
+                    WHERE `id` = @id FOR UPDATE;
+                    """, new { viewModel.id}, transaction);
                 if (entity == null)
                     return await RollbackResult((false, _stringLocalizer["not_exists_entity"]), transaction);
 
@@ -198,17 +196,16 @@ namespace ModernWMS.WMS.Services
                 var qty = IsAdminUser(entity)
                     ? await connection.ExecuteAsync("""
                         UPDATE `wms_user` SET `user_num`=@userNum,`is_valid`=1,`last_update_time`=@now
-                        WHERE `id`=@id AND `tenant_id`=@tenantId;
-                        """, new { userNum = viewModel.user_num, now, viewModel.id, tenantId = currentUser.tenant_id }, transaction)
+                        WHERE `id`=@id ;
+                        """, new { userNum = viewModel.user_num, now, viewModel.id}, transaction)
                     : await connection.ExecuteAsync("""
                         UPDATE `wms_user` SET `user_num`=@userNum,`user_name`=@userName,
                           `contact_tel`=@contactTel,`user_role`=@userRole,`sex`=@sex,
                           `is_valid`=@isValid,`last_update_time`=@now
-                        WHERE `id`=@id AND `tenant_id`=@tenantId;
+                        WHERE `id`=@id ;
                         """, new { userNum = viewModel.user_num, userName = viewModel.user_name,
                             contactTel = viewModel.contact_tel, userRole = viewModel.user_role,
-                            viewModel.sex, isValid = viewModel.is_valid, now, viewModel.id,
-                            tenantId = currentUser.tenant_id }, transaction);
+                            viewModel.sex, isValid = viewModel.is_valid, now, viewModel.id }, transaction);
                 await transaction.CommitAsync();
                 return qty > 0
                     ? (true, _stringLocalizer["save_success"])
@@ -264,8 +261,8 @@ namespace ModernWMS.WMS.Services
             var userNumbers = datas.Select(t => t.user_num).ToArray();
             var user_num_repeat_exists = userNumbers.Length == 0 ? [] : (await connection.QueryAsync<string>("""
                 SELECT `user_num` FROM `wms_user`
-                WHERE `tenant_id`=@tenantId AND `user_num` IN @userNumbers FOR UPDATE;
-                """, new { tenantId = currentUser.tenant_id, userNumbers }, transaction)).AsList();
+                WHERE `user_num` IN @userNumbers FOR UPDATE;
+                """, new { userNumbers }, transaction)).AsList();
             foreach (var repeat in user_num_repeat_exists)
             {
                 sb.AppendLine(string.Format(_stringLocalizer["exists_entity"], _stringLocalizer["user_num"], repeat));
@@ -280,7 +277,6 @@ namespace ModernWMS.WMS.Services
             entities.ForEach(t =>
             {
                 t.creator = currentUser.user_name;
-                t.tenant_id = currentUser.tenant_id;
                 t.auth_string = Md5Helper.Md5Encrypt32("pwd123456");
                 t.create_time = DateTime.Now;
                 t.last_update_time = DateTime.Now;
@@ -355,7 +351,6 @@ namespace ModernWMS.WMS.Services
         }
 
         /// <summary>
-        /// register a new tenant
         /// </summary>
         /// <param name="viewModel">viewModel</param>
         /// <returns></returns>
@@ -383,7 +378,6 @@ namespace ModernWMS.WMS.Services
                 entity.id = await InsertUserAsync(connection, transaction, entity);
                 if (entity.id <= 0)
                     return await RollbackResult((false, _stringLocalizer["operation_failed"]), transaction);
-                var tenant_id = entity.id;
 
                 #region menus
 
@@ -397,7 +391,6 @@ namespace ModernWMS.WMS.Services
                         vue_path_detail = "",
                         vue_directory = "base/companySetting",
                         sort = 1,
-                        tenant_id = tenant_id
                     },
                     new MenuEntity
                     {
@@ -407,7 +400,6 @@ namespace ModernWMS.WMS.Services
                         vue_path_detail = "",
                         vue_directory = "base/userRoleSetting",
                         sort = 2,
-                        tenant_id = tenant_id
                     },
                     new MenuEntity
                     {
@@ -417,7 +409,6 @@ namespace ModernWMS.WMS.Services
                         vue_path_detail = "",
                         vue_directory = "base/roleMenu",
                         sort = 3,
-                        tenant_id = tenant_id
                     },
                     new MenuEntity
                     {
@@ -427,7 +418,6 @@ namespace ModernWMS.WMS.Services
                         vue_path_detail = "",
                         vue_directory = "base/userManagement",
                         sort = 4,
-                        tenant_id = tenant_id
                     },
                     new MenuEntity
                     {
@@ -437,7 +427,6 @@ namespace ModernWMS.WMS.Services
                         vue_path_detail = "",
                         vue_directory = "base/commodityCategorySetting",
                         sort = 5,
-                        tenant_id = tenant_id
                     },
                     new MenuEntity
                     {
@@ -447,7 +436,6 @@ namespace ModernWMS.WMS.Services
                         vue_path_detail = "",
                         vue_directory = "base/commodityManagement",
                         sort = 6,
-                        tenant_id = tenant_id
                     },
                     new MenuEntity
                     {
@@ -457,7 +445,6 @@ namespace ModernWMS.WMS.Services
                         vue_path_detail = "",
                         vue_directory = "base/supplier",
                         sort = 7,
-                        tenant_id = tenant_id
                     },
                     new MenuEntity
                     {
@@ -467,7 +454,6 @@ namespace ModernWMS.WMS.Services
                         vue_path_detail = "",
                         vue_directory = "base/warehouseSetting",
                         sort = 8,
-                        tenant_id = tenant_id
                     },new MenuEntity
                     {
                         menu_name = "ownerOfCargo",
@@ -476,7 +462,6 @@ namespace ModernWMS.WMS.Services
                         vue_path_detail = "",
                         vue_directory = "base/ownerOfCargo",
                         sort = 9,
-                        tenant_id = tenant_id
                     },new MenuEntity
                     {
                         menu_name = "freightSetting",
@@ -485,7 +470,6 @@ namespace ModernWMS.WMS.Services
                         vue_path_detail = "",
                         vue_directory = "base/freightSetting",
                         sort = 10,
-                        tenant_id = tenant_id
                     },new MenuEntity
                     {
                         menu_name = "print",
@@ -494,7 +478,6 @@ namespace ModernWMS.WMS.Services
                         vue_path_detail = "",
                         vue_directory = "base/print",
                         sort = 12,
-                        tenant_id = tenant_id
                     },new MenuEntity
                     {
                         menu_name = "stockManagement",
@@ -503,7 +486,6 @@ namespace ModernWMS.WMS.Services
                         vue_path_detail = "",
                         vue_directory = "wms/stockManagement",
                         sort = 3,
-                        tenant_id = tenant_id
                     },new MenuEntity
                     {
                         menu_name = "saftyStock",
@@ -512,7 +494,6 @@ namespace ModernWMS.WMS.Services
                         vue_path_detail = "",
                         vue_directory = "statisticAnalysis/saftyStock",
                         sort = 4,
-                        tenant_id = tenant_id
                     },new MenuEntity
                     {
                         menu_name = "asnStatistic",
@@ -521,7 +502,6 @@ namespace ModernWMS.WMS.Services
                         vue_path_detail = "",
                         vue_directory = "statisticAnalysis/asnStatistic",
                         sort = 5,
-                        tenant_id = tenant_id
                     },new MenuEntity
                     {
                         menu_name = "deliveryStatistic",
@@ -530,7 +510,6 @@ namespace ModernWMS.WMS.Services
                         vue_path_detail = "",
                         vue_directory = "statisticAnalysis/deliveryStatistic",
                         sort = 6,
-                        tenant_id = tenant_id
                     },new MenuEntity
                     {
                         menu_name = "stockageStatistic",
@@ -539,7 +518,6 @@ namespace ModernWMS.WMS.Services
                         vue_path_detail = "",
                         vue_directory = "statisticAnalysis/stockageStatistic",
                         sort = 7,
-                        tenant_id = tenant_id
                     },new MenuEntity
                     {
                         menu_name = "warehouseProcessing",
@@ -548,7 +526,6 @@ namespace ModernWMS.WMS.Services
                         vue_path_detail = "",
                         vue_directory = "warehouseWorking/warehouseProcessing",
                         sort = 4,
-                        tenant_id = tenant_id
                     },new MenuEntity
                     {
                         menu_name = "warehouseMove",
@@ -557,7 +534,6 @@ namespace ModernWMS.WMS.Services
                         vue_path_detail = "",
                         vue_directory = "warehouseWorking/warehouseMove",
                         sort = 5,
-                        tenant_id = tenant_id
                     },new MenuEntity
                     {
                         menu_name = "warehouseFreeze",
@@ -566,7 +542,6 @@ namespace ModernWMS.WMS.Services
                         vue_path_detail = "",
                         vue_directory = "warehouseWorking/warehouseFreeze",
                         sort = 6,
-                        tenant_id = tenant_id
                     },new MenuEntity
                     {
                         menu_name = "warehouseAdjust",
@@ -575,7 +550,6 @@ namespace ModernWMS.WMS.Services
                         vue_path_detail = "",
                         vue_directory = "warehouseWorking/warehouseAdjust",
                         sort = 7,
-                        tenant_id = tenant_id
                     },new MenuEntity
                     {
                         menu_name = "warehouseTaking",
@@ -584,7 +558,6 @@ namespace ModernWMS.WMS.Services
                         vue_path_detail = "",
                         vue_directory = "warehouseWorking/warehouseTaking",
                         sort = 8,
-                        tenant_id = tenant_id
                     },new MenuEntity
                     {
                         menu_name = "stockAsn",
@@ -593,7 +566,6 @@ namespace ModernWMS.WMS.Services
                         vue_path_detail = "",
                         vue_directory = "wms/stockAsn",
                         sort = 2,
-                        tenant_id = tenant_id
                     },new MenuEntity
                     {
                         menu_name = "deliveryManagement",
@@ -602,7 +574,6 @@ namespace ModernWMS.WMS.Services
                         vue_path_detail = "",
                         vue_directory = "deliveryManagement/deliveryManagement",
                         sort = 5,
-                        tenant_id = tenant_id
                     }
                     ,new MenuEntity
                     {
@@ -612,32 +583,30 @@ namespace ModernWMS.WMS.Services
                         vue_path_detail = "",
                         vue_directory = "largeScreen/largeScreen",
                         sort = 6,
-                        tenant_id = tenant_id
                     }
                 };
 
                 #endregion menus
 
-                entity.tenant_id = tenant_id;
                 entity.creator = entity.user_name;
                 entity.user_role = "admin";
-                var adminrole = new UserroleEntity { is_valid = true, last_update_time = time, create_time = time, role_name = "admin", tenant_id = tenant_id };
+                var adminrole = new UserroleEntity { is_valid = true, last_update_time = time, create_time = time, role_name = "admin"};
                 await connection.ExecuteAsync("""
-                    UPDATE `wms_user` SET `tenant_id`=@tenantId,`creator`=@creator,`user_role`=@userRole
+                    UPDATE `wms_user` SET `creator`=@creator,`user_role`=@userRole
                     WHERE `id`=@id;
-                    """, new { tenantId = tenant_id, creator = entity.creator, userRole = entity.user_role, entity.id }, transaction);
+                    """, new { creator = entity.creator, userRole = entity.user_role, entity.id }, transaction);
                 adminrole.id = await connection.ExecuteScalarAsync<int>("""
                     INSERT INTO `wms_userrole`
-                      (`role_name`,`is_valid`,`create_time`,`last_update_time`,`tenant_id`)
-                    VALUES (@role_name,@is_valid,@create_time,@last_update_time,@tenant_id);
+                      (`role_name`,`is_valid`,`create_time`,`last_update_time`)
+                    VALUES (@role_name,@is_valid,@create_time,@last_update_time);
                     SELECT LAST_INSERT_ID();
                     """, adminrole, transaction);
                 foreach (var menu in menus)
                 {
                     menu.id = await connection.ExecuteScalarAsync<int>("""
                         INSERT INTO `wms_menu`
-                          (`menu_name`,`module`,`vue_path`,`vue_path_detail`,`vue_directory`,`sort`,`tenant_id`,`menu_actions`)
-                        VALUES (@menu_name,@module,@vue_path,@vue_path_detail,@vue_directory,@sort,@tenant_id,@menu_actions);
+                          (`menu_name`,`module`,`vue_path`,`vue_path_detail`,`vue_directory`,`sort`,`menu_actions`)
+                        VALUES (@menu_name,@module,@vue_path,@vue_path_detail,@vue_directory,@sort,@menu_actions);
                         SELECT LAST_INSERT_ID();
                         """, menu, transaction);
                 }
@@ -645,13 +614,12 @@ namespace ModernWMS.WMS.Services
                 {
                     await connection.ExecuteAsync("""
                         INSERT INTO `wms_rolemenu`
-                          (`userrole_id`,`menu_id`,`authority`,`create_time`,`last_update_time`,`tenant_id`,`menu_actions_authority`)
-                        VALUES (@userrole_id,@menu_id,@authority,@create_time,@last_update_time,@tenant_id,@menu_actions_authority);
+                          (`userrole_id`,`menu_id`,`authority`,`create_time`,`last_update_time`,`menu_actions_authority`)
+                        VALUES (@userrole_id,@menu_id,@authority,@create_time,@last_update_time,@menu_actions_authority);
                         """, new RolemenuEntity {
                         userrole_id = adminrole.id,
                         authority = 1,
                         menu_id = menu.id,
-                        tenant_id = tenant_id,
                         last_update_time = time,
                         create_time = time,
                     }, transaction);
@@ -688,7 +656,7 @@ namespace ModernWMS.WMS.Services
 
         private const string UserColumns = """
             `id`,`user_num`,`user_name`,`contact_tel`,`user_role`,`sex`,`is_valid`,`auth_string`,
-            `email`,`creator`,`create_time`,`last_update_time`,`tenant_id`
+            `email`,`creator`,`create_time`,`last_update_time`
             """;
 
         private static readonly IReadOnlyDictionary<string, string> UserSearchColumns =
@@ -706,24 +674,23 @@ namespace ModernWMS.WMS.Services
                 ["creator"] = "`creator`",
                 ["create_time"] = "`create_time`",
                 ["last_update_time"] = "`last_update_time`",
-                ["tenant_id"] = "`tenant_id`"
             };
 
         private static Task<bool> UserNumberExistsAsync(IDbConnection connection, IDbTransaction transaction,
-            string userNumber, long tenantId, int? excludedId = null) => connection.ExecuteScalarAsync<bool>("""
+            string userNumber, int? excludedId = null) => connection.ExecuteScalarAsync<bool>("""
                 SELECT EXISTS(SELECT 1 FROM `wms_user`
-                WHERE `tenant_id`=@tenantId AND `user_num`=@userNumber
+                WHERE `user_num`=@userNumber
                   AND (@excludedId IS NULL OR `id`<>@excludedId));
-                """, new { tenantId, userNumber, excludedId }, transaction);
+                """, new { userNumber, excludedId }, transaction);
 
         private static Task<int> InsertUserAsync(IDbConnection connection, IDbTransaction transaction,
             userEntity entity) => connection.ExecuteScalarAsync<int>("""
                 INSERT INTO `wms_user`
                   (`user_num`,`user_name`,`contact_tel`,`user_role`,`sex`,`is_valid`,`auth_string`,`email`,
-                   `creator`,`create_time`,`last_update_time`,`tenant_id`)
+                   `creator`,`create_time`,`last_update_time`)
                 VALUES
                   (@user_num,@user_name,@contact_tel,@user_role,@sex,@is_valid,@auth_string,@email,
-                   @creator,@create_time,@last_update_time,@tenant_id);
+                   @creator,@create_time,@last_update_time);
                 SELECT LAST_INSERT_ID();
                 """, entity, transaction);
 

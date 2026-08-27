@@ -88,10 +88,10 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
         var wmsWarehouseId = await ScalarOrDefaultAsync<int>(
             """
             SELECT id FROM wms_warehouse
-             WHERE erp_warehouse_id=@erpId AND tenant_id=@tenantId AND is_valid=1
+             WHERE erp_warehouse_id=@erpId  AND is_valid=1
              LIMIT 1
             """,
-            ("@erpId", warehouseId.Value), ("@tenantId", currentUser.tenant_id));
+            ("@erpId", warehouseId.Value));
 
         var result = new List<ErpPendingReceiptViewModel>(shipments.Count);
         foreach (var shipment in shipments)
@@ -221,9 +221,7 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
                 return (false, "货件数据已更新，请刷新列表后重新确认", 0);
             }
 
-            await EnsureCanonicalInventoryWriteEnabledAsync(
-                shipment.to_warehouse_id!.Value,
-                currentUser.tenant_id);
+            await EnsureCanonicalInventoryWriteEnabledAsync(shipment.to_warehouse_id!.Value);
             if (string.Equals(shipment.source_type, "STOCK_DISPATCH", StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidOperationException(
@@ -317,18 +315,17 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
                 creator = Truncate(currentUser.user_name, 64),
                 create_time = now,
                 last_update_time = now,
-                tenant_id = currentUser.tenant_id
             };
             entity.id = await connection.ExecuteScalarAsync<int>("""
                 INSERT INTO `wms_erp_receipt`
                     (`shipment_id`,`source_version`,`actual_receipt_qty`,`loss_qty`,`inbound_qty`,
                      `receipt_freight_payment_status`,`receipt_freight_amount`,`receipt_freight_files_json`,
                      `receipt_files_json`,`loss_reason`,`loss_files_json`,`receipt_remark`,`creator`,
-                     `create_time`,`last_update_time`,`tenant_id`)
+                     `create_time`,`last_update_time`)
                 VALUES (@shipment_id,@source_version,@actual_receipt_qty,@loss_qty,@inbound_qty,
                      @receipt_freight_payment_status,@receipt_freight_amount,@receipt_freight_files_json,
                      @receipt_files_json,@loss_reason,@loss_files_json,@receipt_remark,@creator,
-                     @create_time,@last_update_time,@tenant_id); SELECT LAST_INSERT_ID();
+                     @create_time,@last_update_time); SELECT LAST_INSERT_ID();
                 """, entity, transaction);
 
             await ApplyInventoryReceiptAsync(

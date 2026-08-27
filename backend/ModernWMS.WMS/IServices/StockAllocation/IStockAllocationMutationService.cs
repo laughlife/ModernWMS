@@ -16,7 +16,6 @@ public interface IStockAllocationMutationService : IDependency
     Task PrelockAsync(
         IDbConnection connection,
         IDbTransaction transaction,
-        long tenantId,
         IReadOnlyCollection<long> erpWarehouseIds,
         IReadOnlyCollection<long> erpStockIds,
         IReadOnlyCollection<long> allocationIds,
@@ -29,7 +28,6 @@ public interface IStockAllocationMutationService : IDependency
     Task PrelockReservationOwnersAsync(
         IDbConnection connection,
         IDbTransaction transaction,
-        long tenantId,
         IReadOnlyCollection<long> erpWarehouseIds,
         IReadOnlyCollection<StockReservationPrelockRequest> requests,
         CancellationToken cancellationToken = default);

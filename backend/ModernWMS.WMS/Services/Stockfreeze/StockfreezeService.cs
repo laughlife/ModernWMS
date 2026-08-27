@@ -18,7 +18,7 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
 {
     private const string ViewSql = """
         SELECT f.`id`,f.`job_code`,f.`job_type`,f.`sku_id`,f.`goods_owner_id`,f.`goods_location_id`,
-               f.`handler`,f.`handle_time`,f.`last_update_time`,f.`tenant_id`,f.`series_number`,
+               f.`handler`,f.`handle_time`,f.`last_update_time`,f.`series_number`,
                f.`erp_stock_id`,f.`stock_allocation_id`,f.`reservation_id`,f.`reservation_item_id`,
                f.`source_freeze_id`,
                k.`sku_code`,p.`spu_code`,p.`spu_name`,l.`location_name`,l.`warehouse_name`
@@ -35,7 +35,6 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
             ["sku_id"] = "f.`sku_id`", ["goods_owner_id"] = "f.`goods_owner_id`",
             ["goods_location_id"] = "f.`goods_location_id`", ["handler"] = "f.`handler`",
             ["handle_time"] = "f.`handle_time`", ["last_update_time"] = "f.`last_update_time`",
-            ["tenant_id"] = "f.`tenant_id`", ["series_number"] = "f.`series_number`",
             ["sku_code"] = "k.`sku_code`", ["spu_code"] = "p.`spu_code`", ["spu_name"] = "p.`spu_name`",
             ["location_name"] = "l.`location_name`", ["warehouse_name"] = "l.`warehouse_name`"
         };
@@ -64,9 +63,7 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
         CurrentUser currentUser)
     {
         var filter = DapperSearchBuilder.Build(pageSearch.searchObjects, SearchColumns);
-        var where = "f.`tenant_id`=@tenantId" +
-                    (string.IsNullOrWhiteSpace(filter.Sql) ? string.Empty : $" AND {filter.Sql}");
-        filter.Parameters.Add("tenantId", currentUser.tenant_id);
+        var where = string.IsNullOrWhiteSpace(filter.Sql) ? "1=1" : filter.Sql;
         filter.Parameters.Add("offset", (pageSearch.pageIndex - 1) * pageSearch.pageSize);
         filter.Parameters.Add("pageSize", pageSearch.pageSize);
 
@@ -90,10 +87,10 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         return (await connection.QueryAsync<StockfreezeViewModel>("""
             SELECT `id`,`job_code`,`job_type`,`sku_id`,`goods_owner_id`,`goods_location_id`,`handler`,
-                   `handle_time`,`last_update_time`,`tenant_id`,`erp_stock_id`,`stock_allocation_id`,
+                   `handle_time`,`last_update_time`,`erp_stock_id`,`stock_allocation_id`,
                    `source_freeze_id`,`series_number`
-              FROM `wms_stockfreeze` WHERE `tenant_id`=@tenantId;
-            """, new { tenantId = currentUser.tenant_id })).AsList();
+              FROM `wms_stockfreeze`;
+            """)).AsList();
     }
 
     /// <inheritdoc />
@@ -111,11 +108,11 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
         var jobCode = await _functionHelper.GetFormNoAsync("Stockfreeze");
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         var routeSnapshot = await CanonicalInventorySupport.GetRouteAsync(
-            connection, currentUser.tenant_id, viewModel.goods_location_id);
+            connection, viewModel.goods_location_id);
         CanonicalInventorySupport.CanonicalAllocation? freezeAllocationSnapshot = null;
         if (viewModel.job_type && routeSnapshot.Mode == CanonicalInventorySupport.CanonicalMode)
             freezeAllocationSnapshot = await CanonicalInventorySupport.ResolveSimpleAllocationAsync(
-                connection, null, currentUser.tenant_id, viewModel.sku_id,
+                connection, null, viewModel.sku_id,
                 viewModel.goods_location_id, viewModel.goods_owner_id, viewModel.series_number,
                 forUpdate: false);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted);
@@ -125,12 +122,11 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
             if (!viewModel.job_type && viewModel.source_freeze_id.HasValue)
                 sourceFreeze = await connection.QuerySingleOrDefaultAsync<StockfreezeEntity>("""
                     SELECT * FROM `wms_stockfreeze`
-                     WHERE `id`=@sourceFreezeId AND `tenant_id`=@tenantId AND `job_type`=1
+                     WHERE `id`=@sourceFreezeId  AND `job_type`=1
                      FOR UPDATE;
-                    """, new { sourceFreezeId = viewModel.source_freeze_id.Value,
-                        tenantId = currentUser.tenant_id }, transaction);
+                    """, new { sourceFreezeId = viewModel.source_freeze_id.Value }, transaction);
             var route = await CanonicalInventorySupport.LockRouteAsync(
-                connection, transaction, currentUser.tenant_id, routeSnapshot);
+                connection, transaction, routeSnapshot);
             CanonicalInventorySupport.CanonicalAllocation? allocation = null;
             if (route.Mode == CanonicalInventorySupport.CanonicalMode)
             {
@@ -165,12 +161,11 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
                 viewModel.goods_owner_id,
                 viewModel.sku_id,
                 viewModel.series_number,
-                tenantId = currentUser.tenant_id
             };
             if (await connection.ExecuteScalarAsync<bool>("""
                 SELECT EXISTS(SELECT 1 FROM `wms_stockprocessdetail`
                     WHERE `goods_location_id`=@goods_location_id AND `goods_owner_id`=@goods_owner_id
-                      AND `sku_id`=@sku_id AND `is_update_stock`=0 AND `tenant_id`=@tenantId);
+                      AND `sku_id`=@sku_id AND `is_update_stock`=0);
                 """, parameters, transaction))
             {
                 await transaction.RollbackAsync();
@@ -188,7 +183,7 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
             if (await connection.ExecuteScalarAsync<bool>("""
                 SELECT EXISTS(SELECT 1 FROM `wms_stockmove`
                     WHERE (`orig_goods_location_id`=@goods_location_id OR `dest_googs_location_id`=@goods_location_id)
-                      AND `sku_id`=@sku_id AND `move_status`=0 AND `tenant_id`=@tenantId);
+                      AND `sku_id`=@sku_id AND `move_status`=0);
                 """, parameters, transaction))
             {
                 await transaction.RollbackAsync();
@@ -200,7 +195,7 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
                 await connection.ExecuteAsync("""
                 UPDATE `wms_stock` SET `is_freeze`=@isFreeze
                  WHERE `goods_location_id`=@goods_location_id AND `goods_owner_id`=@goods_owner_id
-                   AND `sku_id`=@sku_id AND `series_number`=@series_number AND `tenant_id`=@tenantId;
+                   AND `sku_id`=@sku_id AND `series_number`=@series_number ;
                 """, new
                 {
                     isFreeze = viewModel.job_type,
@@ -208,14 +203,13 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
                     viewModel.goods_owner_id,
                     viewModel.sku_id,
                     viewModel.series_number,
-                    tenantId = currentUser.tenant_id
                 }, transaction);
             var id = await connection.ExecuteScalarAsync<int>("""
                 INSERT INTO `wms_stockfreeze` (`job_code`,`job_type`,`sku_id`,`goods_owner_id`,`goods_location_id`,
-                    `handler`,`handle_time`,`last_update_time`,`tenant_id`,`erp_stock_id`,`stock_allocation_id`,
+                    `handler`,`handle_time`,`last_update_time`,`erp_stock_id`,`stock_allocation_id`,
                     `source_freeze_id`,`series_number`)
                 VALUES (@jobCode,@jobType,@skuId,@goodsOwnerId,@goodsLocationId,@handler,@handleTime,@lastUpdate,
-                    @tenantId,@erpStockId,@allocationId,@sourceFreezeId,@seriesNumber); SELECT LAST_INSERT_ID();
+                    @erpStockId,@allocationId,@sourceFreezeId,@seriesNumber); SELECT LAST_INSERT_ID();
                 """, new
                 {
                     jobCode,
@@ -226,7 +220,6 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
                     handler = currentUser.user_name,
                     handleTime = now,
                     lastUpdate = now,
-                    tenantId = currentUser.tenant_id,
                     erpStockId = allocation?.ErpStockId,
                     allocationId = allocation?.AllocationId,
                     sourceFreezeId = viewModel.source_freeze_id,
@@ -238,8 +231,8 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
                     SELECT `id` AllocationId,`erp_stock_id` ErpStockId,
                            `allocated_qty` AllocatedQty,`occupied_qty` OccupiedQty
                       FROM `wms_erp_stock_allocation`
-                     WHERE `tenant_id`=@tenantId AND `id`=@allocationId;
-                    """, new { tenantId = currentUser.tenant_id,
+                     WHERE `id`=@allocationId;
+                    """, new {
                         allocationId = allocation.AllocationId }, transaction);
                 var operationKey = $"MWMS:FRZ:{id}";
                 var reservationOwner = viewModel.job_type
@@ -248,7 +241,7 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
                         "统一库存模式解冻必须明确关联有效的源冻结单");
                 var reservationOwnerId = reservationOwner?.id ?? id;
                 var context = CanonicalInventorySupport.Context(
-                    currentUser.tenant_id, route.ErpWarehouseId, operationKey,
+                    route.ErpWarehouseId, operationKey,
                     viewModel.job_type ? "STOCK_FREEZE_RESERVE" : "STOCK_FREEZE_RELEASE", id, id,
                     currentUser, currentUser.user_name, viewModel.job_type ? "冻结库存" : "解冻库存") with
                 {
@@ -287,13 +280,12 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
                                        ELSE 0 END),0) released_qty
                               FROM `wms_erp_stock_allocation_log` l
                               LEFT JOIN `wms_stockfreeze` f
-                                ON f.`id`=l.`biz_id` AND f.`tenant_id`=l.`tenant_id`
-                             WHERE l.`tenant_id`=@tenantId
-                               AND l.`erp_stock_id`=@erpStockId
+                                ON f.`id`=l.`biz_id`
+                             WHERE l.`erp_stock_id`=@erpStockId
                                AND l.`allocation_id`=@allocationId
                                AND l.`biz_type` IN ('STOCK_FREEZE_RESERVE','STOCK_FREEZE_RELEASE')
                           ) hold_qty;
-                        """, new { tenantId = currentUser.tenant_id,
+                        """, new {
                             erpStockId = allocation.ErpStockId, allocationId = allocation.AllocationId,
                             sourceFreezeId = releaseSource.id }, transaction);
                     if (quantity <= 0)
@@ -306,8 +298,8 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
                 await connection.ExecuteAsync("""
                     UPDATE `wms_stockfreeze`
                        SET `reservation_id`=@reservationId,`reservation_item_id`=@reservationItemId
-                     WHERE `id`=@id AND `tenant_id`=@tenantId;
-                    """,new{id,tenantId=currentUser.tenant_id,
+                     WHERE `id`=@id ;
+                    """,new{id,
                         reservationId=mutationResult.ReservationId,
                         reservationItemId=mutationResult.ReservationItemId},transaction);
             }
@@ -338,9 +330,9 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
             }
             await using var routeConnection = await _connectionFactory.OpenConnectionAsync();
             var routeSnapshot = await CanonicalInventorySupport.GetRouteAsync(
-                routeConnection, existing.tenant_id, existing.goods_location_id);
+                routeConnection, existing.goods_location_id);
             _ = await CanonicalInventorySupport.LockRouteAsync(
-                connection, transaction, existing.tenant_id, routeSnapshot);
+                connection, transaction, routeSnapshot);
             var canonical = await connection.ExecuteScalarAsync<bool>("""
                 SELECT `erp_stock_id` IS NOT NULL FROM `wms_stockfreeze` WHERE `id`=@id;
                 """, new { viewModel.id }, transaction);
@@ -388,9 +380,9 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
             }
             await using var routeConnection = await _connectionFactory.OpenConnectionAsync();
             var routeSnapshot = await CanonicalInventorySupport.GetRouteAsync(
-                routeConnection, existing.tenant_id, existing.goods_location_id);
+                routeConnection, existing.goods_location_id);
             _ = await CanonicalInventorySupport.LockRouteAsync(
-                connection, transaction, existing.tenant_id, routeSnapshot);
+                connection, transaction, routeSnapshot);
             var canonical = await connection.ExecuteScalarAsync<bool>("""
                 SELECT COALESCE(`erp_stock_id` IS NOT NULL,0) FROM `wms_stockfreeze` WHERE `id`=@id FOR UPDATE;
                 """, new { id }, transaction);
@@ -418,8 +410,8 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
         var date = DateTime.Now.ToString("yyyyMMdd");
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         var maxNo = await connection.QuerySingleAsync<string?>("""
-            SELECT MAX(`job_code`) FROM `wms_stockfreeze` WHERE `tenant_id`=@tenantId;
-            """, new { tenantId = currentUser.tenant_id });
+            SELECT MAX(`job_code`) FROM `wms_stockfreeze`;
+            """);
         if (maxNo == null) return date + "-0001";
         var maxDate = maxNo.Substring(0, 8);
         var maxDateNo = maxNo.Substring(9, 4);

@@ -47,7 +47,6 @@ public sealed class DispatchOrderQueryService : IDispatchOrderQueryService
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var parameters = new DynamicParameters();
         parameters.Add("warehouse_id", request.warehouse_id);
-        parameters.Add("tenantId", currentUser.tenant_id);
         parameters.Add("status", status);
         parameters.Add("keyword", $"%{EscapeLike(keyword)}%");
         parameters.Add("hasKeyword", keyword.Length > 0);
@@ -96,7 +95,7 @@ public sealed class DispatchOrderQueryService : IDispatchOrderQueryService
             """;
         var orderWhere = $"""
             FROM `wms_dispatch_order` o
-            WHERE o.`warehouse_id`=@warehouse_id AND o.`tenant_id`=@tenantId
+            WHERE o.`warehouse_id`=@warehouse_id
               AND (@status IS NULL OR o.`status`=@status)
               AND (@hasKeyword=0 OR o.`dispatch_no` LIKE @keyword ESCAPE '!'
                 OR EXISTS(
@@ -158,8 +157,8 @@ public sealed class DispatchOrderQueryService : IDispatchOrderQueryService
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var raw = await connection.QueryAsync<StatusCountRow>(new CommandDefinition("""
             SELECT `status`,COUNT(*) `count` FROM `wms_dispatch_order`
-            WHERE `warehouse_id`=@warehouseId AND `tenant_id`=@tenantId GROUP BY `status`;
-            """, new { warehouseId, tenantId = currentUser.tenant_id }, cancellationToken: cancellationToken));
+            WHERE `warehouse_id`=@warehouseId  GROUP BY `status`;
+            """, new { warehouseId}, cancellationToken: cancellationToken));
         var counts = Enum.GetValues<DispatchOrderStatus>().ToDictionary(DispatchWorkflowService.ToApiStatus, _ => 0);
         foreach (var item in raw) counts[DispatchWorkflowService.ToApiStatus(item.status)] = item.count;
         return new DispatchOrderStatusCounts(counts);
@@ -184,8 +183,8 @@ public sealed class DispatchOrderQueryService : IDispatchOrderQueryService
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var ids = await connection.QueryAsync<int>(new CommandDefinition("""
             SELECT `id` FROM `wms_dispatch_order`
-            WHERE `warehouse_id`=@warehouseId AND `tenant_id`=@tenantId AND `status`=@status ORDER BY `id`;
-            """, new { warehouseId, tenantId = currentUser.tenant_id, status = DispatchOrderStatus.PendingPick }, cancellationToken: cancellationToken));
+            WHERE `warehouse_id`=@warehouseId  AND `status`=@status ORDER BY `id`;
+            """, new { warehouseId}, cancellationToken: cancellationToken));
         foreach (var id in ids) await _workflowService.ReconcileAsync(id, currentUser, cancellationToken);
     }
 

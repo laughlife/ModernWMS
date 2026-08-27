@@ -10,7 +10,6 @@ const factoryData: factoryInfoType[] = [
     create_time: '2023-10-07 09:05:15',
     last_update_time: '2023-10-07 09:05:15',
     is_valid: true,
-    tenant_id: 2757,
     area_property: 6
   },
   {
@@ -22,7 +21,6 @@ const factoryData: factoryInfoType[] = [
     create_time: '2023-10-07 09:05:29',
     last_update_time: '2023-10-07 09:05:29',
     is_valid: true,
-    tenant_id: 2757,
     area_property: 1
   },
   {
@@ -34,7 +32,6 @@ const factoryData: factoryInfoType[] = [
     create_time: '2023-10-07 09:05:44',
     last_update_time: '2023-10-07 09:05:44',
     is_valid: true,
-    tenant_id: 2757,
     area_property: 2
   },
   {
@@ -46,7 +43,6 @@ const factoryData: factoryInfoType[] = [
     create_time: '2023-10-07 09:05:59',
     last_update_time: '2023-10-07 09:05:59',
     is_valid: true,
-    tenant_id: 2757,
     area_property: 3
   }
 ]
@@ -70,7 +66,6 @@ const shelfItemData:shelfItemInfoType[] = [
     create_time: '2023-10-07 09:08:29',
     last_update_time: '2023-10-07 14:22:15',
     is_valid: true,
-    tenant_id: 2757,
     warehouse_area_id: 573
   },
   {
@@ -92,7 +87,6 @@ const shelfItemData:shelfItemInfoType[] = [
     create_time: '2023-10-07 09:08:29',
     last_update_time: '2023-10-07 14:22:15',
     is_valid: true,
-    tenant_id: 2757,
     warehouse_area_id: 573
   },
   {
@@ -114,7 +108,6 @@ const shelfItemData:shelfItemInfoType[] = [
     create_time: '2023-10-07 09:09:02',
     last_update_time: '2023-10-07 10:29:25',
     is_valid: true,
-    tenant_id: 2757,
     warehouse_area_id: 573
   },
   {
@@ -136,7 +129,6 @@ const shelfItemData:shelfItemInfoType[] = [
     create_time: '2023-10-07 09:10:00',
     last_update_time: '2023-10-07 10:29:01',
     is_valid: true,
-    tenant_id: 2757,
     warehouse_area_id: 573
   },
   {
@@ -158,7 +150,6 @@ const shelfItemData:shelfItemInfoType[] = [
     create_time: '2023-10-07 09:10:00',
     last_update_time: '2023-10-07 10:29:01',
     is_valid: true,
-    tenant_id: 2757,
     warehouse_area_id: 573
   },
   {
@@ -180,7 +171,6 @@ const shelfItemData:shelfItemInfoType[] = [
     create_time: '2023-10-07 09:10:31',
     last_update_time: '2023-10-07 14:23:00',
     is_valid: true,
-    tenant_id: 2757,
     warehouse_area_id: 573
   },
   {
@@ -202,7 +192,6 @@ const shelfItemData:shelfItemInfoType[] = [
     create_time: '2023-10-07 09:10:54',
     last_update_time: '2023-10-07 09:11:35',
     is_valid: true,
-    tenant_id: 2757,
     warehouse_area_id: 573
   },
   {
@@ -224,7 +213,6 @@ const shelfItemData:shelfItemInfoType[] = [
     create_time: '2023-10-07 09:11:19',
     last_update_time: '2023-10-07 14:24:29',
     is_valid: true,
-    tenant_id: 2757,
     warehouse_area_id: 573
   },
   {
@@ -246,7 +234,6 @@ const shelfItemData:shelfItemInfoType[] = [
     create_time: '2023-10-07 09:12:26',
     last_update_time: '2023-10-07 14:24:36',
     is_valid: true,
-    tenant_id: 2757,
     warehouse_area_id: 577
   },
   {
@@ -268,7 +255,6 @@ const shelfItemData:shelfItemInfoType[] = [
     create_time: '2023-10-11 14:50:48',
     last_update_time: '2023-10-11 14:50:59',
     is_valid: true,
-    tenant_id: 2757,
     warehouse_area_id: 574
   },
   {
@@ -290,7 +276,6 @@ const shelfItemData:shelfItemInfoType[] = [
     create_time: '2023-10-11 14:53:24',
     last_update_time: '2023-10-11 14:53:24',
     is_valid: true,
-    tenant_id: 2757,
     warehouse_area_id: 573
   }
 ]
@@ -468,7 +453,6 @@ const warehouseData:warehouseInfoType = {
   create_time: '2023-10-07 09:03:20',
   last_update_time: '2023-10-12 10:35:16',
   is_valid: true,
-  tenant_id: 2757
 }
 
 export {

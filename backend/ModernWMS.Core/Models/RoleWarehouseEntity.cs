@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace ModernWMS.Core.Models;
 
-/// <summary>WMS role to ERP warehouse authorization. Tenant is compatibility metadata only.</summary>
+/// <summary>WMS role to ERP warehouse authorization.</summary>
 [Table("role_warehouse")]
 public class RoleWarehouseEntity : BaseModel
 {
@@ -20,10 +20,6 @@ public class RoleWarehouseEntity : BaseModel
     /// 获取或设置 warehouse_id。
     /// </summary>
     public long warehouse_id { get; set; }
-    /// <summary>
-    /// 获取或设置 tenant_id。
-    /// </summary>
-    public long tenant_id { get; set; }
     /// <summary>
     /// 获取或设置 created_by。
     /// </summary>

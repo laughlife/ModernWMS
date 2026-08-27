@@ -7,7 +7,7 @@ using ModernWMS.Core.Models;
 using ModernWMS.Core.Services;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels;
- 
+
  namespace ModernWMS.WMS.IServices
  {
     /// <summary>
@@ -27,7 +27,6 @@ using ModernWMS.WMS.Entities.ViewModels;
         /// Get the read-only SKU catalog.
         /// </summary>
         /// <param name="pageSearch">Pagination and search parameters.</param>
-        /// <param name="currentUser">Current tenant user.</param>
         /// <returns>Catalog rows and total count.</returns>
         Task<(List<CommodityCatalogViewModel> data, int totals)> PageCatalogAsync(PageSearch pageSearch, CurrentUser currentUser);
         /// <summary>
@@ -82,4 +81,4 @@ using ModernWMS.WMS.Entities.ViewModels;
         #endregion
     }
 }
- 
+

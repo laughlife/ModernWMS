@@ -74,9 +74,9 @@ namespace ModernWMS.WMS.Services
             await using var connection = await _connectionFactory.OpenConnectionAsync();
             var id = await connection.ExecuteScalarAsync<int>("""
                 INSERT INTO `wms_action_log`
-                    (`vue_path`, `user_name`, `action_content`, `action_time`, `tenant_id`)
+                    (`vue_path`, `user_name`, `action_content`, `action_time`)
                 VALUES
-                    (@vue_path, @user_name, @action_content, @action_time, @tenant_id);
+                    (@vue_path, @user_name, @action_content, @action_time);
                 SELECT LAST_INSERT_ID();
                 """, new
                 {
@@ -84,7 +84,6 @@ namespace ModernWMS.WMS.Services
                     user_name = currentUser.user_name,
                     action_content = content,
                     action_time = DateTime.Now,
-                    tenant_id = currentUser.tenant_id
                 });
             return id > 0;
         }
@@ -98,10 +97,7 @@ namespace ModernWMS.WMS.Services
         public async Task<(List<ActionLogViewModel> data, int totals)> PageAsync(PageSearch pageSearch, CurrentUser currentUser)
         {
             var filter = DapperSearchBuilder.Build(pageSearch.searchObjects, SearchColumns);
-            var where = string.IsNullOrWhiteSpace(filter.Sql)
-                ? "log.`tenant_id` = @tenant_id"
-                : $"log.`tenant_id` = @tenant_id AND {filter.Sql}";
-            filter.Parameters.Add("tenant_id", currentUser.tenant_id);
+            var where = string.IsNullOrWhiteSpace(filter.Sql) ? "1=1" : filter.Sql;
             filter.Parameters.Add("offset", (pageSearch.pageIndex - 1) * pageSearch.pageSize);
             filter.Parameters.Add("page_size", pageSearch.pageSize);
 

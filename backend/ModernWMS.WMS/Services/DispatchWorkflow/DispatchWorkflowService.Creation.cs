@@ -67,9 +67,9 @@ public partial class DispatchWorkflowService
             var occupied = await FindOccupiedTaskIdsAsync(connection, transaction, taskIds, cancellationToken);
             if (occupied.Count > 0) throw new InvalidOperationException($"packing tasks already belong to an active order: {string.Join(',', occupied.Order())}");
             var runtime = await LoadInventoryRuntimeAsync(connection, transaction,
-                currentUser.tenant_id, request.warehouse_id, cancellationToken);
+                request.warehouse_id, cancellationToken);
             var bindingRows = await LoadCreationBindingRowsAsync(connection,transaction,
-                currentUser.tenant_id,taskIds,runtime.Mode == CanonicalInventoryMode,cancellationToken);
+                taskIds,runtime.Mode == CanonicalInventoryMode,cancellationToken);
             var bindingQty = bindingRows.GroupBy(x => (x.TaskId, x.ItemId))
                 .ToDictionary(x => x.Key, x => x.Sum(row => row.LockedQty));
             foreach (var snapshot in snapshots)
@@ -83,7 +83,7 @@ public partial class DispatchWorkflowService
             {
                 dispatch_no=$"PK{now:yyyyMMddHHmmssfff}{Random.Shared.Next(100,1000)}",create_idempotency_key=key,
                 warehouse_id=request.warehouse_id,status=DispatchOrderStatus.PendingPick,source_version=CombinedVersion(snapshots),
-                source_snapshot=SnapshotJson(snapshots),tenant_id=currentUser.tenant_id,created_by=currentUser.user_id,
+                source_snapshot=SnapshotJson(snapshots),
                 creator=currentUser.user_name,create_time=now,last_update_time=now,row_version=0
             };
             order.id = await connection.ExecuteScalarAsync<int>(new CommandDefinition("""
@@ -91,9 +91,9 @@ public partial class DispatchWorkflowService
                   (`dispatch_no`,`create_idempotency_key`,`warehouse_id`,`status`,`source_version`,`source_snapshot`,
                    `source_change_pending`,`pending_source_version`,`source_change_snapshot`,`accepted_source_version`,`adjudicated_source_version`,
                    `adjudicated_by_name`,`adjudication_reason`,`signed_by_name`,`notification_status`,`notification_attempt_count`,
-                   `notification_last_error`,`tenant_id`,`created_by`,`creator`,`create_time`,`last_update_time`,`row_version`)
+                   `notification_last_error`,`created_by`,`creator`,`create_time`,`last_update_time`,`row_version`)
                 VALUES (@dispatch_no,@create_idempotency_key,@warehouse_id,@status,@source_version,@source_snapshot,
-                   0,'','','','','','','',0,0,'',@tenant_id,@created_by,@creator,@create_time,@last_update_time,@row_version);
+                   0,'','','','','','','',0,0,'',@created_by,@creator,@create_time,@last_update_time,@row_version);
                 SELECT LAST_INSERT_ID();
                 """, order, transaction, cancellationToken: cancellationToken));
             foreach (var snapshot in snapshots.OrderBy(x => x.SourceTaskId))
@@ -116,7 +116,7 @@ public partial class DispatchWorkflowService
     }
 
     private static async Task<List<CreationBindingRow>> LoadCreationBindingRowsAsync(
-        System.Data.IDbConnection connection,IDbTransaction transaction,long tenantId,
+        System.Data.IDbConnection connection,IDbTransaction transaction,
         IReadOnlyCollection<long> taskIds,bool canonical,CancellationToken cancellationToken)
     {
         var sql = canonical ? """
@@ -125,10 +125,9 @@ public partial class DispatchWorkflowService
                        allocation.`allocated_qty`-allocation.`occupied_qty`+selection.`qty` AS AvailableBeforeTask
                   FROM `wms_packing_task_stock_selection` selection
                   JOIN `wms_erp_stock_allocation` allocation
-                    ON allocation.`tenant_id`=selection.`tenant_id`
-                   AND allocation.`id`=selection.`stock_allocation_id`
+                    ON allocation.`id`=selection.`stock_allocation_id`
                    AND allocation.`erp_stock_id`=selection.`erp_stock_id`
-                 WHERE selection.`tenant_id`=@tenantId AND selection.`sellfox_task_id` IN @taskIds
+                 WHERE selection.`sellfox_task_id` IN @taskIds
                    AND selection.`status`='ACTIVE'
                    AND selection.`erp_stock_id` IS NOT NULL
                    AND selection.`stock_allocation_id` IS NOT NULL
@@ -148,20 +147,20 @@ public partial class DispatchWorkflowService
                            WHERE move.`move_status`=0 AND move.`sku_id`=stock.`sku_id`
                              AND move.`orig_goods_location_id`=stock.`goods_location_id` AND move.`goods_owner_id`=stock.`goods_owner_id`),0)
                          -COALESCE((SELECT SUM(other_selection.`qty`) FROM `wms_packing_task_stock_selection` other_selection
-                           WHERE other_selection.`tenant_id`=@tenantId AND other_selection.`stock_id`=stock.`id`
+                           WHERE other_selection.`stock_id`=stock.`id`
                              AND other_selection.`status`='ACTIVE'),0)
                          +COALESCE((SELECT SUM(task_selection.`qty`) FROM `wms_packing_task_stock_selection` task_selection
-                           WHERE task_selection.`tenant_id`=@tenantId AND task_selection.`stock_id`=stock.`id`
+                           WHERE task_selection.`stock_id`=stock.`id`
                              AND task_selection.`sellfox_task_id` IN @taskIds
                              AND task_selection.`status`='ACTIVE'),0) END) AS AvailableBeforeTask
                 FROM `wms_packing_task_stock_selection` selection
-                JOIN `wms_stock` stock ON stock.`id`=selection.`stock_id` AND stock.`tenant_id`=selection.`tenant_id`
-                WHERE selection.`tenant_id`=@tenantId AND selection.`sellfox_task_id` IN @taskIds
+                JOIN `wms_stock` stock ON stock.`id`=selection.`stock_id`
+                WHERE selection.`sellfox_task_id` IN @taskIds
                   AND selection.`status`='ACTIVE'
                 ORDER BY selection.`stock_id`,selection.`sellfox_item_id`,selection.`id` FOR UPDATE;
                 """;
         return (await connection.QueryAsync<CreationBindingRow>(new CommandDefinition(
-            sql,new{tenantId,taskIds},transaction,cancellationToken:cancellationToken))).AsList();
+            sql,new{taskIds},transaction,cancellationToken:cancellationToken))).AsList();
     }
 
     private static async Task<List<long>> FindOccupiedTaskIdsAsync(System.Data.IDbConnection connection, IDbTransaction? transaction,

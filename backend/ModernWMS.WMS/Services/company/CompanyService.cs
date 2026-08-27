@@ -28,12 +28,11 @@ internal sealed record CompanyData(
     string manager,
     string contact_tel,
     DateTime create_time,
-    DateTime last_update_time,
-    long tenant_id);
+    DateTime last_update_time);
 
 internal interface ICompanyDataSource
 {
-    Task<List<CompanyData>> GetAllAsync(long tenantId);
+    Task<List<CompanyData>> GetAllAsync();
     Task<CompanyData?> GetAsync(int id);
     Task<CompanyAddResult> AddAsync(CompanyData company);
     Task<CompanyWriteStatus> UpdateAsync(CompanyData company);
@@ -67,10 +66,9 @@ public class CompanyService : BaseService<CompanyEntity>, ICompanyService
     }
 
     /// <summary>
-    /// Get all records for the current tenant.
     /// </summary>
     public async Task<List<CompanyViewModel>> GetAllAsync(CurrentUser currentUser) =>
-        (await _dataSource.GetAllAsync(currentUser.tenant_id)).Select(ToViewModel).ToList();
+        (await _dataSource.GetAllAsync()).Select(ToViewModel).ToList();
 
     /// <summary>
     /// Get a record by id.
@@ -97,8 +95,7 @@ public class CompanyService : BaseService<CompanyEntity>, ICompanyService
             viewModel.manager,
             viewModel.contact_tel,
             now,
-            now,
-            currentUser.tenant_id));
+            now));
 
         return result.Status switch
         {
@@ -122,8 +119,7 @@ public class CompanyService : BaseService<CompanyEntity>, ICompanyService
             viewModel.manager,
             viewModel.contact_tel,
             viewModel.create_time,
-            DateTime.Now,
-            0));
+            DateTime.Now));
 
         return result switch
         {
@@ -173,8 +169,7 @@ public class CompanyService : BaseService<CompanyEntity>, ICompanyService
             `manager`,
             `contact_tel`,
             `create_time`,
-            `last_update_time`,
-            `tenant_id`
+            `last_update_time`
             """;
 
         private readonly IMySqlConnectionFactory _connectionFactory;
@@ -185,15 +180,14 @@ public class CompanyService : BaseService<CompanyEntity>, ICompanyService
                 ?? throw new ArgumentNullException(nameof(connectionFactory));
         }
 
-        public async Task<List<CompanyData>> GetAllAsync(long tenantId)
+        public async Task<List<CompanyData>> GetAllAsync()
         {
             await using var connection = await _connectionFactory.OpenConnectionAsync();
             return (await connection.QueryAsync<CompanyData>($"""
                 SELECT {Projection}
                 FROM `wms_company`
-                WHERE `tenant_id` = @tenantId
                 ORDER BY `create_time` DESC;
-                """, new { tenantId })).AsList();
+                """)).AsList();
         }
 
         public async Task<CompanyData?> GetAsync(int id)
@@ -217,8 +211,7 @@ public class CompanyService : BaseService<CompanyEntity>, ICompanyService
                     SELECT EXISTS(
                         SELECT 1
                         FROM `wms_company`
-                        WHERE `tenant_id` = @tenant_id
-                          AND `company_name` = @company_name);
+                        WHERE `company_name` = @company_name);
                     """, company, transaction);
                 if (duplicate)
                 {
@@ -229,10 +222,10 @@ public class CompanyService : BaseService<CompanyEntity>, ICompanyService
                 var id = await connection.ExecuteScalarAsync<int>("""
                     INSERT INTO `wms_company`
                         (`company_name`, `city`, `address`, `manager`, `contact_tel`,
-                         `create_time`, `last_update_time`, `tenant_id`)
+                         `create_time`, `last_update_time`)
                     VALUES
                         (@company_name, @city, @address, @manager, @contact_tel,
-                         @create_time, @last_update_time, @tenant_id);
+                         @create_time, @last_update_time);
                     SELECT LAST_INSERT_ID();
                     """, company, transaction);
                 await transaction.CommitAsync();
@@ -253,13 +246,13 @@ public class CompanyService : BaseService<CompanyEntity>, ICompanyService
             await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
             try
             {
-                var tenantId = await connection.QuerySingleOrDefaultAsync<long?>("""
-                    SELECT `tenant_id`
+                var existingId = await connection.QuerySingleOrDefaultAsync<int?>("""
+                    SELECT `id`
                     FROM `wms_company`
                     WHERE `id` = @id
                     FOR UPDATE;
                     """, new { company.id }, transaction);
-                if (tenantId == null)
+                if (!existingId.HasValue)
                 {
                     await transaction.RollbackAsync();
                     return CompanyWriteStatus.NotFound;
@@ -274,14 +267,13 @@ public class CompanyService : BaseService<CompanyEntity>, ICompanyService
                     company.manager,
                     company.contact_tel,
                     company.last_update_time,
-                    tenant_id = tenantId.Value
                 };
                 var duplicate = await connection.ExecuteScalarAsync<bool>("""
                     SELECT EXISTS(
                         SELECT 1
                         FROM `wms_company`
                         WHERE `id` <> @id
-                          AND `tenant_id` = @tenant_id
+
                           AND `company_name` = @company_name);
                     """, parameters, transaction);
                 if (duplicate)

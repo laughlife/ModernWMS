@@ -80,11 +80,6 @@ namespace ModernWMS.WMS.Entities.ViewModels
         [Display(Name = "is_valid")]
         public bool is_valid { get; set; } = true;
 
-        /// <summary>
-        /// tenant_id
-        /// </summary>
-        [Display(Name = "tenant_id")]
-        public long tenant_id { get; set; }  =  0;
 
         /// <summary>
         /// area_property

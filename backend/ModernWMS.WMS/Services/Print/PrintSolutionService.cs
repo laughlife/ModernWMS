@@ -28,15 +28,14 @@ internal sealed record PrintSolutionData(
     decimal report_length,
     decimal report_width,
     string report_direction,
-    DateTime last_update_time,
-    long tenant_id);
+    DateTime last_update_time);
 
 internal interface IPrintSolutionDataSource
 {
-    Task<(List<PrintSolutionData> Rows, int Total)> PageAsync(PageSearch pageSearch, long tenantId);
-    Task<List<PrintSolutionData>> GetAllAsync(long tenantId);
+    Task<(List<PrintSolutionData> Rows, int Total)> PageAsync(PageSearch pageSearch);
+    Task<List<PrintSolutionData>> GetAllAsync();
     Task<PrintSolutionData?> GetAsync(int id);
-    Task<List<PrintSolutionData>> GetByPathAsync(string vuePath, string tabPage, long tenantId);
+    Task<List<PrintSolutionData>> GetByPathAsync(string vuePath, string tabPage);
     Task<int> AddAsync(PrintSolutionData row);
     Task<PrintSolutionWriteStatus> UpdateAsync(PrintSolutionData row);
     Task<bool> DeleteAsync(int id);
@@ -64,18 +63,16 @@ public class PrintSolutionService : BaseService<PrintSolutionEntity>, IPrintSolu
         _stringLocalizer = stringLocalizer ?? throw new ArgumentNullException(nameof(stringLocalizer));
     }
 
-    /// <summary>Page search for the current tenant.</summary>
     public async Task<(List<PrintSolutionViewModel> data, int totals)> PageAsync(
         PageSearch pageSearch,
         CurrentUser currentUser)
     {
-        var (rows, total) = await _dataSource.PageAsync(pageSearch, currentUser.tenant_id);
+        var (rows, total) = await _dataSource.PageAsync(pageSearch);
         return (rows.Select(ToViewModel).ToList(), total);
     }
 
-    /// <summary>Gets all records for the current tenant.</summary>
     public async Task<List<PrintSolutionViewModel>> GetAllAsync(CurrentUser currentUser) =>
-        (await _dataSource.GetAllAsync(currentUser.tenant_id)).Select(ToViewModel).ToList();
+        (await _dataSource.GetAllAsync()).Select(ToViewModel).ToList();
 
     /// <summary>Gets a record by id.</summary>
     public async Task<PrintSolutionViewModel> GetAsync(int id)
@@ -84,15 +81,13 @@ public class PrintSolutionService : BaseService<PrintSolutionEntity>, IPrintSolu
         return row == null ? null! : ToViewModel(row);
     }
 
-    /// <summary>Gets records for a Vue path and tab in the current tenant.</summary>
     public async Task<List<PrintSolutionViewModel>> GetByPathAsync(
         PrintSolutionGetByPathInputViewModel input,
         CurrentUser currentUser) =>
-        (await _dataSource.GetByPathAsync(input.vue_path, input.tab_page, currentUser.tenant_id))
+        (await _dataSource.GetByPathAsync(input.vue_path, input.tab_page))
         .Select(ToViewModel)
         .ToList();
 
-    /// <summary>Adds a print solution for the current tenant.</summary>
     public async Task<(int id, string msg)> AddAsync(
         PrintSolutionViewModel viewModel,
         CurrentUser currentUser)
@@ -106,8 +101,7 @@ public class PrintSolutionService : BaseService<PrintSolutionEntity>, IPrintSolu
             viewModel.report_length,
             viewModel.report_width,
             viewModel.report_direction,
-            DateTime.Now,
-            currentUser.tenant_id));
+            DateTime.Now));
 
         return id > 0
             ? (id, _stringLocalizer["save_success"])
@@ -126,8 +120,7 @@ public class PrintSolutionService : BaseService<PrintSolutionEntity>, IPrintSolu
             viewModel.report_length,
             viewModel.report_width,
             viewModel.report_direction,
-            DateTime.Now,
-            viewModel.tenant_id));
+            DateTime.Now));
 
         return result switch
         {
@@ -156,7 +149,6 @@ public class PrintSolutionService : BaseService<PrintSolutionEntity>, IPrintSolu
         report_length = row.report_length,
         report_width = row.report_width,
         report_direction = row.report_direction,
-        tenant_id = row.tenant_id
     };
 
     private sealed class DapperPrintSolutionDataSource : IPrintSolutionDataSource
@@ -170,8 +162,7 @@ public class PrintSolutionService : BaseService<PrintSolutionEntity>, IPrintSolu
             solution.`report_length`,
             solution.`report_width`,
             solution.`report_direction`,
-            solution.`last_update_time`,
-            solution.`tenant_id`
+            solution.`last_update_time`
             """;
 
         private static readonly IReadOnlyDictionary<string, string> SearchColumns =
@@ -186,7 +177,6 @@ public class PrintSolutionService : BaseService<PrintSolutionEntity>, IPrintSolu
                 ["report_width"] = "solution.`report_width`",
                 ["report_direction"] = "solution.`report_direction`",
                 ["last_update_time"] = "solution.`last_update_time`",
-                ["tenant_id"] = "solution.`tenant_id`"
             };
 
         private readonly IMySqlConnectionFactory _connectionFactory;
@@ -198,8 +188,7 @@ public class PrintSolutionService : BaseService<PrintSolutionEntity>, IPrintSolu
         }
 
         public async Task<(List<PrintSolutionData> Rows, int Total)> PageAsync(
-            PageSearch pageSearch,
-            long tenantId)
+            PageSearch pageSearch)
         {
             var supportedFilters = pageSearch.searchObjects
                 .Where(filter =>
@@ -208,10 +197,7 @@ public class PrintSolutionService : BaseService<PrintSolutionEntity>, IPrintSolu
                     && filter.Operator is >= Operators.Equal and <= Operators.Contains)
                 .Select(NormalizeFilter);
             var filter = DapperSearchBuilder.Build(supportedFilters, SearchColumns);
-            var where = string.IsNullOrWhiteSpace(filter.Sql)
-                ? "solution.`tenant_id` = @tenant_id"
-                : $"solution.`tenant_id` = @tenant_id AND {filter.Sql}";
-            filter.Parameters.Add("tenant_id", tenantId);
+            var whereClause = string.IsNullOrWhiteSpace(filter.Sql) ? string.Empty : $"WHERE {filter.Sql}";
             filter.Parameters.Add("offset", (pageSearch.pageIndex - 1) * pageSearch.pageSize);
             filter.Parameters.Add("page_size", pageSearch.pageSize);
 
@@ -219,11 +205,11 @@ public class PrintSolutionService : BaseService<PrintSolutionEntity>, IPrintSolu
             using var result = await connection.QueryMultipleAsync($"""
                 SELECT COUNT(*)
                 FROM `wms_user_defined_print_solution` AS solution
-                WHERE {where};
+                {whereClause};
 
                 SELECT {Projection}
                 FROM `wms_user_defined_print_solution` AS solution
-                WHERE {where}
+                {whereClause}
                 ORDER BY solution.`id` DESC
                 LIMIT @page_size OFFSET @offset;
                 """, filter.Parameters);
@@ -249,14 +235,13 @@ public class PrintSolutionService : BaseService<PrintSolutionEntity>, IPrintSolu
             };
         }
 
-        public async Task<List<PrintSolutionData>> GetAllAsync(long tenantId)
+        public async Task<List<PrintSolutionData>> GetAllAsync()
         {
             await using var connection = await _connectionFactory.OpenConnectionAsync();
             return (await connection.QueryAsync<PrintSolutionData>($"""
                 SELECT {Projection}
                 FROM `wms_user_defined_print_solution` AS solution
-                WHERE solution.`tenant_id` = @tenantId;
-                """, new { tenantId })).AsList();
+                """)).AsList();
         }
 
         public async Task<PrintSolutionData?> GetAsync(int id)
@@ -272,17 +257,15 @@ public class PrintSolutionService : BaseService<PrintSolutionEntity>, IPrintSolu
 
         public async Task<List<PrintSolutionData>> GetByPathAsync(
             string vuePath,
-            string tabPage,
-            long tenantId)
+            string tabPage)
         {
             await using var connection = await _connectionFactory.OpenConnectionAsync();
             return (await connection.QueryAsync<PrintSolutionData>($"""
                 SELECT {Projection}
                 FROM `wms_user_defined_print_solution` AS solution
-                WHERE solution.`tenant_id` = @tenantId
-                  AND solution.`vue_path` = @vuePath
+                WHERE solution.`vue_path` = @vuePath
                   AND solution.`tab_page` = @tabPage;
-                """, new { tenantId, vuePath, tabPage })).AsList();
+                """, new { vuePath, tabPage })).AsList();
         }
 
         public async Task<int> AddAsync(PrintSolutionData row)
@@ -295,11 +278,11 @@ public class PrintSolutionService : BaseService<PrintSolutionEntity>, IPrintSolu
                     INSERT INTO `wms_user_defined_print_solution`
                         (`vue_path`, `tab_page`, `solution_name`, `config_json`,
                          `report_length`, `report_width`, `report_direction`,
-                         `last_update_time`, `tenant_id`)
+                         `last_update_time`)
                     VALUES
                         (@vue_path, @tab_page, @solution_name, @config_json,
                          @report_length, @report_width, @report_direction,
-                         @last_update_time, @tenant_id);
+                         @last_update_time);
                     SELECT LAST_INSERT_ID();
                     """, row, transaction);
                 await transaction.CommitAsync();

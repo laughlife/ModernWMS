@@ -30,10 +30,6 @@
         /// </summary>
         public int userrole_id { get; set; }
 
-        /// <summary>
-        ///  tenant_id
-        /// </summary>
-        public long tenant_id { get; set; }
 
         /// <summary>
         /// token expire time

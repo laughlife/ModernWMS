@@ -114,7 +114,7 @@ public partial class DispatchWorkflowService
     private async Task CancelAfterSourceChangeAsync(System.Data.IDbConnection c,IDbTransaction tx,
         DispatchOrderEntity order,CurrentUser user,string requestId,DateTime now,CancellationToken ct)
     {
-        var runtime=await LoadInventoryRuntimeAsync(c,tx,order.tenant_id,order.warehouse_id,ct);
+        var runtime=await LoadInventoryRuntimeAsync(c,tx,order.warehouse_id,ct);
         var picks=(await c.QueryAsync<DispatchpicklistEntity>(new CommandDefinition("""
             SELECT p.* FROM `wms_dispatchpicklist` p
             JOIN `wms_dispatchlist` d ON d.`id`=p.`dispatchlist_id`
@@ -134,7 +134,7 @@ public partial class DispatchWorkflowService
                         pick.erp_stock_id!.Value,pick.stock_allocation_id!.Value,pick.picked_qty,
                         $"SOURCE_CANCEL:{requestId}",pick.reservation_id,pick.reservation_item_id),
                     pick.erp_stock_id.Value,pick.stock_allocation_id.Value,"UNLOCK")).ToArray();
-                await mutation.PrelockReservationOwnersAsync(c,tx,order.tenant_id,[order.warehouse_id],prelocks,ct);
+                await mutation.PrelockReservationOwnersAsync(c,tx,[order.warehouse_id],prelocks,ct);
                 foreach(var pick in releasable.OrderBy(x=>x.erp_stock_id).ThenBy(x=>x.stock_allocation_id).ThenBy(x=>x.id))
                     await mutation.ReleaseAsync(c,tx,
                         DispatchMutationContext(user,order.warehouse_id,"DISPATCH_RELEASE",order.id,pick.id,

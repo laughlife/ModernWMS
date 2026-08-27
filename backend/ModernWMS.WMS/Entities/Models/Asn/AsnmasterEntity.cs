@@ -70,10 +70,6 @@ namespace ModernWMS.WMS.Entities.Models
         /// </summary>
         public DateTime last_update_time { get; set; } = DateTime.Now;
 
-        /// <summary>
-        /// tenant_id
-        /// </summary>
-        public long tenant_id { get; set; } = 1;
 
         #endregion
 

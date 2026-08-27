@@ -18,7 +18,7 @@ public class UserroleServiceTests
         {
             role_name = " Admin ",
             is_valid = true
-        }, new CurrentUser { tenant_id = 1 });
+        }, new CurrentUser());
 
         Assert.Equal(0, id);
         Assert.Equal("admin_role_reserved", message);
@@ -31,7 +31,7 @@ public class UserroleServiceTests
 
         var (succeeded, message) = await service.BulkSaveAsync([
             new UserroleViewModel { id = 0, role_name = "ADMIN", is_valid = true }
-        ], new CurrentUser { tenant_id = 1 });
+        ], new CurrentUser());
 
         Assert.False(succeeded);
         Assert.Equal("admin_role_reserved", message);

@@ -47,12 +47,10 @@ namespace ModernWMS.Core.Services
                     user.`user_num`,
                     user.`user_name`,
                     user.`user_role`,
-                    role.`id` AS `userrole_id`,
-                    user.`tenant_id`
+                    role.`id` AS `userrole_id`
                 FROM `wms_user` AS user
                 INNER JOIN `wms_userrole` AS role
                     ON role.`role_name` = user.`user_role`
-                    AND role.`tenant_id` = user.`tenant_id`
                 WHERE (user.`user_name` = @loginName OR user.`user_num` = @loginName)
                     AND (user.`auth_string` = @md5Password OR user.`auth_string` = @plainPassword)
                 LIMIT 1;
@@ -63,7 +61,7 @@ namespace ModernWMS.Core.Services
                     plainPassword = loginInput.password
                 }))!;
         }
-        
+
         /// <summary>
         /// 执行 HelloWorld 操作。
         /// </summary>

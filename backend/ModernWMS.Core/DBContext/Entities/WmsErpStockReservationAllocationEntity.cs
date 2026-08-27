@@ -17,10 +17,6 @@ public class WmsErpStockReservationAllocationEntity
     public long id { get; set; }
 
     /// <summary>
-    /// 获取或设置 tenant_id。
-    /// </summary>
-    public long tenant_id { get; set; }
-    /// <summary>
     /// 获取或设置 reservation_item_id。
     /// </summary>
     public long reservation_item_id { get; set; }

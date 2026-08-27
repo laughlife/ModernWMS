@@ -79,11 +79,6 @@ namespace ModernWMS.WMS.Entities.ViewModels
         [MaxLength(2, ErrorMessage = "MaxLength")]
         public string report_direction { get; set; } = string.Empty;
 
-        /// <summary>
-        /// tenant_id
-        /// </summary>
-        [Display(Name = "tenant_id")]
-        public long tenant_id { get; set; } = 0;
 
         #endregion Property
     }

@@ -35,10 +35,6 @@ namespace ModernWMS.WMS.Entities.Models.Approve
         /// </summary>
         public DateTime create_time { get; set; } = UtilConvert.MinDate;
 
-        /// <summary>
-        /// tenant_id
-        /// </summary>
-        public long tenant_id { get; set; } = 1;
 
         /// <summary>
         /// flowset list

@@ -70,9 +70,9 @@ public partial class DispatchWorkflowService
 
             var orders = (await connection.QueryAsync<DispatchOrderEntity>(new CommandDefinition("""
                 SELECT * FROM `wms_dispatch_order`
-                WHERE `id` IN @orderIds AND `tenant_id`=@tenantId
+                WHERE `id` IN @orderIds
                 ORDER BY `id` FOR UPDATE;
-                """, new { orderIds, tenantId = currentUser.tenant_id }, transaction,
+                """, new { orderIds}, transaction,
                 cancellationToken: cancellationToken))).AsList();
             if (orders.Count != orderIds.Length || orders.Any(x => x.status != DispatchOrderStatus.PendingOutbound))
                 throw DispatchWorkflowCommandException.StatusNotAllowedForCarrier();
@@ -82,9 +82,9 @@ public partial class DispatchWorkflowService
             var detailStates = (await connection.QueryAsync<CarrierDetailState>(new CommandDefinition("""
                 SELECT `dispatch_order_id`,`dispatch_status`
                 FROM `wms_dispatchlist`
-                WHERE `dispatch_order_id` IN @orderIds AND `tenant_id`=@tenantId
+                WHERE `dispatch_order_id` IN @orderIds
                 ORDER BY `dispatch_order_id`,`id` FOR UPDATE;
-                """, new { orderIds, tenantId = currentUser.tenant_id }, transaction,
+                """, new { orderIds}, transaction,
                 cancellationToken: cancellationToken))).AsList();
             var detailGroups = detailStates.GroupBy(x => x.dispatch_order_id).ToDictionary(x => x.Key, x => x.ToList());
             if (detailGroups.Count != orderIds.Length || orderIds.Any(id => !detailGroups.TryGetValue(id, out var rows)
@@ -95,17 +95,16 @@ public partial class DispatchWorkflowService
             await connection.ExecuteAsync(new CommandDefinition("""
                 UPDATE `wms_dispatchlist`
                 SET `carrier_warehouse_id`=@carrierId,`carrier_unit`=@carrierName,`last_update_time`=@now
-                WHERE `dispatch_order_id` IN @orderIds AND `tenant_id`=@tenantId AND `dispatch_status`=5;
+                WHERE `dispatch_order_id` IN @orderIds  AND `dispatch_status`=5;
                 UPDATE `wms_dispatch_order`
                 SET `last_update_time`=@now,`row_version`=`row_version`+1
-                WHERE `id` IN @orderIds AND `tenant_id`=@tenantId AND `status`=@status;
+                WHERE `id` IN @orderIds  AND `status`=@status;
                 """, new
                 {
                     carrierId = carrier.id,
                     carrierName = carrier.name,
                     now,
                     orderIds,
-                    tenantId = currentUser.tenant_id,
                     status = DispatchOrderStatus.PendingOutbound
                 }, transaction, cancellationToken: cancellationToken));
             await transaction.CommitAsync(cancellationToken);
@@ -131,13 +130,13 @@ public partial class DispatchWorkflowService
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var roleId = await connection.QuerySingleOrDefaultAsync<int?>(new CommandDefinition("""
             SELECT `id` FROM `wms_userrole`
-            WHERE `tenant_id`=@tenantId AND `is_valid`=1 AND `role_name`=@roleName LIMIT 1;
-            """, new { tenantId = currentUser.tenant_id, roleName }, cancellationToken: cancellationToken));
+            WHERE `is_valid`=1 AND `role_name`=@roleName LIMIT 1;
+            """, new { roleName }, cancellationToken: cancellationToken));
         if (!roleId.HasValue) return false;
         var values = await connection.QueryAsync<string>(new CommandDefinition("""
             SELECT `menu_actions_authority` FROM `wms_rolemenu`
-            WHERE `tenant_id`=@tenantId AND `userrole_id`=@roleId AND `authority`=1;
-            """, new { tenantId = currentUser.tenant_id, roleId = roleId.Value },
+            WHERE `userrole_id`=@roleId AND `authority`=1;
+            """, new { roleId = roleId.Value },
             cancellationToken: cancellationToken));
         return values.Any(value =>
         {

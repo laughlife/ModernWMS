@@ -51,7 +51,7 @@ public class FbaShipmentService : IFbaShipmentService
             "move.status = @status",
             "move.shipment_status = @shipmentStatus",
             "move.from_warehouse_id = @warehouseId",
-            "NOT EXISTS (SELECT 1 FROM wms_dispatchlist detail WHERE detail.tenant_id = @tenantId AND detail.dispatch_no = move.no)"
+            "NOT EXISTS (SELECT 1 FROM wms_dispatchlist detail WHERE detail.dispatch_no = move.no)"
         };
         var parameters = new DynamicParameters(new
         {
@@ -59,7 +59,6 @@ public class FbaShipmentService : IFbaShipmentService
             status = WaitShipmentStatus,
             shipmentStatus = WaitShipmentStatus,
             warehouseId = ShenzhenWarehouseId,
-            tenantId = currentUser.tenant_id,
             offset = (pageIndex - 1) * pageSize,
             pageSize
         });
@@ -176,10 +175,10 @@ public class FbaShipmentService : IFbaShipmentService
             .Distinct()
             .ToList();
         var commodityMaps = (await connection.QueryAsync<ErpCommodityMapEntity>("""
-            SELECT erp_commodity_id, wms_spu_id, wms_sku_id, commodity_sku, tenant_id
+            SELECT erp_commodity_id, wms_spu_id, wms_sku_id, commodity_sku
             FROM wms_erp_commodity_map
-            WHERE tenant_id = @tenantId AND erp_commodity_id IN @commodityIds
-            """, new { tenantId = currentUser.tenant_id, commodityIds })).ToDictionary(t => t.erp_commodity_id);
+            WHERE erp_commodity_id IN @commodityIds
+            """, new { commodityIds })).ToDictionary(t => t.erp_commodity_id);
         var missingItem = moveItems.FirstOrDefault(t => !t.commodity_id.HasValue || !commodityMaps.ContainsKey(t.commodity_id.Value));
         if (missingItem != null)
         {
@@ -199,9 +198,9 @@ public class FbaShipmentService : IFbaShipmentService
 
         var warehouseId = await connection.QuerySingleOrDefaultAsync<int?>("""
             SELECT id FROM wms_warehouse
-            WHERE tenant_id = @tenantId AND erp_warehouse_id = @erpWarehouseId AND is_valid = 1
+            WHERE erp_warehouse_id = @erpWarehouseId AND is_valid = 1
             LIMIT 1
-            """, new { tenantId = currentUser.tenant_id, erpWarehouseId = ShenzhenWarehouseId });
+            """, new { erpWarehouseId = ShenzhenWarehouseId });
         if (!warehouseId.HasValue)
         {
             return (false, "有座山深圳仓尚未绑定有效的WMS仓库");
@@ -212,15 +211,13 @@ public class FbaShipmentService : IFbaShipmentService
             FROM wms_erp_goods_owner_map mapping
             INNER JOIN wms_goodsowner owner
               ON owner.id = mapping.wms_goods_owner_id
-             AND owner.tenant_id = mapping.tenant_id
+
              AND owner.is_valid = 1
-            WHERE mapping.tenant_id = @tenantId
-              AND mapping.erp_dept_id = @deptId
+            WHERE mapping.erp_dept_id = @deptId
               AND mapping.erp_order_user_id = @orderUserId
             LIMIT 1
             """, new
         {
-            tenantId = currentUser.tenant_id,
             deptId = move.dept_id ?? 0,
             orderUserId = move.order_user_id ?? 0
         });

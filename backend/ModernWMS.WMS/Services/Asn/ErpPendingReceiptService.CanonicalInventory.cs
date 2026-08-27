@@ -14,7 +14,7 @@ public partial class ErpPendingReceiptService
 {
     private const string CanonicalInventoryMode = "CANONICAL_ERP";
 
-    private async Task EnsureCanonicalInventoryWriteEnabledAsync(long erpWarehouseId, long tenantId)
+    private async Task EnsureCanonicalInventoryWriteEnabledAsync(long erpWarehouseId)
     {
         var connection = _activeConnection
             ?? throw new InvalidOperationException("数据库连接尚未打开");
@@ -22,10 +22,10 @@ public partial class ErpPendingReceiptService
             """
             SELECT mode,maintenance_enabled
              FROM wms_inventory_runtime_config
-             WHERE tenant_id=@tenantId AND erp_warehouse_id=@erpWarehouseId
+             WHERE erp_warehouse_id=@erpWarehouseId
              LIMIT 1 FOR SHARE
             """,
-            new { tenantId, erpWarehouseId },
+            new { erpWarehouseId },
             _activeTransaction);
         InventoryRuntimePolicy.EnsureWriteAllowed(
             config?.mode,
@@ -241,7 +241,7 @@ public partial class ErpPendingReceiptService
             _activeTransaction);
     }
 
-    private async Task LockStockAllocationsInIdOrderAsync(long erpStockId, long tenantId)
+    private async Task LockStockAllocationsInIdOrderAsync(long erpStockId)
     {
         var connection = _activeConnection
             ?? throw new InvalidOperationException("数据库连接尚未打开");
@@ -249,11 +249,11 @@ public partial class ErpPendingReceiptService
             """
             SELECT id
               FROM wms_erp_stock_allocation
-             WHERE tenant_id=@tenantId AND erp_stock_id=@erpStockId
+             WHERE erp_stock_id=@erpStockId
              ORDER BY id
              FOR UPDATE
             """,
-            new { tenantId, erpStockId },
+            new { erpStockId },
             _activeTransaction)).AsList();
     }
 
@@ -270,8 +270,7 @@ public partial class ErpPendingReceiptService
         await EnsureAllocationDimensionMatchesErpStockAsync(
             shipment,
             posting.StockId,
-            allocation,
-            currentUser.tenant_id);
+            allocation);
         var price = await ScalarAsync<decimal>(
             "SELECT cost FROM wms_sku WHERE id=@skuId",
             ("@skuId", skuId));
@@ -279,7 +278,7 @@ public partial class ErpPendingReceiptService
         var row = await FindStockAllocationAsync(
             posting.StockId,
             allocation,
-            currentUser.tenant_id,
+
             price,
             putawayDate);
         var created = false;
@@ -290,15 +289,15 @@ public partial class ErpPendingReceiptService
                 await ExecuteAsync(
                     """
                     INSERT INTO wms_erp_stock_allocation
-                        (tenant_id,erp_stock_id,warehouse_area_id,goods_location_id,goods_owner_id,
+                        (erp_stock_id,warehouse_area_id,goods_location_id,goods_owner_id,
                          series_number,expiry_date,price,putaway_date,allocated_qty,occupied_qty,
                          location_state,row_version,creator,create_time,updater,update_time)
                     VALUES
-                        (@tenantId,@erpStockId,@areaId,@locationId,@ownerId,
+                        (@erpStockId,@areaId,@locationId,@ownerId,
                          '','9999-12-31 00:00:00.000000',@price,@putawayDate,@qty,0,
                           @locationState,0,@operatorName,@now,@operatorName,@now)
                     """,
-                    ("@tenantId", currentUser.tenant_id), ("@erpStockId", posting.StockId),
+("@erpStockId", posting.StockId),
                     ("@areaId", allocation.AreaId), ("@locationId", allocation.LocationId),
                     ("@ownerId", allocation.GoodsOwnerId), ("@price", price),
                     ("@putawayDate", putawayDate), ("@qty", allocation.Qty),
@@ -313,7 +312,7 @@ public partial class ErpPendingReceiptService
                 row = await FindStockAllocationAsync(
                     posting.StockId,
                     allocation,
-                    currentUser.tenant_id,
+
                     price,
                     putawayDate);
                 if (row == null)
@@ -333,13 +332,13 @@ public partial class ErpPendingReceiptService
                    SET allocated_qty=@afterAllocated,occupied_qty=@afterOccupied,
                         location_state=@locationState,row_version=row_version+1,
                        updater=@operatorName,update_time=@now
-                 WHERE id=@allocationId AND tenant_id=@tenantId
+                 WHERE id=@allocationId
                    AND allocated_qty=@beforeAllocated AND occupied_qty=@beforeOccupied
                 """,
                 ("@afterAllocated", afterAllocated), ("@afterOccupied", afterOccupied),
                 ("@locationState", allocation.LocationState),
                 ("@operatorName", Truncate(currentUser.user_name, 128)), ("@now", now),
-                ("@allocationId", row.id), ("@tenantId", currentUser.tenant_id),
+                ("@allocationId", row.id),
                 ("@beforeAllocated", row.allocated_qty), ("@beforeOccupied", row.occupied_qty));
             if (updated != 1)
             {
@@ -350,17 +349,17 @@ public partial class ErpPendingReceiptService
         await ExecuteAsync(
             """
             INSERT INTO wms_erp_stock_allocation_log
-                (tenant_id,operation_key,biz_type,biz_id,biz_item_id,event_type,
+                (operation_key,biz_type,biz_id,biz_item_id,event_type,
                  erp_stock_id,allocation_id,counterpart_allocation_id,erp_stock_record_id,
                  allocated_delta,occupied_delta,before_allocated_qty,after_allocated_qty,
                  before_occupied_qty,after_occupied_qty,operator,operate_time,remark)
             VALUES
-                (@tenantId,@operationKey,'RECEIPT_IN',@shipmentId,@itemIndex,'RECEIPT',
+                (@operationKey,'RECEIPT_IN',@shipmentId,@itemIndex,'RECEIPT',
                  @erpStockId,@allocationId,NULL,@recordId,
                  @qty,0,@beforeAllocated,@afterAllocated,
                  @beforeOccupied,@afterOccupied,@operatorName,@now,'确认签收入库位置分配')
             """,
-            ("@tenantId", currentUser.tenant_id), ("@operationKey", posting.OperationKey),
+("@operationKey", posting.OperationKey),
             ("@shipmentId", shipment.id), ("@itemIndex", itemIndex),
             ("@erpStockId", posting.StockId), ("@allocationId", row.id),
             ("@recordId", erpStockRecordId), ("@qty", allocation.Qty),
@@ -373,7 +372,7 @@ public partial class ErpPendingReceiptService
     private async Task<StockAllocationBalance?> FindStockAllocationAsync(
         long erpStockId,
         ReceiptAllocation allocation,
-        long tenantId,
+
         decimal price,
         DateTime putawayDate)
     {
@@ -383,7 +382,7 @@ public partial class ErpPendingReceiptService
             """
             SELECT id,allocated_qty,occupied_qty,location_state
              FROM wms_erp_stock_allocation
-             WHERE tenant_id=@tenantId AND erp_stock_id=@erpStockId
+             WHERE erp_stock_id=@erpStockId
                AND warehouse_area_id <=> @areaId
                AND goods_location_id <=> @locationId AND goods_owner_id=@ownerId
                AND series_number='' AND expiry_date='9999-12-31 00:00:00.000000'
@@ -392,7 +391,7 @@ public partial class ErpPendingReceiptService
             """,
             new
             {
-                tenantId,
+
                 erpStockId,
                 areaId = allocation.AreaId,
                 locationId = allocation.LocationId,
@@ -406,8 +405,7 @@ public partial class ErpPendingReceiptService
     private async Task EnsureAllocationDimensionMatchesErpStockAsync(
         ErpLogisticsInfoEntity shipment,
         long erpStockId,
-        ReceiptAllocation allocation,
-        long tenantId)
+        ReceiptAllocation allocation)
     {
         var valid = await ScalarAsync<long>(
             """
@@ -415,26 +413,26 @@ public partial class ErpPendingReceiptService
               FROM trk_stock stock
               LEFT JOIN wms_warehouse warehouse
                 ON warehouse.erp_warehouse_id=stock.warehouse_id
-               AND warehouse.tenant_id=@tenantId AND warehouse.is_valid=1
+               AND warehouse.is_valid=1
               LEFT JOIN wms_warehousearea area
                 ON area.id=@areaId AND area.warehouse_id=warehouse.id
-               AND area.tenant_id=@tenantId AND area.is_valid=1
+               AND area.is_valid=1
               LEFT JOIN wms_goodslocation location
                 ON location.id=@locationId
                AND location.warehouse_id=warehouse.id
                AND location.warehouse_area_id=area.id
-               AND location.tenant_id=@tenantId AND location.is_valid=1
+               AND location.is_valid=1
               JOIN wms_erp_goods_owner_map owner_map
                 ON owner_map.wms_goods_owner_id=@ownerId
                AND owner_map.erp_dept_id <=> stock.dept_id
                AND owner_map.erp_order_user_id <=> stock.order_user_id
-               AND owner_map.tenant_id=@tenantId
+
              WHERE stock.id=@erpStockId AND stock.deleted=b'0'
                AND stock.warehouse_id=@erpWarehouseId
                AND (@areaId IS NULL OR area.id IS NOT NULL)
                AND (@locationId IS NULL OR location.id IS NOT NULL)
             """,
-            ("@tenantId", tenantId), ("@locationId", allocation.LocationId),
+("@locationId", allocation.LocationId),
             ("@areaId", allocation.AreaId), ("@ownerId", allocation.GoodsOwnerId),
             ("@erpStockId", erpStockId), ("@erpWarehouseId", shipment.to_warehouse_id));
         if (valid != 1)
@@ -443,7 +441,7 @@ public partial class ErpPendingReceiptService
         }
     }
 
-    private async Task EnsureStockAllocationInvariantAsync(long erpStockId, long tenantId)
+    private async Task EnsureStockAllocationInvariantAsync(long erpStockId)
     {
         var connection = _activeConnection
             ?? throw new InvalidOperationException("数据库连接尚未打开");
@@ -456,11 +454,11 @@ public partial class ErpPendingReceiptService
                                      THEN allocation.occupied_qty ELSE 0 END),0) occupied_qty
               FROM trk_stock stock
               LEFT JOIN wms_erp_stock_allocation allocation
-                ON allocation.erp_stock_id=stock.id AND allocation.tenant_id=@tenantId
+                ON allocation.erp_stock_id=stock.id
              WHERE stock.id=@erpStockId AND stock.deleted=b'0'
              GROUP BY stock.id,stock.available_qty,stock.occupied_qty,stock.total_qty
             """,
-            new { tenantId, erpStockId },
+            new { erpStockId },
             _activeTransaction);
         var allocatedAvailable = checked(invariant.allocated_qty - invariant.occupied_qty);
         if (invariant.allocated_qty != invariant.total_qty

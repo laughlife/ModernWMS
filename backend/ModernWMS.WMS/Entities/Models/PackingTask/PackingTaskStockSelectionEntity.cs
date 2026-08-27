@@ -19,8 +19,6 @@ public class PackingTaskStockSelectionEntity : BaseModel
     /// <summary>Selection was transferred into a completed picking allocation.</summary>
     public const string TransferredStatus = "TRANSFERRED";
 
-    /// <summary>Tenant owning the selection.</summary>
-    public long tenant_id { get; set; } = 1;
     /// <summary>SellFox packing task identifier.</summary>
     public long sellfox_task_id { get; set; }
     /// <summary>SellFox task-item identifier.</summary>

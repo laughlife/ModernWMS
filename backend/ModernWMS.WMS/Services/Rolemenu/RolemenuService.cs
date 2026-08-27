@@ -29,16 +29,15 @@ public class RolemenuService : BaseService<RolemenuEntity>, IRolemenuService
         _stringLocalizer = stringLocalizer ?? throw new ArgumentNullException(nameof(stringLocalizer));
     }
 
-    /// <summary>Gets all role-menu records for the current tenant.</summary>
     public async Task<List<RolemenuListViewModel>> GetAllAsync(CurrentUser currentUser)
     {
         await using var db = await _connectionFactory.OpenConnectionAsync();
         return (await db.QueryAsync<RolemenuListViewModel>("""
             SELECT g.`userrole_id`, r.`role_name`, r.`is_valid`, g.`create_time`, g.`last_update_time`
             FROM (SELECT `userrole_id`, MIN(`create_time`) `create_time`, MAX(`last_update_time`) `last_update_time`
-                  FROM `wms_rolemenu` WHERE `tenant_id`=@tenantId GROUP BY `userrole_id`) g
-            JOIN `wms_userrole` r ON r.`id`=g.`userrole_id` AND r.`tenant_id`=@tenantId;
-            """, new { tenantId = currentUser.tenant_id })).AsList();
+                  FROM `wms_rolemenu` GROUP BY `userrole_id`) g
+            JOIN `wms_userrole` r ON r.`id`=g.`userrole_id` ;
+            """)).AsList();
     }
 
     /// <summary>Gets a role-menu record by role id.</summary>
@@ -64,11 +63,10 @@ public class RolemenuService : BaseService<RolemenuEntity>, IRolemenuService
         };
     }
 
-    /// <summary>Gets all available menus for the current tenant.</summary>
     public async Task<List<MenuViewModel>> GetAllMenusAsync(CurrentUser currentUser)
     {
         await using var db = await _connectionFactory.OpenConnectionAsync();
-        var rows = await db.QueryAsync<MenuRow>(MenuColumnsSql + " WHERE `tenant_id`=@tenantId;", new { tenantId=currentUser.tenant_id });
+        var rows = await db.QueryAsync<MenuRow>(MenuColumnsSql + ";");
         return rows.Select(x => ToMenu(x, false)).ToList();
     }
 
@@ -76,20 +74,20 @@ public class RolemenuService : BaseService<RolemenuEntity>, IRolemenuService
     public async Task<List<MenuViewModel>> GetMenusByRoleId(int userrole_id, CurrentUser currentUser)
     {
         await using var db = await _connectionFactory.OpenConnectionAsync();
-        var role = await GetRoleAsync(db, null, userrole_id, currentUser.tenant_id);
+        var role = await GetRoleAsync(db, null, userrole_id);
         if (role == null) return [];
         if (IsAdminRole(role.role_name))
         {
-            var rows = await db.QueryAsync<MenuRow>(MenuColumnsSql + " WHERE `tenant_id`=@tenantId ORDER BY `sort`,`menu_name`;", new { tenantId=currentUser.tenant_id });
+            var rows = await db.QueryAsync<MenuRow>(MenuColumnsSql + " ORDER BY `sort`,`menu_name`;");
             return rows.Select(row => ToMenu(row, false)).ToList();
         }
         var menus = await db.QueryAsync<MenuRow>("""
             SELECT m.`id`,m.`menu_name`,m.`module`,m.`vue_path`,m.`vue_path_detail`,m.`vue_directory`,m.`sort`,
                    rm.`menu_actions_authority` `menu_actions`
             FROM `wms_rolemenu` rm JOIN `wms_menu` m ON m.`id`=rm.`menu_id`
-            WHERE rm.`userrole_id`=@roleId AND rm.`tenant_id`=@tenantId AND m.`tenant_id`=@tenantId
+            WHERE rm.`userrole_id`=@roleId
             ORDER BY m.`sort`,m.`menu_name`;
-            """, new { roleId=userrole_id, tenantId=currentUser.tenant_id });
+            """, new { roleId=userrole_id});
         return menus.Select(row => ToMenu(row, false)).ToList();
     }
 
@@ -97,10 +95,10 @@ public class RolemenuService : BaseService<RolemenuEntity>, IRolemenuService
     public async Task<(int id, string msg)> AddAsync(RolemenuBothViewModel viewModel, CurrentUser currentUser)
     {
         await using var db = await _connectionFactory.OpenConnectionAsync();
-        var status = await GetRoleStatusAsync(db, viewModel.userrole_id, currentUser.tenant_id);
+        var status = await GetRoleStatusAsync(db, viewModel.userrole_id);
         if (!status.exists) return (0, _stringLocalizer["not_exists_entity"]);
         if (status.admin) return (0, _stringLocalizer[AdminRolePermissionMessageKey]);
-        if (await RolemenuExistsAsync(db, viewModel.userrole_id, currentUser.tenant_id))
+        if (await RolemenuExistsAsync(db, viewModel.userrole_id))
             return (0, string.Format(_stringLocalizer["exists_entity"], _stringLocalizer["role_name"], viewModel.role_name));
         var result = await BatchUpdateAsync(CreateBatch(viewModel), currentUser);
         return result.flag ? (viewModel.userrole_id, result.msg) : (0, result.msg);
@@ -110,10 +108,10 @@ public class RolemenuService : BaseService<RolemenuEntity>, IRolemenuService
     public async Task<(bool flag, string msg)> UpdateAsync(RolemenuBothViewModel viewModel, CurrentUser currentUser)
     {
         await using var db = await _connectionFactory.OpenConnectionAsync();
-        var status = await GetRoleStatusAsync(db, viewModel.userrole_id, currentUser.tenant_id);
+        var status = await GetRoleStatusAsync(db, viewModel.userrole_id);
         if (!status.exists) return (false, _stringLocalizer["not_exists_entity"]);
         if (status.admin) return (false, _stringLocalizer[AdminRolePermissionMessageKey]);
-        if (!await RolemenuExistsAsync(db, viewModel.userrole_id, currentUser.tenant_id))
+        if (!await RolemenuExistsAsync(db, viewModel.userrole_id))
             return (false, _stringLocalizer["not_exists_entity"]);
         return await BatchUpdateAsync(CreateBatch(viewModel), currentUser);
     }
@@ -137,7 +135,7 @@ public class RolemenuService : BaseService<RolemenuEntity>, IRolemenuService
     {
         await EnsureWarehouseManagementAllowedAsync(currentUser);
         await using var db = await _connectionFactory.OpenConnectionAsync();
-        if (await GetRoleAsync(db, null, userrole_id, currentUser.tenant_id) == null) return [];
+        if (await GetRoleAsync(db, null, userrole_id) == null) return [];
         return (await db.QueryAsync<long>("SELECT DISTINCT `warehouse_id` FROM `wms_role_warehouse` WHERE `role_id`=@roleId ORDER BY `warehouse_id`;", new { roleId=userrole_id })).AsList();
     }
 
@@ -153,7 +151,7 @@ public class RolemenuService : BaseService<RolemenuEntity>, IRolemenuService
         await using var tx = await db.BeginTransactionAsync(IsolationLevel.Serializable);
         try
         {
-            var role = await GetRoleAsync(db, tx, viewModel.userrole_id, currentUser.tenant_id, true);
+            var role = await GetRoleAsync(db, tx, viewModel.userrole_id, true);
             if (role == null) return await Rollback(false, _stringLocalizer["not_exists_entity"], tx);
             if (IsAdminRole(role.role_name)) return await Rollback(false, _stringLocalizer[AdminRolePermissionMessageKey], tx);
             var valid = ids.Count == 0 ? [] : (await db.QueryAsync<long>("SELECT `id` FROM `erp_warehouse` WHERE `id` IN @ids AND `deleted`=0;", new { ids }, tx)).AsList();
@@ -164,9 +162,9 @@ public class RolemenuService : BaseService<RolemenuEntity>, IRolemenuService
             var now=DateTime.Now;
             foreach (var warehouseId in ids)
                 await db.ExecuteAsync("""
-                    INSERT INTO `wms_role_warehouse` (`role_id`,`warehouse_id`,`tenant_id`,`created_by`,`create_time`,`last_update_time`)
-                    VALUES (@roleId,@warehouseId,@tenantId,@createdBy,@now,@now);
-                    """, new { roleId=viewModel.userrole_id, warehouseId, tenantId=currentUser.tenant_id, createdBy=currentUser.user_id, now }, tx);
+                    INSERT INTO `wms_role_warehouse` (`role_id`,`warehouse_id`,`created_by`,`create_time`,`last_update_time`)
+                    VALUES (@roleId,@warehouseId,@createdBy,@now,@now);
+                    """, new { roleId=viewModel.userrole_id, warehouseId, now }, tx);
             await tx.CommitAsync();
             return (true, _stringLocalizer["save_success"]);
         }
@@ -180,15 +178,15 @@ public class RolemenuService : BaseService<RolemenuEntity>, IRolemenuService
         await using var db=await _connectionFactory.OpenConnectionAsync();
         var roles=(await db.QueryAsync<string>("""
             SELECT `role_name` FROM `wms_userrole`
-            WHERE `tenant_id`=@tenantId AND `is_valid`=1 AND UPPER(TRIM(`role_name`))=UPPER(TRIM(@roleName));
-            """, new { tenantId=currentUser.tenant_id, roleName })).AsList();
+            WHERE `is_valid`=1 AND UPPER(TRIM(`role_name`))=UPPER(TRIM(@roleName));
+            """, new { roleName })).AsList();
         if (roles.Count==0 || !roles.Any(IsAdminRole)) throw new UnauthorizedAccessException("warehouse management permission required");
     }
 
     private async Task<(bool flag,string msg)> BatchUpdateCoreAsync(MySqlConnection db, MySqlTransaction tx, RolemenuBatchViewModel viewModel, CurrentUser user)
     {
         if (viewModel.detailList==null) return (false,"detailList is required");
-        var role=await GetRoleAsync(db,tx,viewModel.userrole_id,user.tenant_id,true);
+        var role=await GetRoleAsync(db,tx,viewModel.userrole_id,true);
         if (role==null) return (false,_stringLocalizer["not_exists_entity"]);
         if (IsAdminRole(role.role_name)) return (false,_stringLocalizer[AdminRolePermissionMessageKey]);
         var details=viewModel.detailList;
@@ -199,7 +197,7 @@ public class RolemenuService : BaseService<RolemenuEntity>, IRolemenuService
         if (duplicates.Count>0) return (false,$"duplicate menu_id: {string.Join(",",duplicates)}");
 
         var menuIds=details.Select(x=>x.menu_id).ToList();
-        var menus=menuIds.Count==0 ? [] : (await db.QueryAsync<MenuPermissionRow>("SELECT `id`,`menu_actions` FROM `wms_menu` WHERE `tenant_id`=@tenantId AND `id` IN @menuIds;",new { tenantId=user.tenant_id,menuIds },tx)).AsList();
+        var menus=menuIds.Count==0 ? [] : (await db.QueryAsync<MenuPermissionRow>("SELECT `id`,`menu_actions` FROM `wms_menu` WHERE `id` IN @menuIds;",new { menuIds },tx)).AsList();
         var invalidIds=menuIds.Except(menus.Select(x=>x.id)).ToList();
         if (invalidIds.Count>0) return (false,$"invalid menu_id: {string.Join(",",invalidIds)}");
         var whiteLists=menus.ToDictionary(x=>x.id,x=>Normalize(JsonHelper.DeserializeObject<List<string>>(x.menu_actions)));
@@ -213,9 +211,9 @@ public class RolemenuService : BaseService<RolemenuEntity>, IRolemenuService
         }
 
         var existing=(await db.QueryAsync<RolemenuEntity>("""
-            SELECT `id`,`userrole_id`,`menu_id`,`authority`,`create_time`,`last_update_time`,`tenant_id`,`menu_actions_authority`
-            FROM `wms_rolemenu` WHERE `userrole_id`=@roleId AND `tenant_id`=@tenantId FOR UPDATE;
-            """,new { roleId=viewModel.userrole_id,tenantId=user.tenant_id },tx)).AsList();
+            SELECT `id`,`userrole_id`,`menu_id`,`authority`,`create_time`,`last_update_time`,`menu_actions_authority`
+            FROM `wms_rolemenu` WHERE `userrole_id`=@roleId FOR UPDATE;
+            """,new { roleId=viewModel.userrole_id},tx)).AsList();
         var groups=existing.GroupBy(x=>x.menu_id).ToDictionary(x=>x.Key,x=>x.OrderBy(y=>y.id).ToList());
         var payloadIds=menuIds.ToHashSet(); var deleteIds=new List<int>(); var now=DateTime.Now;
         foreach(var detail in details)
@@ -229,9 +227,9 @@ public class RolemenuService : BaseService<RolemenuEntity>, IRolemenuService
                 deleteIds.AddRange(current.Skip(1).Select(x=>x.id));
             }
             else await db.ExecuteAsync("""
-                INSERT INTO `wms_rolemenu` (`userrole_id`,`menu_id`,`authority`,`menu_actions_authority`,`create_time`,`last_update_time`,`tenant_id`)
-                VALUES (@roleId,@menuId,1,@authority,@now,@now,@tenantId);
-                """,new { roleId=viewModel.userrole_id,menuId=detail.menu_id,authority,now,tenantId=user.tenant_id },tx);
+                INSERT INTO `wms_rolemenu` (`userrole_id`,`menu_id`,`authority`,`menu_actions_authority`,`create_time`,`last_update_time`)
+                VALUES (@roleId,@menuId,1,@authority,@now,@now);
+                """,new { roleId=viewModel.userrole_id,menuId=detail.menu_id,authority,now},tx);
         }
         deleteIds.AddRange(existing.Where(x=>!payloadIds.Contains(x.menu_id)).Select(x=>x.id));
         if(deleteIds.Count>0) await db.ExecuteAsync("DELETE FROM `wms_rolemenu` WHERE `id` IN @ids;",new { ids=deleteIds.Distinct().ToArray() },tx);
@@ -242,17 +240,17 @@ public class RolemenuService : BaseService<RolemenuEntity>, IRolemenuService
     public async Task<(bool flag,string msg)> DeleteAsync(int userrole_id,CurrentUser currentUser)
     {
         await using var db=await _connectionFactory.OpenConnectionAsync();
-        var status=await GetRoleStatusAsync(db,userrole_id,currentUser.tenant_id);
+        var status=await GetRoleStatusAsync(db,userrole_id);
         if(!status.exists) return(false,_stringLocalizer["not_exists_entity"]);
         if(status.admin) return(false,_stringLocalizer[AdminRolePermissionMessageKey]);
-        var count=await db.ExecuteAsync("DELETE FROM `wms_rolemenu` WHERE `userrole_id`=@roleId AND `tenant_id`=@tenantId;",new { roleId=userrole_id,tenantId=currentUser.tenant_id });
+        var count=await db.ExecuteAsync("DELETE FROM `wms_rolemenu` WHERE `userrole_id`=@roleId ;",new { roleId=userrole_id});
         return count>0 ? (true,_stringLocalizer["delete_success"]) : (false,_stringLocalizer["delete_failed"]);
     }
 
-    private async Task<(bool exists,bool admin)> GetRoleStatusAsync(MySqlConnection db,int id,long tenantId)
-    { var role=await GetRoleAsync(db,null,id,tenantId); return(role!=null,role!=null&&IsAdminRole(role.role_name)); }
-    private static Task<bool> RolemenuExistsAsync(MySqlConnection db,int roleId,long tenantId)=>db.ExecuteScalarAsync<bool>("SELECT EXISTS(SELECT 1 FROM `wms_rolemenu` WHERE `userrole_id`=@roleId AND `tenant_id`=@tenantId);",new { roleId,tenantId });
-    private static Task<RoleRow?> GetRoleAsync(MySqlConnection db,MySqlTransaction? tx,int roleId,long tenantId,bool forUpdate=false)=>db.QuerySingleOrDefaultAsync<RoleRow>($"SELECT `id`,`role_name` FROM `wms_userrole` WHERE `id`=@roleId AND `tenant_id`=@tenantId LIMIT 1{(forUpdate?" FOR UPDATE":"")};",new { roleId,tenantId },tx);
+    private async Task<(bool exists,bool admin)> GetRoleStatusAsync(MySqlConnection db,int id)
+    { var role=await GetRoleAsync(db,null,id); return(role!=null,role!=null&&IsAdminRole(role.role_name)); }
+    private static Task<bool> RolemenuExistsAsync(MySqlConnection db,int roleId)=>db.ExecuteScalarAsync<bool>("SELECT EXISTS(SELECT 1 FROM `wms_rolemenu` WHERE `userrole_id`=@roleId);",new { roleId });
+    private static Task<RoleRow?> GetRoleAsync(MySqlConnection db,MySqlTransaction? tx,int roleId,bool forUpdate=false)=>db.QuerySingleOrDefaultAsync<RoleRow>($"SELECT `id`,`role_name` FROM `wms_userrole` WHERE `id`=@roleId LIMIT 1{(forUpdate?" FOR UPDATE":"")};",new { roleId },tx);
     private static async Task<(bool flag,string msg)> Rollback(bool flag,string msg,MySqlTransaction tx){await tx.RollbackAsync();return(flag,msg);}
     private static MenuViewModel ToMenu(MenuRow x,bool normalize=true)=>new(){id=x.id,menu_name=x.menu_name,module=x.module,vue_path=x.vue_path,vue_path_detail=x.vue_path_detail,vue_directory=x.vue_directory,sort=x.sort,menu_actions=normalize?Normalize(JsonHelper.DeserializeObject<List<string>>(x.menu_actions)):JsonHelper.DeserializeObject<List<string>>(x.menu_actions)};
     private static string Serialize(List<string> actions)=>JsonHelper.SerializeObject(Normalize(actions));

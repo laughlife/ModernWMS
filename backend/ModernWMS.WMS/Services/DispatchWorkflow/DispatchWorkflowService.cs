@@ -49,7 +49,7 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
     private static async Task<InventoryRuntime> LoadInventoryRuntimeAsync(
         System.Data.IDbConnection connection,
         System.Data.IDbTransaction? transaction,
-        long tenantId,
+
         long erpWarehouseId,
         CancellationToken cancellationToken)
     {
@@ -58,8 +58,8 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
             $"""
             SELECT `mode` Mode,`maintenance_enabled` MaintenanceEnabled
               FROM `wms_inventory_runtime_config`
-             WHERE `tenant_id`=@tenantId AND `erp_warehouse_id`=@erpWarehouseId{suffix};
-            """, new { tenantId, erpWarehouseId }, transaction, cancellationToken: cancellationToken));
+             WHERE `erp_warehouse_id`=@erpWarehouseId{suffix};
+            """, new { erpWarehouseId }, transaction, cancellationToken: cancellationToken));
         runtime ??= new InventoryRuntime { Mode = LegacyInventoryMode };
         if (runtime.MaintenanceEnabled)
             throw new InvalidOperationException($"ERP仓库 {erpWarehouseId} 正处于库存维护窗口，出库操作已暂停");
@@ -90,7 +90,7 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
         var operatorName=string.IsNullOrWhiteSpace(user.user_name)?$"用户{user.user_id}":user.user_name.Trim();
         if(operatorName.Length>64)operatorName=operatorName[..64];
         return new StockMutationContext(
-            user.tenant_id,
+
             erpWarehouseId,
             operationKey,
             action,

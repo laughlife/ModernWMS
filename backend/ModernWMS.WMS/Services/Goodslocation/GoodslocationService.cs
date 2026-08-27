@@ -20,7 +20,7 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
         gl.`warehouse_area_property`, gl.`location_name`, gl.`location_length`, gl.`location_width`,
         gl.`location_heigth`, gl.`location_volume`, gl.`location_load`, gl.`roadway_number`,
         gl.`shelf_number`, gl.`layer_number`, gl.`tag_number`, gl.`create_time`,
-        gl.`last_update_time`, gl.`is_valid`, gl.`tenant_id`, gl.`warehouse_area_id`
+        gl.`last_update_time`, gl.`is_valid`, gl.gl.`warehouse_area_id`
         """;
 
     private static readonly IReadOnlyDictionary<string, string> SearchColumns =
@@ -35,7 +35,6 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
             ["shelf_number"] = "gl.`shelf_number`", ["layer_number"] = "gl.`layer_number`",
             ["tag_number"] = "gl.`tag_number`", ["create_time"] = "gl.`create_time`",
             ["last_update_time"] = "gl.`last_update_time`", ["is_valid"] = "gl.`is_valid`",
-            ["tenant_id"] = "gl.`tenant_id`", ["warehouse_area_id"] = "gl.`warehouse_area_id`"
         };
 
     private readonly IMySqlConnectionFactory _connectionFactory;
@@ -64,9 +63,9 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
                    'goodslocations of the warehousearea' AS `comments`,
                    gl.`location_name` AS `name`, CAST(gl.`id` AS CHAR) AS `value`
             FROM `wms_goodslocation` AS gl
-            WHERE gl.`is_valid` = 1 AND gl.`tenant_id` = @tenant_id
+            WHERE gl.`is_valid` = 1
               AND gl.`warehouse_area_id` = @warehouse_area_id;
-            """, new { currentUser.tenant_id, warehouse_area_id });
+            """, new { warehouse_area_id });
         return rows.AsList();
     }
 
@@ -77,13 +76,12 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
         PageSearch pageSearch, CurrentUser currentUser)
     {
         var filter = DapperSearchBuilder.Build(pageSearch.searchObjects, SearchColumns);
-        var clauses = new List<string> { "gl.`tenant_id` = @tenant_id" };
+        var clauses = new List<string>();
         if (!string.IsNullOrWhiteSpace(filter.Sql)) clauses.Add(filter.Sql);
         if (pageSearch.sqlTitle == "select") clauses.Add("gl.`is_valid` = 1");
-        filter.Parameters.Add("tenant_id", currentUser.tenant_id);
         filter.Parameters.Add("offset", (pageSearch.pageIndex - 1) * pageSearch.pageSize);
         filter.Parameters.Add("page_size", pageSearch.pageSize);
-        var where = string.Join(" AND ", clauses);
+        var where = clauses.Count == 0 ? "1=1" : string.Join(" AND ", clauses);
 
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         using var result = await connection.QueryMultipleAsync($"""
@@ -106,8 +104,8 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         var rows = await connection.QueryAsync<GoodslocationViewModel>($"""
-            SELECT {Projection} FROM `wms_goodslocation` AS gl WHERE gl.`tenant_id` = @tenant_id;
-            """, new { currentUser.tenant_id });
+            SELECT {Projection} FROM `wms_goodslocation` AS gl;
+            """);
         return rows.AsList();
     }
 
@@ -131,8 +129,8 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
         await using var transaction = await connection.BeginTransactionAsync();
         var exists = await connection.ExecuteScalarAsync<bool>("""
             SELECT EXISTS(SELECT 1 FROM `wms_goodslocation`
-                WHERE `location_name` = @location_name AND `tenant_id` = @tenant_id);
-            """, new { viewModel.location_name, currentUser.tenant_id }, transaction);
+                WHERE `location_name` = @location_name);
+            """, new { viewModel.location_name }, transaction);
         if (exists)
         {
             await transaction.RollbackAsync();
@@ -145,12 +143,12 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
                 (`warehouse_id`, `warehouse_name`, `warehouse_area_name`, `warehouse_area_property`,
                  `location_name`, `location_length`, `location_width`, `location_heigth`, `location_volume`,
                  `location_load`, `roadway_number`, `shelf_number`, `layer_number`, `tag_number`,
-                 `create_time`, `last_update_time`, `is_valid`, `tenant_id`, `warehouse_area_id`)
+                 `create_time`, `last_update_time`, `is_valid`, `warehouse_area_id`)
             VALUES
                 (@warehouse_id, @warehouse_name, @warehouse_area_name, @warehouse_area_property,
                  @location_name, @location_length, @location_width, @location_heigth, @location_volume,
                  @location_load, @roadway_number, @shelf_number, @layer_number, @tag_number,
-                 @create_time, @last_update_time, @is_valid, @tenant_id, @warehouse_area_id);
+                 @create_time, @last_update_time, @is_valid, @warehouse_area_id);
             SELECT LAST_INSERT_ID();
             """, new
         {
@@ -159,7 +157,7 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
             viewModel.location_width, viewModel.location_heigth, viewModel.location_volume,
             viewModel.location_load, viewModel.roadway_number, viewModel.shelf_number,
             viewModel.layer_number, viewModel.tag_number, create_time = now, last_update_time = now,
-            viewModel.is_valid, tenant_id = currentUser.tenant_id, viewModel.warehouse_area_id
+            viewModel.is_valid, viewModel.warehouse_area_id
         }, transaction);
         await transaction.CommitAsync();
         return id > 0 ? (id, _stringLocalizer["save_success"]) : (0, _stringLocalizer["save_failed"]);
@@ -175,8 +173,8 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
         var duplicate = await connection.ExecuteScalarAsync<bool>("""
             SELECT EXISTS(SELECT 1 FROM `wms_goodslocation`
                 WHERE `id` <> @id AND `warehouse_id` = @warehouse_id
-                  AND `location_name` = @location_name AND `tenant_id` = @tenant_id);
-            """, new { viewModel.id, viewModel.warehouse_id, viewModel.location_name, currentUser.tenant_id }, transaction);
+                  AND `location_name` = @location_name);
+            """, new { viewModel.id, viewModel.warehouse_id, viewModel.location_name }, transaction);
         if (duplicate)
         {
             await transaction.RollbackAsync();

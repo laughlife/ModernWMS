@@ -53,13 +53,12 @@ public class FunctionHelper
     /// <summary>序号表获取单据编号。</summary>
     public async Task<string> GetFormNoAsync(string table_name, string prefix_char = "", ResetRule reset_rule = ResetRule.Day)
     {
-        var current_user = GetCurrentUser();
-        var nums = await GetFormNoListAsync(table_name, 1, current_user.tenant_id, prefix_char, reset_rule);
+        var nums = await GetFormNoListAsync(table_name, 1, prefix_char, reset_rule);
         return nums == null ? "" : nums[0];
     }
 
     /// <summary>序号表批量获取单据编号。</summary>
-    public async Task<List<string>> GetFormNoListAsync(string table_name, int Qty = 1, long tenant_id = 1,
+    public async Task<List<string>> GetFormNoListAsync(string table_name, int Qty = 1,
         string prefix_char = "", ResetRule reset_rule = ResetRule.Day)
     {
         var nums = new List<string>();
@@ -74,11 +73,10 @@ public class FunctionHelper
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
         try
         {
-            // Preserve the legacy global key (tenant_id is metadata, not part of sequence identity).
             // The locking read serializes both existing-row updates and first-row creation.
             var entity = await connection.QueryFirstOrDefaultAsync<GlobalUniqueSerialEntity>("""
                 SELECT `id`, `table_name`, `prefix_char`, `reset_rule`, `current_no`,
-                       `last_update_time`, `tenant_id`
+                       `last_update_time`
                 FROM `wms_global_unique_serial`
                 WHERE `table_name` = @tableName
                   AND `prefix_char` = @prefixChar
@@ -94,17 +92,16 @@ public class FunctionHelper
 
                 await connection.ExecuteAsync("""
                     INSERT INTO `wms_global_unique_serial`
-                        (`table_name`, `prefix_char`, `reset_rule`, `current_no`, `last_update_time`, `tenant_id`)
+                        (`table_name`, `prefix_char`, `reset_rule`, `current_no`, `last_update_time`)
                     VALUES
-                        (@tableName, @prefixChar, @resetFormat, @currentNo, @now, @tenantId);
+                        (@tableName, @prefixChar, @resetFormat, @currentNo, @now);
                     """, new
                     {
                         tableName = table_name,
                         prefixChar = prefix_char,
                         resetFormat,
                         currentNo = Qty + 1,
-                        now,
-                        tenantId = tenant_id
+                        now
                     }, transaction);
             }
             else

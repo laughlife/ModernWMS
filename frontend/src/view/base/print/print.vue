@@ -190,7 +190,6 @@ const data: DataProps = reactive({
     report_length: 0,
     report_width: 0,
     report_direction: 'st',
-    tenant_id: 0
   },
   btnList: [],
   authorityList: getMenuAuthorityList(),

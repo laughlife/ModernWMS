@@ -17,10 +17,6 @@ public class WmsErpStockAllocationEntity
     public long id { get; set; }
 
     /// <summary>
-    /// 获取或设置 tenant_id。
-    /// </summary>
-    public long tenant_id { get; set; }
-    /// <summary>
     /// 获取或设置 erp_stock_id。
     /// </summary>
     public long erp_stock_id { get; set; }

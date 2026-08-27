@@ -159,10 +159,6 @@ public class DispatchOrderEntity : BaseModel
     /// </summary>
     public DateTime? notification_updated_at { get; set; }
     /// <summary>
-    /// 获取或设置 tenant_id。
-    /// </summary>
-    public long tenant_id { get; set; }
-    /// <summary>
     /// 获取或设置 created_by。
     /// </summary>
     public int created_by { get; set; }

@@ -67,10 +67,6 @@ namespace ModernWMS.Core.Models
         /// </summary>
         public DateTime last_update_time { get; set; } = UtilConvert.MinDate;
 
-        /// <summary>
-        /// tenant
-        /// </summary>
-        public long tenant_id { get; set; } = 0;
 
 
         #endregion

@@ -4,7 +4,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace ModernWMS.Core.DBContext.Entities;
 
 /// <summary>
-/// Globally idempotent inventory mutation command header within a tenant.
+/// Globally idempotent inventory mutation command header.
 /// ERP stock and allocation identifiers are logical references without physical foreign keys.
 /// </summary>
 [Table("wms_inventory_operation")]
@@ -16,10 +16,6 @@ public class WmsInventoryOperationEntity
     [Key]
     public long id { get; set; }
 
-    /// <summary>
-    /// 获取或设置 tenant_id。
-    /// </summary>
-    public long tenant_id { get; set; }
 
     /// <summary>
     /// 获取或设置 operation_key。

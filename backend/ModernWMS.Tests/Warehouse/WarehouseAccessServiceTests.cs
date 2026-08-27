@@ -11,7 +11,7 @@ public class WarehouseAccessServiceTests
     {
         var service = CreateService();
 
-        var result = await service.GetAllowedAsync(new CurrentUser { user_role = " Admin ", tenant_id = 99 });
+        var result = await service.GetAllowedAsync(new CurrentUser { user_role = " Admin " });
 
         Assert.Equal([9L, 320118L], result.warehouses.Select(t => t.id).ToArray());
         Assert.Equal(320118L, result.default_warehouse_id);
@@ -22,20 +22,20 @@ public class WarehouseAccessServiceTests
     {
         var service = CreateService();
 
-        var result = await service.GetAllowedAsync(new CurrentUser { user_role = "picker", tenant_id = 1 });
+        var result = await service.GetAllowedAsync(new CurrentUser { user_role = "picker" });
 
         Assert.Empty(result.warehouses);
         Assert.Null(result.default_warehouse_id);
     }
 
     [Fact]
-    public async Task GetAllowedAsync_unions_same_normalized_role_bindings_without_using_tenant_as_visibility_filter()
+    public async Task GetAllowedAsync_unions_same_normalized_role_bindings()
     {
         var service = CreateService(
             new WarehouseAccessService.RoleWarehouseBinding { role_name = "Picker", warehouse_id = 9 },
             new WarehouseAccessService.RoleWarehouseBinding { role_name = " picker ", warehouse_id = 320118 });
 
-        var result = await service.GetAllowedAsync(new CurrentUser { user_role = " PICKER ", tenant_id = 777 });
+        var result = await service.GetAllowedAsync(new CurrentUser { user_role = " PICKER " });
 
         Assert.Equal([9L, 320118L], result.warehouses.Select(t => t.id).ToArray());
         Assert.Equal(9L, result.default_warehouse_id);
@@ -48,7 +48,7 @@ public class WarehouseAccessServiceTests
             new WarehouseAccessService.RoleWarehouseBinding { role_name = "picker", warehouse_id = 9 });
 
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
-            service.EnsureAllowedAsync(320118, new CurrentUser { user_role = "picker", tenant_id = 1 }));
+            service.EnsureAllowedAsync(320118, new CurrentUser { user_role = "picker" }));
     }
 
     private static WarehouseAccessService CreateService(

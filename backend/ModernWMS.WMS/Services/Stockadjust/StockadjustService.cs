@@ -18,12 +18,12 @@ public class StockadjustService : BaseService<StockadjustEntity>, IStockadjustSe
 {
     private const string EntityColumns = """
         a.`id`,a.`job_code`,a.`sku_id`,a.`goods_owner_id`,a.`goods_location_id`,a.`qty`,a.`creator`,
-        a.`create_time`,a.`last_update_time`,a.`tenant_id`,a.`is_update_stock`,a.`job_type`,a.`source_table_id`,
+        a.`create_time`,a.`last_update_time`,a.`is_update_stock`,a.`job_type`,a.`source_table_id`,
         a.`erp_stock_id`,a.`stock_allocation_id`,a.`series_number`,a.`expiry_date`,a.`price`,a.`putaway_date`
         """;
 
     private const string PageSelect = """
-        SELECT a.`id`,a.`job_code`,a.`is_update_stock`,a.`job_type`,a.`qty`,a.`source_table_id`,a.`tenant_id`,
+        SELECT a.`id`,a.`job_code`,a.`is_update_stock`,a.`job_type`,a.`qty`,a.`source_table_id`,
                sku.`id` sku_id,sku.`sku_code`,sku.`sku_name`,spu.`spu_code`,spu.`spu_name`,
                a.`goods_location_id`,gl.`warehouse_name`,gl.`location_name`,a.`goods_owner_id`,
                COALESCE(go.`goods_owner_name`,'') goods_owner_name,a.`creator`,a.`create_time`,a.`last_update_time`,
@@ -33,14 +33,13 @@ public class StockadjustService : BaseService<StockadjustEntity>, IStockadjustSe
         JOIN `wms_spu` spu ON spu.`id`=sku.`spu_id`
         JOIN `wms_goodslocation` gl ON gl.`id`=a.`goods_location_id`
         LEFT JOIN `wms_goodsowner` go ON go.`id`=a.`goods_owner_id`
-        WHERE a.`tenant_id`=@tenantId
+        WHERE 1=1
         """;
 
     private static readonly IReadOnlyDictionary<string, string> SearchColumns = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
         ["id"]="q.`id`", ["job_code"]="q.`job_code`", ["is_update_stock"]="q.`is_update_stock`",
         ["job_type"]="q.`job_type`", ["qty"]="q.`qty`", ["source_table_id"]="q.`source_table_id`",
-        ["tenant_id"]="q.`tenant_id`", ["sku_id"]="q.`sku_id`", ["sku_code"]="q.`sku_code`",
         ["sku_name"]="q.`sku_name`", ["spu_code"]="q.`spu_code`", ["spu_name"]="q.`spu_name`",
         ["goods_location_id"]="q.`goods_location_id`", ["warehouse_name"]="q.`warehouse_name`",
         ["location_name"]="q.`location_name`", ["goods_owner_id"]="q.`goods_owner_id`",
@@ -67,7 +66,6 @@ public class StockadjustService : BaseService<StockadjustEntity>, IStockadjustSe
     public async Task<(List<StockadjustViewModel> data, int totals)> PageAsync(PageSearch pageSearch, CurrentUser currentUser)
     {
         var filter = DapperSearchBuilder.Build(pageSearch.searchObjects, SearchColumns);
-        filter.Parameters.Add("tenantId", currentUser.tenant_id);
         filter.Parameters.Add("offset", (pageSearch.pageIndex - 1) * pageSearch.pageSize);
         filter.Parameters.Add("pageSize", pageSearch.pageSize);
         var where = filter.Sql.Length == 0 ? "1=1" : filter.Sql;
@@ -87,8 +85,8 @@ public class StockadjustService : BaseService<StockadjustEntity>, IStockadjustSe
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         return (await connection.QueryAsync<StockadjustViewModel>($"""
-            SELECT {EntityColumns} FROM `wms_stockadjust` a WHERE a.`tenant_id`=@tenantId;
-            """, new { tenantId = currentUser.tenant_id })).AsList();
+            SELECT {EntityColumns} FROM `wms_stockadjust` a;
+            """)).AsList();
     }
 
     /// <inheritdoc />
@@ -106,30 +104,30 @@ public class StockadjustService : BaseService<StockadjustEntity>, IStockadjustSe
         var now = DateTime.Now;
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         var routeSnapshot = await CanonicalInventorySupport.GetRouteAsync(
-            connection, currentUser.tenant_id, viewModel.goods_location_id);
+            connection, viewModel.goods_location_id);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
         var route = await CanonicalInventorySupport.LockRouteAsync(
-            connection, transaction, currentUser.tenant_id, routeSnapshot);
+            connection, transaction, routeSnapshot);
         CanonicalInventorySupport.CanonicalAllocation? allocation = null;
         if (route.Mode == CanonicalInventorySupport.CanonicalMode)
             allocation = await CanonicalInventorySupport.ResolveAllocationAsync(
-                connection, transaction, currentUser.tenant_id, viewModel.sku_id,
+                connection, transaction, viewModel.sku_id,
                 viewModel.goods_location_id, viewModel.goods_owner_id, viewModel.series_number,
                 viewModel.expiry_date, viewModel.price, viewModel.putaway_date);
         var id = await connection.ExecuteScalarAsync<int>("""
             INSERT INTO `wms_stockadjust`
               (`job_code`,`sku_id`,`goods_owner_id`,`goods_location_id`,`qty`,`creator`,`create_time`,`last_update_time`,
-               `tenant_id`,`is_update_stock`,`job_type`,`source_table_id`,`erp_stock_id`,`stock_allocation_id`,
+               `is_update_stock`,`job_type`,`source_table_id`,`erp_stock_id`,`stock_allocation_id`,
                `series_number`,`expiry_date`,`price`,`putaway_date`)
             VALUES
               (@job_code,@sku_id,@goods_owner_id,@goods_location_id,@qty,@creator,@now,@now,
-               @tenantId,@is_update_stock,@job_type,@source_table_id,@erpStockId,@allocationId,
+               @is_update_stock,@job_type,@source_table_id,@erpStockId,@allocationId,
                @series_number,@expiry_date,@price,@putaway_date);
             SELECT LAST_INSERT_ID();
             """, new
         {
             viewModel.job_code, viewModel.sku_id, viewModel.goods_owner_id, viewModel.goods_location_id,
-            viewModel.qty, creator = currentUser.user_name, now, tenantId = currentUser.tenant_id,
+            viewModel.qty, creator = currentUser.user_name, now,
             viewModel.is_update_stock, viewModel.job_type, viewModel.source_table_id, viewModel.series_number,
             viewModel.expiry_date, viewModel.price, viewModel.putaway_date,
             erpStockId = allocation?.ErpStockId, allocationId = allocation?.AllocationId
@@ -152,13 +150,13 @@ public class StockadjustService : BaseService<StockadjustEntity>, IStockadjustSe
         }
         await using var routeConnection = await _connectionFactory.OpenConnectionAsync();
         var routeSnapshot = await CanonicalInventorySupport.GetRouteAsync(
-            routeConnection, existing.tenant_id, viewModel.goods_location_id);
+            routeConnection, viewModel.goods_location_id);
         var route = await CanonicalInventorySupport.LockRouteAsync(
-            connection, transaction, existing.tenant_id, routeSnapshot);
+            connection, transaction, routeSnapshot);
         CanonicalInventorySupport.CanonicalAllocation? allocation = null;
         if (route.Mode == CanonicalInventorySupport.CanonicalMode)
             allocation = await CanonicalInventorySupport.ResolveAllocationAsync(
-                connection, transaction, existing.tenant_id, viewModel.sku_id,
+                connection, transaction, viewModel.sku_id,
                 viewModel.goods_location_id, viewModel.goods_owner_id, viewModel.series_number,
                 viewModel.expiry_date, viewModel.price, viewModel.putaway_date);
         var affected = await connection.ExecuteAsync("""
@@ -197,9 +195,9 @@ public class StockadjustService : BaseService<StockadjustEntity>, IStockadjustSe
         }
         await using var routeConnection = await _connectionFactory.OpenConnectionAsync();
         var routeSnapshot = await CanonicalInventorySupport.GetRouteAsync(
-            routeConnection, existing.tenant_id, existing.goods_location_id);
+            routeConnection, existing.goods_location_id);
         _ = await CanonicalInventorySupport.LockRouteAsync(
-            connection, transaction, existing.tenant_id, routeSnapshot);
+            connection, transaction, routeSnapshot);
         var affected = await connection.ExecuteAsync(
             "DELETE FROM `wms_stockadjust` WHERE `id`=@id;", new { id }, transaction);
         await transaction.CommitAsync();
@@ -233,9 +231,9 @@ public class StockadjustService : BaseService<StockadjustEntity>, IStockadjustSe
             var affected = 0;
             await using var routeConnection = await _connectionFactory.OpenConnectionAsync();
             var routeSnapshot = await CanonicalInventorySupport.GetRouteAsync(
-                routeConnection, adjustment.tenant_id, adjustment.goods_location_id);
+                routeConnection, adjustment.goods_location_id);
             var route = await CanonicalInventorySupport.LockRouteAsync(
-                connection, transaction, adjustment.tenant_id, routeSnapshot);
+                connection, transaction, routeSnapshot);
             if (adjustment.job_type == 2)
             {
                 affected += await connection.ExecuteAsync("""
@@ -251,13 +249,13 @@ public class StockadjustService : BaseService<StockadjustEntity>, IStockadjustSe
                 if (adjustment.qty != 0)
                 {
                     await _stockMutationService.PrelockAsync(
-                        connection, transaction, adjustment.tenant_id,
+                        connection, transaction,
                         [route.ErpWarehouseId],
                         [adjustment.erp_stock_id.Value], [adjustment.stock_allocation_id.Value]);
                     await _stockMutationService.AdjustAvailableAsync(
                         connection, transaction,
                         CanonicalInventorySupport.Context(
-                            adjustment.tenant_id, route.ErpWarehouseId,
+                            route.ErpWarehouseId,
                             $"MWMS:ADJ:{adjustment.id}", "STOCK_ADJUST_CONFIRM",
                             adjustment.id, adjustment.source_table_id, null, adjustment.creator, "库存可用量调整"),
                         adjustment.erp_stock_id.Value, adjustment.stock_allocation_id.Value,
@@ -304,25 +302,25 @@ internal static class CanonicalInventorySupport
 
     internal static async Task<InventoryRoute> GetRouteAsync(
         MySqlConnection connection,
-        long tenantId,
+
         int goodsLocationId)
     {
         var warehouse = await connection.QuerySingleOrDefaultAsync<RouteWarehouse>("""
             SELECT w.`erp_warehouse_id` ErpWarehouseId
               FROM `wms_goodslocation` l
               JOIN `wms_warehouse` w
-                ON w.`id`=l.`warehouse_id` AND w.`tenant_id`=@tenantId AND w.`is_valid`=1
-             WHERE l.`id`=@goodsLocationId AND l.`tenant_id`=@tenantId AND l.`is_valid`=1
+                ON w.`id`=l.`warehouse_id`  AND w.`is_valid`=1
+             WHERE l.`id`=@goodsLocationId  AND l.`is_valid`=1
              LIMIT 1;
-            """, new { tenantId, goodsLocationId });
+            """, new { goodsLocationId });
         if (warehouse == null || warehouse.ErpWarehouseId <= 0)
             throw new InvalidOperationException("库位未映射有效的ERP仓库，禁止库存操作");
         var config = await connection.QuerySingleOrDefaultAsync<RuntimeGate>("""
             SELECT `mode` Mode,`maintenance_enabled` MaintenanceEnabled
               FROM `wms_inventory_runtime_config`
-             WHERE `tenant_id`=@tenantId AND `erp_warehouse_id`=@erpWarehouseId
+             WHERE `erp_warehouse_id`=@erpWarehouseId
              LIMIT 1;
-            """, new { tenantId, erpWarehouseId = warehouse.ErpWarehouseId });
+            """, new { erpWarehouseId = warehouse.ErpWarehouseId });
         var route = new InventoryRoute
         {
             GoodsLocationId = goodsLocationId,
@@ -340,26 +338,26 @@ internal static class CanonicalInventorySupport
     internal static async Task<InventoryRoute> LockRouteAsync(
         MySqlConnection connection,
         IDbTransaction transaction,
-        long tenantId,
+
         InventoryRoute snapshot)
     {
-        var locked = await LockRuntimeAsync(connection, transaction, tenantId, snapshot);
-        await ValidateLocationRouteAsync(connection, transaction, tenantId, snapshot);
+        var locked = await LockRuntimeAsync(connection, transaction, snapshot);
+        await ValidateLocationRouteAsync(connection, transaction, snapshot);
         return locked;
     }
 
     private static async Task<InventoryRoute> LockRuntimeAsync(
         MySqlConnection connection,
         IDbTransaction transaction,
-        long tenantId,
+
         InventoryRoute snapshot)
     {
         var config = await connection.QuerySingleOrDefaultAsync<RuntimeGate>("""
             SELECT `mode` Mode,`maintenance_enabled` MaintenanceEnabled
               FROM `wms_inventory_runtime_config`
-             WHERE `tenant_id`=@tenantId AND `erp_warehouse_id`=@erpWarehouseId
+             WHERE `erp_warehouse_id`=@erpWarehouseId
              FOR SHARE;
-            """, new { tenantId, erpWarehouseId = snapshot.ErpWarehouseId }, transaction);
+            """, new { erpWarehouseId = snapshot.ErpWarehouseId }, transaction);
         var locked = new InventoryRoute
         {
             GoodsLocationId = snapshot.GoodsLocationId,
@@ -379,17 +377,17 @@ internal static class CanonicalInventorySupport
     private static async Task ValidateLocationRouteAsync(
         MySqlConnection connection,
         IDbTransaction transaction,
-        long tenantId,
+
         InventoryRoute snapshot)
     {
         var warehouseId = await connection.ExecuteScalarAsync<long?>("""
             SELECT w.`erp_warehouse_id`
               FROM `wms_goodslocation` l
               JOIN `wms_warehouse` w
-                ON w.`id`=l.`warehouse_id` AND w.`tenant_id`=@tenantId AND w.`is_valid`=1
-             WHERE l.`id`=@goodsLocationId AND l.`tenant_id`=@tenantId AND l.`is_valid`=1
+                ON w.`id`=l.`warehouse_id`  AND w.`is_valid`=1
+             WHERE l.`id`=@goodsLocationId  AND l.`is_valid`=1
              LIMIT 1;
-            """, new { tenantId, goodsLocationId = snapshot.GoodsLocationId }, transaction);
+            """, new { goodsLocationId = snapshot.GoodsLocationId }, transaction);
         if (warehouseId != snapshot.ErpWarehouseId)
             throw new InvalidOperationException("库位的ERP仓库映射在业务操作期间发生变化，请重试");
     }
@@ -397,7 +395,7 @@ internal static class CanonicalInventorySupport
     internal static async Task LockRoutesAsync(
         MySqlConnection connection,
         IDbTransaction transaction,
-        long tenantId,
+
         IEnumerable<InventoryRoute> snapshots)
     {
         var routes = snapshots
@@ -408,16 +406,16 @@ internal static class CanonicalInventorySupport
         {
             if (group.Select(x => x.Mode).Distinct(StringComparer.Ordinal).Count() != 1)
                 throw new InvalidOperationException($"ERP仓库 {group.Key} 的库存路由快照不一致，请重试");
-            _ = await LockRuntimeAsync(connection, transaction, tenantId, group.First());
+            _ = await LockRuntimeAsync(connection, transaction, group.First());
         }
         foreach (var snapshot in routes.SelectMany(x => x).OrderBy(x => x.ErpWarehouseId).ThenBy(x => x.GoodsLocationId))
-            await ValidateLocationRouteAsync(connection, transaction, tenantId, snapshot);
+            await ValidateLocationRouteAsync(connection, transaction, snapshot);
     }
 
     internal static async Task<CanonicalAllocation> ResolveAllocationAsync(
         MySqlConnection connection,
         IDbTransaction transaction,
-        long tenantId,
+
         int skuId,
         int goodsLocationId,
         int goodsOwnerId,
@@ -434,8 +432,8 @@ internal static class CanonicalInventorySupport
               FROM `wms_erp_stock_allocation` a
               JOIN `trk_stock` s ON s.`id`=a.`erp_stock_id` AND s.`deleted`=b'0'
               JOIN `wms_erp_commodity_map` m
-                ON m.`tenant_id`=a.`tenant_id` AND m.`erp_commodity_id`=s.`commodity_id`
-             WHERE a.`tenant_id`=@tenantId AND m.`wms_sku_id`=@skuId
+                ON m.`erp_commodity_id`=s.`commodity_id`
+             WHERE m.`wms_sku_id`=@skuId
                AND a.`goods_location_id`=@goodsLocationId
                AND a.`goods_owner_id`=@goodsOwnerId
                AND a.`series_number`=@seriesNumber
@@ -444,7 +442,7 @@ internal static class CanonicalInventorySupport
              ORDER BY s.`id`,a.`id` {(forUpdate ? "FOR UPDATE" : string.Empty)};
             """, new
         {
-            tenantId, skuId, goodsLocationId, goodsOwnerId,
+            skuId, goodsLocationId, goodsOwnerId,
             seriesNumber = seriesNumber ?? string.Empty, expiryDate, price, putawayDate
         }, transaction)).AsList();
         if (rows.Count != 1)
@@ -457,7 +455,7 @@ internal static class CanonicalInventorySupport
     internal static async Task<CanonicalAllocation> ResolveSimpleAllocationAsync(
         MySqlConnection connection,
         IDbTransaction? transaction,
-        long tenantId,
+
         int skuId,
         int goodsLocationId,
         int goodsOwnerId,
@@ -471,13 +469,13 @@ internal static class CanonicalInventorySupport
               FROM `wms_erp_stock_allocation` a
               JOIN `trk_stock` s ON s.`id`=a.`erp_stock_id` AND s.`deleted`=b'0'
               JOIN `wms_erp_commodity_map` m
-                ON m.`tenant_id`=a.`tenant_id` AND m.`erp_commodity_id`=s.`commodity_id`
-             WHERE a.`tenant_id`=@tenantId AND m.`wms_sku_id`=@skuId
+                ON m.`erp_commodity_id`=s.`commodity_id`
+             WHERE m.`wms_sku_id`=@skuId
                AND a.`goods_location_id`=@goodsLocationId
                AND a.`goods_owner_id`=@goodsOwnerId
                AND a.`series_number`=@seriesNumber AND a.`location_state`='ACTIVE'
              ORDER BY s.`id`,a.`id` {(forUpdate ? "FOR UPDATE" : string.Empty)};
-            """, new { tenantId, skuId, goodsLocationId, goodsOwnerId,
+            """, new { skuId, goodsLocationId, goodsOwnerId,
                 seriesNumber = seriesNumber ?? string.Empty }, transaction)).AsList();
         if (rows.Count != 1)
             throw new InvalidOperationException(rows.Count == 0
@@ -496,7 +494,7 @@ internal static class CanonicalInventorySupport
     {
         var target = await connection.QuerySingleOrDefaultAsync<long?>("""
             SELECT `id` FROM `wms_erp_stock_allocation`
-             WHERE `tenant_id`=@tenantId AND `erp_stock_id`=@erpStockId
+             WHERE `erp_stock_id`=@erpStockId
                AND `goods_location_id`=@targetLocationId AND `goods_owner_id`=@goodsOwnerId
                AND `series_number`=@seriesNumber AND `expiry_date`=@expiryDate
                AND `price`=@price AND `putaway_date`=@putawayDate
@@ -504,7 +502,6 @@ internal static class CanonicalInventorySupport
              LIMIT 1 FOR UPDATE;
             """, new
         {
-            tenantId = move.tenant_id, erpStockId = source.ErpStockId, targetLocationId,
             goodsOwnerId = move.goods_owner_id, seriesNumber = move.series_number,
             expiryDate = move.expiry_date, move.price, putawayDate = move.putaway_date
         }, transaction);
@@ -512,23 +509,22 @@ internal static class CanonicalInventorySupport
 
         var areaId = await connection.QuerySingleOrDefaultAsync<int?>("""
             SELECT `warehouse_area_id` FROM `wms_goodslocation`
-             WHERE `id`=@targetLocationId AND `tenant_id`=@tenantId AND `is_valid`=1
+             WHERE `id`=@targetLocationId  AND `is_valid`=1
              LIMIT 1 FOR UPDATE;
-            """, new { targetLocationId, tenantId = move.tenant_id }, transaction);
+            """, new { targetLocationId}, transaction);
         if (!areaId.HasValue)
             throw new InvalidOperationException("目标库位不存在或已停用");
         var now = DateTime.Now;
         await connection.ExecuteAsync("""
             INSERT INTO `wms_erp_stock_allocation`
-                (`tenant_id`,`erp_stock_id`,`warehouse_area_id`,`goods_location_id`,`goods_owner_id`,
+                (`erp_stock_id`,`warehouse_area_id`,`goods_location_id`,`goods_owner_id`,
                  `series_number`,`expiry_date`,`price`,`putaway_date`,`allocated_qty`,`occupied_qty`,
                  `location_state`,`row_version`,`creator`,`create_time`,`updater`,`update_time`)
             VALUES
-                (@tenantId,@erpStockId,@areaId,@targetLocationId,@goodsOwnerId,
+                (@erpStockId,@areaId,@targetLocationId,@goodsOwnerId,
                  @seriesNumber,@expiryDate,@price,@putawayDate,0,0,'ACTIVE',0,@operatorName,@now,@operatorName,@now);
             """, new
         {
-            tenantId = move.tenant_id, erpStockId = source.ErpStockId, areaId,
             targetLocationId, goodsOwnerId = move.goods_owner_id,
             seriesNumber = move.series_number, expiryDate = move.expiry_date,
             move.price, putawayDate = move.putaway_date, operatorName, now
@@ -543,7 +539,7 @@ internal static class CanonicalInventorySupport
         long erpStockId,
         int targetLocationId) => connection.QuerySingleOrDefaultAsync<long?>("""
             SELECT `id` FROM `wms_erp_stock_allocation`
-             WHERE `tenant_id`=@tenantId AND `erp_stock_id`=@erpStockId
+             WHERE `erp_stock_id`=@erpStockId
                AND `goods_location_id`=@targetLocationId AND `goods_owner_id`=@goodsOwnerId
                AND `series_number`=@seriesNumber AND `expiry_date`=@expiryDate
                AND `price`=@price AND `putaway_date`=@putawayDate
@@ -551,13 +547,12 @@ internal static class CanonicalInventorySupport
              LIMIT 1;
             """, new
         {
-            tenantId = move.tenant_id, erpStockId, targetLocationId,
             goodsOwnerId = move.goods_owner_id, seriesNumber = move.series_number,
             expiryDate = move.expiry_date, move.price, putawayDate = move.putaway_date
         }, transaction);
 
     internal static StockMutationContext Context(
-        long tenantId,
+
         long erpWarehouseId,
         string operationKey,
         string bizType,
@@ -566,7 +561,7 @@ internal static class CanonicalInventorySupport
         CurrentUser? user,
         string fallbackOperator,
         string remark) => new(
-            tenantId,
+
             erpWarehouseId,
             operationKey.Length <= 64 ? operationKey : throw new InvalidOperationException("库存操作幂等键超过64个字符"),
             bizType,

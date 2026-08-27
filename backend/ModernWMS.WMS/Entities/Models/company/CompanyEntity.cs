@@ -8,7 +8,7 @@ namespace ModernWMS.WMS.Entities.Models
     /// </summary>
     [Table("company")]
     public class CompanyEntity: BaseModel
-    { 
+    {
         /// <summary>
         /// company's Name
         /// </summary>
@@ -44,9 +44,5 @@ namespace ModernWMS.WMS.Entities.Models
         /// </summary>
         public DateTime last_update_time { get; set; } = DateTime.Now;
 
-        /// <summary>
-        /// the tenant id
-        /// </summary>
-        public long tenant_id { get; set; } = 1;
     }
 }

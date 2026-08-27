@@ -121,7 +121,7 @@ public partial class DispatchWorkflowService
             var a=await LoadPackingPlanForUpdateAsync(c,tx,orderId,taskId,ct);if(a.Order.status!=DispatchOrderStatus.Weighing||a.Order.row_version!=r.row_version||a.Task.row_version!=r.task_row_version)throw DispatchWorkflowCommandException.ConcurrencyConflict();
             if(a.Task.packing_plan_status!="PACKING_CONFIRMED")throw DispatchWorkflowCommandException.StatusNotAllowedForWeighing();
             if(a.Boxes.Count==0)throw DispatchWorkflowCommandException.WeighingIncomplete("至少建立一个装箱");
-            var runtime=await LoadInventoryRuntimeAsync(c,tx,a.Order.tenant_id,a.Order.warehouse_id,ct);
+            var runtime=await LoadInventoryRuntimeAsync(c,tx,a.Order.warehouse_id,ct);
             var plans=new List<ActualPackingItemPlan>();
             foreach(var item in a.Items)
             {
@@ -157,7 +157,7 @@ public partial class DispatchWorkflowService
                             $"ACTUAL_PACKING:{r.request_id}:{taskId}",reduction.Allocation.reservation_id,
                             reduction.Allocation.reservation_item_id),reduction.Allocation.erp_stock_id.Value,
                         reduction.Allocation.stock_allocation_id.Value,"UNLOCK")).ToArray();
-                    await mutation.PrelockReservationOwnersAsync(c,tx,a.Order.tenant_id,
+                    await mutation.PrelockReservationOwnersAsync(c,tx,
                         [a.Order.warehouse_id],prelocks,ct);
                     foreach(var reduction in reductions.OrderBy(x=>x.Allocation.erp_stock_id).ThenBy(x=>x.Allocation.stock_allocation_id).ThenBy(x=>x.Allocation.id))
                         await mutation.ReleaseAsync(c,tx,

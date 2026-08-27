@@ -93,8 +93,4 @@ public class ErpReceiptRecordEntity : BaseModel
     /// </summary>
     public DateTime last_update_time { get; set; } = DateTime.Now;
 
-    /// <summary>
-    /// 获取或设置 tenant_id。
-    /// </summary>
-    public long tenant_id { get; set; } = 1;
 }

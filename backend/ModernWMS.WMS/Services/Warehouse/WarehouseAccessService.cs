@@ -7,7 +7,6 @@ using ModernWMS.WMS.IServices;
 namespace ModernWMS.WMS.Services;
 
 /// <summary>
-/// Resolves access from explicit role bindings. Tenant identifiers are compatibility metadata,
 /// not a warehouse-visibility boundary.
 /// </summary>
 public class WarehouseAccessService : IWarehouseAccessService
@@ -55,7 +54,6 @@ public class WarehouseAccessService : IWarehouseAccessService
         }
 
         // Role names are the identity carried by CurrentUser. Normalize in .NET to preserve the
-        // previous exact matching rules; tenant_id deliberately does not participate in visibility.
         var roleBindings = await _dataSource.GetValidRoleBindingsAsync();
         var allowedSet = roleBindings
             .Where(t => NormalizeRoleName(t.role_name) == normalizedRoleName && t.warehouse_id.HasValue)

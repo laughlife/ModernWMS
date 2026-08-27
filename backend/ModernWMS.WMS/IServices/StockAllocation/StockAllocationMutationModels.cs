@@ -5,7 +5,6 @@ namespace ModernWMS.WMS.IServices.StockAllocation;
 /// ledger and the WMS allocation audit.
 /// </summary>
 public sealed record StockMutationContext(
-    long TenantId,
     long ErpWarehouseId,
     string OperationKey,
     string BizType,

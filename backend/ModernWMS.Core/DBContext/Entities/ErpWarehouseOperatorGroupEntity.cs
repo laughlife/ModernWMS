@@ -13,10 +13,6 @@ public class ErpWarehouseOperatorGroupEntity
     /// </summary>
     public long id { get; set; }
 
-    /// <summary>
-    /// 获取或设置 tenant_id。
-    /// </summary>
-    public long tenant_id { get; set; }
 
     /// <summary>
     /// 获取或设置 warehouse_id。

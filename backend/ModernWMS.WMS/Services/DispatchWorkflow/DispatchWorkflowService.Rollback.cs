@@ -44,7 +44,7 @@ public partial class DispatchWorkflowService
                 """, new { orderId }, tx, cancellationToken: ct))).AsList();
             if (tasks.Count == 0)
                 throw DispatchWorkflowCommandException.StatusNotAllowedForRollback("the order has no active packing task to roll back");
-            var runtime = await LoadInventoryRuntimeAsync(c,tx,order.tenant_id,order.warehouse_id,ct);
+            var runtime = await LoadInventoryRuntimeAsync(c,tx,order.warehouse_id,ct);
             if (runtime.Mode == CanonicalInventoryMode)
             {
                 var sourceTaskIds=tasks.Select(x=>x.source_task_id).ToArray();
@@ -52,11 +52,11 @@ public partial class DispatchWorkflowService
                     SELECT `id`,`erp_stock_id`,`stock_allocation_id`,`reservation_id`,
                            `reservation_item_id`,`qty`
                       FROM `wms_packing_task_stock_selection`
-                     WHERE `tenant_id`=@tenantId AND `sellfox_task_id` IN @sourceTaskIds
+                     WHERE `sellfox_task_id` IN @sourceTaskIds
                        AND `status`='ACTIVE'
                        AND `erp_stock_id` IS NOT NULL AND `stock_allocation_id` IS NOT NULL
                      ORDER BY `erp_stock_id`,`stock_allocation_id`,`id` FOR UPDATE;
-                    """,new{tenantId=order.tenant_id,sourceTaskIds},tx,cancellationToken:ct))).AsList();
+                    """,new { sourceTaskIds},tx,cancellationToken:ct))).AsList();
                 var mutation=RequireStockAllocationMutationService();
                 if(reserved.Count>0)
                 {
@@ -65,7 +65,7 @@ public partial class DispatchWorkflowService
                             row.erp_stock_id,row.stock_allocation_id,row.qty,requestId,
                             row.reservation_id,row.reservation_item_id),row.erp_stock_id,
                         row.stock_allocation_id,"UNLOCK")).ToArray();
-                    await mutation.PrelockReservationOwnersAsync(c,tx,order.tenant_id,
+                    await mutation.PrelockReservationOwnersAsync(c,tx,
                         [order.warehouse_id],prelocks,ct);
                 }
                 foreach(var row in reserved)
@@ -82,11 +82,10 @@ public partial class DispatchWorkflowService
                        `cancel_reason`='待拣货回退释放库存选择',
                        `operation_source`='DISPATCH_ROLLBACK',
                        `last_update_time`=@now,`row_version`=`row_version`+1
-                 WHERE `tenant_id`=@tenantId AND `sellfox_task_id` IN @sourceTaskIds
+                 WHERE `sellfox_task_id` IN @sourceTaskIds
                    AND `status`='ACTIVE';
                 """,new
             {
-                tenantId=order.tenant_id,
                 sourceTaskIds=tasks.Select(x=>x.source_task_id).ToArray(),
                 cancelledBy=user.user_id,
                 cancelledByName=user.user_name??string.Empty,

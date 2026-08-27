@@ -25,15 +25,15 @@ public partial class ErpPendingReceiptService
             product.default_goods_location_name = string.Empty;
 
             var ownerId = await ScalarOrDefaultAsync<int>(
-                "SELECT wms_goods_owner_id FROM wms_erp_goods_owner_map WHERE tenant_id=@tenantId AND erp_dept_id=@deptId AND erp_order_user_id=@userId LIMIT 1",
-                ("@tenantId", currentUser.tenant_id), ("@deptId", product.dept_id ?? 0),
+                "SELECT wms_goods_owner_id FROM wms_erp_goods_owner_map WHERE erp_dept_id=@deptId AND erp_order_user_id=@userId LIMIT 1",
+                ("@deptId", product.dept_id ?? 0),
                 ("@userId", product.order_user_id ?? 0));
             product.default_goods_owner_id = ownerId;
             product.default_goods_owner_name = ownerId == null
                 ? BuildDefaultGoodsOwnerName(product)
                 : await ScalarReferenceOrDefaultAsync<string>(
-                    "SELECT goods_owner_name FROM wms_goodsowner WHERE id=@id AND tenant_id=@tenantId AND is_valid=1 LIMIT 1",
-                    ("@id", ownerId.Value), ("@tenantId", currentUser.tenant_id)) ?? string.Empty;
+                    "SELECT goods_owner_name FROM wms_goodsowner WHERE id=@id AND is_valid=1 LIMIT 1",
+                    ("@id", ownerId.Value)) ?? string.Empty;
             if (string.IsNullOrWhiteSpace(product.default_goods_owner_name))
             {
                 product.default_goods_owner_id = null;
@@ -120,14 +120,14 @@ public partial class ErpPendingReceiptService
             {
                 ownerId = await EnsureGoodsOwnerAsync(product, currentUser, now);
                 ownerName = await ScalarAsync<string>(
-                    "SELECT goods_owner_name FROM wms_goodsowner WHERE id=@id AND tenant_id=@tenantId LIMIT 1",
-                    ("@id", ownerId), ("@tenantId", currentUser.tenant_id));
+                    "SELECT goods_owner_name FROM wms_goodsowner WHERE id=@id LIMIT 1",
+                    ("@id", ownerId));
             }
             else
             {
                 ownerName = await ScalarReferenceOrDefaultAsync<string>(
-                    "SELECT goods_owner_name FROM wms_goodsowner WHERE id=@id AND tenant_id=@tenantId AND is_valid=1 LIMIT 1",
-                    ("@id", ownerId), ("@tenantId", currentUser.tenant_id)) ?? string.Empty;
+                    "SELECT goods_owner_name FROM wms_goodsowner WHERE id=@id AND is_valid=1 LIMIT 1",
+                    ("@id", ownerId)) ?? string.Empty;
                 if (string.IsNullOrWhiteSpace(ownerName))
                 {
                     throw new InvalidOperationException($"商品 {product.sku} 选择的库存所属人无效");
@@ -158,8 +158,8 @@ public partial class ErpPendingReceiptService
         CurrentUser currentUser)
     {
         var warehouseId = await ScalarOrDefaultAsync<int>(
-            "SELECT id FROM wms_warehouse WHERE erp_warehouse_id=@erpWarehouseId AND tenant_id=@tenantId AND is_valid=1 LIMIT 1",
-            ("@erpWarehouseId", shipment.to_warehouse_id), ("@tenantId", currentUser.tenant_id));
+            "SELECT id FROM wms_warehouse WHERE erp_warehouse_id=@erpWarehouseId AND is_valid=1 LIMIT 1",
+            ("@erpWarehouseId", shipment.to_warehouse_id));
         return warehouseId == null
             ? null
             : await ResolveDefaultAreaAsync(warehouseId.Value, product.dept_id, currentUser);
@@ -187,16 +187,16 @@ public partial class ErpPendingReceiptService
             SELECT area.id,area.area_name
               FROM dept_chain chain
               JOIN wms_warehousearea_operator_group binding
-                ON binding.dept_id=chain.id AND binding.tenant_id=@tenantId
+                ON binding.dept_id=chain.id
               JOIN wms_warehousearea area
                 ON area.id=binding.warehouse_area_id
                AND area.warehouse_id=@warehouseId
-               AND area.tenant_id=@tenantId
+
                AND area.is_valid=1
              ORDER BY chain.depth,area.sort,area.id
              LIMIT 1
             """,
-            ("@deptId", deptId), ("@tenantId", currentUser.tenant_id), ("@warehouseId", warehouseId));
+            ("@deptId", deptId), ("@warehouseId", warehouseId));
         await using var reader = await command.ExecuteReaderAsync();
         return await reader.ReadAsync()
             ? new AreaReference(reader.GetInt32(0), reader.GetString(1))
@@ -209,17 +209,16 @@ public partial class ErpPendingReceiptService
         CurrentUser currentUser)
     {
         var warehouseId = await ScalarOrDefaultAsync<int>(
-            "SELECT id FROM wms_warehouse WHERE erp_warehouse_id=@erpWarehouseId AND tenant_id=@tenantId AND is_valid=1 LIMIT 1",
-            ("@erpWarehouseId", shipment.to_warehouse_id), ("@tenantId", currentUser.tenant_id));
+            "SELECT id FROM wms_warehouse WHERE erp_warehouse_id=@erpWarehouseId AND is_valid=1 LIMIT 1",
+            ("@erpWarehouseId", shipment.to_warehouse_id));
         return warehouseId == null
             ? null
-            : await ResolveUniqueLocationAsync(warehouseId.Value, areaId, currentUser.tenant_id);
+            : await ResolveUniqueLocationAsync(warehouseId.Value, areaId);
     }
 
     private async Task<LocationReference?> ResolveUniqueLocationAsync(
         int warehouseId,
-        int areaId,
-        long tenantId)
+        int areaId)
     {
         await using var connectionLease = await OpenConnectionLeaseAsync();
         await using var command = CreateCommand(
@@ -227,12 +226,12 @@ public partial class ErpPendingReceiptService
             SELECT id,location_name
               FROM wms_goodslocation
              WHERE warehouse_id=@warehouseId AND warehouse_area_id=@areaId
-               AND tenant_id=@tenantId AND is_valid=1
+               AND is_valid=1
               ORDER BY id
               LIMIT 2
               FOR SHARE
             """,
-            ("@warehouseId", warehouseId), ("@areaId", areaId), ("@tenantId", tenantId));
+            ("@warehouseId", warehouseId), ("@areaId", areaId));
         await using var reader = await command.ExecuteReaderAsync();
         if (!await reader.ReadAsync())
         {
@@ -252,8 +251,7 @@ public partial class ErpPendingReceiptService
     }
 
     private async Task<Dictionary<int, List<ErpReceiptAllocationViewModel>>> ReadReceiptAllocationsAsync(
-        IReadOnlyCollection<int> receiptItemIds,
-        long tenantId)
+        IReadOnlyCollection<int> receiptItemIds)
     {
         var result = new Dictionary<int, List<ErpReceiptAllocationViewModel>>();
         if (receiptItemIds.Count == 0)
@@ -262,7 +260,7 @@ public partial class ErpPendingReceiptService
         }
 
         var idParameters = receiptItemIds.Select((id, index) => ($"@id{index}", (object?)id)).ToArray();
-        var parameters = idParameters.Append(("@tenantId", (object?)tenantId)).ToArray();
+        var parameters = idParameters;
         var placeholders = string.Join(",", idParameters.Select(t => t.Item1));
         await using var connectionLease = await OpenConnectionLeaseAsync();
         await using var command = CreateCommand(
@@ -270,7 +268,7 @@ public partial class ErpPendingReceiptService
             SELECT receipt_item_id,warehouse_area_id,warehouse_area_name,
                    goods_location_id,goods_location_name,goods_owner_id,goods_owner_name,qty
               FROM wms_receipt_item_owner
-             WHERE receipt_item_id IN ({placeholders}) AND tenant_id=@tenantId
+             WHERE receipt_item_id IN ({placeholders})
              ORDER BY receipt_item_id,id
             """,
             parameters);

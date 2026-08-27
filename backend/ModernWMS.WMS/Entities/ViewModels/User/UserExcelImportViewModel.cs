@@ -65,10 +65,5 @@ namespace ModernWMS.WMS.Entities.ViewModels
         [MaxLength(64, ErrorMessage = "MaxLength")]
         public string creator { get; set; } = string.Empty;
 
-        /// <summary>
-        /// tenant
-        /// </summary>
-        [Display(Name = "tenant")]
-        public long tenant_id { get; set; }  =  0;
     }
 }

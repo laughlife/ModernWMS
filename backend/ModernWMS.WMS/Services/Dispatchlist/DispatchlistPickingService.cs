@@ -72,8 +72,8 @@ public class DispatchlistPickingService : IDispatchlistPickingService
             .Distinct()
             .ToList();
         var skuMap = (await connection.QueryAsync<ErpCommodityMapEntity>(
-            "SELECT * FROM `wms_erp_commodity_map` WHERE `tenant_id`=@tenant_id AND `erp_commodity_id` IN @commodityIds;",
-            new { currentUser.tenant_id, commodityIds })).ToDictionary(t => t.erp_commodity_id, t => t.wms_sku_id);
+            "SELECT * FROM `wms_erp_commodity_map` WHERE `erp_commodity_id` IN @commodityIds;",
+            new { commodityIds })).ToDictionary(t => t.erp_commodity_id, t => t.wms_sku_id);
         var movesByNo = moves.GroupBy(t => t.no).ToDictionary(t => t.Key, t => t.ToList());
         var itemsByMove = items.GroupBy(t => t.stock_move_id).ToDictionary(t => t.Key, t => t.ToList());
         var snapshotByItem = items.ToDictionary(t => t.id, ParseSnapshot);
@@ -104,9 +104,9 @@ public class DispatchlistPickingService : IDispatchlistPickingService
             : new Dictionary<long, int>();
         var measuredBoxRows = (await connection.QueryAsync<MeasuredBoxTotal>("""
             SELECT `dispatch_no`,`fba_shipment_id`,SUM(`weighing_weight`) `weight`,SUM(`weighing_volume`) `volume`
-            FROM `wms_dispatch_weighing_box` WHERE `tenant_id`=@tenant_id AND `dispatch_no` IN @dispatchNos
+            FROM `wms_dispatch_weighing_box` WHERE `dispatch_no` IN @dispatchNos
               AND `fba_shipment_id` IN @shipmentIds GROUP BY `dispatch_no`,`fba_shipment_id`;
-            """, new { currentUser.tenant_id, dispatchNos, shipmentIds })).AsList();
+            """, new { dispatchNos, shipmentIds })).AsList();
         var measuredBoxes = measuredBoxRows.ToDictionary(t => (t.dispatch_no, t.fba_shipment_id));
 
         foreach (var row in rows)
@@ -201,7 +201,7 @@ public class DispatchlistPickingService : IDispatchlistPickingService
 
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         await using var transaction = await connection.BeginTransactionAsync();
-        var lockedIds = (await connection.QueryAsync<int>("SELECT `id` FROM `wms_dispatchlist` WHERE `id` IN @distinctIds AND `tenant_id`=@tenant_id AND `dispatch_status`=2 FOR UPDATE;", new { distinctIds, currentUser.tenant_id }, transaction)).AsList();
+        var lockedIds = (await connection.QueryAsync<int>("SELECT `id` FROM `wms_dispatchlist` WHERE `id` IN @distinctIds  AND `dispatch_status`=2 FOR UPDATE;", new { distinctIds }, transaction)).AsList();
         if (lockedIds.Count != distinctIds.Count)
         {
             await transaction.RollbackAsync();
@@ -211,9 +211,9 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         var changed = await connection.ExecuteAsync("""
             UPDATE `wms_dispatchlist` SET `picked_qty`=`lock_qty`,`dispatch_status`=3,`pick_checker`=@user_name,
                 `pick_checker_id`=@user_id,`last_update_time`=@now
-            WHERE `id` IN @distinctIds AND `tenant_id`=@tenant_id AND `dispatch_status`=2;
+            WHERE `id` IN @distinctIds  AND `dispatch_status`=2;
             UPDATE `wms_dispatchpicklist` SET `picked_qty`=`pick_qty`,`last_update_time`=@now WHERE `dispatchlist_id` IN @distinctIds;
-            """, new { distinctIds, currentUser.tenant_id, currentUser.user_name, currentUser.user_id, now }, transaction);
+            """, new { distinctIds, currentUser.user_name, currentUser.user_id, now }, transaction);
         await transaction.CommitAsync();
         return changed > 0 ? (true, _stringLocalizer["operation_success"]) : (false, _stringLocalizer["operation_failed"]);
     }
@@ -228,8 +228,8 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         var now = DateTime.Now;
         var changed = await connection.ExecuteAsync("""
             UPDATE `wms_dispatchlist` SET `dispatch_status`=2,`picked_qty`=0,`pick_checker`='',`pick_checker_id`=0,`last_update_time`=@now
-            WHERE `id`=@id AND `tenant_id`=@tenant_id AND `dispatch_status`=3;
-            """, new { id, currentUser.tenant_id, now }, transaction);
+            WHERE `id`=@id  AND `dispatch_status`=3;
+            """, new { id, now }, transaction);
         if (changed == 0)
         {
             await transaction.RollbackAsync();
@@ -246,20 +246,20 @@ public class DispatchlistPickingService : IDispatchlistPickingService
     public async Task<(bool flag, string msg)> StartWeighingAsync(int id, CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
-        var entity = await connection.QuerySingleOrDefaultAsync<DispatchlistEntity>("SELECT * FROM `wms_dispatchlist` WHERE `id`=@id AND `tenant_id`=@tenant_id AND `dispatch_status`=3;", new { id, currentUser.tenant_id });
+        var entity = await connection.QuerySingleOrDefaultAsync<DispatchlistEntity>("SELECT * FROM `wms_dispatchlist` WHERE `id`=@id  AND `dispatch_status`=3;", new { id });
         if (entity == null || entity.picked_qty != entity.qty)
         {
             return (false, _stringLocalizer["data_changed"]);
         }
 
-        var invalid = await connection.ExecuteScalarAsync<bool>("SELECT EXISTS(SELECT 1 FROM `wms_dispatchlist` WHERE `dispatch_no`=@dispatch_no AND `tenant_id`=@tenant_id AND (`dispatch_status`<>3 OR `picked_qty`<>`qty`));", new { entity.dispatch_no, currentUser.tenant_id });
+        var invalid = await connection.ExecuteScalarAsync<bool>("SELECT EXISTS(SELECT 1 FROM `wms_dispatchlist` WHERE `dispatch_no`=@dispatch_no  AND (`dispatch_status`<>3 OR `picked_qty`<>`qty`));", new { entity.dispatch_no });
         if (invalid)
         {
             return (false, "该FBA货件还有商品未完成拣货");
         }
 
         var now = DateTime.Now;
-        var changed = await connection.ExecuteAsync("UPDATE `wms_dispatchlist` SET `dispatch_status`=4,`last_update_time`=@now WHERE `dispatch_no`=@dispatch_no AND `tenant_id`=@tenant_id AND `dispatch_status`=3;", new { entity.dispatch_no, currentUser.tenant_id, now });
+        var changed = await connection.ExecuteAsync("UPDATE `wms_dispatchlist` SET `dispatch_status`=4,`last_update_time`=@now WHERE `dispatch_no`=@dispatch_no  AND `dispatch_status`=3;", new { entity.dispatch_no, now });
         return changed > 0 ? (true, _stringLocalizer["operation_success"]) : (false, _stringLocalizer["operation_failed"]);
     }
 
@@ -269,7 +269,7 @@ public class DispatchlistPickingService : IDispatchlistPickingService
     public async Task<(bool flag, string msg)> UndoWeighingAsync(int id, CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
-        var entity = await connection.QuerySingleOrDefaultAsync<DispatchlistEntity>("SELECT * FROM `wms_dispatchlist` WHERE `id`=@id AND `tenant_id`=@tenant_id AND `dispatch_status` IN (4,5);", new { id, currentUser.tenant_id });
+        var entity = await connection.QuerySingleOrDefaultAsync<DispatchlistEntity>("SELECT * FROM `wms_dispatchlist` WHERE `id`=@id  AND `dispatch_status` IN (4,5);", new { id });
         if (entity == null)
         {
             return (false, _stringLocalizer["data_changed"]);
@@ -280,9 +280,9 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         var changed = await connection.ExecuteAsync("""
             UPDATE `wms_dispatchlist` SET `dispatch_status`=3,`weighing_no`='',`weighing_qty`=0,`weighing_weight`=0,
               `weighing_length`=0,`weighing_width`=0,`weighing_height`=0,`weighing_volume`=0,`weighing_person`='',`last_update_time`=@now
-            WHERE `dispatch_no`=@dispatch_no AND `tenant_id`=@tenant_id AND `dispatch_status` IN (4,5);
-            DELETE FROM `wms_dispatch_weighing_box` WHERE `dispatch_no`=@dispatch_no AND `tenant_id`=@tenant_id;
-            """, new { entity.dispatch_no, currentUser.tenant_id, now }, transaction);
+            WHERE `dispatch_no`=@dispatch_no  AND `dispatch_status` IN (4,5);
+            DELETE FROM `wms_dispatch_weighing_box` WHERE `dispatch_no`=@dispatch_no ;
+            """, new { entity.dispatch_no, now }, transaction);
         await transaction.CommitAsync();
         return changed > 0 ? (true, _stringLocalizer["operation_success"]) : (false, _stringLocalizer["operation_failed"]);
     }
@@ -303,14 +303,14 @@ public class DispatchlistPickingService : IDispatchlistPickingService
 
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         var entity = await connection.QuerySingleOrDefaultAsync<DispatchlistEntity>(
-            "SELECT * FROM `wms_dispatchlist` WHERE `id`=@id AND `tenant_id`=@tenant_id;", new { id, currentUser.tenant_id });
+            "SELECT * FROM `wms_dispatchlist` WHERE `id`=@id ;", new { id });
         if (entity == null)
         {
             return (false, _stringLocalizer["data_changed"]);
         }
 
         var dispatchRows = (await connection.QueryAsync<DispatchlistEntity>(
-            "SELECT * FROM `wms_dispatchlist` WHERE `dispatch_no`=@dispatch_no AND `tenant_id`=@tenant_id;", new { entity.dispatch_no, currentUser.tenant_id })).AsList();
+            "SELECT * FROM `wms_dispatchlist` WHERE `dispatch_no`=@dispatch_no ;", new { entity.dispatch_no })).AsList();
         if (dispatchRows.Count == 0)
         {
             return (false, _stringLocalizer["data_changed"]);
@@ -324,8 +324,8 @@ public class DispatchlistPickingService : IDispatchlistPickingService
             return (false, _stringLocalizer["data_changed"]);
         }
 
-        var saved = await connection.ExecuteAsync("UPDATE `wms_dispatchlist` SET `dispatch_status`=4,`last_update_time`=@now WHERE `dispatch_no`=@dispatch_no AND `tenant_id`=@tenant_id AND `dispatch_status`=5;",
-            new { entity.dispatch_no, currentUser.tenant_id, now=DateTime.Now });
+        var saved = await connection.ExecuteAsync("UPDATE `wms_dispatchlist` SET `dispatch_status`=4,`last_update_time`=@now WHERE `dispatch_no`=@dispatch_no  AND `dispatch_status`=5;",
+            new { entity.dispatch_no, now=DateTime.Now });
         return saved > 0 ? (true, _stringLocalizer["operation_success"]) : (false, _stringLocalizer["operation_failed"]);
     }
 
@@ -345,14 +345,14 @@ public class DispatchlistPickingService : IDispatchlistPickingService
 
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         var entity = await connection.QuerySingleOrDefaultAsync<DispatchlistEntity>(
-            "SELECT * FROM `wms_dispatchlist` WHERE `id`=@id AND `tenant_id`=@tenant_id;", new { id, currentUser.tenant_id });
+            "SELECT * FROM `wms_dispatchlist` WHERE `id`=@id ;", new { id });
         if (entity == null)
         {
             return (false, _stringLocalizer["data_changed"]);
         }
 
         var dispatchRows = (await connection.QueryAsync<DispatchlistEntity>(
-            "SELECT * FROM `wms_dispatchlist` WHERE `dispatch_no`=@dispatch_no AND `tenant_id`=@tenant_id;", new { entity.dispatch_no, currentUser.tenant_id })).AsList();
+            "SELECT * FROM `wms_dispatchlist` WHERE `dispatch_no`=@dispatch_no ;", new { entity.dispatch_no })).AsList();
         if (dispatchRows.Count == 0)
         {
             return (false, _stringLocalizer["data_changed"]);
@@ -398,8 +398,8 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         try
         {
             var dispatchRow = await connection.QuerySingleOrDefaultAsync<DispatchlistEntity>(
-                "SELECT * FROM `wms_dispatchlist` WHERE `id`=@id AND `tenant_id`=@tenant_id AND `dispatch_status`=6 FOR UPDATE;",
-                new { id, currentUser.tenant_id }, transaction);
+                "SELECT * FROM `wms_dispatchlist` WHERE `id`=@id  AND `dispatch_status`=6 FOR UPDATE;",
+                new { id }, transaction);
             if (dispatchRow == null)
             {
                 return (false, _stringLocalizer["data_changed"]);
@@ -422,11 +422,10 @@ public class DispatchlistPickingService : IDispatchlistPickingService
                     JOIN `wms_goodslocation` location ON location.`id`=pick.`goods_location_id`
                     JOIN `wms_warehouse` warehouse ON warehouse.`id`=location.`warehouse_id`
                     JOIN `wms_inventory_runtime_config` config
-                      ON config.`tenant_id`=@tenantId
-                     AND config.`erp_warehouse_id`=warehouse.`erp_warehouse_id`
+                      ON config.`erp_warehouse_id`=warehouse.`erp_warehouse_id`
                    WHERE pick.`dispatchlist_id`=@id
                      AND (config.`maintenance_enabled`=1 OR config.`mode`='CANONICAL_ERP'));
-                """,new{tenantId=currentUser.tenant_id,id},transaction);
+                """,new { id},transaction);
             if(legacyRuntimeBlocked)
             {
                 await transaction.RollbackAsync();
@@ -461,11 +460,11 @@ public class DispatchlistPickingService : IDispatchlistPickingService
             var skuIds = stockKeys.Select(t => t.sku_id).Distinct().ToList();
             var locationIds = stockKeys.Select(t => t.goods_location_id).Distinct().ToList();
             var stockRows = (await connection.QueryAsync<StockEntity>(
-                "SELECT * FROM `wms_stock` WHERE `tenant_id`=@tenant_id AND `sku_id` IN @skuIds AND `goods_location_id` IN @locationIds FOR UPDATE;",
-                new { currentUser.tenant_id, skuIds, locationIds }, transaction)).AsList();
+                "SELECT * FROM `wms_stock` WHERE `sku_id` IN @skuIds AND `goods_location_id` IN @locationIds FOR UPDATE;",
+                new { skuIds, locationIds }, transaction)).AsList();
             var existingInboundRecords = (await connection.QueryAsync<StockRecordKey>(
-                "SELECT `biz_item_id`,`stock_id` FROM `wms_stock_record` WHERE `tenant_id`=@tenant_id AND `biz_id`=@id AND `biz_type` LIKE 'DISPATCH_IN%';",
-                new { currentUser.tenant_id, id=dispatchRow.id }, transaction)).AsList();
+                "SELECT `biz_item_id`,`stock_id` FROM `wms_stock_record` WHERE `biz_id`=@id AND `biz_type` LIKE 'DISPATCH_IN%';",
+                new { id=dispatchRow.id }, transaction)).AsList();
             var now = DateTime.Now;
             var operatorName = currentUser.user_name?.Trim() ?? string.Empty;
             if (operatorName.Length > 128)
@@ -514,13 +513,13 @@ public class DispatchlistPickingService : IDispatchlistPickingService
                     var cycle = existingInboundRecords.Count(t => t.biz_item_id == pickRow.id && t.stock_id == stock.id) + 1;
                     var bizType = cycle == 1 ? "DISPATCH_IN" : $"DISPATCH_IN_{cycle}";
                     await connection.ExecuteAsync("""
-                        INSERT INTO `wms_stock_record` (`record_no`,`biz_type`,`biz_id`,`biz_item_id`,`stock_id`,`sku_id`,`goods_location_id`,`goods_owner_id`,`change_qty`,`before_qty`,`after_qty`,`direction`,`operator_id`,`operator_name`,`remark`,`operate_time`,`tenant_id`)
-                        VALUES (@record_no,@bizType,@dispatchlist_id,@pick_id,@stock_id,@sku_id,@location_id,@owner_id,@picked_qty,@beforeQty,@afterQty,'IN',@user_id,@operatorName,'已出库发货单撤回',@now,@tenant_id);
-                        """, new { record_no=$"MWMS-DI-{pickRow.dispatchlist_id}-{pickRow.id}-{cycle}", bizType, pickRow.dispatchlist_id, pick_id=pickRow.id, stock_id=stock.id, pickRow.sku_id, location_id=pickRow.goods_location_id, owner_id=pickRow.goods_owner_id, pickRow.picked_qty, beforeQty=runningQty, afterQty, currentUser.user_id, operatorName, now, currentUser.tenant_id }, transaction);
+                        INSERT INTO `wms_stock_record` (`record_no`,`biz_type`,`biz_id`,`biz_item_id`,`stock_id`,`sku_id`,`goods_location_id`,`goods_owner_id`,`change_qty`,`before_qty`,`after_qty`,`direction`,`operator_id`,`operator_name`,`remark`,`operate_time`)
+                        VALUES (@record_no,@bizType,@dispatchlist_id,@pick_id,@stock_id,@sku_id,@location_id,@owner_id,@picked_qty,@beforeQty,@afterQty,'IN',@user_id,@operatorName,'已出库发货单撤回',@now);
+                        """, new { record_no=$"MWMS-DI-{pickRow.dispatchlist_id}-{pickRow.id}-{cycle}", bizType, pickRow.dispatchlist_id, pick_id=pickRow.id, stock_id=stock.id, pickRow.sku_id, location_id=pickRow.goods_location_id, owner_id=pickRow.goods_owner_id, pickRow.picked_qty, beforeQty=runningQty, afterQty, currentUser.user_id, operatorName, now }, transaction);
                     runningQty = afterQty;
                 }
-                await connection.ExecuteAsync("UPDATE `wms_stock` SET `qty`=@runningQty,`last_update_time`=@now WHERE `id`=@id AND `tenant_id`=@tenant_id;",
-                    new { runningQty, now, stock.id, currentUser.tenant_id }, transaction);
+                await connection.ExecuteAsync("UPDATE `wms_stock` SET `qty`=@runningQty,`last_update_time`=@now WHERE `id`=@id ;",
+                    new { runningQty, now, stock.id }, transaction);
             }
 
             dispatchRow.dispatch_status = 5;
@@ -536,9 +535,9 @@ public class DispatchlistPickingService : IDispatchlistPickingService
 
             await connection.ExecuteAsync("""
                 UPDATE `wms_dispatchlist` SET `dispatch_status`=5,`lock_qty`=`picked_qty`,`actual_qty`=0,`intrasit_qty`=0,`last_update_time`=@now
-                WHERE `id`=@id AND `tenant_id`=@tenant_id AND `dispatch_status`=6;
+                WHERE `id`=@id  AND `dispatch_status`=6;
                 UPDATE `wms_dispatchpicklist` SET `is_update_stock`=0,`last_update_time`=@now WHERE `dispatchlist_id`=@id;
-                """, new { id, currentUser.tenant_id, now }, transaction);
+                """, new { id, now }, transaction);
             await transaction.CommitAsync();
             return (true, _stringLocalizer["operation_success"]);
         }
@@ -590,8 +589,8 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         }
 
         await using var connection = await _connectionFactory.OpenConnectionAsync();
-        var saved = await connection.ExecuteAsync("UPDATE `wms_dispatchlist` SET `volume_divisor`=@volume_divisor,`last_update_time`=@now WHERE `id`=@id AND `tenant_id`=@tenant_id AND `dispatch_status`=5;",
-            new { viewModel.volume_divisor, now=DateTime.Now, viewModel.id, currentUser.tenant_id });
+        var saved = await connection.ExecuteAsync("UPDATE `wms_dispatchlist` SET `volume_divisor`=@volume_divisor,`last_update_time`=@now WHERE `id`=@id  AND `dispatch_status`=5;",
+            new { viewModel.volume_divisor, now=DateTime.Now, viewModel.id });
         return saved > 0 ? (true, _stringLocalizer["operation_success"]) : (false, _stringLocalizer["data_changed"]);
     }
 
@@ -627,8 +626,8 @@ public class DispatchlistPickingService : IDispatchlistPickingService
             return (true, _stringLocalizer["operation_success"]);
         }
 
-        var saved = await connection.ExecuteAsync("UPDATE `wms_dispatchlist` SET `carrier_warehouse_id`=@id,`carrier_unit`=@name,`last_update_time`=@now WHERE `id`=@row_id AND `tenant_id`=@tenant_id AND `dispatch_status`=5;",
-            new { carrier.id, carrier.name, now=DateTime.Now, row_id=viewModel.id, currentUser.tenant_id });
+        var saved = await connection.ExecuteAsync("UPDATE `wms_dispatchlist` SET `carrier_warehouse_id`=@id,`carrier_unit`=@name,`last_update_time`=@now WHERE `id`=@row_id  AND `dispatch_status`=5;",
+            new { carrier.id, carrier.name, now=DateTime.Now, row_id=viewModel.id });
         return saved > 0 ? (true, _stringLocalizer["operation_success"]) : (false, _stringLocalizer["data_changed"]);
     }
 
@@ -636,8 +635,8 @@ public class DispatchlistPickingService : IDispatchlistPickingService
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         return await connection.QuerySingleOrDefaultAsync<DispatchlistEntity>(
-            "SELECT * FROM `wms_dispatchlist` WHERE `id`=@id AND `tenant_id`=@tenant_id AND `dispatch_status`=5 LIMIT 1;",
-            new { id, currentUser.tenant_id });
+            "SELECT * FROM `wms_dispatchlist` WHERE `id`=@id  AND `dispatch_status`=5 LIMIT 1;",
+            new { id });
     }
 
     private async Task<bool> HasOutboundSettingAuthorityAsync(CurrentUser currentUser)
@@ -654,13 +653,13 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         }
 
         await using var connection = await _connectionFactory.OpenConnectionAsync();
-        var roleId = await connection.QuerySingleOrDefaultAsync<int?>("SELECT `id` FROM `wms_userrole` WHERE `tenant_id`=@tenant_id AND `is_valid`=1 AND `role_name`=@roleName LIMIT 1;", new { currentUser.tenant_id, roleName });
+        var roleId = await connection.QuerySingleOrDefaultAsync<int?>("SELECT `id` FROM `wms_userrole` WHERE `is_valid`=1 AND `role_name`=@roleName LIMIT 1;", new { roleName });
         if (!roleId.HasValue)
         {
             return false;
         }
 
-        var actionAuthorities = (await connection.QueryAsync<string>("SELECT `menu_actions_authority` FROM `wms_rolemenu` WHERE `tenant_id`=@tenant_id AND `userrole_id`=@roleId AND `authority`=1;", new { currentUser.tenant_id, roleId=roleId.Value })).AsList();
+        var actionAuthorities = (await connection.QueryAsync<string>("SELECT `menu_actions_authority` FROM `wms_rolemenu` WHERE `userrole_id`=@roleId AND `authority`=1;", new { roleId=roleId.Value })).AsList();
 
         return actionAuthorities.Any(actions =>
         {
@@ -685,7 +684,7 @@ public class DispatchlistPickingService : IDispatchlistPickingService
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         var dispatchRows = (await connection.QueryAsync<DispatchlistEntity>(
-            "SELECT * FROM `wms_dispatchlist` WHERE `tenant_id`=@tenant_id AND `dispatch_status` IN (4,5);", new { currentUser.tenant_id })).AsList();
+            "SELECT * FROM `wms_dispatchlist` WHERE `dispatch_status` IN (4,5);")).AsList();
         if (dispatchRows.Count == 0)
         {
             return ([], 0);
@@ -697,7 +696,7 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         var moveItems = (await connection.QueryAsync<ErpStockMoveItemEntity>("SELECT * FROM `trk_stock_move_item` WHERE `deleted`=0 AND `stock_move_id` IN @moveIds;", new { moveIds })).AsList();
         var commodityIds = moveItems.Where(t => t.commodity_id.HasValue)
             .Select(t => t.commodity_id!.Value).Distinct().ToList();
-        var skuMap = (await connection.QueryAsync<ErpCommodityMapEntity>("SELECT * FROM `wms_erp_commodity_map` WHERE `tenant_id`=@tenant_id AND `erp_commodity_id` IN @commodityIds;", new { currentUser.tenant_id, commodityIds })).ToDictionary(t => t.erp_commodity_id, t => t.wms_sku_id);
+        var skuMap = (await connection.QueryAsync<ErpCommodityMapEntity>("SELECT * FROM `wms_erp_commodity_map` WHERE `erp_commodity_id` IN @commodityIds;", new { commodityIds })).ToDictionary(t => t.erp_commodity_id, t => t.wms_sku_id);
         var snapshots = moveItems.ToDictionary(t => t.id, ParseSnapshot);
         var shipmentItemIds = snapshots.Values.Where(t => t.fbaShipmentItemId.HasValue)
             .Select(t => t.fbaShipmentItemId!.Value).Distinct().ToList();
@@ -715,7 +714,7 @@ public class DispatchlistPickingService : IDispatchlistPickingService
             .Select(t => t!.Value).Distinct().ToList();
         var shipments = (await connection.QueryAsync<ErpFbaShipmentEntity>("SELECT * FROM `erp_fba_shipment` WHERE `deleted`=0 AND `id` IN @shipmentIds;", new { shipmentIds })).ToDictionary(t => t.id);
         var boxes = (await connection.QueryAsync<ErpFbaSpdBoxEntity>("SELECT * FROM `erp_fba_spd_box` WHERE `deleted`=0 AND `shipment_id` IN @shipmentIds;", new { shipmentIds })).AsList();
-        var measured = (await connection.QueryAsync<DispatchWeighingBoxEntity>("SELECT * FROM `wms_dispatch_weighing_box` WHERE `tenant_id`=@tenant_id AND `fba_shipment_id` IN @shipmentIds;", new { currentUser.tenant_id, shipmentIds })).AsList();
+        var measured = (await connection.QueryAsync<DispatchWeighingBoxEntity>("SELECT * FROM `wms_dispatch_weighing_box` WHERE `fba_shipment_id` IN @shipmentIds;", new { shipmentIds })).AsList();
 
         var rowsByNo = dispatchRows.GroupBy(t => t.dispatch_no).ToDictionary(t => t.Key, t => t.ToList());
         var result = new List<DispatchWeighingShipmentViewModel>();
@@ -812,7 +811,7 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         if (!await CanAccessShipmentAsync(dispatchNo, shipmentId, currentUser)) return [];
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         var boxes = (await connection.QueryAsync<ErpFbaSpdBoxEntity>("SELECT * FROM `erp_fba_spd_box` WHERE `deleted`=0 AND `shipment_id`=@shipmentId ORDER BY `idx`,`box_id`;", new { shipmentId })).AsList();
-        var measured = (await connection.QueryAsync<DispatchWeighingBoxEntity>("SELECT * FROM `wms_dispatch_weighing_box` WHERE `tenant_id`=@tenant_id AND `dispatch_no`=@dispatchNo AND `fba_shipment_id`=@shipmentId;", new { currentUser.tenant_id, dispatchNo, shipmentId })).ToDictionary(t => t.erp_box_id);
+        var measured = (await connection.QueryAsync<DispatchWeighingBoxEntity>("SELECT * FROM `wms_dispatch_weighing_box` WHERE `dispatch_no`=@dispatchNo AND `fba_shipment_id`=@shipmentId;", new { dispatchNo, shipmentId })).ToDictionary(t => t.erp_box_id);
         return boxes.Select(box =>
         {
             measured.TryGetValue(box.id, out var value);
@@ -868,7 +867,7 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         var valuesByBoxId = viewModels.ToDictionary(t => t.erp_box_id);
 
         await using var transaction = await connection.BeginTransactionAsync();
-        var existing = (await connection.QueryAsync<DispatchWeighingBoxEntity>("SELECT * FROM `wms_dispatch_weighing_box` WHERE `tenant_id`=@tenant_id AND `erp_box_id` IN @submittedIds FOR UPDATE;", new { currentUser.tenant_id, submittedIds }, transaction)).ToDictionary(t => t.erp_box_id);
+        var existing = (await connection.QueryAsync<DispatchWeighingBoxEntity>("SELECT * FROM `wms_dispatch_weighing_box` WHERE `erp_box_id` IN @submittedIds FOR UPDATE;", new { submittedIds }, transaction)).ToDictionary(t => t.erp_box_id);
         if (existing.Values.Any(t => t.dispatch_no != dispatchNo || t.fba_shipment_id != shipmentId))
             return (false, "存在已关联其它WMS发货单的箱号");
 
@@ -879,7 +878,6 @@ public class DispatchlistPickingService : IDispatchlistPickingService
             {
                 entity = new DispatchWeighingBoxEntity
                 {
-                    tenant_id = currentUser.tenant_id,
                     dispatch_no = dispatchNo,
                     fba_shipment_id = shipmentId,
                     fba_no = fbaNo,
@@ -897,8 +895,8 @@ public class DispatchlistPickingService : IDispatchlistPickingService
             if (entity.id == 0)
             {
                 await connection.ExecuteAsync("""
-                    INSERT INTO `wms_dispatch_weighing_box` (`tenant_id`,`dispatch_no`,`fba_shipment_id`,`fba_no`,`erp_box_id`,`box_no`,`box_index`,`tracking_id`,`weighing_weight`,`weighing_length`,`weighing_width`,`weighing_height`,`weighing_volume`,`weighing_person_id`,`weighing_person`,`weighing_time`,`copied_from_erp_box_id`,`create_time`,`last_update_time`)
-                    VALUES (@tenant_id,@dispatch_no,@fba_shipment_id,@fba_no,@erp_box_id,@box_no,@box_index,@tracking_id,@weighing_weight,@weighing_length,@weighing_width,@weighing_height,@weighing_volume,@weighing_person_id,@weighing_person,@weighing_time,@copied_from_erp_box_id,@create_time,@last_update_time);
+                    INSERT INTO `wms_dispatch_weighing_box` (`dispatch_no`,`fba_shipment_id`,`fba_no`,`erp_box_id`,`box_no`,`box_index`,`tracking_id`,`weighing_weight`,`weighing_length`,`weighing_width`,`weighing_height`,`weighing_volume`,`weighing_person_id`,`weighing_person`,`weighing_time`,`copied_from_erp_box_id`,`create_time`,`last_update_time`)
+                    VALUES (@dispatch_no,@fba_shipment_id,@fba_no,@erp_box_id,@box_no,@box_index,@tracking_id,@weighing_weight,@weighing_length,@weighing_width,@weighing_height,@weighing_volume,@weighing_person_id,@weighing_person,@weighing_time,@copied_from_erp_box_id,@create_time,@last_update_time);
                     """, entity, transaction);
             }
             else
@@ -908,7 +906,7 @@ public class DispatchlistPickingService : IDispatchlistPickingService
                       `weighing_width`=@weighing_width,`weighing_height`=@weighing_height,`weighing_volume`=@weighing_volume,
                       `weighing_person_id`=@weighing_person_id,`weighing_person`=@weighing_person,`weighing_time`=@weighing_time,
                       `copied_from_erp_box_id`=@copied_from_erp_box_id,`last_update_time`=@last_update_time
-                    WHERE `id`=@id AND `tenant_id`=@tenant_id AND `dispatch_no`=@dispatch_no AND `fba_shipment_id`=@fba_shipment_id;
+                    WHERE `id`=@id  AND `dispatch_no`=@dispatch_no AND `fba_shipment_id`=@fba_shipment_id;
                     """, entity, transaction);
             }
         }
@@ -923,7 +921,7 @@ public class DispatchlistPickingService : IDispatchlistPickingService
     private async Task<bool> CanAccessShipmentAsync(string dispatchNo, long shipmentId, CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
-        var hasDispatch = await connection.ExecuteScalarAsync<bool>("SELECT EXISTS(SELECT 1 FROM `wms_dispatchlist` WHERE `tenant_id`=@tenant_id AND `dispatch_no`=@dispatchNo AND `dispatch_status` IN (4,5));", new { currentUser.tenant_id, dispatchNo });
+        var hasDispatch = await connection.ExecuteScalarAsync<bool>("SELECT EXISTS(SELECT 1 FROM `wms_dispatchlist` WHERE `dispatch_no`=@dispatchNo AND `dispatch_status` IN (4,5));", new { dispatchNo });
         if (!hasDispatch) return false;
         var shipmentIds = await GetShipmentIdsForDispatchAsync(dispatchNo, currentUser);
         return shipmentIds.Contains(shipmentId);
@@ -937,7 +935,7 @@ public class DispatchlistPickingService : IDispatchlistPickingService
 
     private async Task<bool> CompleteDispatchIfReadyCoreAsync(MySqlConnection connection, IDbTransaction? transaction, string dispatchNo, CurrentUser currentUser)
     {
-        var rows = (await connection.QueryAsync<DispatchlistEntity>("SELECT * FROM `wms_dispatchlist` WHERE `tenant_id`=@tenant_id AND `dispatch_no`=@dispatchNo;", new { currentUser.tenant_id, dispatchNo }, transaction)).AsList();
+        var rows = (await connection.QueryAsync<DispatchlistEntity>("SELECT * FROM `wms_dispatchlist` WHERE `dispatch_no`=@dispatchNo;", new { dispatchNo }, transaction)).AsList();
         if (rows.Count == 0) return false;
         var isPendingOutbound = rows.All(t => t.dispatch_status == 5);
         if (!isPendingOutbound && rows.Any(t => t.dispatch_status != 4)) return false;
@@ -947,7 +945,7 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         var boxes = (await connection.QueryAsync<BoxKey>("SELECT `id`,`shipment_id` FROM `erp_fba_spd_box` WHERE `deleted`=0 AND `shipment_id` IN @shipmentIds;", new { shipmentIds }, transaction)).AsList();
         if (shipmentIds.Any(shipmentId => boxes.All(t => t.shipment_id != shipmentId))) return false;
         var boxIds = boxes.Select(t => t.id).ToList();
-        var measurements = (await connection.QueryAsync<DispatchWeighingBoxEntity>("SELECT * FROM `wms_dispatch_weighing_box` WHERE `tenant_id`=@tenant_id AND `dispatch_no`=@dispatchNo AND `erp_box_id` IN @boxIds;", new { currentUser.tenant_id, dispatchNo, boxIds }, transaction)).AsList();
+        var measurements = (await connection.QueryAsync<DispatchWeighingBoxEntity>("SELECT * FROM `wms_dispatch_weighing_box` WHERE `dispatch_no`=@dispatchNo AND `erp_box_id` IN @boxIds;", new { dispatchNo, boxIds }, transaction)).AsList();
         if (measurements.Select(t => t.erp_box_id).Distinct().Count() != boxIds.Distinct().Count()
             || measurements.Any(t => t.weighing_weight <= 0
                 || t.weighing_length <= 0
@@ -964,25 +962,25 @@ public class DispatchlistPickingService : IDispatchlistPickingService
               `weighing_length`=@length,`weighing_width`=@width,`weighing_height`=@height,
               `weighing_volume`=CASE WHEN `id`=@firstRowId THEN @totalVolume ELSE 0 END,
               `weighing_person`=@user_name,`last_update_time`=@now
-            WHERE `tenant_id`=@tenant_id AND `dispatch_no`=@dispatchNo AND `dispatch_status` IN (4,5);
+            WHERE `dispatch_no`=@dispatchNo AND `dispatch_status` IN (4,5);
             """, new { weighingNo=$"{dispatchNo}-BOX", firstRowId, totalWeight, totalVolume,
                 length=measurements.Count==1?measurements[0].weighing_length:0,
                 width=measurements.Count==1?measurements[0].weighing_width:0,
                 height=measurements.Count==1?measurements[0].weighing_height:0,
-                currentUser.user_name, now, currentUser.tenant_id, dispatchNo }, transaction);
+                currentUser.user_name, now, dispatchNo }, transaction);
         return true;
     }
 
     private async Task<List<long>> GetShipmentIdsForDispatchAsync(string dispatchNo, CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
-        var wmsSkuIds = (await connection.QueryAsync<int>("SELECT DISTINCT `sku_id` FROM `wms_dispatchlist` WHERE `tenant_id`=@tenant_id AND `dispatch_no`=@dispatchNo;", new { currentUser.tenant_id, dispatchNo })).AsList();
+        var wmsSkuIds = (await connection.QueryAsync<int>("SELECT DISTINCT `sku_id` FROM `wms_dispatchlist` WHERE `dispatch_no`=@dispatchNo;", new { dispatchNo })).AsList();
         var moveIds = (await connection.QueryAsync<long>("SELECT `id` FROM `trk_stock_move` WHERE `deleted`=0 AND `no`=@dispatchNo;", new { dispatchNo })).AsList();
         if (moveIds.Count == 0) return [];
         var items = (await connection.QueryAsync<ErpStockMoveItemEntity>("SELECT * FROM `trk_stock_move_item` WHERE `deleted`=0 AND `stock_move_id` IN @moveIds;", new { moveIds })).AsList();
         var commodityIds = items.Where(t => t.commodity_id.HasValue)
             .Select(t => t.commodity_id!.Value).Distinct().ToList();
-        var allowedCommodityIds = (await connection.QueryAsync<long>("SELECT `erp_commodity_id` FROM `wms_erp_commodity_map` WHERE `tenant_id`=@tenant_id AND `erp_commodity_id` IN @commodityIds AND `wms_sku_id` IN @wmsSkuIds;", new { currentUser.tenant_id, commodityIds, wmsSkuIds })).AsList();
+        var allowedCommodityIds = (await connection.QueryAsync<long>("SELECT `erp_commodity_id` FROM `wms_erp_commodity_map` WHERE `erp_commodity_id` IN @commodityIds AND `wms_sku_id` IN @wmsSkuIds;", new { commodityIds, wmsSkuIds })).AsList();
         items = items.Where(t => t.commodity_id.HasValue && allowedCommodityIds.Contains(t.commodity_id.Value)).ToList();
         var snapshots = items.Select(ParseSnapshot).ToList();
         var result = snapshots.Where(t => t.fbaShipmentId.HasValue)

@@ -103,11 +103,6 @@ namespace ModernWMS.WMS.Entities.ViewModels
         [DataType(DataType.DateTime, ErrorMessage = "DataType_DateTime")]
         public DateTime last_update_time { get; set; } = UtilConvert.MinDate;
 
-        /// <summary>
-        /// tenant
-        /// </summary>
-        [Display(Name = "tenant")]
-        public long tenant_id { get; set; } = 0;
 
         #endregion property
     }

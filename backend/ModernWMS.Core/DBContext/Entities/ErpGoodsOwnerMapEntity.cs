@@ -39,8 +39,4 @@ public class ErpGoodsOwnerMapEntity : BaseModel
     /// 获取或设置 last_sync_time。
     /// </summary>
     public DateTime last_sync_time { get; set; } = DateTime.Now;
-    /// <summary>
-    /// 获取或设置 tenant_id。
-    /// </summary>
-    public long tenant_id { get; set; } = 1;
 }
