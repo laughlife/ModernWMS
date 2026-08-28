@@ -12,8 +12,8 @@ export default defineConfig({
   server: {
     // 允许通过本机 IP 直接访问
     host: true,
-    // 使用 80 端口，浏览器直接访问，无需输入端口号
-    port: 80,
+    // ERP 已使用 80 端口，WMS 开发服务固定使用 81 端口
+    port: 81,
     // 端口被占用时直接报错，不自动回退到其他端口
     strictPort: true,
     watch: {

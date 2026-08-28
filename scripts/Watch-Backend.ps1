@@ -6,7 +6,7 @@ param(
     [int]$Port = 21011,
 
     [ValidateRange(1, 65535)]
-    [int]$FrontendPort = 80,
+    [int]$FrontendPort = 81,
 
     [string]$StatePath,
 
@@ -255,7 +255,7 @@ function Start-AppProcess {
     $env:ASPNETCORE_ENVIRONMENT = 'Development'
     $env:Cors__AllowedOrigins__6 = "http://localhost:$FrontendPort"
     $env:Cors__AllowedOrigins__7 = "http://127.0.0.1:$FrontendPort"
-    $env:Cors__AllowedOrigins__8 = "http://192.168.100.2:$FrontendPort"
+    $env:Cors__AllowedOrigins__8 = "http://192.168.100.102:$FrontendPort"
 
     return Start-Process -FilePath $DotnetPath `
         -ArgumentList @('run', '--project', $Project, '--no-launch-profile', '--no-restore') `

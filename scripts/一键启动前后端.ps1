@@ -4,7 +4,7 @@ param(
     [int]$BackendPort = 21011,
 
     [ValidateRange(1, 65535)]
-    [int]$FrontendPort = 80,
+    [int]$FrontendPort = 81,
 
     [switch]$CheckOnly
 )
