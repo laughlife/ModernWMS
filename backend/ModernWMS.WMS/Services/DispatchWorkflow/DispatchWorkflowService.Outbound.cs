@@ -38,9 +38,7 @@ public partial class DispatchWorkflowService
     {
         ValidateSignRequest(orderId, request);
         var requestId = request.request_id.Trim();
-        var shouldNotify = false;
         var transactionCompleted = false;
-        int? claimedAttempt = null;
         DispatchOrderEntity order;
         await using (var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken))
         await using (var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken))
@@ -81,16 +79,19 @@ public partial class DispatchWorkflowService
                     order.signed_by = currentUser.user_id;
                     order.signed_by_name = Truncate(currentUser.user_name, 128);
                     order.signed_at = now;
-                    order.notification_status = DispatchSignNotificationStatus.Pending;
+                    order.notification_status = DispatchSignNotificationStatus.None;
+                    order.notification_attempt_count = 0;
+                    order.notification_sent_at = null;
                     order.notification_last_error = string.Empty;
-                    order.notification_updated_at = now;
+                    order.notification_updated_at = null;
                     order.last_update_time = now;
                     order.row_version++;
                     await connection.ExecuteAsync(new CommandDefinition("""
                         UPDATE `wms_dispatch_order` SET `signed_qty`=@signed_qty,`damaged_qty`=@damaged_qty,
                           `signed_by`=@signed_by,`signed_by_name`=@signed_by_name,`signed_at`=@signed_at,
-                          `notification_status`=@notification_status,`notification_last_error`='',
-                          `notification_updated_at`=@notification_updated_at,`last_update_time`=@last_update_time,
+                          `notification_status`=@notification_status,`notification_attempt_count`=0,
+                          `notification_sent_at`=NULL,`notification_last_error`='',`notification_updated_at`=NULL,
+                          `last_update_time`=@last_update_time,
                           `row_version`=@row_version
                         WHERE `id`=@id;
                         """, order, transaction, cancellationToken: cancellationToken));
@@ -104,30 +105,9 @@ public partial class DispatchWorkflowService
                     if (previous == null && order.row_version != request.row_version)
                         throw DispatchWorkflowCommandException.ConcurrencyConflict();
                 }
-
-                var stale = order.notification_status == DispatchSignNotificationStatus.Sending
-                    && (order.notification_updated_at == null || order.notification_updated_at <= now.AddMinutes(-10));
-                if (order.notification_status is DispatchSignNotificationStatus.Pending
-                    or DispatchSignNotificationStatus.Failed || stale)
-                {
-                    order.notification_status = DispatchSignNotificationStatus.Sending;
-                    order.notification_attempt_count++;
-                    claimedAttempt = order.notification_attempt_count;
-                    order.notification_updated_at = now;
-                    order.notification_last_error = string.Empty;
-                    order.last_update_time = now;
-                    order.row_version++;
-                    shouldNotify = true;
-                    await connection.ExecuteAsync(new CommandDefinition("""
-                        UPDATE `wms_dispatch_order` SET `notification_status`=@notification_status,
-                          `notification_attempt_count`=@notification_attempt_count,
-                          `notification_updated_at`=@notification_updated_at,`notification_last_error`='',
-                          `last_update_time`=@last_update_time,`row_version`=@row_version WHERE `id`=@id;
-                        """, order, transaction, cancellationToken: cancellationToken));
-                }
                 await transaction.CommitAsync(cancellationToken);
                 transactionCompleted = true;
-                if (!shouldNotify) return ToSignResult(order, requestId);
+                return ToSignResult(order, requestId);
             }
             catch
             {
@@ -135,54 +115,6 @@ public partial class DispatchWorkflowService
                 throw;
             }
         }
-
-        var notificationSucceeded = false;
-        if (_dispatchSignNotificationClient != null)
-        {
-            try
-            {
-                notificationSucceeded = await _dispatchSignNotificationClient.TryNotifySignedAsync(
-                    order.dispatch_no, cancellationToken);
-            }
-            catch { notificationSucceeded = false; }
-        }
-
-        await using var completeConnection = await _connectionFactory.OpenConnectionAsync(CancellationToken.None);
-        await using var completeTransaction = await completeConnection.BeginTransactionAsync(
-            IsolationLevel.Serializable, CancellationToken.None);
-        try
-        {
-            var completed = await LoadOrderForUpdateAsync(completeConnection, completeTransaction, orderId, CancellationToken.None);
-            await _warehouseAccessService.EnsureAllowedAsync(completed.warehouse_id, currentUser);
-            if (completed.notification_status == DispatchSignNotificationStatus.Sending
-                && claimedAttempt != null && completed.notification_attempt_count == claimedAttempt.Value)
-            {
-                var now = DateTime.Now;
-                completed.notification_status = notificationSucceeded
-                    ? DispatchSignNotificationStatus.Sent : DispatchSignNotificationStatus.Failed;
-                completed.notification_sent_at = notificationSucceeded ? now : null;
-                completed.notification_last_error = notificationSucceeded
-                    ? string.Empty : "downstream signing notification was not accepted";
-                completed.notification_updated_at = now;
-                completed.last_update_time = now;
-                completed.row_version++;
-                await completeConnection.ExecuteAsync(new CommandDefinition("""
-                    UPDATE `wms_dispatch_order` SET `notification_status`=@notification_status,
-                      `notification_sent_at`=@notification_sent_at,`notification_last_error`=@notification_last_error,
-                      `notification_updated_at`=@notification_updated_at,`last_update_time`=@last_update_time,
-                      `row_version`=@row_version WHERE `id`=@id AND `notification_status`=@sending
-                      AND `notification_attempt_count`=@notification_attempt_count;
-                    """, new
-                    {
-                        completed.notification_status, completed.notification_sent_at, completed.notification_last_error,
-                        completed.notification_updated_at, completed.last_update_time, completed.row_version, completed.id,
-                        sending = DispatchSignNotificationStatus.Sending, completed.notification_attempt_count
-                    }, completeTransaction, cancellationToken: CancellationToken.None));
-            }
-            await completeTransaction.CommitAsync(CancellationToken.None);
-            return ToSignResult(completed, requestId);
-        }
-        catch { await completeTransaction.RollbackAsync(CancellationToken.None); throw; }
     }
 
     private async Task<OutboundCommandResult> ExecuteOutboundMutationAsync(int orderId, OutboundCommandRequest request,

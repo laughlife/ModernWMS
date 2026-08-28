@@ -12,7 +12,6 @@ using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels;
 using ModernWMS.WMS.IServices;
 using ModernWMS.WMS.IServices.StockAllocation;
-using ModernWMS.WMS.Services.Dispatchlist;
 
 namespace ModernWMS.WMS.Services;
 
@@ -25,7 +24,6 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
     private readonly IMySqlConnectionFactory _connectionFactory;
     private readonly IStringLocalizer<Core.MultiLanguage> _stringLocalizer;
     private readonly FunctionHelper _functionHelper;
-    private readonly IDispatchSignNotificationClient? _dispatchSignNotificationClient;
     private readonly IStockAllocationMutationService? _stockAllocationMutationService;
 
     /// <summary>
@@ -34,13 +32,11 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
     public DispatchlistService(IMySqlConnectionFactory connectionFactory,
         IStringLocalizer<Core.MultiLanguage> stringLocalizer,
         FunctionHelper functionHelper,
-        IDispatchSignNotificationClient? dispatchSignNotificationClient = null,
         IStockAllocationMutationService? stockAllocationMutationService = null)
     {
         _connectionFactory = connectionFactory ?? throw new ArgumentNullException(nameof(connectionFactory));
         _stringLocalizer = stringLocalizer ?? throw new ArgumentNullException(nameof(stringLocalizer));
         _functionHelper = functionHelper ?? throw new ArgumentNullException(nameof(functionHelper));
-        _dispatchSignNotificationClient = dispatchSignNotificationClient;
         _stockAllocationMutationService = stockAllocationMutationService;
     }
 
@@ -781,8 +777,6 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
             await transaction.CommitAsync();if(qty<=0)return(false,_stringLocalizer["operation_failed"]);
         }
         catch{await transaction.RollbackAsync();throw;}
-        if(_dispatchSignNotificationClient!=null)
-            foreach(var dispatchNo in rows.Select(t=>t.dispatch_no).Where(t=>!string.IsNullOrWhiteSpace(t)).Distinct())await _dispatchSignNotificationClient.NotifySignedAsync(dispatchNo);
         return(true,_stringLocalizer["operation_success"]);
     }
 

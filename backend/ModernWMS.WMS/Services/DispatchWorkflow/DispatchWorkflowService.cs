@@ -11,7 +11,6 @@ using ModernWMS.WMS.IServices;
 using ModernWMS.WMS.IServices.DispatchWorkflow;
 using ModernWMS.WMS.IServices.PackingTask;
 using ModernWMS.WMS.IServices.StockAllocation;
-using ModernWMS.WMS.Services.Dispatchlist;
 
 namespace ModernWMS.WMS.Services.DispatchWorkflow;
 
@@ -23,7 +22,6 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
     private readonly IMySqlConnectionFactory _connectionFactory;
     private readonly IPackingTaskSourceReader _sourceReader;
     private readonly IWarehouseAccessService _warehouseAccessService;
-    private readonly IDispatchSignNotificationClient? _dispatchSignNotificationClient;
     private readonly IStockAllocationMutationService? _stockAllocationMutationService;
 
     /// <summary>
@@ -33,13 +31,11 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
         IMySqlConnectionFactory connectionFactory,
         IPackingTaskSourceReader sourceReader,
         IWarehouseAccessService warehouseAccessService,
-        IDispatchSignNotificationClient? dispatchSignNotificationClient = null,
         IStockAllocationMutationService? stockAllocationMutationService = null)
     {
         _connectionFactory = connectionFactory;
         _sourceReader = sourceReader;
         _warehouseAccessService = warehouseAccessService;
-        _dispatchSignNotificationClient = dispatchSignNotificationClient;
         _stockAllocationMutationService = stockAllocationMutationService;
     }
 
