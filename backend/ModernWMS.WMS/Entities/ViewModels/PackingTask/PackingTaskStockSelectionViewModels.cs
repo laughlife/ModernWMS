@@ -54,7 +54,7 @@ public class PackingTaskStockSelectRequest
     /// <summary>
     /// 获取或设置 stock_id。
     /// </summary>
-    public int stock_id { get; set; }
+    public long stock_id { get; set; }
     /// <summary>
     /// 获取或设置 erp_stock_id。
     /// </summary>
@@ -69,6 +69,18 @@ public class PackingTaskStockSelectRequest
     public int qty { get; set; }
     /// <summary>变体数量；服务端按赛狐当前任务量重新计算锁定数量。</summary>
     public int variant { get; set; }
+
+    /// <summary>ERP 计划的乐观锁版本，所有写命令必填。</summary>
+    public long row_version { get; set; }
+
+    /// <summary>写命令幂等标识，所有写命令必填。</summary>
+    public string request_id { get; set; } = string.Empty;
+
+    /// <summary>货主贡献维度；不再通过物理库位或批次绑定库存。</summary>
+    public int goods_owner_id { get; set; }
+
+    /// <summary>人工确认 SKU 不匹配的事实。</summary>
+    public bool sku_mismatch_confirmed { get; set; }
 }
 
 /// <summary>
@@ -79,7 +91,7 @@ public class SelectableStockViewModel
     /// <summary>
     /// 获取或设置 stock_id。
     /// </summary>
-    public int stock_id { get; set; }
+    public long stock_id { get; set; }
     /// <summary>
     /// 获取或设置 erp_stock_id。
     /// </summary>
@@ -167,4 +179,10 @@ public class SelectableStockViewModel
     /// 创建人库存选择时不弹确认框；他人库存选择时前端弹确认框且后端记录日志。
     /// </summary>
     public bool is_creator_stock { get; set; }
+
+    /// <summary>ERP 计划返回的行版本。</summary>
+    public long row_version { get; set; }
+
+    /// <summary>当前操作人是否可管理该货主贡献。</summary>
+    public bool can_manage { get; set; }
 }

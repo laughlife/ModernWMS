@@ -11,6 +11,7 @@ using ModernWMS.WMS.Entities.ViewModels;
 using ModernWMS.WMS.Entities.ViewModels.PackingTask;
 using ModernWMS.WMS.IServices;
 using ModernWMS.WMS.IServices.StockAllocation;
+using ModernWMS.WMS.Services.PackingTask;
 
 namespace ModernWMS.WMS.Services;
 
@@ -34,29 +35,18 @@ internal sealed record PackingTaskPageData(
     IReadOnlyDictionary<long, PackingTaskStockAvailability> AvailabilityByItemId,
     int Totals);
 
-internal sealed record PackingTaskSelectableData(
-    List<SelectableStockViewModel> Rows,
-    int WarehouseId,
-    string WarehouseName);
+public sealed record PackingTaskSelectableResult(bool IsSuccess, string ErrorMessage,
+    List<SelectableStockViewModel> Data, int Totals);
 
+// Compatibility carriers for private legacy code during the staged cutover. They are not part of the service boundary.
+internal sealed record PackingTaskSelectableData(List<SelectableStockViewModel> Rows, int WarehouseId,
+    string WarehouseName);
 internal sealed record PackingTaskStockSaveResult(bool IsSuccess, string Message);
 
 /// <summary>Testable query boundary implemented with Dapper in production.</summary>
 internal interface IPackingTaskQueryDataSource
 {
     Task<PackingTaskPageData> LoadPageAsync(PackingTaskPageRequest request);
-
-    Task<PackingTaskSelectableData?> LoadSelectableStockAsync(
-        PackingTaskStockPageRequest request,
-        CurrentUser currentUser);
-
-    Task<PackingTaskStockSaveResult> SaveSelectionAsync(
-        PackingTaskStockSelectRequest request,
-        CurrentUser currentUser);
-
-    Task<PackingTaskStockSaveResult> DeleteSelectionAsync(
-        PackingTaskStockSelectRequest request,
-        CurrentUser currentUser);
 }
 
 /// <summary>Reads formal packing-task snapshots without creating dispatch business facts.</summary>
@@ -65,25 +55,29 @@ public class PackingTaskQueryService : IPackingTaskQueryService
     private readonly IPackingTaskQueryDataSource _dataSource;
     private readonly IConfiguration _configuration;
     private readonly IWarehouseAccessService? _warehouseAccessService;
+    private readonly IErpPackingStockClient _erpPackingStockClient;
 
     /// <summary>Initializes the packing-task query service.</summary>
     public PackingTaskQueryService(
         IMySqlConnectionFactory connectionFactory,
         IConfiguration configuration,
         IWarehouseAccessService warehouseAccessService,
-        IStockAllocationMutationService stockAllocationMutationService)
-        : this(new DapperPackingTaskQueryDataSource(connectionFactory, stockAllocationMutationService), configuration, warehouseAccessService)
+        IErpPackingStockClient erpPackingStockClient)
+        : this(new DapperPackingTaskQueryDataSource(connectionFactory), configuration, warehouseAccessService,
+            erpPackingStockClient)
     {
     }
 
     internal PackingTaskQueryService(
         IPackingTaskQueryDataSource dataSource,
         IConfiguration configuration,
-        IWarehouseAccessService? warehouseAccessService = null)
+        IWarehouseAccessService? warehouseAccessService = null,
+        IErpPackingStockClient? erpPackingStockClient = null)
     {
         _dataSource = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
         _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
         _warehouseAccessService = warehouseAccessService;
+        _erpPackingStockClient = erpPackingStockClient ?? new UnavailableErpPackingStockClient();
     }
 
     /// <summary>Gets a page of packing tasks.</summary>
@@ -150,30 +144,50 @@ public class PackingTaskQueryService : IPackingTaskQueryService
     }
 
     /// <summary>Gets stock that can be selected for a packing task.</summary>
-    public async Task<(List<SelectableStockViewModel> data, int totals)> SelectableStockPageAsync(
+    public async Task<PackingTaskSelectableResult> SelectableStockPageAsync(
         PackingTaskStockPageRequest request,
         CurrentUser currentUser)
     {
-        var loaded = await _dataSource.LoadSelectableStockAsync(request, currentUser);
-        if (loaded == null)
+        var actor = BuildActor(currentUser);
+        var result = await _erpPackingStockClient.GetPlanAsync(
+            new ErpPackingStockPlanQuery(request.sellfox_task_id, request.sellfox_item_id, actor.id, actor.name));
+        if (!result.IsSuccess || result.Data == null)
         {
-            return ([], 0);
+            return new PackingTaskSelectableResult(false, result.ErrorMessage, [], 0);
         }
 
-        foreach (var row in loaded.Rows)
-        {
-            row.warehouse_id = loaded.WarehouseId;
-            row.warehouse_name = loaded.WarehouseName;
-        }
-
-        var ordered = loaded.Rows.OrderByDescending(t => t.matched)
+        // ERP returns owner/SKU pools. WMS intentionally does not expose location or physical batch bindings.
+        var ordered = result.Data.pools
+            .Where(pool => pool.availableQty > 0 || pool.contributionQty > 0)
+            .Where(pool => string.IsNullOrWhiteSpace(request.keyword)
+                || pool.skuCode.Contains(request.keyword.Trim(), StringComparison.OrdinalIgnoreCase)
+                || pool.goodsOwnerName.Contains(request.keyword.Trim(), StringComparison.OrdinalIgnoreCase))
+            .Where(pool => string.IsNullOrWhiteSpace(request.owner)
+                || pool.goodsOwnerName.Contains(request.owner.Trim(), StringComparison.OrdinalIgnoreCase))
+            .Select(pool => new SelectableStockViewModel
+            {
+                stock_id = pool.stockId,
+                sku_code = pool.skuCode,
+                goods_owner_id = pool.goodsOwnerId,
+                goods_owner_name = pool.goodsOwnerName,
+                qty = ToInt(pool.availableQty),
+                available_qty = ToInt(pool.availableQty),
+                matched = pool.skuMatched,
+                selected = pool.contributionQty > 0,
+                selected_qty = ToInt(pool.contributionQty),
+                row_version = pool.rowVersion,
+                can_manage = pool.canManage,
+                is_creator_stock = pool.canManage
+            })
+            .OrderByDescending(t => t.matched)
             .ThenByDescending(t => t.available_qty)
             .ThenBy(t => t.sku_code)
             .ToList();
         var totals = ordered.Count;
         var pageIndex = Math.Max(request.page_index, 1);
         var pageSize = Math.Clamp(request.page_size, 1, 200);
-        return (ordered.Skip((pageIndex - 1) * pageSize).Take(pageSize).ToList(), totals);
+        return new PackingTaskSelectableResult(true, string.Empty,
+            ordered.Skip((pageIndex - 1) * pageSize).Take(pageSize).ToList(), totals);
     }
 
     /// <summary>Selects stock for a packing task.</summary>
@@ -181,13 +195,25 @@ public class PackingTaskQueryService : IPackingTaskQueryService
         PackingTaskStockSelectRequest request,
         CurrentUser currentUser)
     {
-        if (request.variant <= 0)
+        if (request.stock_id <= 0 || request.goods_owner_id <= 0 || request.qty < 0 || request.row_version < 0
+            || string.IsNullOrWhiteSpace(request.request_id))
         {
-            return (false, "变体数量必须大于0");
+            return (false, "库存贡献缺少库存、货主、请求标识或版本号");
         }
-
-        var result = await _dataSource.SaveSelectionAsync(request, currentUser);
-        return (result.IsSuccess, result.Message);
+        var actor = BuildActor(currentUser);
+        var rowVersion = request.row_version;
+        if (request.variant > 0)
+        {
+            var variant = await _erpPackingStockClient.UpdateVariantAsync(new ErpPackingStockVariantCommand(
+                request.sellfox_task_id, request.sellfox_item_id, CommandRequestId(request.request_id, "variant"), rowVersion, actor.id,
+                actor.name, request.variant));
+            if (!variant.IsSuccess || variant.Data == null) return (false, variant.ErrorMessage);
+            rowVersion = variant.Data.rowVersion;
+        }
+        var result = await _erpPackingStockClient.UpdateContributionAsync(new ErpPackingStockContributionCommand(
+            request.sellfox_task_id, request.sellfox_item_id, CommandRequestId(request.request_id, "contribution"), rowVersion, actor.id, actor.name,
+            request.stock_id, request.goods_owner_id, request.qty, request.sku_mismatch_confirmed));
+        return result.IsSuccess ? (true, "库存贡献已由ERP更新") : (false, result.ErrorMessage);
     }
 
     /// <summary>Deletes a packing-task stock selection.</summary>
@@ -195,8 +221,28 @@ public class PackingTaskQueryService : IPackingTaskQueryService
         PackingTaskStockSelectRequest request,
         CurrentUser currentUser)
     {
-        var result = await _dataSource.DeleteSelectionAsync(request, currentUser);
-        return (result.IsSuccess, result.Message);
+        if (request.goods_owner_id <= 0 || request.row_version < 0 || string.IsNullOrWhiteSpace(request.request_id))
+            return (false, "撤回贡献缺少货主、请求标识或版本号");
+        var actor = BuildActor(currentUser);
+        var result = await _erpPackingStockClient.WithdrawParticipantAsync(
+            new ErpPackingStockParticipantWithdrawCommand(request.sellfox_task_id, request.sellfox_item_id,
+                request.request_id, request.row_version, actor.id, actor.name, request.goods_owner_id));
+        return result.IsSuccess ? (true, "库存贡献已由ERP撤回") : (false, result.ErrorMessage);
+    }
+
+    private static (string id, string name) BuildActor(CurrentUser currentUser) =>
+        (currentUser.user_id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            string.IsNullOrWhiteSpace(currentUser.user_name) ? $"用户{currentUser.user_id}" : currentUser.user_name.Trim());
+
+    private static int ToInt(long value) => value <= 0 ? 0 : value >= int.MaxValue ? int.MaxValue : (int)value;
+
+    private static string CommandRequestId(string requestId, string operation)
+    {
+        const int maximumLength = 64;
+        var suffix = $":{operation}";
+        return requestId.Length + suffix.Length <= maximumLength
+            ? requestId + suffix
+            : requestId[..(maximumLength - suffix.Length)] + suffix;
     }
 
     private static PackingTaskQueryItemViewModel BuildItemViewModel(
@@ -217,10 +263,10 @@ public class PackingTaskQueryService : IPackingTaskQueryService
             msku = item.msku,
             task_num = item.task_num,
             quantity_shipped = item.quantity_shipped,
-            stock_available = item.stock_available,
+            stock_available = availability?.AvailableQty,
             stock_sku_code = availability?.SkuCode,
             stock_qty = availability?.StockQty,
-            stock_available_qty = availability == null ? null : availability.AvailableQty ?? availability.StockQty,
+            stock_available_qty = availability?.AvailableQty,
             locked_qty = availability?.LockedQty
         };
     }
@@ -233,13 +279,12 @@ public class PackingTaskQueryService : IPackingTaskQueryService
 
     private sealed class DapperPackingTaskQueryDataSource(
         IMySqlConnectionFactory connectionFactory,
-        IStockAllocationMutationService stockAllocationMutationService)
+        IStockAllocationMutationService? stockAllocationMutationService = null)
         : IPackingTaskQueryDataSource
     {
         private readonly IMySqlConnectionFactory _connectionFactory = connectionFactory
             ?? throw new ArgumentNullException(nameof(connectionFactory));
-        private readonly IStockAllocationMutationService _stockAllocationMutationService = stockAllocationMutationService
-            ?? throw new ArgumentNullException(nameof(stockAllocationMutationService));
+        private readonly IStockAllocationMutationService? _stockAllocationMutationService = stockAllocationMutationService;
 
         private const string GroupMemberNamesSql = """
             WITH RECURSIVE dept_tree AS (
@@ -373,11 +418,8 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                              WHERE m.move_status = 0 AND m.sku_id = stock.sku_id
                                AND m.orig_goods_location_id = stock.goods_location_id
                                AND m.goods_owner_id = stock.goods_owner_id), 0)
-                         - COALESCE((SELECT SUM(s.qty) FROM wms_packing_task_stock_selection s
-                             WHERE s.stock_id = stock.id
-                               AND s.status = 'ACTIVE'), 0)
                        ) ELSE 0 END), 0) AS AvailableQty,
-                       COALESCE(MAX(selection.locked_qty), 0) AS LockedQty
+                       0 AS LockedQty
                 FROM ruiyi_sellfox_packing_task_item AS item
                 INNER JOIN ruiyi_sellfox_packing_task AS task
                   ON task.sellfox_task_id = item.sellfox_task_id
@@ -393,13 +435,6 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                  AND location.is_valid = 1 AND location.warehouse_area_property <> 5
                 LEFT JOIN wms_goodsowner AS owner
                   ON owner.id = stock.goods_owner_id
-                LEFT JOIN (
-                  SELECT sellfox_item_id, SUM(qty) AS locked_qty
-                  FROM wms_packing_task_stock_selection
-                  WHERE sellfox_task_id IN @TaskIds
-                    AND status = 'ACTIVE'
-                  GROUP BY sellfox_item_id) AS selection
-                  ON selection.sellfox_item_id = item.sellfox_item_id
                 WHERE item.source_deleted = 0 AND item.sellfox_task_id IN @TaskIds
                   AND (stock.id IS NULL OR (location.id IS NOT NULL
                     AND task.create_name <> ''
@@ -420,7 +455,7 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                              AND task.`create_name`<>''
                              AND owner.`goods_owner_name` LIKE CONCAT('%',task.`create_name`,'%')
                              THEN allocation.`allocated_qty`-allocation.`occupied_qty` ELSE 0 END),0) AvailableQty,
-                           COALESCE(MAX(selection.`locked_qty`),0) LockedQty
+                           0 LockedQty
                       FROM `ruiyi_sellfox_packing_task_item` item
                       JOIN `ruiyi_sellfox_packing_task` task ON task.`sellfox_task_id`=item.`sellfox_task_id`
                       JOIN `wms_warehouse` warehouse ON warehouse.`erp_warehouse_id`=task.`warehouse_id`
@@ -436,12 +471,6 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                         AND location.`warehouse_id`=warehouse.`id` AND location.`is_valid`=1
                         AND location.`warehouse_area_property`<>5
                       LEFT JOIN `wms_goodsowner` owner ON owner.`id`=allocation.`goods_owner_id`
-                      LEFT JOIN (SELECT `sellfox_item_id`,SUM(`qty`) locked_qty
-                                   FROM `wms_packing_task_stock_selection`
-                                  WHERE `sellfox_task_id` IN @TaskIds
-                                    AND `status`='ACTIVE'
-                                  GROUP BY `sellfox_item_id`) selection
-                        ON selection.`sellfox_item_id`=item.`sellfox_item_id`
                      WHERE item.`source_deleted`=0 AND item.`sellfox_task_id` IN @TaskIds
                      GROUP BY item.`id`,SUBSTRING_INDEX(COALESCE(item.`commodity_sku`,''),'-',1);
                     """,new{TaskIds=canonicalTaskIds.ToArray()})).AsList());
@@ -451,6 +480,9 @@ public class PackingTaskQueryService : IPackingTaskQueryService
             return new PackingTaskPageData(tasks, items, availability, totals);
         }
 
+        // The former local-selection implementation is deliberately excluded from every build. Ruoyi owns the
+        // selection/reservation lifecycle and callers now reach it only through IErpPackingStockClient above.
+#if LEGACY_LOCAL_PACKING_SELECTION
         public async Task<PackingTaskSelectableData?> LoadSelectableStockAsync(
             PackingTaskStockPageRequest request,
             CurrentUser currentUser)
@@ -1314,6 +1346,30 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                    AND `allocation_id`=@allocationId;
                 """,new{taskId,itemId,allocationId},transaction);
 
+#endif
+
+        private const string CanonicalMode = "CANONICAL_ERP";
+        private const string LegacyMode = "LEGACY_READ";
+
+        private static async Task<InventoryRuntimeRow> LoadRuntimeAsync(IDbConnection connection,
+            IDbTransaction? transaction, long erpWarehouseId)
+        {
+            var suffix = transaction == null ? string.Empty : " FOR UPDATE";
+            return await connection.QuerySingleOrDefaultAsync<InventoryRuntimeRow>($"""
+                SELECT `mode` Mode,`maintenance_enabled` MaintenanceEnabled
+                FROM `wms_inventory_runtime_config` WHERE `erp_warehouse_id`=@erpWarehouseId{suffix};
+                """, new { erpWarehouseId }, transaction)
+                ?? new InventoryRuntimeRow { Mode = LegacyMode };
+        }
+
+        private static void EnsureRuntimeReadable(InventoryRuntimeRow runtime, long erpWarehouseId)
+        {
+            if (runtime.MaintenanceEnabled)
+                throw new InvalidOperationException($"ERP仓库 {erpWarehouseId} 正处于库存维护窗口，库存查询已暂停");
+            if (runtime.Mode is not (LegacyMode or CanonicalMode))
+                throw new InvalidOperationException($"ERP仓库 {erpWarehouseId} 的库存运行模式无效");
+        }
+
         private sealed class AvailabilityRow
         {
             public long ItemId { get; init; }
@@ -1446,5 +1502,19 @@ public class PackingTaskQueryService : IPackingTaskQueryService
             public int? task_num { get; init; }
             public long erp_warehouse_id { get; init; }
         }
+
+    }
+
+    private sealed class UnavailableErpPackingStockClient : IErpPackingStockClient
+    {
+        private static Task<ErpPackingStockResult<ErpPackingStockPlan>> Fail() =>
+            Task.FromResult(ErpPackingStockResult<ErpPackingStockPlan>.Failure("ERP 装箱库存客户端不可用，已拒绝本地写入"));
+
+        public Task<ErpPackingStockResult<ErpPackingStockPlan>> GetPlanAsync(ErpPackingStockPlanQuery request, CancellationToken cancellationToken = default) => Fail();
+        public Task<ErpPackingStockResult<ErpPackingStockPlan>> UpdateVariantAsync(ErpPackingStockVariantCommand request, CancellationToken cancellationToken = default) => Fail();
+        public Task<ErpPackingStockResult<ErpPackingStockPlan>> UpdateContributionAsync(ErpPackingStockContributionCommand request, CancellationToken cancellationToken = default) => Fail();
+        public Task<ErpPackingStockResult<ErpPackingStockPlan>> WithdrawParticipantAsync(ErpPackingStockParticipantWithdrawCommand request, CancellationToken cancellationToken = default) => Fail();
+        public Task<ErpPackingStockResult<ErpPackingStockPlan>> RetryAsync(ErpPackingStockRetryCommand request, CancellationToken cancellationToken = default) => Fail();
+        public Task<ErpPackingStockResult<ErpPackingStockPlan>> ConsumeAsync(ErpPackingStockConsumeCommand request, CancellationToken cancellationToken = default) => Fail();
     }
 }

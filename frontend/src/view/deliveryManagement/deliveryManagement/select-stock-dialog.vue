@@ -322,31 +322,43 @@ const method = reactive({
     method.loadPage()
   },
   selectStock: (row: StockRow) => {
+    if (!row.matched) {
+      hookComponent.$message({ type: 'warning', content: 'SKU 不匹配，请在 3 秒提示后确认是否继续贡献库存' })
+      window.setTimeout(() => {
+        hookComponent.$dialog({
+          content: 'SKU 不匹配已提示 3 秒。确认继续将作为人工确认事实提交 ERP。',
+          confirmText: '确认继续',
+          cancleText: '取消',
+          handleConfirm: () => method.checkStockOwner(row, true)
+        })
+      }, 3000)
+      return
+    }
     const skuVariant = extractSkuVariant(item.value?.commodity_sku || item.value?.sku)
     if (skuVariant !== null && skuVariant !== Number(row.variant)) {
       hookComponent.$dialog({
         content: '所选的变体和商品信息变体数量不一致，是否继续执行？',
         confirmText: '是',
         cancleText: '否',
-        handleConfirm: () => method.checkStockOwner(row)
+        handleConfirm: () => method.checkStockOwner(row, false)
       })
       return
     }
-    method.checkStockOwner(row)
+    method.checkStockOwner(row, false)
   },
-  checkStockOwner: (row: StockRow) => {
+  checkStockOwner: (row: StockRow, skuMismatchConfirmed: boolean) => {
     if (row.is_creator_stock) {
-      method.confirmSelectStock(row)
+      method.confirmSelectStock(row, skuMismatchConfirmed)
       return
     }
     hookComponent.$dialog({
       content: '所选库存不是创建人的商品，是否继续执行',
       confirmText: '是',
       cancleText: '否',
-      handleConfirm: () => method.confirmSelectStock(row)
+      handleConfirm: () => method.confirmSelectStock(row, skuMismatchConfirmed)
     })
   },
-  confirmSelectStock: async (row: StockRow) => {
+  confirmSelectStock: async (row: StockRow, skuMismatchConfirmed = false) => {
     if (!item.value || !task.value) return
     const variant = row.variant
     const validation = validatePackingStockSelection(row, taskQty.value, variant)
@@ -369,7 +381,11 @@ const method = reactive({
         erp_stock_id: row.erp_stock_id,
         stock_allocation_id: row.stock_allocation_id,
         qty: lockedQty,
-        variant
+        variant,
+        row_version: row.row_version,
+        request_id: crypto.randomUUID(),
+        goods_owner_id: row.goods_owner_id,
+        sku_mismatch_confirmed: skuMismatchConfirmed
       })
       if (!result.isSuccess) {
         hookComponent.$message({ type: 'error', content: result.errorMessage })
@@ -408,7 +424,11 @@ const method = reactive({
         stock_id: row.stock_id,
         erp_stock_id: row.erp_stock_id,
         stock_allocation_id: row.stock_allocation_id,
-        qty: 0
+        qty: 0,
+        row_version: row.row_version,
+        request_id: crypto.randomUUID(),
+        goods_owner_id: row.goods_owner_id,
+        sku_mismatch_confirmed: false
       })
       if (!result.isSuccess) {
         hookComponent.$message({ type: 'error', content: result.errorMessage })

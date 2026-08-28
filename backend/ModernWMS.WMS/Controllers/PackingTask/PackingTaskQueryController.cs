@@ -53,11 +53,15 @@ public class PackingTaskQueryController : BaseController
     public async Task<ResultModel<PageData<SelectableStockViewModel>>> SelectableStockPageAsync(
         PackingTaskStockPageRequest request)
     {
-        var (data, totals) = await _packingTaskQueryService.SelectableStockPageAsync(request, CurrentUser);
+        var result = await _packingTaskQueryService.SelectableStockPageAsync(request, CurrentUser);
+        if (!result.IsSuccess)
+        {
+            return ResultModel<PageData<SelectableStockViewModel>>.Error(result.ErrorMessage);
+        }
         return ResultModel<PageData<SelectableStockViewModel>>.Success(new PageData<SelectableStockViewModel>
         {
-            Rows = data,
-            Totals = totals
+            Rows = result.Data,
+            Totals = result.Totals
         });
     }
 

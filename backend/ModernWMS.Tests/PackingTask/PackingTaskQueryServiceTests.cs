@@ -27,6 +27,18 @@ public class PackingTaskQueryServiceTests
     }
 
     [Fact]
+    public void Constructor_delegates_packing_stock_mutations_to_the_erp_client()
+    {
+        var parameterTypeNames = typeof(PackingTaskQueryService).GetConstructors()
+            .SelectMany(t => t.GetParameters())
+            .Select(t => t.ParameterType.Name)
+            .ToArray();
+
+        Assert.Contains("IErpPackingStockClient", parameterTypeNames);
+        Assert.DoesNotContain("IStockAllocationMutationService", parameterTypeNames);
+    }
+
+    [Fact]
     public async Task PageAsync_returns_feature_disabled_without_reading_tasks()
     {
         var source = new InMemoryPackingTaskQueryDataSource();
@@ -171,7 +183,7 @@ public class PackingTaskQueryServiceTests
         {
             id = 11, sellfox_item_id = 1001, sellfox_task_id = 101, commodity_id = 501
         });
-        source.AvailabilityByItemId[11] = new PackingTaskStockAvailability("SKU-BASE", 100);
+        source.AvailabilityByItemId[11] = new PackingTaskStockAvailability("SKU-BASE", 100, AvailableQty: 100);
         var access = new ModernWMS.Tests.DispatchWorkflow.RecordingWarehouseAccess();
 
         var result = await CreateService(source, access: access.Contract)
@@ -191,7 +203,7 @@ public class PackingTaskQueryServiceTests
         {
             id = 11, sellfox_item_id = 1001, sellfox_task_id = 101, commodity_id = 501
         });
-        source.AvailabilityByItemId[11] = new PackingTaskStockAvailability("SKU-BASE", 100, 30);
+        source.AvailabilityByItemId[11] = new PackingTaskStockAvailability("SKU-BASE", 100, 30, 100);
 
         var result = await CreateService(source).PageAsync(new PageSearch(), CurrentUserContext());
 
@@ -213,7 +225,7 @@ public class PackingTaskQueryServiceTests
     }
 
     [Fact]
-    public async Task DeleteStockSelectionAsync_releases_the_locked_selection()
+    public async Task DeleteStockSelectionAsync_fails_closed_when_the_erp_client_is_unavailable()
     {
         var source = new InMemoryPackingTaskQueryDataSource();
         var service = CreateService(source);
@@ -224,104 +236,23 @@ public class PackingTaskQueryServiceTests
                 sellfox_task_id = 101,
                 sellfox_item_id = 1001,
                 stock_id = 12,
-                qty = 0
+                qty = 0,
+                goods_owner_id = 8,
+                row_version = 1,
+                request_id = "withdraw-101"
             },
             CurrentUserContext());
 
-        Assert.True(flag);
-        Assert.Equal("已取消选择，锁定库存已释放", message);
+        Assert.False(flag);
+        Assert.Contains("ERP", message, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Packing_selection_production_sql_never_physically_deletes_and_every_reference_is_active_scoped()
+    public void Packing_selection_service_compiled_code_contains_no_local_selection_or_reservation_sql()
     {
         var commands = PackingSelectionProductionSql();
 
-        Assert.NotEmpty(commands);
-        Assert.DoesNotContain(commands, sql => Regex.IsMatch(
-            sql, @"DELETE\s+FROM\s+`?wms_packing_task_stock_selection`?", RegexOptions.IgnoreCase));
-        Assert.All(commands, sql =>
-        {
-            var normalized = sql.Replace("`", string.Empty, StringComparison.Ordinal);
-            if (Regex.IsMatch(normalized,
-                @"INSERT\s+INTO\s+wms_packing_task_stock_selection", RegexOptions.IgnoreCase))
-            {
-                Assert.Contains("status", normalized, StringComparison.OrdinalIgnoreCase);
-                Assert.Contains("'ACTIVE'", normalized, StringComparison.Ordinal);
-                return;
-            }
-            var tableReferences = Regex.Matches(
-                normalized, @"\bwms_packing_task_stock_selection\b", RegexOptions.IgnoreCase).Count;
-            var activeGuards = Regex.Matches(
-                normalized, @"(?:\b\w+\.)?\bstatus\s*=\s*'ACTIVE'", RegexOptions.IgnoreCase).Count;
-            Assert.True(activeGuards >= tableReferences,
-                $"Every packing selection table reference must be ACTIVE-scoped. SQL: {sql}");
-        });
-    }
-
-    [Fact]
-    public void Packing_selection_cancel_and_rollback_sql_preserves_rows_with_actor_reason_and_version()
-    {
-        var commands = PackingSelectionProductionSql();
-        var manualCancels = commands.Where(sql => sql.Contains("WMS_MANUAL_CANCEL", StringComparison.Ordinal)).ToList();
-        var rollback = Assert.Single(commands, sql => sql.Contains("DISPATCH_ROLLBACK", StringComparison.Ordinal));
-
-        Assert.Equal(2, manualCancels.Count);
-        Assert.All(manualCancels, sql =>
-            AssertCancellationTransition(sql, "用户取消装箱任务库存选择"));
-        AssertCancellationTransition(rollback, "待拣货回退释放库存选择");
-    }
-
-    [Fact]
-    public void Packing_selection_completed_picking_sql_transfers_instead_of_deleting()
-    {
-        var transfer = Assert.Single(PackingSelectionProductionSql(),
-            sql => sql.Contains("DISPATCH_PICKING", StringComparison.Ordinal));
-
-        Assert.Contains("SET `status`='TRANSFERRED'", transfer, StringComparison.Ordinal);
-        Assert.Contains("`last_update_time`=@now", transfer, StringComparison.Ordinal);
-        Assert.Contains("`row_version`=`row_version`+1", transfer, StringComparison.Ordinal);
-        Assert.Contains("AND `status`='ACTIVE'", transfer, StringComparison.Ordinal);
-        Assert.DoesNotContain("DELETE", transfer, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void Packing_selection_save_sql_ignores_history_and_inserts_a_new_active_cycle()
-    {
-        var commands = PackingSelectionProductionSql();
-        var existingLookups = commands.Where(sql =>
-            sql.Contains("FOR UPDATE", StringComparison.OrdinalIgnoreCase)
-            && sql.Contains("sellfox_item_id", StringComparison.OrdinalIgnoreCase)
-            && (sql.Contains("stock_id = @StockId", StringComparison.OrdinalIgnoreCase)
-                || sql.Contains("`stock_allocation_id`=@AllocationId", StringComparison.OrdinalIgnoreCase)))
-            .ToList();
-        var inserts = commands.Where(sql => Regex.IsMatch(sql,
-            @"INSERT\s+INTO\s+`?wms_packing_task_stock_selection`?", RegexOptions.IgnoreCase)).ToList();
-
-        Assert.Equal(2, existingLookups.Count);
-        Assert.All(existingLookups, sql => Assert.Matches(
-            @"`?status`?\s*=\s*'ACTIVE'", sql));
-        Assert.Equal(2, inserts.Count);
-        Assert.All(inserts, sql =>
-        {
-            Assert.Contains("status", sql, StringComparison.OrdinalIgnoreCase);
-            Assert.Contains("'ACTIVE'", sql, StringComparison.Ordinal);
-            Assert.DoesNotContain("ON DUPLICATE KEY", sql, StringComparison.OrdinalIgnoreCase);
-        });
-    }
-
-    [Fact]
-    public void Packing_selection_cutover_guard_counts_only_active_legacy_locks()
-    {
-        var script = File.ReadAllText(FindRepositoryFile("flyway", "manual", "erp_stock_allocation_cutover.sql"));
-        const string guardMessage = "仍有旧WMS装箱锁定，必须先完成或撤销";
-        var guardEnd = script.IndexOf(guardMessage, StringComparison.Ordinal);
-        Assert.True(guardEnd > 0, "Cutover packing-selection guard was not found.");
-        var guardStart = script.LastIndexOf("SELECT COUNT(*) INTO v_count", guardEnd, StringComparison.Ordinal);
-        Assert.True(guardStart >= 0, "Cutover packing-selection count query was not found.");
-        var guardSql = script[guardStart..guardEnd];
-
-        Assert.Matches(@"selection\.`status`\s*=\s*'ACTIVE'", guardSql);
+        Assert.Empty(commands);
     }
 
     private static PackingTaskQueryService CreateService(
@@ -366,8 +297,8 @@ public class PackingTaskQueryServiceTests
     }
 
     private static IReadOnlyList<string> PackingSelectionProductionSql() =>
-        typeof(PackingTaskQueryService).Assembly.GetTypes()
-            .Where(type => type.Namespace?.StartsWith("ModernWMS.WMS.Services", StringComparison.Ordinal) == true)
+        new[] { typeof(PackingTaskQueryService) }
+            .Concat(typeof(PackingTaskQueryService).GetNestedTypes(BindingFlags.NonPublic))
             .SelectMany(type => type.GetMethods(
                 BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance))
             .SelectMany(ReadStringLiterals)

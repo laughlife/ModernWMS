@@ -3,6 +3,7 @@ using ModernWMS.Core.JWT;
 using ModernWMS.Core.Models;
 using ModernWMS.WMS.Entities.ViewModels;
 using ModernWMS.WMS.Entities.ViewModels.PackingTask;
+using ModernWMS.WMS.Services;
 
 namespace ModernWMS.WMS.IServices;
 
@@ -19,7 +20,7 @@ public interface IPackingTaskQueryService : IDependency
     /// <summary>
     /// 定义 SelectableStockPageAsync 操作。
     /// </summary>
-    Task<(List<SelectableStockViewModel> data, int totals)> SelectableStockPageAsync(
+    Task<PackingTaskSelectableResult> SelectableStockPageAsync(
         PackingTaskStockPageRequest request,
         CurrentUser currentUser);
 
