@@ -35,7 +35,7 @@ public partial class DispatchWorkflowService
             FROM `wms_weighing_box_item` WHERE `weighing_box_id` IN @boxIds ORDER BY `weighing_box_id`,`id`;
             """,new{boxIds},cancellationToken:ct))).AsList();
         foreach(var box in boxes)box.items=boxItems.Where(x=>x.weighing_box_id==box.id)
-            .Select(x=>new PackingPlanBoxItemViewModel{packing_task_item_id=x.packing_task_item_id,task_qty=x.task_qty}).ToList();
+            .Select(x=>new PackingPlanBoxItemViewModel{packing_task_item_id=x.packing_task_item_id,goods_owner_id=x.goods_owner_id,task_qty=x.task_qty}).ToList();
         return boxes;
     }
 

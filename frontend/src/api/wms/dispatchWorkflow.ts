@@ -128,6 +128,9 @@ export const confirmDispatchPacking = (orderId: number, packingTaskId: number, d
 export const confirmDispatchActualPacking = (orderId: number, packingTaskId: number, data: ConfirmActualPackingRequest) =>
   request<PackingPlan>({ url: `/dispatch-workflow/${orderId}/packing-tasks/${packingTaskId}/confirm-actual`, method: 'post', data })
 
+export const retryDispatchPackingConsume = (orderId: number, packingTaskId: number) =>
+  request<PackingPlan>({ url: `/dispatch-workflow/${orderId}/packing-tasks/${packingTaskId}/retry-consume`, method: 'post' })
+
 export const saveDispatchWeighingBox = (orderId: number, boxId: number, data: SaveWeighingBoxRequest) =>
   request<WeighingCommandResult>({ url: `/dispatch-workflow/${orderId}/boxes/${boxId}`, method: 'put', data })
 

@@ -432,6 +432,10 @@ public sealed class PackingPlanBoxItemViewModel
     /// </summary>
     public int packing_task_item_id { get; set; }
     /// <summary>
+    /// 获取或设置 goods_owner_id。
+    /// </summary>
+    public int goods_owner_id { get; set; }
+    /// <summary>
     /// 获取或设置 task_qty。
     /// </summary>
     public int task_qty { get; set; }
@@ -501,6 +505,8 @@ public sealed class PackingPlanViewModel
     /// 获取或设置 packing_plan_status。
     /// </summary>
     public string packing_plan_status { get; set; } = "DRAFT";
+    /// <summary>ERP 库存消费状态。</summary>
+    public string consume_status { get; set; } = "NOT_REQUIRED";
     /// <summary>
     /// 获取或设置 row_version。
     /// </summary>

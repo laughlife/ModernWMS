@@ -1,9 +1,11 @@
 using System.Data;
+using System.Text.Json;
 using Dapper;
 using ModernWMS.Core.JWT;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels.DispatchWorkflow;
 using ModernWMS.WMS.IServices.StockAllocation;
+using ModernWMS.WMS.Services.PackingTask;
 
 namespace ModernWMS.WMS.Services.DispatchWorkflow;
 
@@ -69,9 +71,9 @@ public partial class DispatchWorkflowService
                 }
                 retained.Add(boxId);await c.ExecuteAsync(new CommandDefinition("DELETE FROM `wms_weighing_box_item` WHERE `weighing_box_id`=@boxId;",new{boxId},tx,cancellationToken:ct));
                 foreach(var item in draft.items)await c.ExecuteAsync(new CommandDefinition("""
-                    INSERT INTO `wms_weighing_box_item` (`weighing_box_id`,`packing_task_item_id`,`task_qty`,`create_time`,`last_update_time`,`row_version`)
-                    VALUES (@boxId,@itemId,@qty,@now,@now,0);
-                    """,new{boxId,itemId=item.packing_task_item_id,qty=item.task_qty,now},tx,cancellationToken:ct));
+                    INSERT INTO `wms_weighing_box_item` (`weighing_box_id`,`packing_task_item_id`,`goods_owner_id`,`task_qty`,`create_time`,`last_update_time`,`row_version`)
+                    VALUES (@boxId,@itemId,@goodsOwnerId,@qty,@now,@now,0);
+                    """,new{boxId,itemId=item.packing_task_item_id,goodsOwnerId=item.goods_owner_id,qty=item.task_qty,now},tx,cancellationToken:ct));
             }
             var removed=aggregate.Boxes.Where(x=>!retained.Contains(x.id)).Select(x=>x.id).ToArray();
             if(removed.Length>0)await c.ExecuteAsync(new CommandDefinition("UPDATE `wms_weighing_box` SET `is_invalidated`=1,`invalidated_at`=@now,`last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id` IN @removed;",new{now,removed},tx,cancellationToken:ct));
@@ -141,6 +143,22 @@ public partial class DispatchWorkflowService
                 plans.Add(new ActualPackingItemPlan(item,packed,actual,detail,allocations,reductions));
             }
             if(plans.All(x=>x.Packed==0))throw DispatchWorkflowCommandException.WeighingIncomplete("实际装箱总量不能为零");
+            var consumeNow=DateTime.Now;
+            foreach(var plan in plans)
+            {
+                var contributions=a.BoxItems.Where(x=>x.packing_task_item_id==plan.Item.id).GroupBy(x=>x.goods_owner_id)
+                    .Select(group=>new PackingConsumeContribution(group.Key,checked((long)group.Sum(x=>x.task_qty)*plan.Item.variant_qty!.Value))).ToList();
+                if(contributions.Any(x=>x.GoodsOwnerId<=0||x.ActualPackedQty<=0))throw DispatchWorkflowCommandException.WeighingIncomplete("每项实装必须填写有效货主贡献");
+                var requestId=$"{r.request_id}:consume:{plan.Item.source_item_id}";
+                if(requestId.Length>64)requestId=requestId[..64];
+                await c.ExecuteAsync(new CommandDefinition("""
+                    INSERT INTO `wms_packing_consume_outbox` (`dispatch_order_id`,`packing_task_id`,`sellfox_task_id`,`sellfox_item_id`,`request_id`,`payload_json`,`status`,`attempt_count`,`last_error`,`create_time`,`last_update_time`,`row_version`)
+                    VALUES (@orderId,@taskId,@taskSourceId,@itemSourceId,@requestId,@payload,'PENDING',0,'',@now,@now,0);
+                    """,new{orderId,taskId,taskSourceId=a.Task.source_task_id,itemSourceId=plan.Item.source_item_id,requestId,
+                    payload=JsonSerializer.Serialize(new PackingConsumePayload(contributions)),now=consumeNow},tx,cancellationToken:ct));
+            }
+            // Ruoyi owns the release/consume mutation. The former direct allocation mutation is excluded.
+#if LEGACY_LOCAL_PACKING_ALLOCATION_MUTATION
             if(runtime.Mode==CanonicalInventoryMode)
             {
                 var allAllocations=plans.SelectMany(x=>x.Allocations).ToList();
@@ -168,6 +186,7 @@ public partial class DispatchWorkflowService
                             reduction.Allocation.erp_stock_id.Value,reduction.Allocation.stock_allocation_id.Value,reduction.Reduce,ct);
                 }
             }
+#endif
             var now=DateTime.Now;
             foreach(var plan in plans)
             {
@@ -181,11 +200,23 @@ public partial class DispatchWorkflowService
                 await c.ExecuteAsync(new CommandDefinition("UPDATE `wms_dispatch_packing_task_item` SET `actual_packed_task_qty`=@packed,`actual_packed_required_qty`=@actual,`last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id`=@id;",new{packed=plan.Packed,actual=plan.Actual,now,id=plan.Item.id},tx,cancellationToken:ct));
             }
             await c.ExecuteAsync(new CommandDefinition("""
-                UPDATE `wms_dispatch_packing_task` SET `packing_plan_status`='ACTUAL_CONFIRMED',`actual_confirmed_at`=@now,`actual_confirmed_by`=@userId,`actual_confirmed_by_name`=@name,`last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id`=@taskId;
+                UPDATE `wms_dispatch_packing_task` SET `packing_plan_status`='ACTUAL_CONFIRMED',`consume_status`='PENDING',`actual_confirmed_at`=@now,`actual_confirmed_by`=@userId,`actual_confirmed_by_name`=@name,`last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id`=@taskId;
                 UPDATE `wms_dispatch_order` SET `last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id`=@orderId AND `row_version`=@expected;
                 """,new{now,userId=user.user_id,name=user.user_name,taskId,orderId,expected=a.Order.row_version},tx,cancellationToken:ct));
-            await InsertOperationAsync(c,tx,orderId,DispatchWorkflowOperation.ConfirmActualPacking,r.request_id,a.Order.status,a.Order.row_version+1,user,now,ct);await tx.CommitAsync(ct);return await GetPackingPlanAsync(orderId,taskId,user,ct);
+            await InsertOperationAsync(c,tx,orderId,DispatchWorkflowOperation.ConfirmActualPacking,r.request_id,a.Order.status,a.Order.row_version+1,user,now,ct);await tx.CommitAsync(ct);
+            await TryConsumeOutboxAsync(taskId,user,ct);return await GetPackingPlanAsync(orderId,taskId,user,ct);
         }catch{await tx.RollbackAsync(CancellationToken.None);throw;}
+    }
+
+    public async Task<PackingPlanViewModel> RetryPackingConsumeAsync(int orderId,int taskId,CurrentUser user,CancellationToken ct=default)
+    {
+        await using var c=await _connectionFactory.OpenConnectionAsync(ct);
+        var order=await c.QuerySingleOrDefaultAsync<DispatchOrderEntity>(new CommandDefinition("SELECT * FROM `wms_dispatch_order` WHERE `id`=@orderId;",new{orderId},cancellationToken:ct))??throw new KeyNotFoundException("dispatch order not found");
+        await _warehouseAccessService.EnsureAllowedAsync(order.warehouse_id,user);
+        var task=await c.QuerySingleOrDefaultAsync<DispatchPackingTaskEntity>(new CommandDefinition("SELECT * FROM `wms_dispatch_packing_task` WHERE `id`=@taskId AND `dispatch_order_id`=@orderId AND `is_active`=1;",new{taskId,orderId},cancellationToken:ct))??throw new KeyNotFoundException("packing task not found");
+        if(task.consume_status is not ("PENDING" or "FAILED"))return await GetPackingPlanAsync(orderId,taskId,user,ct);
+        await TryConsumeOutboxAsync(taskId,user,ct);
+        return await GetPackingPlanAsync(orderId,taskId,user,ct);
     }
 
     private static async Task<PackingPlanAggregate> LoadPackingPlanForUpdateAsync(IDbConnection c,IDbTransaction tx,int orderId,int taskId,CancellationToken ct)
@@ -194,12 +225,40 @@ public partial class DispatchWorkflowService
         var order=await grid.ReadSingleAsync<DispatchOrderEntity>();var task=await grid.ReadSingleAsync<DispatchPackingTaskEntity>();var items=(await grid.ReadAsync<DispatchPackingTaskItemEntity>()).AsList();var boxes=(await grid.ReadAsync<WeighingBoxEntity>()).AsList();var ids=boxes.Select(x=>x.id).ToArray();var boxItems=ids.Length==0?new List<WeighingBoxItemEntity>():(await c.QueryAsync<WeighingBoxItemEntity>(new CommandDefinition("SELECT * FROM `wms_weighing_box_item` WHERE `weighing_box_id` IN @ids FOR UPDATE;",new{ids},tx,cancellationToken:ct))).AsList();return new(order,task,items,boxes,boxItems);
     }
     private static void ValidateDraft(IReadOnlyCollection<PackingPlanBoxViewModel> boxes,IReadOnlyCollection<DispatchPackingTaskItemEntity> items)
-    {var ids=items.Select(x=>x.id).ToHashSet();if(boxes.SelectMany(x=>x.items).Any(x=>x.task_qty<=0||!ids.Contains(x.packing_task_item_id)))throw DispatchWorkflowCommandException.WeighingIncomplete("箱内商品或任务量无效");}
+    {var ids=items.Select(x=>x.id).ToHashSet();if(boxes.SelectMany(x=>x.items).Any(x=>x.task_qty<=0||x.goods_owner_id<=0||!ids.Contains(x.packing_task_item_id)))throw DispatchWorkflowCommandException.WeighingIncomplete("箱内商品、货主或任务量无效");}
     private static string MeasurementStatus(PackingPlanBoxViewModel b)=>b.weight>0&&b.length>0&&b.width>0&&b.height>0?"MEASURED":"UNMEASURED";
     private static void ValidatePackingPlanCommand(int orderId,int taskId,string requestId,long orderVersion,long taskVersion){if(orderId<=0||taskId<=0||string.IsNullOrWhiteSpace(requestId)||requestId.Length>64||orderVersion<0||taskVersion<0)throw new ArgumentException("order, task, request id and versions are required");}
-    private static PackingPlanViewModel ToPackingPlan(DispatchOrderEntity o,DispatchPackingTaskEntity t,IReadOnlyCollection<DispatchPackingTaskItemEntity> items,IReadOnlyCollection<WeighingBoxEntity> boxes,IReadOnlyCollection<WeighingBoxItemEntity> boxItems)=>new(){order_id=o.id,packing_task_id=t.id,packing_task_no=t.source_task_no,packing_plan_status=t.packing_plan_status,row_version=o.row_version,task_row_version=t.row_version,items=items.Select(i=>new PackingPlanItemViewModel{id=i.id,commodity_sku=i.commodity_sku,commodity_name=i.commodity_name,fn_sku=i.fn_sku,msku=i.msku,main_image=SourceMainImage(i.source_snapshot),task_qty=i.source_quantity_shipped??0,variant_qty=i.variant_qty??0,required_qty=i.required_qty??0,actual_packed_task_qty=i.actual_packed_task_qty,actual_packed_required_qty=i.actual_packed_required_qty}).ToList(),boxes=boxes.Select(b=>new PackingPlanBoxViewModel{id=b.id,client_key=$"box-{b.id}",box_sequence=b.box_sequence,weight=b.weight,length=b.length,width=b.width,height=b.height,row_version=b.row_version,items=boxItems.Where(x=>x.weighing_box_id==b.id).Select(x=>new PackingPlanBoxItemViewModel{packing_task_item_id=x.packing_task_item_id,task_qty=x.task_qty}).ToList()}).ToList()};
+    private static PackingPlanViewModel ToPackingPlan(DispatchOrderEntity o,DispatchPackingTaskEntity t,IReadOnlyCollection<DispatchPackingTaskItemEntity> items,IReadOnlyCollection<WeighingBoxEntity> boxes,IReadOnlyCollection<WeighingBoxItemEntity> boxItems)=>new(){order_id=o.id,packing_task_id=t.id,packing_task_no=t.source_task_no,packing_plan_status=t.packing_plan_status,consume_status=t.consume_status,row_version=o.row_version,task_row_version=t.row_version,items=items.Select(i=>new PackingPlanItemViewModel{id=i.id,commodity_sku=i.commodity_sku,commodity_name=i.commodity_name,fn_sku=i.fn_sku,msku=i.msku,main_image=SourceMainImage(i.source_snapshot),task_qty=i.source_quantity_shipped??0,variant_qty=i.variant_qty??0,required_qty=i.required_qty??0,actual_packed_task_qty=i.actual_packed_task_qty,actual_packed_required_qty=i.actual_packed_required_qty}).ToList(),boxes=boxes.Select(b=>new PackingPlanBoxViewModel{id=b.id,client_key=$"box-{b.id}",box_sequence=b.box_sequence,weight=b.weight,length=b.length,width=b.width,height=b.height,row_version=b.row_version,items=boxItems.Where(x=>x.weighing_box_id==b.id).Select(x=>new PackingPlanBoxItemViewModel{packing_task_item_id=x.packing_task_item_id,goods_owner_id=x.goods_owner_id,task_qty=x.task_qty}).ToList()}).ToList()};
     private sealed record PackingPlanAggregate(DispatchOrderEntity Order,DispatchPackingTaskEntity Task,List<DispatchPackingTaskItemEntity> Items,List<WeighingBoxEntity> Boxes,List<WeighingBoxItemEntity> BoxItems);
     private sealed record ActualPackingItemPlan(DispatchPackingTaskItemEntity Item,int Packed,int Actual,
         DispatchlistEntity Detail,List<DispatchpicklistEntity> Allocations,List<ActualPackingAllocationReduction> Reductions);
     private sealed record ActualPackingAllocationReduction(DispatchpicklistEntity Allocation,int Reduce,int Remain);
+    private sealed record PackingConsumePayload(List<PackingConsumeContribution> Contributions);
+    private sealed record PackingConsumeContribution(int GoodsOwnerId,long ActualPackedQty);
+
+    private async Task TryConsumeOutboxAsync(int packingTaskId,CurrentUser user,CancellationToken ct)
+    {
+        var client=_erpPackingStockClient??throw new InvalidOperationException("ERP 装箱库存客户端未注册，已保留待消费命令");
+        await using var c=await _connectionFactory.OpenConnectionAsync(ct);
+        var rows=(await c.QueryAsync<PackingConsumeOutboxEntity>(new CommandDefinition("SELECT * FROM `wms_packing_consume_outbox` WHERE `packing_task_id`=@packingTaskId AND `status` IN ('PENDING','FAILED') ORDER BY `id`;",new{packingTaskId},cancellationToken:ct))).AsList();
+        foreach(var row in rows)
+        {
+            try
+            {
+                var payload=JsonSerializer.Deserialize<PackingConsumePayload>(row.payload_json)??throw new InvalidOperationException("消费命令载荷无效");
+                var actorId=user.user_id.ToString(System.Globalization.CultureInfo.InvariantCulture);var actorName=string.IsNullOrWhiteSpace(user.user_name)?$"用户{user.user_id}":user.user_name.Trim();
+                var plan=await client.GetPlanAsync(new ErpPackingStockPlanQuery(row.sellfox_task_id,row.sellfox_item_id,actorId,actorName),ct);
+                if(!plan.IsSuccess||plan.Data==null)throw new InvalidOperationException(plan.ErrorMessage);
+                var result=await client.ConsumeAsync(new ErpPackingStockConsumeCommand(row.sellfox_task_id,row.sellfox_item_id,row.request_id,plan.Data.rowVersion,actorId,actorName,payload.Contributions.Select(x=>new ErpPackingStockOwnerConsumption(x.GoodsOwnerId,x.ActualPackedQty)).ToList()),ct);
+                if(!result.IsSuccess)throw new InvalidOperationException(result.ErrorMessage);
+                await c.ExecuteAsync(new CommandDefinition("UPDATE `wms_packing_consume_outbox` SET `status`='CONSUMED',`attempt_count`=`attempt_count`+1,`last_error`='',`consumed_at`=@now,`last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id`=@id AND `status` IN ('PENDING','FAILED');",new{id=row.id,now=DateTime.Now},cancellationToken:ct));
+            }
+            catch(Exception ex)
+            {await c.ExecuteAsync(new CommandDefinition("UPDATE `wms_packing_consume_outbox` SET `status`='FAILED',`attempt_count`=`attempt_count`+1,`last_error`=@error,`last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id`=@id;",new{id=row.id,error=ex.Message[..Math.Min(ex.Message.Length,500)],now=DateTime.Now},cancellationToken:ct));}
+        }
+        var pending=await c.ExecuteScalarAsync<long>(new CommandDefinition("SELECT COUNT(*) FROM `wms_packing_consume_outbox` WHERE `packing_task_id`=@packingTaskId AND `status`<>'CONSUMED';",new{packingTaskId},cancellationToken:ct));
+        var failed=await c.ExecuteScalarAsync<long>(new CommandDefinition("SELECT COUNT(*) FROM `wms_packing_consume_outbox` WHERE `packing_task_id`=@packingTaskId AND `status`='FAILED';",new{packingTaskId},cancellationToken:ct));
+        var status=pending==0?"CONSUMED":failed>0?"FAILED":"PENDING";
+        await c.ExecuteAsync(new CommandDefinition("UPDATE `wms_dispatch_packing_task` SET `consume_status`=@status,`last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id`=@packingTaskId AND `consume_status`<>@status;",new{packingTaskId,status,now=DateTime.Now},cancellationToken:ct));
+    }
 }

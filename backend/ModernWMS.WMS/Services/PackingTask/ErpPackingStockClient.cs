@@ -44,7 +44,10 @@ public sealed record ErpPackingStockVariantCommand(long SellfoxTaskId, long Sell
 public sealed record ErpPackingStockContributionCommand(long SellfoxTaskId, long SellfoxItemId, string RequestId,
     long RowVersion, string ActorId, string ActorName, long StockId, int GoodsOwnerId, long TargetQuantity,
     bool SkuMismatchConfirmed)
-    : ErpPackingStockCommand(SellfoxTaskId, SellfoxItemId, RequestId, RowVersion, ActorId, ActorName);
+    : ErpPackingStockCommand(SellfoxTaskId, SellfoxItemId, RequestId, RowVersion, ActorId, ActorName)
+{
+    public int SkuMismatchReminderSeconds { get; init; } = SkuMismatchConfirmed ? 3 : 0;
+}
 
 public sealed record ErpPackingStockParticipantWithdrawCommand(long SellfoxTaskId, long SellfoxItemId,
     string RequestId, long RowVersion, string ActorId, string ActorName, int GoodsOwnerId)

@@ -12,6 +12,7 @@ using ModernWMS.WMS.IServices.DispatchWorkflow;
 using ModernWMS.WMS.IServices.PackingTask;
 using ModernWMS.WMS.IServices.StockAllocation;
 using ModernWMS.WMS.Services.Dispatchlist;
+using ModernWMS.WMS.Services.PackingTask;
 
 namespace ModernWMS.WMS.Services.DispatchWorkflow;
 
@@ -25,6 +26,7 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
     private readonly IWarehouseAccessService _warehouseAccessService;
     private readonly IDispatchSignNotificationClient? _dispatchSignNotificationClient;
     private readonly IStockAllocationMutationService? _stockAllocationMutationService;
+    private readonly IErpPackingStockClient? _erpPackingStockClient;
 
     /// <summary>
     /// 初始化 DispatchWorkflowService 的新实例。
@@ -34,13 +36,15 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
         IPackingTaskSourceReader sourceReader,
         IWarehouseAccessService warehouseAccessService,
         IDispatchSignNotificationClient? dispatchSignNotificationClient = null,
-        IStockAllocationMutationService? stockAllocationMutationService = null)
+        IStockAllocationMutationService? stockAllocationMutationService = null,
+        IErpPackingStockClient? erpPackingStockClient = null)
     {
         _connectionFactory = connectionFactory;
         _sourceReader = sourceReader;
         _warehouseAccessService = warehouseAccessService;
         _dispatchSignNotificationClient = dispatchSignNotificationClient;
         _stockAllocationMutationService = stockAllocationMutationService;
+        _erpPackingStockClient = erpPackingStockClient;
     }
 
     private const string LegacyInventoryMode = "LEGACY_READ";

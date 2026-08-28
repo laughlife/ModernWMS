@@ -136,6 +136,13 @@ public sealed class DispatchWorkflowController : BaseController
         int id, int packingTaskId, ConfirmActualPackingRequest request, CancellationToken cancellationToken) =>
         ExecuteAsync(() => _workflowService.ConfirmActualPackingAsync(id, packingTaskId, request, CurrentUser, cancellationToken));
 
+    /// <summary>重试 ERP 装箱库存消费。</summary>
+    [Authorize]
+    [HttpPost("{id:int}/packing-tasks/{packingTaskId:int}/retry-consume")]
+    public Task<ActionResult<ResultModel<PackingPlanViewModel>>> RetryPackingConsumeAsync(
+        int id, int packingTaskId, CancellationToken cancellationToken) =>
+        ExecuteAsync(() => _workflowService.RetryPackingConsumeAsync(id, packingTaskId, CurrentUser, cancellationToken));
+
     /// <summary>保存称重箱信息。</summary>
     [Authorize]
     [HttpPut("{id:int}/boxes/{boxId:int}")]

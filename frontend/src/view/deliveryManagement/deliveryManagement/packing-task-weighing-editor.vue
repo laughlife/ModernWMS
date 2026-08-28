@@ -84,13 +84,14 @@
             <v-text-field v-model.number="box.height" type="number" min="0" label="高(cm)" density="compact" hide-details :disabled="!editable" />
           </div>
           <div class="box-item-header">
-            <span>商品信息</span><span>任务量</span><span>变体</span><span>商品需求量</span><span>操作</span>
+            <span>商品信息</span><span>货主ID</span><span>任务量</span><span>变体</span><span>商品需求量</span><span>操作</span>
           </div>
           <div v-for="(boxItem, itemIndex) in box.items" :key="boxItem.packing_task_item_id" class="box-item-row">
             <span>
               <span>{{ product(boxItem.packing_task_item_id)?.commodity_name || '-' }}</span>
               <small>SKU：{{ product(boxItem.packing_task_item_id)?.commodity_sku || '-' }}</small>
             </span>
+            <v-text-field v-model.number="boxItem.goods_owner_id" type="number" min="1" label="货主ID" density="compact" hide-details :disabled="!editable" />
             <v-text-field v-model.number="boxItem.task_qty" type="number" min="0" label="任务量" density="compact" hide-details :disabled="!editable" />
             <span>{{ product(boxItem.packing_task_item_id)?.variant_qty || 0 }}</span>
             <span>{{ Number(boxItem.task_qty || 0) * Number(product(boxItem.packing_task_item_id)?.variant_qty || 0) }}</span>
@@ -186,6 +187,7 @@ const fillBoxProductRows = (packingPlan: PackingPlan, initializeFirstBox = false
     const currentItems = new Map(box.items.map((item) => [item.packing_task_item_id, item]))
     box.items = packingPlan.items.map((item) => currentItems.get(item.id) ?? {
       packing_task_item_id: item.id,
+      goods_owner_id: 0,
       task_qty: 0
     })
   })
