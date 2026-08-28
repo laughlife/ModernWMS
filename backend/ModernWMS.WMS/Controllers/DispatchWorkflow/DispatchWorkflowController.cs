@@ -115,6 +115,16 @@ public sealed class DispatchWorkflowController : BaseController
         int id, int packingTaskId, CancellationToken cancellationToken) =>
         ExecuteAsync(() => _workflowService.GetPackingPlanAsync(id, packingTaskId, CurrentUser, cancellationToken));
 
+    /// <summary>获取当前仓库可用于实际装箱的库存分配。</summary>
+    [HttpGet("{id:int}/packing-tasks/{packingTaskId:int}/actual-stock")]
+    public Task<ActionResult<ResultModel<List<ActualPackingStockViewModel>>>> GetActualPackingStockAsync(
+        int id,
+        int packingTaskId,
+        [FromQuery] string keyword,
+        CancellationToken cancellationToken) =>
+        ExecuteAsync(() => _workflowService.GetActualPackingStockAsync(
+            id, packingTaskId, keyword, CurrentUser, cancellationToken));
+
     /// <summary>保存装箱计划。</summary>
     [Authorize]
     [HttpPut("{id:int}/packing-tasks/{packingTaskId:int}/packing-plan")]

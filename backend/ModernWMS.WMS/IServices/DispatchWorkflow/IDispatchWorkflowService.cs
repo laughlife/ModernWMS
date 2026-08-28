@@ -52,6 +52,14 @@ public interface IDispatchWorkflowService : IDependency
     Task<PackingPlanViewModel> GetPackingPlanAsync(int orderId, int packingTaskId,
         CurrentUser currentUser, CancellationToken cancellationToken = default);
 
+    /// <summary>获取当前仓库可用于实际装箱的库存分配。</summary>
+    Task<List<ActualPackingStockViewModel>> GetActualPackingStockAsync(
+        int orderId,
+        int packingTaskId,
+        string keyword,
+        CurrentUser currentUser,
+        CancellationToken cancellationToken = default);
+
     /// <summary>保存装箱计划。</summary>
     Task<PackingPlanViewModel> SavePackingPlanAsync(int orderId, int packingTaskId,
         SavePackingPlanRequest request, CurrentUser currentUser, CancellationToken cancellationToken = default);

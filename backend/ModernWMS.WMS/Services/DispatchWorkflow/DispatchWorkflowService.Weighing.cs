@@ -31,11 +31,15 @@ public partial class DispatchWorkflowService
         var boxIds=boxes.Select(x=>x.id).ToArray();
         if(boxIds.Length==0)return boxes;
         var boxItems=(await c.QueryAsync<WeighingBoxItemEntity>(new CommandDefinition("""
-            SELECT `weighing_box_id`,`packing_task_item_id`,`task_qty`
-            FROM `wms_weighing_box_item` WHERE `weighing_box_id` IN @boxIds ORDER BY `weighing_box_id`,`id`;
+            SELECT * FROM `wms_weighing_box_item`
+             WHERE `weighing_box_id` IN @boxIds ORDER BY `weighing_box_id`,`id`;
             """,new{boxIds},cancellationToken:ct))).AsList();
         foreach(var box in boxes)box.items=boxItems.Where(x=>x.weighing_box_id==box.id)
-            .Select(x=>new PackingPlanBoxItemViewModel{packing_task_item_id=x.packing_task_item_id,task_qty=x.task_qty}).ToList();
+            .Select(x=>new PackingPlanBoxItemViewModel{client_line_key=x.client_line_key,
+                packing_task_item_id=x.packing_task_item_id,stock_allocation_id=x.stock_allocation_id,
+                erp_stock_id=x.erp_stock_id,wms_sku_id=x.wms_sku_id,goods_owner_id=x.goods_owner_id,
+                goods_location_id=x.goods_location_id,sku_code=x.sku_code,commodity_name=x.commodity_name,
+                actual_qty=x.actual_qty,dispatchpicklist_id=x.dispatchpicklist_id}).ToList();
         return boxes;
     }
 
@@ -179,7 +183,7 @@ public partial class DispatchWorkflowService
     private static void ValidateOrderCommand(int id,string requestId,long version){if(id<=0||string.IsNullOrWhiteSpace(requestId)||requestId.Length>64||requestId!=requestId.Trim()||version<0)throw new ArgumentException("order id, request_id and row_version are required");}
     private static WeighingBoxEntity FindAvailableBox(DispatchOrderEntity o,int id)=>o.packing_tasks.Where(x=>x.is_active).SelectMany(x=>x.boxes).SingleOrDefault(x=>x.id==id&&!x.is_invalidated)??throw DispatchWorkflowCommandException.BoxNotAvailable("box does not belong to the active packing tasks of this order");
     private static bool HasCompleteMeasurement(WeighingBoxEntity b)=>b.measurement_status=="MEASURED"&&b.weight>0&&b.length>0&&b.width>0&&b.height>0;
-    private static void ValidateCompletedPackingTask(DispatchPackingTaskEntity t){var boxes=t.boxes.Where(x=>!x.is_invalidated).ToList();if(boxes.Count==0||boxes.Any(x=>!HasCompleteMeasurement(x)||x.items.Count==0))throw DispatchWorkflowCommandException.WeighingIncomplete("每个箱必须有商品且重量和箱规完整");foreach(var item in t.items){var packed=boxes.SelectMany(x=>x.items).Where(x=>x.packing_task_item_id==item.id).Sum(x=>x.task_qty);var expected=item.actual_packed_task_qty??item.source_quantity_shipped;if(expected is null or <=0||packed!=expected)throw DispatchWorkflowCommandException.WeighingIncomplete($"商品 {item.commodity_sku} 尚未分配完成");}}
+    private static void ValidateCompletedPackingTask(DispatchPackingTaskEntity t){var boxes=t.boxes.Where(x=>!x.is_invalidated).ToList();if(boxes.Count==0||boxes.Any(x=>!HasCompleteMeasurement(x)||x.items.Count==0||x.items.Any(item=>item.actual_qty<=0)))throw DispatchWorkflowCommandException.WeighingIncomplete("每个箱必须有实际商品且重量和箱规完整");}
     private static void ApplyMeasurement(WeighingBoxEntity b,decimal weight,decimal length,decimal width,decimal height,int? copied,CurrentUser u,DateTime now){b.weight=weight;b.length=length;b.width=width;b.height=height;b.measurement_status="MEASURED";b.measured_by=u.user_id;b.measured_by_name=u.user_name;b.measured_at=now;b.copied_from_box_id=copied;b.last_update_time=now;b.row_version++;}
     private static void UpdateTaskMeasuredCount(DispatchOrderEntity o,int id,DateTime now){var t=o.packing_tasks.Single(x=>x.id==id);t.measured_box_count=t.boxes.Count(x=>!x.is_invalidated&&HasCompleteMeasurement(x));t.last_update_time=now;t.row_version++;}
     private static WeighingCommandResult WeighingResultFromLedger(DispatchWorkflowOperationEntity x,string clientId){if(x.result_order_status==null||x.result_row_version==null)throw DispatchWorkflowCommandException.ConcurrencyConflict();return new(){order_id=x.dispatch_order_id,request_id=clientId,status=ToApiStatus(x.result_order_status.Value),row_version=x.result_row_version.Value};}

@@ -577,7 +577,7 @@ public class WeighingBoxEntity : BaseModel
     public List<WeighingBoxItemEntity> items { get; set; } = [];
 }
 
-/// <summary>Quantity of one packing-task item assigned to a weighing box.</summary>
+/// <summary>Actual inventory content placed into one weighing box.</summary>
 [Table("weighing_box_item")]
 public class WeighingBoxItemEntity : BaseModel
 {
@@ -590,19 +590,38 @@ public class WeighingBoxItemEntity : BaseModel
     /// 获取或设置 weighing_box_id。
     /// </summary>
     public int weighing_box_id { get; set; }
+    /// <summary>Stable browser-side line identity within the box.</summary>
+    [MaxLength(64)]
+    public string client_line_key { get; set; } = string.Empty;
     /// <summary>
     /// 获取或设置 packing_task_item。
     /// </summary>
     [ForeignKey(nameof(packing_task_item_id))]
-    public DispatchPackingTaskItemEntity packing_task_item { get; set; } = null!;
+    public DispatchPackingTaskItemEntity? packing_task_item { get; set; }
     /// <summary>
     /// 获取或设置 packing_task_item_id。
     /// </summary>
-    public int packing_task_item_id { get; set; }
-    /// <summary>
-    /// 获取或设置 task_qty。
-    /// </summary>
-    public int task_qty { get; set; }
+    public int? packing_task_item_id { get; set; }
+    /// <summary>WMS SKU resolved from the selected stock allocation.</summary>
+    public int wms_sku_id { get; set; }
+    /// <summary>ERP stock balance row used by this actual line.</summary>
+    public long erp_stock_id { get; set; }
+    /// <summary>Exact WMS stock allocation used by this actual line.</summary>
+    public long stock_allocation_id { get; set; }
+    /// <summary>Actual stock owner snapshot.</summary>
+    public int goods_owner_id { get; set; }
+    /// <summary>Actual stock location snapshot.</summary>
+    public int goods_location_id { get; set; }
+    /// <summary>SKU snapshot.</summary>
+    [MaxLength(255)]
+    public string sku_code { get; set; } = string.Empty;
+    /// <summary>Commodity-name snapshot.</summary>
+    [MaxLength(500)]
+    public string commodity_name { get; set; } = string.Empty;
+    /// <summary>Actual stock-unit quantity placed in the box.</summary>
+    public int actual_qty { get; set; }
+    /// <summary>Materialized dispatch pick after actual confirmation.</summary>
+    public int? dispatchpicklist_id { get; set; }
     /// <summary>
     /// 获取或设置 create_time。
     /// </summary>

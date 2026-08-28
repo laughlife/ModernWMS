@@ -355,28 +355,41 @@ public partial class DispatchWorkflowService
         IReadOnlyCollection<DispatchpicklistEntity> allocations, bool deduct, CancellationToken cancellationToken)
     {
         if (details.Any(x => x.dispatch_order_id != order.id || x.dispatch_status != (deduct ? (byte)5 : (byte)6)
-            || x.packing_task_id is null or <= 0 || x.packing_task_item_id is null or <= 0 || x.sku_id <= 0
+            || x.packing_task_id is null or <= 0 || x.sku_id <= 0
             || x.picked_qty <= 0 || x.lock_qty != (deduct ? x.picked_qty : 0)))
             throw DispatchWorkflowCommandException.StockConflict("dispatch detail ownership or picked quantity changed");
         var taskIds = order.packing_tasks.Where(x => x.is_active).Select(x => x.id).ToHashSet();
         if (taskIds.Count == 0 || details.Any(x => !taskIds.Contains(x.packing_task_id!.Value)))
             throw DispatchWorkflowCommandException.StockConflict(
                 "dispatch detail is attached to another order or an inactive packing task");
-        var itemIds = details.Select(x => x.packing_task_item_id!.Value).Distinct().ToArray();
-        var items = (await connection.QueryAsync<DispatchPackingTaskItemEntity>(new CommandDefinition("""
+        var itemIds = details.Where(x=>x.packing_task_item_id is >0)
+            .Select(x => x.packing_task_item_id!.Value).Distinct().ToArray();
+        var items = itemIds.Length==0?[]:(await connection.QueryAsync<DispatchPackingTaskItemEntity>(new CommandDefinition("""
             SELECT * FROM `wms_dispatch_packing_task_item` WHERE `id` IN @itemIds FOR UPDATE;
             """, new { itemIds }, transaction, cancellationToken: cancellationToken))).AsList();
         foreach (var detail in details)
         {
             var item = items.SingleOrDefault(x => x.id == detail.packing_task_item_id);
             var rows = allocations.Where(x => x.dispatchlist_id == detail.id).ToList();
-            if (item == null || !item.is_active || item.packing_task_id != detail.packing_task_id
-                || item.wms_sku_id != detail.sku_id || rows.Count == 0
+            var actualQuantity=rows.Count==0?0:await connection.ExecuteScalarAsync<int>(new CommandDefinition("""
+                SELECT COALESCE(SUM(box_item.`actual_qty`),0)
+                  FROM `wms_weighing_box_item` box_item
+                  JOIN `wms_weighing_box` box ON box.`id`=box_item.`weighing_box_id`
+                 WHERE box.`packing_task_id`=@taskId AND box.`is_invalidated`=0
+                   AND box_item.`packing_task_item_id` <=> @taskItemId
+                   AND box_item.`wms_sku_id`=@skuId
+                   AND box_item.`dispatchpicklist_id` IN @pickIds;
+                """,new{taskId=detail.packing_task_id,taskItemId=detail.packing_task_item_id,
+                    skuId=detail.sku_id,pickIds=rows.Select(x=>x.id).ToArray()},transaction,cancellationToken:cancellationToken));
+            if ((detail.packing_task_item_id is >0
+                    &&(item == null || !item.is_active || item.packing_task_id != detail.packing_task_id))
+                || rows.Count == 0
                 || rows.Any(x => x.packing_task_item_id != detail.packing_task_item_id || x.sku_id != detail.sku_id
                     || x.picked_qty <= 0 || x.pick_qty != x.picked_qty)
-                || rows.Sum(x => x.picked_qty) != detail.picked_qty)
+                || rows.Sum(x => x.picked_qty) != detail.picked_qty
+                || actualQuantity!=detail.picked_qty)
                 throw DispatchWorkflowCommandException.StockConflict(
-                    "dispatch detail allocations are incomplete, excessive or attached to another task item");
+                    "dispatch detail allocations do not match actual box contents");
         }
     }
 

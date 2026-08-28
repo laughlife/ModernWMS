@@ -427,14 +427,47 @@ public sealed class PackingPlanItemViewModel
 /// </summary>
 public sealed class PackingPlanBoxItemViewModel
 {
+    /// <summary>Stable line identity within one box.</summary>
+    public string client_line_key { get; set; } = string.Empty;
     /// <summary>
     /// 获取或设置 packing_task_item_id。
     /// </summary>
-    public int packing_task_item_id { get; set; }
-    /// <summary>
-    /// 获取或设置 task_qty。
-    /// </summary>
-    public int task_qty { get; set; }
+    public int? packing_task_item_id { get; set; }
+    /// <summary>Selected stock-allocation identity.</summary>
+    public long stock_allocation_id { get; set; }
+    /// <summary>Server-resolved ERP stock identity.</summary>
+    public long erp_stock_id { get; set; }
+    /// <summary>Server-resolved WMS SKU.</summary>
+    public int wms_sku_id { get; set; }
+    /// <summary>Server-resolved owner snapshot.</summary>
+    public int goods_owner_id { get; set; }
+    /// <summary>Server-resolved location snapshot.</summary>
+    public int goods_location_id { get; set; }
+    /// <summary>Server-resolved SKU-code snapshot.</summary>
+    public string sku_code { get; set; } = string.Empty;
+    /// <summary>Server-resolved commodity-name snapshot.</summary>
+    public string commodity_name { get; set; } = string.Empty;
+    /// <summary>Current available stock shown as warning information only.</summary>
+    public long available_qty { get; set; }
+    /// <summary>Actual stock-unit quantity placed in the box.</summary>
+    public int actual_qty { get; set; }
+    /// <summary>Materialized dispatch-pick identity after confirmation.</summary>
+    public int? dispatchpicklist_id { get; set; }
+}
+
+/// <summary>Selectable actual stock allocation for packing.</summary>
+public sealed class ActualPackingStockViewModel
+{
+    public long stock_allocation_id { get; set; }
+    public long erp_stock_id { get; set; }
+    public int wms_sku_id { get; set; }
+    public int goods_owner_id { get; set; }
+    public int goods_location_id { get; set; }
+    public string goods_owner_name { get; set; } = string.Empty;
+    public string location_name { get; set; } = string.Empty;
+    public string sku_code { get; set; } = string.Empty;
+    public string commodity_name { get; set; } = string.Empty;
+    public long available_qty { get; set; }
 }
 
 /// <summary>
