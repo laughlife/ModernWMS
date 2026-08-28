@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using ModernWMS.Core.Database;
 using MySqlConnector;
+using System.Net;
 
 namespace ModernWMS.Tests.Hosting;
 
@@ -52,6 +53,28 @@ public class ApplicationStartupTests
 
         response.EnsureSuccessStatusCode();
         Assert.Equal("Healthy", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Readiness_endpoint_reports_service_unavailable_when_database_cannot_be_opened()
+    {
+        await using var factory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder =>
+            {
+                builder.UseEnvironment("Development");
+                builder.UseSetting(
+                    "ConnectionStrings:MySqlConn",
+                    "Server=127.0.0.1;Port=1;Database=unavailable;User Id=invalid;Connection Timeout=1");
+                builder.UseSetting(
+                    "TokenSettings:SigningKey",
+                    "modernwms-local-smoke-key-32-bytes-minimum");
+            });
+
+        using var client = factory.CreateClient();
+        using var response = await client.GetAsync("/health/ready");
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.Equal("Unhealthy", await response.Content.ReadAsStringAsync());
     }
 
     [Fact]

@@ -21,6 +21,7 @@ using Microsoft.Extensions.Localization;
 using Hangfire;
 using Hangfire.MemoryStorage;
 using ModernWMS.Core.Database;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 
 namespace ModernWMS.Core.Extentions
 {
@@ -41,7 +42,6 @@ namespace ModernWMS.Core.Extentions
                 return sharedLocalizer;
             });
             services.AddHttpClient();
-            services.AddHealthChecks();
             services.AddSingleton<IHttpContextAccessor, HttpContextAccessor>();
             services.AddSingleton<CacheManager>();
             services.AddSingleton<IMemoryCache>(factory =>
@@ -57,6 +57,8 @@ namespace ModernWMS.Core.Extentions
             }
 
             services.AddModernWmsDatabase(databaseConnectionString);
+            services.AddHealthChecks()
+                .AddCheck<DatabaseReadinessHealthCheck>("database", tags: ["ready"]);
             var allowedOrigins = configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
             services.AddCors(options => options.AddPolicy("Frontend", policy =>
             {
@@ -134,7 +136,14 @@ namespace ModernWMS.Core.Extentions
             AddHangfireJob(serviceProvider);
             app.UseEndpoints(endpoints =>
             {
-                endpoints.MapHealthChecks("/health");
+                endpoints.MapHealthChecks("/health", new HealthCheckOptions
+                {
+                    Predicate = _ => false
+                });
+                endpoints.MapHealthChecks("/health/ready", new HealthCheckOptions
+                {
+                    Predicate = registration => registration.Tags.Contains("ready")
+                });
                 endpoints.MapControllers();
             });
         }

@@ -2,6 +2,7 @@ using System.Reflection;
 using Microsoft.AspNetCore.Authorization;
 using ModernWMS.Core.JWT;
 using ModernWMS.WMS.Controllers.DispatchWorkflow;
+using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels.DispatchWorkflow;
 using ModernWMS.WMS.Services.DispatchWorkflow;
 using MySqlConnector;
@@ -10,6 +11,17 @@ namespace ModernWMS.Tests.DispatchWorkflow;
 
 public sealed class DispatchWorkflowContractTests
 {
+    [Fact]
+    public void Pending_order_reconciliation_query_binds_the_pending_status_parameter()
+    {
+        var command = DispatchOrderQueryService.CreatePendingOrderIdsCommand(320118, CancellationToken.None);
+        var parameters = command.Parameters!.GetType().GetProperties()
+            .ToDictionary(property => property.Name, property => property.GetValue(command.Parameters));
+
+        Assert.Equal(320118L, parameters["warehouseId"]);
+        Assert.Equal(DispatchOrderStatus.PendingPick, parameters["status"]);
+    }
+
     [Theory]
     [InlineData(nameof(DispatchWorkflowController.CompletePickingAsync))]
     [InlineData(nameof(DispatchWorkflowController.RollbackPendingPickAsync))]
@@ -75,4 +87,5 @@ public sealed class DispatchWorkflowContractTests
         Assert.NotNull(overload);
         Assert.Equal(typeof(Task<PostPickSourceGuardResult>), overload!.ReturnType);
     }
+
 }

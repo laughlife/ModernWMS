@@ -181,12 +181,15 @@ public sealed class DispatchOrderQueryService : IDispatchOrderQueryService
     private async Task ReconcilePendingOrdersAsync(long warehouseId, CurrentUser currentUser, CancellationToken cancellationToken)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        var ids = await connection.QueryAsync<int>(new CommandDefinition("""
-            SELECT `id` FROM `wms_dispatch_order`
-            WHERE `warehouse_id`=@warehouseId  AND `status`=@status ORDER BY `id`;
-            """, new { warehouseId}, cancellationToken: cancellationToken));
+        var ids = await connection.QueryAsync<int>(CreatePendingOrderIdsCommand(warehouseId, cancellationToken));
         foreach (var id in ids) await _workflowService.ReconcileAsync(id, currentUser, cancellationToken);
     }
+
+    internal static CommandDefinition CreatePendingOrderIdsCommand(long warehouseId, CancellationToken cancellationToken) =>
+        new("""
+            SELECT `id` FROM `wms_dispatch_order`
+            WHERE `warehouse_id`=@warehouseId  AND `status`=@status ORDER BY `id`;
+            """, new { warehouseId, status = DispatchOrderStatus.PendingPick }, cancellationToken: cancellationToken);
 
     private static DispatchOrderSummaryViewModel ToSummary(DispatchOrderEntity order, CarrierSummaryRow? carrier = null)
     {
