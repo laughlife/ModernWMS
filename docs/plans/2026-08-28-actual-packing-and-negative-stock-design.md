@@ -2,7 +2,7 @@
 
 日期：2026-08-28
 
-状态：待确认
+状态：已确认（2026-08-28）
 
 所属仓库：ModernWMS
 
@@ -25,8 +25,7 @@
 
 系统区分两类数据：
 
-1. `wms_weighing_box_item` 继续保存装箱任务计划商品在箱子间的参考分布。
-2. 新增 `wms_weighing_box_inventory_item` 保存装箱人员确认的实际库存明细。
+直接升级现有 `wms_weighing_box_item`，使它成为装箱人员保存和确认的箱内实际库存明细。装箱任务计划继续由 `wms_dispatch_packing_task_item` 保存，不再单独维护一套箱内计划分布，也不新增实际装箱表。
 
 实际明细表不是差异表，也不是事件日志。它回答：哪一个箱子实际装了什么 SKU、用了哪一笔库存、属于哪个货主、数量是多少。
 
@@ -35,10 +34,9 @@
 | 字段 | 约束 | 说明 |
 | --- | --- | --- |
 | `id` | 主键 | 实际装箱明细 ID |
-| `tenant_id` | 非空 | ModernWMS 租户 ID |
 | `weighing_box_id` | 非空外键 | 所属箱子 |
 | `client_line_key` | 非空 | 前端生成的稳定行键，用于保存幂等 |
-| `packing_task_item_id` | 可空外键 | 对应计划商品；任务外商品为空 |
+| `packing_task_item_id` | 可空外键 | 可选的计划商品引用；任务外商品为空 |
 | `wms_sku_id` | 非空外键 | WMS SKU |
 | `erp_stock_id` | 非空 | ERP 库存主记录 |
 | `stock_allocation_id` | 非空外键 | 实际使用的 WMS 库存分配行 |
@@ -50,14 +48,17 @@
 | `dispatchpicklist_id` | 可空外键 | 实际确认后对应的出库拣货明细 |
 | 审计字段 | 非空 | 创建人、创建时间、更新时间、版本号 |
 
-约束与索引：
+改造约束与索引：
 
-- 唯一键：`(tenant_id, weighing_box_id, client_line_key)`。
+- 删除原唯一键 `(weighing_box_id, packing_task_item_id)`，允许一个箱子中的同一计划商品使用多条库存。
+- 新唯一键：`(weighing_box_id, client_line_key)`。
 - 索引：`packing_task_item_id`、`stock_allocation_id`、`dispatchpicklist_id`。
 - `actual_qty > 0`。
 - 一条实际明细只能指向同仓库中一条有效的库存分配行。
 
-`packing_task_item_id` 只用于说明“它与哪条计划有关”，不决定 SKU、货主或数量。SKU 身份由实际选中的库存分配行校验并落快照。
+原 `task_qty` 列改名为 `actual_qty`。现有开发测试数据无需保留或回填业务含义；迁移后由装箱人员重新保存实际明细。
+
+`packing_task_item_id` 只用于说明“它与哪条计划有关”，不决定 SKU、货主或数量。SKU 身份由实际选中的库存分配行校验并落快照。该表是唯一箱内实际事实源，不是差异表或审计表。
 
 ## 3. API 与页面行为
 
@@ -153,11 +154,11 @@ actual_qty
 
 采用前向迁移，不修改已执行迁移文件：
 
-1. 创建 `wms_weighing_box_inventory_item` 及外键、唯一键和索引。
-2. 删除 `wms_erp_stock_allocation` 中禁止 `allocated_qty < 0`、禁止 `occupied_qty > allocated_qty` 的组合检查。
-3. 添加仅约束 `occupied_qty >= 0` 的检查。
-4. 对 `wms_erp_stock_allocation_log` 删除禁止负分配量的组合检查，保留新增“前后 occupied 均非负”的检查。
-5. 不回填测试数据；已有 `wms_weighing_box_item` 继续保留计划参考含义。
+1. 原位升级 `wms_weighing_box_item`：`packing_task_item_id` 改为可空，`task_qty` 改名为 `actual_qty`，增加实际库存身份、快照、幂等行键和最终拣货明细引用。
+2. 删除原 `(weighing_box_id, packing_task_item_id)` 唯一键，增加 `(weighing_box_id, client_line_key)` 唯一键和实际库存查询索引。
+3. 删除 `wms_erp_stock_allocation` 中禁止 `allocated_qty < 0`、禁止 `occupied_qty > allocated_qty` 的检查，保留 `occupied_qty >= 0`。
+4. 对 `wms_erp_stock_allocation_log` 删除禁止负分配量及 `occupied <= allocated` 的组合检查，新增只约束前后 `occupied_qty >= 0` 的检查。
+5. 不创建任何新表；开发测试数据允许清理或转换，生产环境不执行本迁移。
 
 执行保护：
 
