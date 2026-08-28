@@ -1,4 +1,5 @@
 using System.Data;
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using Dapper;
@@ -56,6 +57,9 @@ public class PackingTaskQueryService : IPackingTaskQueryService
     private readonly IConfiguration _configuration;
     private readonly IWarehouseAccessService? _warehouseAccessService;
     private readonly IErpPackingStockClient _erpPackingStockClient;
+    private static readonly ConcurrentDictionary<string, SkuMismatchChallenge> SkuMismatchChallenges = new();
+    private static readonly TimeSpan SkuMismatchMinimumReminder = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan SkuMismatchChallengeLifetime = TimeSpan.FromMinutes(5);
 
     /// <summary>Initializes the packing-task query service.</summary>
     public PackingTaskQueryService(
@@ -175,9 +179,9 @@ public class PackingTaskQueryService : IPackingTaskQueryService
                 matched = pool.skuMatched,
                 selected = pool.contributionQty > 0,
                 selected_qty = ToInt(pool.contributionQty),
-                row_version = pool.rowVersion,
-                can_manage = pool.canManage,
-                is_creator_stock = pool.canManage
+                row_version = result.Data.rowVersion,
+                can_manage = result.Data.canManageAllContributions || result.Data.canManageOwnContribution,
+                is_creator_stock = result.Data.canManageOwnContribution
             })
             .OrderByDescending(t => t.matched)
             .ThenByDescending(t => t.available_qty)
@@ -201,7 +205,18 @@ public class PackingTaskQueryService : IPackingTaskQueryService
             return (false, "库存贡献缺少库存、货主、请求标识或版本号");
         }
         var actor = BuildActor(currentUser);
-        var rowVersion = request.row_version;
+        var plan = await _erpPackingStockClient.GetPlanAsync(
+            new ErpPackingStockPlanQuery(request.sellfox_task_id, request.sellfox_item_id, actor.id, actor.name));
+        if (!plan.IsSuccess || plan.Data == null) return (false, plan.ErrorMessage);
+        var pool = plan.Data.pools.FirstOrDefault(t => t.stockId == request.stock_id
+            && t.goodsOwnerId == request.goods_owner_id);
+        if (pool == null) return (false, "ERP 库存池已变更，请刷新后重试");
+        if (!pool.skuMatched)
+        {
+            if (!request.sku_mismatch_confirmed || !TryConsumeSkuMismatchChallenge(request, currentUser))
+                return (false, "SKU 不匹配须完成服务端 3 秒确认后才能继续");
+        }
+        var rowVersion = plan.Data.rowVersion;
         if (request.variant > 0)
         {
             var variant = await _erpPackingStockClient.UpdateVariantAsync(new ErpPackingStockVariantCommand(
@@ -224,10 +239,51 @@ public class PackingTaskQueryService : IPackingTaskQueryService
         if (request.goods_owner_id <= 0 || request.row_version < 0 || string.IsNullOrWhiteSpace(request.request_id))
             return (false, "撤回贡献缺少货主、请求标识或版本号");
         var actor = BuildActor(currentUser);
+        var plan = await _erpPackingStockClient.GetPlanAsync(
+            new ErpPackingStockPlanQuery(request.sellfox_task_id, request.sellfox_item_id, actor.id, actor.name));
+        if (!plan.IsSuccess || plan.Data == null) return (false, plan.ErrorMessage);
         var result = await _erpPackingStockClient.WithdrawParticipantAsync(
             new ErpPackingStockParticipantWithdrawCommand(request.sellfox_task_id, request.sellfox_item_id,
-                request.request_id, request.row_version, actor.id, actor.name, request.goods_owner_id));
+                request.request_id, plan.Data.rowVersion, actor.id, actor.name, request.goods_owner_id));
         return result.IsSuccess ? (true, "库存贡献已由ERP撤回") : (false, result.ErrorMessage);
+    }
+
+    /// <summary>Starts a server-timed, single-use acknowledgement for an unmatched SKU pool.</summary>
+    public Task<string> BeginSkuMismatchChallengeAsync(
+        PackingTaskSkuMismatchChallengeRequest request,
+        CurrentUser currentUser)
+    {
+        if (request.sellfox_task_id <= 0 || request.sellfox_item_id <= 0 || request.stock_id <= 0
+            || request.goods_owner_id <= 0 || request.qty < 0 || request.variant < 0
+            || string.IsNullOrWhiteSpace(request.request_id) || request.request_id.Trim().Length > 64)
+            throw new ArgumentException("装箱任务、商品、库存、贡献参数和请求标识必须有效", nameof(request));
+
+        var now = DateTime.UtcNow;
+        foreach (var expired in SkuMismatchChallenges.Where(t => t.Value.ExpiresAtUtc <= now).Select(t => t.Key))
+            SkuMismatchChallenges.TryRemove(expired, out _);
+        var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
+        SkuMismatchChallenges[token] = new SkuMismatchChallenge(
+            currentUser.user_id, request.sellfox_task_id, request.sellfox_item_id, request.stock_id,
+            request.goods_owner_id, request.qty, request.variant, request.request_id.Trim(),
+            now.Add(SkuMismatchMinimumReminder), now.Add(SkuMismatchChallengeLifetime));
+        return Task.FromResult(token);
+    }
+
+    private static bool TryConsumeSkuMismatchChallenge(PackingTaskStockSelectRequest request, CurrentUser currentUser)
+    {
+        if (string.IsNullOrWhiteSpace(request.sku_mismatch_challenge)
+            || !SkuMismatchChallenges.TryGetValue(request.sku_mismatch_challenge, out var challenge))
+            return false;
+        var now = DateTime.UtcNow;
+        if (challenge.UserId != currentUser.user_id || challenge.SellfoxTaskId != request.sellfox_task_id
+            || challenge.SellfoxItemId != request.sellfox_item_id || challenge.StockId != request.stock_id
+            || challenge.GoodsOwnerId != request.goods_owner_id || challenge.Quantity != request.qty
+            || challenge.Variant != request.variant
+            || !string.Equals(challenge.RequestId, request.request_id, StringComparison.Ordinal)
+            || now < challenge.NotBeforeUtc || now > challenge.ExpiresAtUtc)
+            return false;
+        // The same frozen command may be retried; changed owner, quantity, variant or request id is rejected.
+        return true;
     }
 
     private static (string id, string name) BuildActor(CurrentUser currentUser) =>
@@ -244,6 +300,10 @@ public class PackingTaskQueryService : IPackingTaskQueryService
             ? requestId + suffix
             : requestId[..(maximumLength - suffix.Length)] + suffix;
     }
+
+    private sealed record SkuMismatchChallenge(long UserId, long SellfoxTaskId, long SellfoxItemId,
+        long StockId, int GoodsOwnerId, int Quantity, int Variant, string RequestId,
+        DateTime NotBeforeUtc, DateTime ExpiresAtUtc);
 
     private static PackingTaskQueryItemViewModel BuildItemViewModel(
         ErpPackingTaskItemEntity item,

@@ -217,7 +217,12 @@
 
 <script lang="ts" setup>
 import { computed, reactive, ref } from 'vue'
-import { getPackingTaskSelectableStock, selectPackingTaskStock, deletePackingTaskStockSelection } from '@/api/wms/dispatchWorkflow'
+import {
+  beginPackingTaskSkuMismatchChallenge,
+  getPackingTaskSelectableStock,
+  selectPackingTaskStock,
+  deletePackingTaskStockSelection
+} from '@/api/wms/dispatchWorkflow'
 import { hookComponent } from '@/components/system'
 import ProductImage from '@/components/system/product-image.vue'
 import type { PackingTaskItemVO, PackingTaskVO, SelectableStockVO } from '@/types/DeliveryManagement/PackingTask'
@@ -242,10 +247,26 @@ const selectedRows = ref<StockRow[]>([])
 const total = ref(0)
 const pageIndex = ref(1)
 const selectingStockId = ref<string | null>(null)
+const commandLease = reactive<Record<string, { signature: string; requestId: string }>>({})
 const stockIdentity = (row: Pick<SelectableStockVO, 'stock_id' | 'stock_allocation_id'>): string =>
   row.stock_allocation_id ? `allocation:${row.stock_allocation_id}` : `legacy:${row.stock_id}`
 const searchForm = reactive({ keyword: '', location: '', owner: '' })
 const searching = ref(false)
+const requestIdFor = (operation: string, row: StockRow, signature: string) => {
+  const key = `${operation}:${stockIdentity(row)}`
+  const existing = commandLease[key]
+  if (existing?.signature === signature) return existing.requestId
+  const requestId = globalThis.crypto?.randomUUID?.() ?? `${operation}-${Date.now()}-${Math.random().toString(16).slice(2)}`
+  commandLease[key] = { signature, requestId }
+  return requestId
+}
+const clearRequestId = (operation: string, row: StockRow) => delete commandLease[`${operation}:${stockIdentity(row)}`]
+const contributionRequestId = (row: StockRow, skuMismatchConfirmed: boolean): string => {
+  const variant = row.variant
+  const lockedQty = computeLockedQty(taskQty.value, variant)
+  return requestIdFor('contribution', row,
+    `${row.row_version}:${row.goods_owner_id}:${lockedQty}:${variant}:${skuMismatchConfirmed}`)
+}
 
 // 装箱任务量（箱数），锁定数量 = 装箱任务量 × 变体数量。
 const taskQty = computed(() => item.value?.task_num ?? 1)
@@ -324,13 +345,34 @@ const method = reactive({
   selectStock: (row: StockRow) => {
     if (!row.matched) {
       hookComponent.$message({ type: 'warning', content: 'SKU 不匹配，请在 3 秒提示后确认是否继续贡献库存' })
-      window.setTimeout(() => {
-        hookComponent.$dialog({
-          content: 'SKU 不匹配已提示 3 秒。确认继续将作为人工确认事实提交 ERP。',
-          confirmText: '确认继续',
-          cancleText: '取消',
-          handleConfirm: () => method.checkStockOwner(row, true)
-        })
+      window.setTimeout(async () => {
+        if (!item.value || !task.value) return
+        try {
+          const variant = row.variant
+          const qty = computeLockedQty(taskQty.value, variant)
+          const requestId = contributionRequestId(row, true)
+          const challenge = await beginPackingTaskSkuMismatchChallenge({
+            sellfox_task_id: task.value.sellfox_task_id,
+            sellfox_item_id: item.value.sellfox_item_id,
+            stock_id: row.stock_id,
+            goods_owner_id: row.goods_owner_id,
+            qty,
+            variant,
+            request_id: requestId
+          })
+          if (!challenge.isSuccess) {
+            hookComponent.$message({ type: 'error', content: challenge.errorMessage })
+            return
+          }
+          hookComponent.$dialog({
+            content: 'SKU 不匹配已提示 3 秒。确认继续将作为人工确认事实提交 ERP。',
+            confirmText: '确认继续',
+            cancleText: '取消',
+            handleConfirm: () => method.checkStockOwner(row, true, challenge.data)
+          })
+        } catch (error) {
+          hookComponent.$message({ type: 'error', content: error instanceof Error ? error.message : String(error) })
+        }
       }, 3000)
       return
     }
@@ -346,19 +388,19 @@ const method = reactive({
     }
     method.checkStockOwner(row, false)
   },
-  checkStockOwner: (row: StockRow, skuMismatchConfirmed: boolean) => {
+  checkStockOwner: (row: StockRow, skuMismatchConfirmed: boolean, skuMismatchChallenge = '') => {
     if (row.is_creator_stock) {
-      method.confirmSelectStock(row, skuMismatchConfirmed)
+      method.confirmSelectStock(row, skuMismatchConfirmed, skuMismatchChallenge)
       return
     }
     hookComponent.$dialog({
       content: '所选库存不是创建人的商品，是否继续执行',
       confirmText: '是',
       cancleText: '否',
-      handleConfirm: () => method.confirmSelectStock(row, skuMismatchConfirmed)
+      handleConfirm: () => method.confirmSelectStock(row, skuMismatchConfirmed, skuMismatchChallenge)
     })
   },
-  confirmSelectStock: async (row: StockRow, skuMismatchConfirmed = false) => {
+  confirmSelectStock: async (row: StockRow, skuMismatchConfirmed = false, skuMismatchChallenge = '') => {
     if (!item.value || !task.value) return
     const variant = row.variant
     const validation = validatePackingStockSelection(row, taskQty.value, variant)
@@ -372,6 +414,7 @@ const method = reactive({
     }
     // 锁定数量 = 装箱任务量 × 变体数量。
     const lockedQty = computeLockedQty(taskQty.value, variant)
+    const requestId = contributionRequestId(row, skuMismatchConfirmed)
     selectingStockId.value = stockIdentity(row)
     try {
       const result = await selectPackingTaskStock({
@@ -383,14 +426,16 @@ const method = reactive({
         qty: lockedQty,
         variant,
         row_version: row.row_version,
-        request_id: crypto.randomUUID(),
+        request_id: requestId,
         goods_owner_id: row.goods_owner_id,
-        sku_mismatch_confirmed: skuMismatchConfirmed
+        sku_mismatch_confirmed: skuMismatchConfirmed,
+        sku_mismatch_challenge: skuMismatchChallenge
       })
       if (!result.isSuccess) {
         hookComponent.$message({ type: 'error', content: result.errorMessage })
         return
       }
+      clearRequestId('contribution', row)
       hookComponent.$message({ type: 'success', content: '库存选择成功' })
       const selected = {
         ...row,
@@ -417,6 +462,7 @@ const method = reactive({
   unselectStock: async (row: StockRow) => {
     if (!item.value || !task.value) return
     selectingStockId.value = stockIdentity(row)
+    const requestId = requestIdFor('withdraw', row, `${row.row_version}:${row.goods_owner_id}`)
     try {
       const result = await deletePackingTaskStockSelection({
         sellfox_task_id: task.value.sellfox_task_id,
@@ -426,7 +472,7 @@ const method = reactive({
         stock_allocation_id: row.stock_allocation_id,
         qty: 0,
         row_version: row.row_version,
-        request_id: crypto.randomUUID(),
+        request_id: requestId,
         goods_owner_id: row.goods_owner_id,
         sku_mismatch_confirmed: false
       })
@@ -434,6 +480,7 @@ const method = reactive({
         hookComponent.$message({ type: 'error', content: result.errorMessage })
         return
       }
+      clearRequestId('withdraw', row)
       hookComponent.$message({ type: 'success', content: '已取消选择，锁定库存已释放' })
       selectedRows.value = selectedRows.value.filter((t) => stockIdentity(t) !== stockIdentity(row))
       // 重新加载列表恢复该行的可用量与选择状态，并通知父页面刷新锁定量。

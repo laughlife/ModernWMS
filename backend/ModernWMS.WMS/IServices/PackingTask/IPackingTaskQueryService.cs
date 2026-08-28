@@ -37,6 +37,8 @@ public interface IPackingTaskQueryService : IDependency
     Task<(bool flag, string message)> DeleteStockSelectionAsync(
         PackingTaskStockSelectRequest request,
         CurrentUser currentUser);
+
+    Task<string> BeginSkuMismatchChallengeAsync(PackingTaskSkuMismatchChallengeRequest request, CurrentUser currentUser);
 }
 
 /// <summary>装箱任务分页查询结果。</summary>

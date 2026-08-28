@@ -8,6 +8,7 @@ using ModernWMS.Core.DynamicSearch;
 using ModernWMS.Core.JWT;
 using ModernWMS.Core.Models;
 using ModernWMS.WMS.Entities.ViewModels.PackingTask;
+using ModernWMS.WMS.Services.PackingTask;
 using ModernWMS.WMS.Services;
 
 namespace ModernWMS.Tests.PackingTask;
@@ -248,6 +249,58 @@ public class PackingTaskQueryServiceTests
     }
 
     [Fact]
+    public async Task SelectStockAsync_rejects_sku_mismatch_without_a_server_timed_challenge()
+    {
+        var erp = new RecordingErpPackingStockClient
+        {
+            Plan = MismatchPlan(rowVersion: 0)
+        };
+        var service = CreateService(new InMemoryPackingTaskQueryDataSource(), erp: erp);
+
+        var (flag, message) = await service.SelectStockAsync(new PackingTaskStockSelectRequest
+        {
+            sellfox_task_id = 101,
+            sellfox_item_id = 1001,
+            stock_id = 12,
+            goods_owner_id = 8,
+            qty = 4,
+            row_version = 0,
+            request_id = "mismatch-without-challenge",
+            sku_mismatch_confirmed = true
+        }, CurrentUserContext());
+
+        Assert.False(flag);
+        Assert.Contains("3 秒", message, StringComparison.Ordinal);
+        Assert.Empty(erp.ContributionCommands);
+    }
+
+    [Fact]
+    public async Task SelectStockAsync_uses_the_erp_plan_row_version_instead_of_the_pool_or_client_version()
+    {
+        var erp = new RecordingErpPackingStockClient
+        {
+            Plan = new ErpPackingStockPlan
+            {
+                rowVersion = 41,
+                pools = [new ErpPackingStockPool
+                {
+                    stockId = 12, goodsOwnerId = 8, skuMatched = true, availableQty = 20
+                }]
+            }
+        };
+        var service = CreateService(new InMemoryPackingTaskQueryDataSource(), erp: erp);
+
+        var (flag, message) = await service.SelectStockAsync(new PackingTaskStockSelectRequest
+        {
+            sellfox_task_id = 101, sellfox_item_id = 1001, stock_id = 12, goods_owner_id = 8,
+            qty = 4, row_version = 0, request_id = "plan-row-version", sku_mismatch_confirmed = false
+        }, CurrentUserContext());
+
+        Assert.True(flag, message);
+        Assert.Equal(41, Assert.Single(erp.ContributionCommands).RowVersion);
+    }
+
+    [Fact]
     public void Packing_selection_service_compiled_code_contains_no_local_selection_or_reservation_sql()
     {
         var commands = PackingSelectionProductionSql();
@@ -258,7 +311,8 @@ public class PackingTaskQueryServiceTests
     private static PackingTaskQueryService CreateService(
         IPackingTaskQueryDataSource source,
         bool enabled = true,
-        ModernWMS.WMS.IServices.IWarehouseAccessService? access = null)
+        ModernWMS.WMS.IServices.IWarehouseAccessService? access = null,
+        IErpPackingStockClient? erp = null)
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -266,7 +320,7 @@ public class PackingTaskQueryServiceTests
                 ["Features:PackingTaskFirstStep"] = enabled.ToString()
             })
             .Build();
-        return new PackingTaskQueryService(source, configuration, access);
+        return new PackingTaskQueryService(source, configuration, access, erp);
     }
 
     private static ErpPackingTaskEntity Task(
@@ -283,6 +337,18 @@ public class PackingTaskQueryServiceTests
         };
 
     private static CurrentUser CurrentUserContext() => new();
+
+    private static ErpPackingStockPlan MismatchPlan(long rowVersion) => new()
+    {
+        rowVersion = rowVersion,
+        pools = [new ErpPackingStockPool
+        {
+            stockId = 12,
+            goodsOwnerId = 8,
+            skuMatched = false,
+            availableQty = 20
+        }]
+    };
 
     private static void AssertCancellationTransition(string sql, string reason)
     {
@@ -407,5 +473,38 @@ public class PackingTaskQueryServiceTests
         public Task<PackingTaskStockSaveResult> DeleteSelectionAsync(
             PackingTaskStockSelectRequest request, CurrentUser currentUser) =>
             System.Threading.Tasks.Task.FromResult(new PackingTaskStockSaveResult(true, "已取消选择，锁定库存已释放"));
+    }
+
+    private sealed class RecordingErpPackingStockClient : IErpPackingStockClient
+    {
+        public ErpPackingStockPlan Plan { get; init; } = new();
+        public List<ErpPackingStockContributionCommand> ContributionCommands { get; } = [];
+
+        public Task<ErpPackingStockResult<ErpPackingStockPlan>> GetPlanAsync(
+            ErpPackingStockPlanQuery request, CancellationToken cancellationToken = default) =>
+            System.Threading.Tasks.Task.FromResult(ErpPackingStockResult<ErpPackingStockPlan>.Success(Plan));
+
+        public Task<ErpPackingStockResult<ErpPackingStockPlan>> UpdateVariantAsync(
+            ErpPackingStockVariantCommand request, CancellationToken cancellationToken = default) =>
+            System.Threading.Tasks.Task.FromResult(ErpPackingStockResult<ErpPackingStockPlan>.Success(Plan));
+
+        public Task<ErpPackingStockResult<ErpPackingStockPlan>> UpdateContributionAsync(
+            ErpPackingStockContributionCommand request, CancellationToken cancellationToken = default)
+        {
+            ContributionCommands.Add(request);
+            return System.Threading.Tasks.Task.FromResult(ErpPackingStockResult<ErpPackingStockPlan>.Success(Plan));
+        }
+
+        public Task<ErpPackingStockResult<ErpPackingStockPlan>> WithdrawParticipantAsync(
+            ErpPackingStockParticipantWithdrawCommand request, CancellationToken cancellationToken = default) =>
+            System.Threading.Tasks.Task.FromResult(ErpPackingStockResult<ErpPackingStockPlan>.Success(Plan));
+
+        public Task<ErpPackingStockResult<ErpPackingStockPlan>> RetryAsync(
+            ErpPackingStockRetryCommand request, CancellationToken cancellationToken = default) =>
+            System.Threading.Tasks.Task.FromResult(ErpPackingStockResult<ErpPackingStockPlan>.Success(Plan));
+
+        public Task<ErpPackingStockResult<ErpPackingStockPlan>> ConsumeAsync(
+            ErpPackingStockConsumeCommand request, CancellationToken cancellationToken = default) =>
+            System.Threading.Tasks.Task.FromResult(ErpPackingStockResult<ErpPackingStockPlan>.Success(Plan));
     }
 }

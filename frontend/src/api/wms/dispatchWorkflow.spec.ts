@@ -16,6 +16,7 @@ import {
   getDispatchStatusCounts,
   getDispatchTaskBoxes,
   getDispatchWarehouseAccess,
+  beginPackingTaskSkuMismatchChallenge,
   getPackingTaskSelectableStock,
   getWorkflowPackingTaskPage,
   reconcileDispatchOrder,
@@ -173,6 +174,13 @@ describe('dispatch workflow api contract', () => {
 
     deletePackingTaskStockSelection({ ...selectPayload, qty: 0 })
     expectLastRequest({ url: '/packing-task-query/delete-selection', method: 'post', data: { ...selectPayload, qty: 0 } })
+
+    const challengePayload = {
+      sellfox_task_id: 20526, sellfox_item_id: 94691, stock_id: 12,
+      goods_owner_id: 8, qty: 500, variant: 1, request_id: 'mismatch-1'
+    }
+    beginPackingTaskSkuMismatchChallenge(challengePayload)
+    expectLastRequest({ url: '/packing-task-query/sku-mismatch-challenge', method: 'post', data: challengePayload })
   })
 
   it('locks source decision, outbound, cancellation and signing command payloads', () => {

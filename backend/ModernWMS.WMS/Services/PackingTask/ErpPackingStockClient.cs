@@ -74,9 +74,9 @@ public sealed class ErpPackingStockPlan
     public bool hasSkuMismatch { get; init; }
     public long rowVersion { get; init; }
     public string? lastError { get; init; }
-    public bool canUpdateVariant { get; init; }
-    public bool canContribute { get; init; }
-    public bool canWithdraw { get; init; }
+    public bool canEditVariant { get; init; }
+    public bool canManageOwnContribution { get; init; }
+    public bool canManageAllContributions { get; init; }
     public bool canRetry { get; init; }
     public List<ErpPackingStockPool> pools { get; init; } = [];
     public List<ErpPackingStockParticipant> participants { get; init; } = [];
@@ -95,8 +95,6 @@ public sealed class ErpPackingStockPool
     public long reservedQty { get; init; }
     public long contributionQty { get; init; }
     public bool skuMatched { get; init; }
-    public bool canManage { get; init; }
-    public long rowVersion { get; init; }
 }
 
 public sealed class ErpPackingStockParticipant
@@ -106,14 +104,17 @@ public sealed class ErpPackingStockParticipant
     public long ownerUserId { get; init; }
     public string ownerUserName { get; init; } = string.Empty;
     public long contributionQty { get; init; }
-    public bool canManage { get; init; }
 }
 
 public sealed class ErpPackingStockBinding
 {
     public long stockId { get; init; }
+    public long erpStockId { get; init; }
+    public long allocationId { get; init; }
+    public string allocationSku { get; init; } = string.Empty;
     public int goodsOwnerId { get; init; }
     public long quantity { get; init; }
+    public long remainingQty { get; init; }
 }
 
 public sealed record ErpPackingStockResult<T>(bool IsSuccess, string ErrorMessage, T? Data)

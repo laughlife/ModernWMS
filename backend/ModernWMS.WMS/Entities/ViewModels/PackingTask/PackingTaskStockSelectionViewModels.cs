@@ -81,6 +81,20 @@ public class PackingTaskStockSelectRequest
 
     /// <summary>人工确认 SKU 不匹配的事实。</summary>
     public bool sku_mismatch_confirmed { get; set; }
+    /// <summary>WMS 服务端签发并等待三秒后的 SKU 不匹配确认挑战。</summary>
+    public string sku_mismatch_challenge { get; set; } = string.Empty;
+}
+
+public class PackingTaskSkuMismatchChallengeRequest
+{
+    public long sellfox_task_id { get; set; }
+    public long sellfox_item_id { get; set; }
+    public long stock_id { get; set; }
+    public int goods_owner_id { get; set; }
+    public int qty { get; set; }
+    public int variant { get; set; }
+    /// <summary>绑定完整的冻结命令；任一命令参数改变时必须重新确认。</summary>
+    public string request_id { get; set; } = string.Empty;
 }
 
 /// <summary>

@@ -77,6 +77,22 @@ public class PackingTaskQueryController : BaseController
             : ResultModel<bool>.Error(message);
     }
 
+    /// <summary>签发 SKU 不匹配确认挑战；挑战从服务端计时且只能使用一次。</summary>
+    [HttpPost("sku-mismatch-challenge")]
+    public async Task<ResultModel<string>> BeginSkuMismatchChallengeAsync(
+        PackingTaskSkuMismatchChallengeRequest request)
+    {
+        try
+        {
+            var challenge = await _packingTaskQueryService.BeginSkuMismatchChallengeAsync(request, CurrentUser);
+            return ResultModel<string>.Success(challenge);
+        }
+        catch (ArgumentException exception)
+        {
+            return ResultModel<string>.Error(exception.Message);
+        }
+    }
+
     /// <summary>
     /// 取消装箱任务明细行对某个库存行的选择，释放锁定的库存。
     /// </summary>

@@ -34,6 +34,7 @@ import type {
 import type {
   PackingTaskStockPageRequest,
   PackingTaskStockSelectRequest,
+  PackingTaskSkuMismatchChallengeRequest,
   SelectableStockVO
 } from '@/types/DeliveryManagement/PackingTask'
 
@@ -173,6 +174,9 @@ export const getPackingTaskSelectableStock = (data: PackingTaskStockPageRequest)
 
 export const selectPackingTaskStock = (data: PackingTaskStockSelectRequest) =>
   request<boolean>({ url: '/packing-task-query/select-stock', method: 'post', data })
+
+export const beginPackingTaskSkuMismatchChallenge = (data: PackingTaskSkuMismatchChallengeRequest) =>
+  request<string>({ url: '/packing-task-query/sku-mismatch-challenge', method: 'post', data })
 
 export const deletePackingTaskStockSelection = (data: PackingTaskStockSelectRequest) =>
   request<boolean>({ url: '/packing-task-query/delete-selection', method: 'post', data })
