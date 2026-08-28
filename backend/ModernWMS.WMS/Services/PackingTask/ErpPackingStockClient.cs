@@ -24,7 +24,7 @@ public interface IErpPackingStockClient : IDependency
     Task<ErpPackingStockResult<ErpPackingStockPlan>> RetryAsync(
         ErpPackingStockRetryCommand request, CancellationToken cancellationToken = default);
 
-    Task<ErpPackingStockResult<ErpPackingStockPlan>> ConsumeAsync(
+    Task<ErpPackingStockResult<bool>> ConsumeAsync(
         ErpPackingStockConsumeCommand request, CancellationToken cancellationToken = default);
 }
 
@@ -144,27 +144,27 @@ public sealed class ErpPackingStockClient : IErpPackingStockClient
     }
 
     public Task<ErpPackingStockResult<ErpPackingStockPlan>> GetPlanAsync(ErpPackingStockPlanQuery request,
-        CancellationToken cancellationToken = default) => SendAsync(HttpMethod.Get,
+        CancellationToken cancellationToken = default) => SendAsync<ErpPackingStockPlan>(HttpMethod.Get,
         $"{BasePath}?sellfoxTaskId={request.SellfoxTaskId}&sellfoxItemId={request.SellfoxItemId}&actorId={Uri.EscapeDataString(request.ActorId)}",
         null, cancellationToken);
 
     public Task<ErpPackingStockResult<ErpPackingStockPlan>> UpdateVariantAsync(ErpPackingStockVariantCommand request,
-        CancellationToken cancellationToken = default) => SendAsync(HttpMethod.Post, $"{BasePath}/variant", request, cancellationToken);
+        CancellationToken cancellationToken = default) => SendAsync<ErpPackingStockPlan>(HttpMethod.Post, $"{BasePath}/variant", request, cancellationToken);
 
     public Task<ErpPackingStockResult<ErpPackingStockPlan>> UpdateContributionAsync(ErpPackingStockContributionCommand request,
-        CancellationToken cancellationToken = default) => SendAsync(HttpMethod.Post, $"{BasePath}/contribution", request, cancellationToken);
+        CancellationToken cancellationToken = default) => SendAsync<ErpPackingStockPlan>(HttpMethod.Post, $"{BasePath}/contribution", request, cancellationToken);
 
     public Task<ErpPackingStockResult<ErpPackingStockPlan>> WithdrawParticipantAsync(
         ErpPackingStockParticipantWithdrawCommand request, CancellationToken cancellationToken = default) =>
-        SendAsync(HttpMethod.Post, $"{BasePath}/participant/withdraw", request, cancellationToken);
+        SendAsync<ErpPackingStockPlan>(HttpMethod.Post, $"{BasePath}/participant/withdraw", request, cancellationToken);
 
     public Task<ErpPackingStockResult<ErpPackingStockPlan>> RetryAsync(ErpPackingStockRetryCommand request,
-        CancellationToken cancellationToken = default) => SendAsync(HttpMethod.Post, $"{BasePath}/retry", request, cancellationToken);
+        CancellationToken cancellationToken = default) => SendAsync<ErpPackingStockPlan>(HttpMethod.Post, $"{BasePath}/retry", request, cancellationToken);
 
-    public Task<ErpPackingStockResult<ErpPackingStockPlan>> ConsumeAsync(ErpPackingStockConsumeCommand request,
-        CancellationToken cancellationToken = default) => SendAsync(HttpMethod.Post, $"{BasePath}/consume", request, cancellationToken);
+    public Task<ErpPackingStockResult<bool>> ConsumeAsync(ErpPackingStockConsumeCommand request,
+        CancellationToken cancellationToken = default) => SendAsync<bool>(HttpMethod.Post, $"{BasePath}/consume", request, cancellationToken);
 
-    private async Task<ErpPackingStockResult<ErpPackingStockPlan>> SendAsync(HttpMethod method, string path,
+    private async Task<ErpPackingStockResult<T>> SendAsync<T>(HttpMethod method, string path,
         object? body, CancellationToken cancellationToken)
     {
         var baseUrl = _configuration["ErpIntegration:PackingStockBaseUrl"];
@@ -172,7 +172,7 @@ public sealed class ErpPackingStockClient : IErpPackingStockClient
         if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var baseUri) || string.IsNullOrWhiteSpace(token))
         {
             _logger.LogError("Ruoyi 装箱库存内部接口地址或环境密钥未配置");
-            return ErpPackingStockResult<ErpPackingStockPlan>.Failure("ERP 装箱库存服务未配置，已拒绝本地写入");
+            return ErpPackingStockResult<T>.Failure("ERP 装箱库存服务未配置，已拒绝本地写入");
         }
 
         try
@@ -185,17 +185,17 @@ public sealed class ErpPackingStockClient : IErpPackingStockClient
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning("Ruoyi 装箱库存内部接口返回 HTTP {StatusCode}", (int)response.StatusCode);
-                return ErpPackingStockResult<ErpPackingStockPlan>.Failure("ERP 装箱库存服务拒绝本次操作");
+                return ErpPackingStockResult<T>.Failure("ERP 装箱库存服务拒绝本次操作");
             }
-            var payload = await response.Content.ReadFromJsonAsync<ErpCommonResult<ErpPackingStockPlan>>(cancellationToken);
-            if (payload?.code != 0 || payload.data == null)
-                return ErpPackingStockResult<ErpPackingStockPlan>.Failure(payload?.msg ?? "ERP 装箱库存服务返回无效结果");
-            return ErpPackingStockResult<ErpPackingStockPlan>.Success(payload.data);
+            var payload = await response.Content.ReadFromJsonAsync<ErpCommonResult<T>>(cancellationToken);
+            if (payload?.code != 0 || payload.data is null)
+                return ErpPackingStockResult<T>.Failure(payload?.msg ?? "ERP 装箱库存服务返回无效结果");
+            return ErpPackingStockResult<T>.Success(payload.data);
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException)
         {
             _logger.LogError(exception, "Ruoyi 装箱库存内部接口调用失败");
-            return ErpPackingStockResult<ErpPackingStockPlan>.Failure("ERP 装箱库存服务不可用，已拒绝本地写入");
+            return ErpPackingStockResult<T>.Failure("ERP 装箱库存服务不可用，已拒绝本地写入");
         }
     }
 

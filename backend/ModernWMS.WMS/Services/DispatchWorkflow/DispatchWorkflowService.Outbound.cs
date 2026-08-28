@@ -4,7 +4,6 @@ using ModernWMS.Core.DBContext.Entities;
 using ModernWMS.Core.JWT;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels.DispatchWorkflow;
-using ModernWMS.WMS.IServices.StockAllocation;
 using MySqlConnector;
 
 namespace ModernWMS.WMS.Services.DispatchWorkflow;
@@ -250,8 +249,7 @@ public partial class DispatchWorkflowService
             var now = DateTime.Now;
             if (canonical)
             {
-                await ApplyCanonicalOutboundAsync(connection, transaction, order, allocations,
-                    currentUser, requestId, cancellationToken);
+                await EnsureCanonicalPackingConsumedAsync(connection, transaction, order.id, cancellationToken);
             }
             else
             {
@@ -382,40 +380,24 @@ public partial class DispatchWorkflowService
             || (canonical
                 ? x.erp_stock_id is null or <= 0 || x.stock_allocation_id is null or <= 0
                 : x.stock_id <= 0)
-            || (deduct ? x.is_update_stock : !x.is_update_stock)))
+            || (!canonical && (deduct ? x.is_update_stock : !x.is_update_stock))))
             throw DispatchWorkflowCommandException.StockConflict("stock allocation state changed");
     }
 
-    private async Task ApplyCanonicalOutboundAsync(
+    private static async Task EnsureCanonicalPackingConsumedAsync(
         IDbConnection connection,
         IDbTransaction transaction,
-        DispatchOrderEntity order,
-        IReadOnlyCollection<DispatchpicklistEntity> allocations,
-        CurrentUser user,
-        string requestId,
+        int orderId,
         CancellationToken cancellationToken)
     {
-        var mutation = RequireStockAllocationMutationService();
-        var prelocks=allocations.Select(allocation=>new StockReservationPrelockRequest(
-            DispatchMutationContext(user,order.warehouse_id,"DISPATCH_SHIP_OUT",order.id,allocation.id,
-                allocation.erp_stock_id!.Value,allocation.stock_allocation_id!.Value,
-                allocation.picked_qty,requestId,allocation.reservation_id,allocation.reservation_item_id),
-            allocation.erp_stock_id.Value,allocation.stock_allocation_id.Value,"SHIP_OUT")).ToArray();
-        await mutation.PrelockReservationOwnersAsync(connection,transaction,
-            [order.warehouse_id],prelocks,cancellationToken);
-        foreach (var allocation in allocations.OrderBy(x=>x.erp_stock_id).ThenBy(x=>x.stock_allocation_id).ThenBy(x=>x.id))
-        {
-            await mutation.ShipLockedAsync(connection,transaction,
-                DispatchMutationContext(user,order.warehouse_id,"DISPATCH_SHIP_OUT",order.id,allocation.id,
-                    allocation.erp_stock_id!.Value,allocation.stock_allocation_id!.Value,
-                    allocation.picked_qty,requestId,allocation.reservation_id,allocation.reservation_item_id),
-                allocation.erp_stock_id.Value,allocation.stock_allocation_id.Value,
-                allocation.picked_qty,cancellationToken);
-            await connection.ExecuteAsync(new CommandDefinition("""
-                UPDATE `wms_dispatchpicklist` SET `is_update_stock`=1,`last_update_time`=@now
-                 WHERE `id`=@id AND `is_update_stock`=0;
-                """,new{now=DateTime.Now,allocation.id},transaction,cancellationToken:cancellationToken));
-        }
+        var unsettled=await connection.ExecuteScalarAsync<long>(new CommandDefinition("""
+            SELECT COUNT(*)
+              FROM `wms_dispatch_packing_task`
+             WHERE `dispatch_order_id`=@orderId AND `is_active`=1
+               AND (`packing_plan_status`<>'ACTUAL_CONFIRMED' OR `consume_status`<>'CONSUMED');
+            """,new{orderId},transaction,cancellationToken:cancellationToken));
+        if(unsettled>0)
+            throw DispatchWorkflowCommandException.StockConflict("装箱库存尚未由ERP完成实装结算，禁止出库");
     }
 
     private static async Task ValidateDetailAllocationsAsync(IDbConnection connection, IDbTransaction transaction,

@@ -503,8 +503,8 @@ public class PackingTaskQueryServiceTests
             ErpPackingStockRetryCommand request, CancellationToken cancellationToken = default) =>
             System.Threading.Tasks.Task.FromResult(ErpPackingStockResult<ErpPackingStockPlan>.Success(Plan));
 
-        public Task<ErpPackingStockResult<ErpPackingStockPlan>> ConsumeAsync(
+        public Task<ErpPackingStockResult<bool>> ConsumeAsync(
             ErpPackingStockConsumeCommand request, CancellationToken cancellationToken = default) =>
-            System.Threading.Tasks.Task.FromResult(ErpPackingStockResult<ErpPackingStockPlan>.Success(Plan));
+            System.Threading.Tasks.Task.FromResult(ErpPackingStockResult<bool>.Success(true));
     }
 }

@@ -4,7 +4,6 @@ using ModernWMS.Core.JWT;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels.DispatchWorkflow;
 using ModernWMS.WMS.Entities.ViewModels.PackingTask;
-using ModernWMS.WMS.IServices.StockAllocation;
 
 namespace ModernWMS.WMS.Services.DispatchWorkflow;
 
@@ -45,8 +44,10 @@ public partial class DispatchWorkflowService
             var runtime = await LoadInventoryRuntimeAsync(connection, tx,
                 order.warehouse_id, cancellationToken);
             // 兼容本功能上线前已生成的待拣货单：选择记录仍在时补齐可用量快照。
-            var legacyBindings=await LoadCreationBindingRowsAsync(connection,tx,
-                tasks.Select(x=>x.source_task_id).ToArray(),runtime.Mode == CanonicalInventoryMode,cancellationToken);
+            var legacyBindings=runtime.Mode==CanonicalInventoryMode
+                ? new List<CreationBindingRow>()
+                : await LoadCreationBindingRowsAsync(connection,tx,
+                    tasks.Select(x=>x.source_task_id).ToArray(),false,cancellationToken);
             var legacyRequiredQty=legacyBindings.GroupBy(x=>(x.TaskId,x.ItemId))
                 .ToDictionary(x=>x.Key,x=>x.Sum(row=>row.LockedQty));
             var legacyAvailableSnapshots=BuildAvailableSnapshots(snapshots,legacyBindings);
@@ -65,7 +66,8 @@ public partial class DispatchWorkflowService
                     changed=true;
                 }
                 else await connection.ExecuteAsync(new CommandDefinition("""
-                    UPDATE `wms_dispatch_packing_task_item` SET `wms_sku_id`=NULL,`last_update_time`=@now,`row_version`=`row_version`+1
+                    UPDATE `wms_dispatch_packing_task_item` SET `wms_sku_id`=NULL,`erp_stock_plan_row_version`=NULL,
+                    `last_update_time`=@now,`row_version`=`row_version`+1
                     WHERE `packing_task_id`=@taskId AND `is_active`=1 AND `wms_sku_id` IS NOT NULL;
                     """,new {now,taskId=task.id},tx,cancellationToken:cancellationToken));
             }
@@ -140,47 +142,10 @@ public partial class DispatchWorkflowService
             SELECT EXISTS(SELECT 1 FROM `wms_dispatchpicklist` WHERE `packing_task_item_id` IN @ids AND `is_update_stock`=1);
             """,new{ids},tx,cancellationToken:ct)))
             throw new InvalidOperationException("packing task has allocations that already updated stock; automatic reconciliation is forbidden");
-        if (canonical)
-        {
-            var reserved = (await c.QueryAsync<ReservedAllocationRow>(new CommandDefinition("""
-                SELECT selection.`id`,selection.`erp_stock_id`,selection.`stock_allocation_id`,
-                       selection.`reservation_id`,selection.`reservation_item_id`,selection.`qty`
-                  FROM `wms_packing_task_stock_selection` selection
-                 WHERE selection.`sellfox_task_id`=@sourceTaskId
-                   AND selection.`status`='ACTIVE'
-                   AND selection.`erp_stock_id` IS NOT NULL AND selection.`stock_allocation_id` IS NOT NULL
-                 ORDER BY selection.`stock_allocation_id`,selection.`id` FOR UPDATE;
-                """,new { sourceTaskId=task.source_task_id},tx,cancellationToken:ct))).AsList();
-            var pickReservations=(await c.QueryAsync<ReservedAllocationRow>(new CommandDefinition("""
-                SELECT `id`,`erp_stock_id`,`stock_allocation_id`,`reservation_id`,
-                       `reservation_item_id`,`picked_qty` AS qty
-                  FROM `wms_dispatchpicklist`
-                 WHERE `packing_task_item_id` IN @ids AND `is_update_stock`=0
-                   AND `erp_stock_id` IS NOT NULL AND `stock_allocation_id` IS NOT NULL
-                 ORDER BY `erp_stock_id`,`stock_allocation_id`,`id` FOR UPDATE;
-                """,new{ids},tx,cancellationToken:ct))).AsList();
-            if(reserved.Count>0&&pickReservations.Count>0)
-                throw new InvalidOperationException("装箱选择与拣货明细同时持有同一业务预占，已拒绝自动释放");
-            var allReservations=reserved.Concat(pickReservations).ToList();
-            if (allReservations.Count > 0)
-            {
-                var prelocks=allReservations.Select(row=>new StockReservationPrelockRequest(
-                    DispatchMutationContext(user,order.warehouse_id,"DISPATCH_RELEASE",order.id,row.id,
-                        row.erp_stock_id,row.stock_allocation_id,row.qty,$"{requestIdentity}:{task.id}",
-                        row.reservation_id,row.reservation_item_id),row.erp_stock_id,
-                    row.stock_allocation_id,"UNLOCK")).ToArray();
-                await RequireStockAllocationMutationService().PrelockReservationOwnersAsync(c,tx,
-                    [order.warehouse_id],prelocks,ct);
-            }
-            foreach (var row in allReservations.OrderBy(x=>x.erp_stock_id).ThenBy(x=>x.stock_allocation_id).ThenBy(x=>x.id))
-                await RequireStockAllocationMutationService().ReleaseAsync(c,tx,
-                    DispatchMutationContext(user,order.warehouse_id,"DISPATCH_RELEASE",order.id,row.id,row.erp_stock_id,
-                        row.stock_allocation_id,row.qty,$"{requestIdentity}:{task.id}",
-                        row.reservation_id,row.reservation_item_id),
-                    row.erp_stock_id,row.stock_allocation_id,row.qty,ct);
-        }
         var now=DateTime.Now;
-        await c.ExecuteAsync(new CommandDefinition("""
+        // 统一模式的预占生命周期由 Ruoyi 按装箱任务来源事件处理；WMS 对账只清理本地工作流投影。
+        if (!canonical)
+            await c.ExecuteAsync(new CommandDefinition("""
             UPDATE `wms_packing_task_stock_selection`
                SET `status`='CANCELLED',`cancelled_by`=@cancelledBy,
                    `cancelled_by_name`=@cancelledByName,`cancelled_at`=@now,
@@ -214,16 +179,6 @@ public partial class DispatchWorkflowService
             """,new{now,id=task.id,status=DispatchOrderStatus.SourceCancelled},tx,cancellationToken:ct));
     }
 
-    private sealed class ReservedAllocationRow
-    {
-        public int id { get; init; }
-        public long erp_stock_id { get; init; }
-        public long stock_allocation_id { get; init; }
-        public long? reservation_id { get; init; }
-        public long? reservation_item_id { get; init; }
-        public int qty { get; init; }
-    }
-
     private static async Task RebuildTaskItemsAsync(System.Data.IDbConnection c,IDbTransaction tx,DispatchPackingTaskEntity task,
         PackingTaskSourceSnapshot snapshot,DateTime now,CancellationToken ct)
     {
@@ -232,7 +187,8 @@ public partial class DispatchWorkflowService
         {
             if(source.Remove(existing.source_item_id,out var item))
                 await c.ExecuteAsync(new CommandDefinition("""
-                    UPDATE `wms_dispatch_packing_task_item` SET `source_commodity_id`=@CommodityId,`wms_sku_id`=NULL,`commodity_sku`=@CommoditySku,
+                    UPDATE `wms_dispatch_packing_task_item` SET `source_commodity_id`=@CommodityId,`wms_sku_id`=NULL,
+                      `erp_stock_plan_row_version`=NULL,`commodity_sku`=@CommoditySku,
                       `commodity_name`=@CommodityName,`fn_sku`=@FnSku,`msku`=@Msku,`required_qty`=@Quantity,`source_quantity_shipped`=@Quantity,
                       `source_version`=@version,`source_snapshot`=@SourceSnapshot,`is_active`=1,`last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id`=@id;
                     """,new{item.CommodityId,item.CommoditySku,item.CommodityName,item.FnSku,item.Msku,item.Quantity,version=snapshot.SourceVersion,item.SourceSnapshot,now,existing.id},tx,cancellationToken:ct));

@@ -4,7 +4,6 @@ using Dapper;
 using ModernWMS.Core.JWT;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels.DispatchWorkflow;
-using ModernWMS.WMS.IServices.StockAllocation;
 using ModernWMS.WMS.Services.PackingTask;
 
 namespace ModernWMS.WMS.Services.DispatchWorkflow;
@@ -117,13 +116,13 @@ public partial class DispatchWorkflowService
         ValidatePackingPlanCommand(orderId,taskId,r.request_id,r.row_version,r.task_row_version);
         var guard=await EnsurePostPickSourceCurrentAsync(orderId,user,ct);if(guard.source_change_pending)throw DispatchWorkflowCommandException.SourceChangePending();
         await using var c=await _connectionFactory.OpenConnectionAsync(ct);await using var tx=await c.BeginTransactionAsync(IsolationLevel.Serializable,ct);
+        var committed=false;
         try
         {
-            var previous=await FindOperationAsync(c,tx,orderId,DispatchWorkflowOperation.ConfirmActualPacking,r.request_id,ct);if(previous!=null){await tx.CommitAsync(ct);return await GetPackingPlanAsync(orderId,taskId,user,ct);}
+            var previous=await FindOperationAsync(c,tx,orderId,DispatchWorkflowOperation.ConfirmActualPacking,r.request_id,ct);if(previous!=null){await tx.CommitAsync(ct);committed=true;return await GetPackingPlanAsync(orderId,taskId,user,ct);}
             var a=await LoadPackingPlanForUpdateAsync(c,tx,orderId,taskId,ct);if(a.Order.status!=DispatchOrderStatus.Weighing||a.Order.row_version!=r.row_version||a.Task.row_version!=r.task_row_version)throw DispatchWorkflowCommandException.ConcurrencyConflict();
             if(a.Task.packing_plan_status!="PACKING_CONFIRMED")throw DispatchWorkflowCommandException.StatusNotAllowedForWeighing();
             if(a.Boxes.Count==0)throw DispatchWorkflowCommandException.WeighingIncomplete("至少建立一个装箱");
-            var runtime=await LoadInventoryRuntimeAsync(c,tx,a.Order.warehouse_id,ct);
             var plans=new List<ActualPackingItemPlan>();
             foreach(var item in a.Items)
             {
@@ -132,61 +131,55 @@ public partial class DispatchWorkflowService
                 var actual=checked(packed*item.variant_qty.Value);var detail=await c.QuerySingleOrDefaultAsync<DispatchlistEntity>(new CommandDefinition("SELECT * FROM `wms_dispatchlist` WHERE `packing_task_item_id`=@id FOR UPDATE;",new{item.id},tx,cancellationToken:ct));
                 if(detail==null)throw DispatchWorkflowCommandException.StockConflict("商品拣货分配不存在");var allocations=(await c.QueryAsync<DispatchpicklistEntity>(new CommandDefinition("SELECT * FROM `wms_dispatchpicklist` WHERE `dispatchlist_id`=@id ORDER BY `id` DESC FOR UPDATE;",new{detail.id},tx,cancellationToken:ct))).AsList();
                 if(allocations.Any(x=>x.is_update_stock))throw DispatchWorkflowCommandException.StockAlreadyDeducted();
-                var release=allocations.Sum(x=>x.picked_qty)-actual;if(release<0)throw DispatchWorkflowCommandException.StockConflict("实际装箱数量超过已拣库存");
+                var actualByOwner=a.BoxItems.Where(x=>x.packing_task_item_id==item.id)
+                    .GroupBy(x=>x.goods_owner_id).ToDictionary(group=>group.Key,
+                        group=>checked((long)group.Sum(x=>x.task_qty)*item.variant_qty.Value));
+                var reservedByOwner=allocations.GroupBy(x=>x.goods_owner_id)
+                    .ToDictionary(group=>group.Key,group=>group.Sum(x=>(long)x.picked_qty));
+                if(actualByOwner.Sum(x=>x.Value)!=actual||
+                   actualByOwner.Any(x=>x.Key<=0||!reservedByOwner.TryGetValue(x.Key,out var reserved)||x.Value<0||x.Value>reserved))
+                    throw DispatchWorkflowCommandException.WeighingIncomplete("实装货主与ERP预占货主或数量不一致");
                 var reductions=new List<ActualPackingAllocationReduction>();
-                foreach(var allocation in allocations)
+                foreach(var owner in reservedByOwner)
                 {
-                    var reduce=Math.Min(release,allocation.picked_qty);var remain=allocation.picked_qty-reduce;release-=reduce;
-                    if(reduce>0)reductions.Add(new ActualPackingAllocationReduction(allocation,reduce,remain));
+                    var release=checked((int)(owner.Value-actualByOwner.GetValueOrDefault(owner.Key)));
+                    foreach(var allocation in allocations.Where(x=>x.goods_owner_id==owner.Key))
+                    {
+                        var reduce=Math.Min(release,allocation.picked_qty);var remain=allocation.picked_qty-reduce;release-=reduce;
+                        if(reduce>0)reductions.Add(new ActualPackingAllocationReduction(allocation,reduce,remain));
+                    }
+                    if(release!=0)throw DispatchWorkflowCommandException.StockConflict("库存释放数量不一致");
                 }
-                if(release!=0)throw DispatchWorkflowCommandException.StockConflict("库存释放数量不一致");
-                plans.Add(new ActualPackingItemPlan(item,packed,actual,detail,allocations,reductions));
+                plans.Add(new ActualPackingItemPlan(item,packed,actual,detail,allocations,reductions,actualByOwner));
             }
             if(plans.All(x=>x.Packed==0))throw DispatchWorkflowCommandException.WeighingIncomplete("实际装箱总量不能为零");
             var consumeNow=DateTime.Now;
             foreach(var plan in plans)
             {
-                var contributions=a.BoxItems.Where(x=>x.packing_task_item_id==plan.Item.id).GroupBy(x=>x.goods_owner_id)
-                    .Select(group=>new PackingConsumeContribution(group.Key,checked((long)group.Sum(x=>x.task_qty)*plan.Item.variant_qty!.Value))).ToList();
-                if(contributions.Any(x=>x.GoodsOwnerId<=0||x.ActualPackedQty<=0))throw DispatchWorkflowCommandException.WeighingIncomplete("每项实装必须填写有效货主贡献");
-                var requestId=$"{r.request_id}:consume:{plan.Item.source_item_id}";
-                if(requestId.Length>64)requestId=requestId[..64];
+                var reservedByOwner=plan.Allocations.GroupBy(x=>x.goods_owner_id)
+                    .ToDictionary(group=>group.Key,group=>group.Sum(x=>(long)x.picked_qty));
+                // 每个预占货主都必须进入结算；0 表示该货主本次未实装，Ruoyi 会释放其全部余量。
+                var contributions=reservedByOwner.Keys.OrderBy(x=>x)
+                    .Select(ownerId=>new PackingConsumeContribution(ownerId,plan.ActualByOwner.GetValueOrDefault(ownerId))).ToList();
+                if(contributions.Count==0||contributions.Any(x=>x.GoodsOwnerId<=0||x.ActualPackedQty<0))
+                    throw DispatchWorkflowCommandException.WeighingIncomplete("每项实装必须携带完整货主结算");
+                var frozenBindings=plan.Allocations.Select(x=>new PackingConsumeBinding(
+                        x.erp_stock_id??throw DispatchWorkflowCommandException.StockConflict("拣货分配缺少ERP库存标识"),
+                        x.stock_allocation_id??throw DispatchWorkflowCommandException.StockConflict("拣货分配缺少库位分配标识"),
+                        x.goods_owner_id,x.picked_qty))
+                    .OrderBy(x=>x.ErpStockId).ThenBy(x=>x.AllocationId).ThenBy(x=>x.GoodsOwnerId).ToList();
+                if(frozenBindings.Count==0||frozenBindings.Any(x=>x.GoodsOwnerId<=0||x.RemainingQty<=0))
+                    throw DispatchWorkflowCommandException.StockConflict("拣货分配缺少完整的ERP绑定快照");
+                var requestId=HashText($"PACKING_CONSUME|{r.request_id}|{taskId}|{plan.Item.source_item_id}");
                 await c.ExecuteAsync(new CommandDefinition("""
                     INSERT INTO `wms_packing_consume_outbox` (`dispatch_order_id`,`packing_task_id`,`sellfox_task_id`,`sellfox_item_id`,`request_id`,`payload_json`,`status`,`attempt_count`,`last_error`,`create_time`,`last_update_time`,`row_version`)
                     VALUES (@orderId,@taskId,@taskSourceId,@itemSourceId,@requestId,@payload,'PENDING',0,'',@now,@now,0);
                     """,new{orderId,taskId,taskSourceId=a.Task.source_task_id,itemSourceId=plan.Item.source_item_id,requestId,
-                    payload=JsonSerializer.Serialize(new PackingConsumePayload(contributions)),now=consumeNow},tx,cancellationToken:ct));
+                    payload=JsonSerializer.Serialize(new PackingConsumePayload(contributions,
+                        plan.Item.erp_stock_plan_row_version??throw DispatchWorkflowCommandException.StockConflict("拣货明细缺少冻结的ERP库存计划版本"),
+                        frozenBindings)),now=consumeNow},tx,cancellationToken:ct));
             }
-            // Ruoyi owns the release/consume mutation. The former direct allocation mutation is excluded.
-#if LEGACY_LOCAL_PACKING_ALLOCATION_MUTATION
-            if(runtime.Mode==CanonicalInventoryMode)
-            {
-                var allAllocations=plans.SelectMany(x=>x.Allocations).ToList();
-                if(allAllocations.Any(x=>x.erp_stock_id is null||x.stock_allocation_id is null))
-                    throw DispatchWorkflowCommandException.StockConflict("统一ERP库存模式检测到遗留旧库存拣货明细，已拒绝确认实际装箱");
-                var reductions=plans.SelectMany(x=>x.Reductions).ToList();
-                if(reductions.Count>0)
-                {
-                    var mutation=RequireStockAllocationMutationService();
-                    var prelocks=reductions.Select(reduction=>new StockReservationPrelockRequest(
-                        DispatchMutationContext(user,a.Order.warehouse_id,"DISPATCH_RELEASE",a.Order.id,
-                            reduction.Allocation.id,reduction.Allocation.erp_stock_id!.Value,
-                            reduction.Allocation.stock_allocation_id!.Value,reduction.Reduce,
-                            $"ACTUAL_PACKING:{r.request_id}:{taskId}",reduction.Allocation.reservation_id,
-                            reduction.Allocation.reservation_item_id),reduction.Allocation.erp_stock_id.Value,
-                        reduction.Allocation.stock_allocation_id.Value,"UNLOCK")).ToArray();
-                    await mutation.PrelockReservationOwnersAsync(c,tx,
-                        [a.Order.warehouse_id],prelocks,ct);
-                    foreach(var reduction in reductions.OrderBy(x=>x.Allocation.erp_stock_id).ThenBy(x=>x.Allocation.stock_allocation_id).ThenBy(x=>x.Allocation.id))
-                        await mutation.ReleaseAsync(c,tx,
-                            DispatchMutationContext(user,a.Order.warehouse_id,"DISPATCH_RELEASE",a.Order.id,reduction.Allocation.id,
-                                reduction.Allocation.erp_stock_id!.Value,reduction.Allocation.stock_allocation_id!.Value,
-                                reduction.Reduce,$"ACTUAL_PACKING:{r.request_id}:{taskId}",
-                                reduction.Allocation.reservation_id,reduction.Allocation.reservation_item_id),
-                            reduction.Allocation.erp_stock_id.Value,reduction.Allocation.stock_allocation_id.Value,reduction.Reduce,ct);
-                }
-            }
-#endif
+            // Ruoyi 在 consume 命令中同时结算实装量并释放未实装余量；WMS 只更新本地装箱投影。
             var now=DateTime.Now;
             foreach(var plan in plans)
             {
@@ -203,9 +196,10 @@ public partial class DispatchWorkflowService
                 UPDATE `wms_dispatch_packing_task` SET `packing_plan_status`='ACTUAL_CONFIRMED',`consume_status`='PENDING',`actual_confirmed_at`=@now,`actual_confirmed_by`=@userId,`actual_confirmed_by_name`=@name,`last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id`=@taskId;
                 UPDATE `wms_dispatch_order` SET `last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id`=@orderId AND `row_version`=@expected;
                 """,new{now,userId=user.user_id,name=user.user_name,taskId,orderId,expected=a.Order.row_version},tx,cancellationToken:ct));
-            await InsertOperationAsync(c,tx,orderId,DispatchWorkflowOperation.ConfirmActualPacking,r.request_id,a.Order.status,a.Order.row_version+1,user,now,ct);await tx.CommitAsync(ct);
-            await TryConsumeOutboxAsync(taskId,user,ct);return await GetPackingPlanAsync(orderId,taskId,user,ct);
-        }catch{await tx.RollbackAsync(CancellationToken.None);throw;}
+            await InsertOperationAsync(c,tx,orderId,DispatchWorkflowOperation.ConfirmActualPacking,r.request_id,a.Order.status,a.Order.row_version+1,user,now,ct);await tx.CommitAsync(ct);committed=true;
+        }catch{if(!committed)await tx.RollbackAsync(CancellationToken.None);throw;}
+        await TryConsumeOutboxAsync(taskId,user,ct);
+        return await GetPackingPlanAsync(orderId,taskId,user,ct);
     }
 
     public async Task<PackingPlanViewModel> RetryPackingConsumeAsync(int orderId,int taskId,CurrentUser user,CancellationToken ct=default)
@@ -215,7 +209,8 @@ public partial class DispatchWorkflowService
         await _warehouseAccessService.EnsureAllowedAsync(order.warehouse_id,user);
         var task=await c.QuerySingleOrDefaultAsync<DispatchPackingTaskEntity>(new CommandDefinition("SELECT * FROM `wms_dispatch_packing_task` WHERE `id`=@taskId AND `dispatch_order_id`=@orderId AND `is_active`=1;",new{taskId,orderId},cancellationToken:ct))??throw new KeyNotFoundException("packing task not found");
         if(task.consume_status is not ("PENDING" or "FAILED"))return await GetPackingPlanAsync(orderId,taskId,user,ct);
-        await TryConsumeOutboxAsync(taskId,user,ct);
+        var blocked=await RefreshFailedConsumeVersionsAsync(taskId,user,ct);
+        await TryConsumeOutboxAsync(taskId,user,ct,blocked);
         return await GetPackingPlanAsync(orderId,taskId,user,ct);
     }
 
@@ -231,31 +226,120 @@ public partial class DispatchWorkflowService
     private static PackingPlanViewModel ToPackingPlan(DispatchOrderEntity o,DispatchPackingTaskEntity t,IReadOnlyCollection<DispatchPackingTaskItemEntity> items,IReadOnlyCollection<WeighingBoxEntity> boxes,IReadOnlyCollection<WeighingBoxItemEntity> boxItems)=>new(){order_id=o.id,packing_task_id=t.id,packing_task_no=t.source_task_no,packing_plan_status=t.packing_plan_status,consume_status=t.consume_status,row_version=o.row_version,task_row_version=t.row_version,items=items.Select(i=>new PackingPlanItemViewModel{id=i.id,commodity_sku=i.commodity_sku,commodity_name=i.commodity_name,fn_sku=i.fn_sku,msku=i.msku,main_image=SourceMainImage(i.source_snapshot),task_qty=i.source_quantity_shipped??0,variant_qty=i.variant_qty??0,required_qty=i.required_qty??0,actual_packed_task_qty=i.actual_packed_task_qty,actual_packed_required_qty=i.actual_packed_required_qty}).ToList(),boxes=boxes.Select(b=>new PackingPlanBoxViewModel{id=b.id,client_key=$"box-{b.id}",box_sequence=b.box_sequence,weight=b.weight,length=b.length,width=b.width,height=b.height,row_version=b.row_version,items=boxItems.Where(x=>x.weighing_box_id==b.id).Select(x=>new PackingPlanBoxItemViewModel{packing_task_item_id=x.packing_task_item_id,goods_owner_id=x.goods_owner_id,task_qty=x.task_qty}).ToList()}).ToList()};
     private sealed record PackingPlanAggregate(DispatchOrderEntity Order,DispatchPackingTaskEntity Task,List<DispatchPackingTaskItemEntity> Items,List<WeighingBoxEntity> Boxes,List<WeighingBoxItemEntity> BoxItems);
     private sealed record ActualPackingItemPlan(DispatchPackingTaskItemEntity Item,int Packed,int Actual,
-        DispatchlistEntity Detail,List<DispatchpicklistEntity> Allocations,List<ActualPackingAllocationReduction> Reductions);
+        DispatchlistEntity Detail,List<DispatchpicklistEntity> Allocations,List<ActualPackingAllocationReduction> Reductions,
+        Dictionary<int,long> ActualByOwner);
     private sealed record ActualPackingAllocationReduction(DispatchpicklistEntity Allocation,int Reduce,int Remain);
-    private sealed record PackingConsumePayload(List<PackingConsumeContribution> Contributions);
+    private sealed record PackingConsumePayload(List<PackingConsumeContribution> Contributions,long PlanRowVersion,
+        List<PackingConsumeBinding>? FrozenBindings);
     private sealed record PackingConsumeContribution(int GoodsOwnerId,long ActualPackedQty);
+    private sealed record PackingConsumeBinding(long ErpStockId,long AllocationId,int GoodsOwnerId,long RemainingQty);
 
-    private async Task TryConsumeOutboxAsync(int packingTaskId,CurrentUser user,CancellationToken ct)
+    private async Task<HashSet<int>> RefreshFailedConsumeVersionsAsync(int packingTaskId,CurrentUser user,CancellationToken ct)
     {
-        var client=_erpPackingStockClient??throw new InvalidOperationException("ERP 装箱库存客户端未注册，已保留待消费命令");
+        var blocked=new HashSet<int>();var client=_erpPackingStockClient;if(client==null)return blocked;
         await using var c=await _connectionFactory.OpenConnectionAsync(ct);
-        var rows=(await c.QueryAsync<PackingConsumeOutboxEntity>(new CommandDefinition("SELECT * FROM `wms_packing_consume_outbox` WHERE `packing_task_id`=@packingTaskId AND `status` IN ('PENDING','FAILED') ORDER BY `id`;",new{packingTaskId},cancellationToken:ct))).AsList();
+        var rows=(await c.QueryAsync<PackingConsumeOutboxEntity>(new CommandDefinition(
+            "SELECT * FROM `wms_packing_consume_outbox` WHERE `packing_task_id`=@packingTaskId AND `status`='FAILED' ORDER BY `id`;",
+            new{packingTaskId},cancellationToken:ct))).AsList();
+        var actorId=user.user_id.ToString(System.Globalization.CultureInfo.InvariantCulture);
         foreach(var row in rows)
         {
+            PackingConsumePayload? payload;
+            try{payload=JsonSerializer.Deserialize<PackingConsumePayload>(row.payload_json);}
+            catch(JsonException){payload=null;}
+            if(payload?.FrozenBindings is not {Count:>0})
+            {
+                blocked.Add(row.id);
+                await SetConsumeRecoveryErrorAsync(c,row,"消费命令缺少冻结绑定快照，必须人工核对ERP绑定后处理",ct);
+                continue;
+            }
+            var result=await client.GetPlanAsync(new ErpPackingStockPlanQuery(row.sellfox_task_id,row.sellfox_item_id,actorId,user.user_name),ct);
+            if(!result.IsSuccess||result.Data==null)continue;
+            var plan=result.Data;
+            if(plan.status!="SELECTED")continue; // 已消费命令仍以原 request_id 重放，让 Ruoyi 幂等返回成功。
+            if(!FrozenBindingsMatch(payload,plan))
+            {
+                blocked.Add(row.id);
+                await SetConsumeRecoveryErrorAsync(c,row,"ERP库存绑定已变化，必须撤销实际装箱并重新拣货",ct);
+                continue;
+            }
+            if(plan.rowVersion==payload.PlanRowVersion)continue;
+            var refreshed=JsonSerializer.Serialize(payload with{PlanRowVersion=plan.rowVersion});
+            await c.ExecuteAsync(new CommandDefinition("UPDATE `wms_packing_consume_outbox` SET `payload_json`=@refreshed,`last_error`='',`last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id`=@id AND `status`='FAILED' AND `row_version`=@rowVersion;",
+                new{refreshed,now=DateTime.Now,id=row.id,rowVersion=row.row_version},cancellationToken:ct));
+        }
+        return blocked;
+    }
+
+    private static bool FrozenBindingsMatch(PackingConsumePayload payload,ErpPackingStockPlan plan)
+    {
+        if(plan.shortageQty!=0||plan.requiredQty!=plan.reservedQty||
+           plan.activeBindings.Sum(x=>x.remainingQty)!=plan.requiredQty)return false;
+        var frozen=payload.FrozenBindings!.OrderBy(x=>x.ErpStockId).ThenBy(x=>x.AllocationId).ThenBy(x=>x.GoodsOwnerId)
+            .Select(x=>(x.ErpStockId,x.AllocationId,x.GoodsOwnerId,x.RemainingQty));
+        var current=plan.activeBindings.OrderBy(x=>x.erpStockId).ThenBy(x=>x.allocationId).ThenBy(x=>x.goodsOwnerId)
+            .Select(x=>(x.erpStockId,x.allocationId,x.goodsOwnerId,x.remainingQty));
+        return frozen.SequenceEqual(current);
+    }
+
+    private static async Task SetConsumeRecoveryErrorAsync(IDbConnection c,PackingConsumeOutboxEntity row,string error,CancellationToken ct)=>
+        await c.ExecuteAsync(new CommandDefinition("UPDATE `wms_packing_consume_outbox` SET `last_error`=@error,`last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id`=@id AND `status`='FAILED' AND `row_version`=@rowVersion;",
+            new{error,now=DateTime.Now,id=row.id,rowVersion=row.row_version},cancellationToken:ct));
+
+    private async Task TryConsumeOutboxAsync(int packingTaskId,CurrentUser user,CancellationToken ct,
+        IReadOnlySet<int>? excluded=null)
+    {
+        await using var c=await _connectionFactory.OpenConnectionAsync(ct);
+        var leaseBefore=DateTime.Now.AddMinutes(-5);
+        var rows=(await c.QueryAsync<PackingConsumeOutboxEntity>(new CommandDefinition("""
+            SELECT * FROM `wms_packing_consume_outbox`
+             WHERE `packing_task_id`=@packingTaskId
+               AND (`status` IN ('PENDING','FAILED') OR (`status`='PROCESSING' AND `last_update_time`<@leaseBefore))
+             ORDER BY `id`;
+            """,new{packingTaskId,leaseBefore},cancellationToken:ct))).AsList();
+        var client=_erpPackingStockClient;
+        if(client==null)
+        {
+            await c.ExecuteAsync(new CommandDefinition("""
+                UPDATE `wms_packing_consume_outbox`
+                   SET `status`='FAILED',`attempt_count`=`attempt_count`+1,
+                       `last_error`='ERP 装箱库存客户端未注册，已保留待消费命令',
+                       `last_update_time`=@now,`row_version`=`row_version`+1
+                 WHERE `packing_task_id`=@packingTaskId
+                   AND (`status` IN ('PENDING','FAILED') OR (`status`='PROCESSING' AND `last_update_time`<@leaseBefore));
+                """,new{packingTaskId,leaseBefore,now=DateTime.Now},cancellationToken:ct));
+            await SyncPackingConsumeStatusAsync(c,packingTaskId,ct);
+            return;
+        }
+        foreach(var row in rows.Where(row=>excluded==null||!excluded.Contains(row.id)))
+        {
+            var claimed=await c.ExecuteAsync(new CommandDefinition("""
+                UPDATE `wms_packing_consume_outbox`
+                   SET `status`='PROCESSING',`attempt_count`=`attempt_count`+1,`last_error`='',
+                       `last_update_time`=@now,`row_version`=`row_version`+1
+                 WHERE `id`=@id AND `row_version`=@rowVersion
+                   AND (`status` IN ('PENDING','FAILED') OR (`status`='PROCESSING' AND `last_update_time`<@leaseBefore));
+                """,new{id=row.id,rowVersion=row.row_version,leaseBefore,now=DateTime.Now},cancellationToken:ct));
+            if(claimed!=1)continue;
+            var claimVersion=checked(row.row_version+1);
             try
             {
                 var payload=JsonSerializer.Deserialize<PackingConsumePayload>(row.payload_json)??throw new InvalidOperationException("消费命令载荷无效");
+                if(payload.PlanRowVersion<0)throw new InvalidOperationException("消费命令缺少冻结的ERP库存计划版本");
                 var actorId=user.user_id.ToString(System.Globalization.CultureInfo.InvariantCulture);var actorName=string.IsNullOrWhiteSpace(user.user_name)?$"用户{user.user_id}":user.user_name.Trim();
-                var plan=await client.GetPlanAsync(new ErpPackingStockPlanQuery(row.sellfox_task_id,row.sellfox_item_id,actorId,actorName),ct);
-                if(!plan.IsSuccess||plan.Data==null)throw new InvalidOperationException(plan.ErrorMessage);
-                var result=await client.ConsumeAsync(new ErpPackingStockConsumeCommand(row.sellfox_task_id,row.sellfox_item_id,row.request_id,plan.Data.rowVersion,actorId,actorName,payload.Contributions.Select(x=>new ErpPackingStockOwnerConsumption(x.GoodsOwnerId,x.ActualPackedQty)).ToList()),ct);
-                if(!result.IsSuccess)throw new InvalidOperationException(result.ErrorMessage);
-                await c.ExecuteAsync(new CommandDefinition("UPDATE `wms_packing_consume_outbox` SET `status`='CONSUMED',`attempt_count`=`attempt_count`+1,`last_error`='',`consumed_at`=@now,`last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id`=@id AND `status` IN ('PENDING','FAILED');",new{id=row.id,now=DateTime.Now},cancellationToken:ct));
+                var result=await client.ConsumeAsync(new ErpPackingStockConsumeCommand(row.sellfox_task_id,row.sellfox_item_id,row.request_id,payload.PlanRowVersion,actorId,actorName,payload.Contributions.Select(x=>new ErpPackingStockOwnerConsumption(x.GoodsOwnerId,x.ActualPackedQty)).ToList()),ct);
+                if(!result.IsSuccess||result.Data is not true)throw new InvalidOperationException(
+                    string.IsNullOrWhiteSpace(result.ErrorMessage)?"ERP 装箱库存服务未确认消费成功":result.ErrorMessage);
+                await c.ExecuteAsync(new CommandDefinition("UPDATE `wms_packing_consume_outbox` SET `status`='CONSUMED',`last_error`='',`consumed_at`=@now,`last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id`=@id AND `status`='PROCESSING' AND `row_version`=@claimVersion;",new{id=row.id,claimVersion,now=DateTime.Now},cancellationToken:ct));
             }
             catch(Exception ex)
-            {await c.ExecuteAsync(new CommandDefinition("UPDATE `wms_packing_consume_outbox` SET `status`='FAILED',`attempt_count`=`attempt_count`+1,`last_error`=@error,`last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id`=@id;",new{id=row.id,error=ex.Message[..Math.Min(ex.Message.Length,500)],now=DateTime.Now},cancellationToken:ct));}
+            {await c.ExecuteAsync(new CommandDefinition("UPDATE `wms_packing_consume_outbox` SET `status`='FAILED',`last_error`=@error,`last_update_time`=@now,`row_version`=`row_version`+1 WHERE `id`=@id AND `status`='PROCESSING' AND `row_version`=@claimVersion;",new{id=row.id,claimVersion,error=ex.Message[..Math.Min(ex.Message.Length,500)],now=DateTime.Now},cancellationToken:ct));}
         }
+        await SyncPackingConsumeStatusAsync(c,packingTaskId,ct);
+    }
+
+    private static async Task SyncPackingConsumeStatusAsync(IDbConnection c,int packingTaskId,CancellationToken ct)
+    {
         var pending=await c.ExecuteScalarAsync<long>(new CommandDefinition("SELECT COUNT(*) FROM `wms_packing_consume_outbox` WHERE `packing_task_id`=@packingTaskId AND `status`<>'CONSUMED';",new{packingTaskId},cancellationToken:ct));
         var failed=await c.ExecuteScalarAsync<long>(new CommandDefinition("SELECT COUNT(*) FROM `wms_packing_consume_outbox` WHERE `packing_task_id`=@packingTaskId AND `status`='FAILED';",new{packingTaskId},cancellationToken:ct));
         var status=pending==0?"CONSUMED":failed>0?"FAILED":"PENDING";

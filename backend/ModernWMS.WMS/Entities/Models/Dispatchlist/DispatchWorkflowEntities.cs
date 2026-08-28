@@ -384,6 +384,8 @@ public class DispatchPackingTaskItemEntity : BaseModel
     /// 获取或设置 source_stock_available。
     /// </summary>
     public int? source_stock_available { get; set; }
+    /// <summary>Ruoyi 装箱库存计划在生成拣货投影时的冻结版本。</summary>
+    public long? erp_stock_plan_row_version { get; set; }
     /// <summary>
     /// 获取或设置 variant_qty。
     /// </summary>

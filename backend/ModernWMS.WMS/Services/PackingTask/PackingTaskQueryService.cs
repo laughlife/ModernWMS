@@ -1575,6 +1575,7 @@ public class PackingTaskQueryService : IPackingTaskQueryService
         public Task<ErpPackingStockResult<ErpPackingStockPlan>> UpdateContributionAsync(ErpPackingStockContributionCommand request, CancellationToken cancellationToken = default) => Fail();
         public Task<ErpPackingStockResult<ErpPackingStockPlan>> WithdrawParticipantAsync(ErpPackingStockParticipantWithdrawCommand request, CancellationToken cancellationToken = default) => Fail();
         public Task<ErpPackingStockResult<ErpPackingStockPlan>> RetryAsync(ErpPackingStockRetryCommand request, CancellationToken cancellationToken = default) => Fail();
-        public Task<ErpPackingStockResult<ErpPackingStockPlan>> ConsumeAsync(ErpPackingStockConsumeCommand request, CancellationToken cancellationToken = default) => Fail();
+        public Task<ErpPackingStockResult<bool>> ConsumeAsync(ErpPackingStockConsumeCommand request, CancellationToken cancellationToken = default) =>
+            Task.FromResult(ErpPackingStockResult<bool>.Failure("ERP 装箱库存客户端不可用，已拒绝本地写入"));
     }
 }

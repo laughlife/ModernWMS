@@ -66,12 +66,42 @@ public class ErpPackingStockClientTests
         }
     }
 
+    [Fact]
+    public async Task ConsumeAsync_accepts_the_ruoyi_boolean_result_contract()
+    {
+        var previous = Environment.GetEnvironmentVariable("ERP_PACKING_STOCK_INTERNAL_TOKEN");
+        Environment.SetEnvironmentVariable("ERP_PACKING_STOCK_INTERNAL_TOKEN", "test-secret");
+        try
+        {
+            var handler = new RecordingHandler("{\"code\":0,\"msg\":\"\",\"data\":true}");
+            var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ErpIntegration:PackingStockBaseUrl"] = "https://ruoyi.internal/"
+            }).Build();
+            var client = new ErpPackingStockClient(new FixedHttpClientFactory(new HttpClient(handler)), configuration,
+                NullLogger<ErpPackingStockClient>.Instance);
+
+            var result = await client.ConsumeAsync(new ErpPackingStockConsumeCommand(41, 42, "consume-request", 9,
+                "wms-user", "操作员", [new ErpPackingStockOwnerConsumption(7, 6)]));
+
+            Assert.True(result.IsSuccess);
+            Assert.True(result.Data);
+            Assert.Equal("/admin-api/erp/packing-task/internal/stock-plan/consume",
+                handler.Request!.RequestUri!.AbsolutePath);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("ERP_PACKING_STOCK_INTERNAL_TOKEN", previous);
+        }
+    }
+
     private sealed class FixedHttpClientFactory(HttpClient client) : IHttpClientFactory
     {
         public HttpClient CreateClient(string name) => client;
     }
 
-    private sealed class RecordingHandler : HttpMessageHandler
+    private sealed class RecordingHandler(
+        string responseBody = "{\"code\":0,\"msg\":\"\",\"data\":{\"rowVersion\":9}}") : HttpMessageHandler
     {
         public HttpRequestMessage? Request { get; private set; }
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -79,7 +109,7 @@ public class ErpPackingStockClientTests
             Request = request;
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StringContent("{\"code\":0,\"msg\":\"\",\"data\":{\"rowVersion\":9}}")
+                Content = new StringContent(responseBody)
             });
         }
     }
