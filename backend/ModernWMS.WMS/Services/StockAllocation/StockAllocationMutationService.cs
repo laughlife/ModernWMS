@@ -392,7 +392,12 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
             EnsureAllocationUsable(kind, allocation);
             var stockAfter = Apply(stock, deltas);
             var allocationAfter = Apply(allocation, deltas);
-            EnsureNonnegative(stockAfter, allocationAfter);
+            StockBalanceInvariant.EnsureValid(
+                stockAfter.AvailableQty,
+                stockAfter.OccupiedQty,
+                stockAfter.TotalQty,
+                allocationAfter.AllocatedQty,
+                allocationAfter.OccupiedQty);
 
             var now = DateTime.Now;
             await UpdateStockAsync(connection, transaction, context, stock, stockAfter, now, cancellationToken);
@@ -879,17 +884,6 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
         AllocatedQty = checked(before.AllocatedQty + deltas.AllocatedDelta),
         OccupiedQty = checked(before.OccupiedQty + deltas.AllocationOccupiedDelta)
     };
-
-    private static void EnsureNonnegative(StockRow stock, AllocationRow allocation)
-    {
-        if (stock.AvailableQty < 0 || stock.OccupiedQty < 0 || stock.TotalQty < 0)
-            throw new InvalidOperationException("ERP库存数量不足或变更后出现负数");
-        if (stock.TotalQty != checked(stock.AvailableQty + stock.OccupiedQty))
-            throw new InvalidOperationException("ERP库存三分量不守恒");
-        if (allocation.AllocatedQty < 0 || allocation.OccupiedQty < 0
-            || allocation.OccupiedQty > allocation.AllocatedQty)
-            throw new InvalidOperationException("位置分配数量不足或变更后不守恒");
-    }
 
     private static async Task UpdateStockAsync(
         IDbConnection connection,

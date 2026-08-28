@@ -2,6 +2,7 @@ using Dapper;
 using ModernWMS.Core.DBContext.Entities;
 using ModernWMS.Core.JWT;
 using ModernWMS.WMS.Entities.ViewModels;
+using ModernWMS.WMS.Services.StockAllocation;
 using MySqlConnector;
 
 namespace ModernWMS.WMS.Services;
@@ -472,11 +473,12 @@ public partial class ErpPendingReceiptService
 
     private static void EnsureValidErpBalance(ErpStockBalance balance)
     {
-        if (balance.available_qty < 0 || balance.occupied_qty < 0 || balance.total_qty < 0
-            || balance.total_qty != checked(balance.available_qty + balance.occupied_qty))
-        {
-            throw new InvalidOperationException($"ERP库存 {balance.id} 的现有数量不守恒，禁止继续入库");
-        }
+        StockBalanceInvariant.EnsureValid(
+            balance.available_qty,
+            balance.occupied_qty,
+            balance.total_qty,
+            balance.total_qty,
+            balance.occupied_qty);
     }
 
     private static string BuildReceiptOperationKey(long shipmentId, int itemIndex)
