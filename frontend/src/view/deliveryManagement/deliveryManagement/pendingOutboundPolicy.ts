@@ -67,17 +67,10 @@ export const getPendingOutboundMetrics = (
 ): PendingOutboundMetrics => {
   const boxes = order.packing_tasks.flatMap(task => boxesByTask[task.id] ?? [])
   const taskItems = order.packing_tasks.flatMap(task => task.items)
-  const taskItemsById = new Map(taskItems.map(item => [item.id, item]))
   const plannedLoadingQty = taskItems.reduce((total, item) => total + Number(item.required_qty ?? 0), 0)
   const actualLoadingQty = boxes.reduce((total, box) => {
     const boxItems = (box as WeighingBox & { items?: PackingPlanBoxItem[] }).items ?? []
-    return total + boxItems.reduce((boxTotal, boxItem) => {
-      const taskItem = taskItemsById.get(boxItem.packing_task_item_id)
-      const taskQty = Number(taskItem?.task_qty ?? 0)
-      const requiredQty = Number(taskItem?.required_qty ?? 0)
-      const variantQty = taskQty > 0 && requiredQty > 0 ? requiredQty / taskQty : 0
-      return boxTotal + Number(boxItem.task_qty ?? 0) * variantQty
-    }, 0)
+    return total + boxItems.reduce((boxTotal, boxItem) => boxTotal + Number(boxItem.actual_qty ?? 0), 0)
   }, 0)
   const volumeCm3 = boxes.reduce((total, box) => total
     + Number(box.length ?? 0) * Number(box.width ?? 0) * Number(box.height ?? 0), 0)

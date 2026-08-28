@@ -71,11 +71,11 @@
                     <thead><tr><th>图片</th><th>箱内商品信息</th><th>FNSKU / MSKU</th><th>变体</th><th>箱内任务量</th><th>箱内商品数量</th></tr></thead>
                     <tbody>
                       <tr v-for="boxItem in box.items" :key="`${box.id}-${boxItem.packing_task_item_id}`">
-                        <td><ProductImage :src="taskItem(task, boxItem.packing_task_item_id)?.main_image" :alt="taskItem(task, boxItem.packing_task_item_id)?.commodity_name" :width="44" :height="44" :cover="false" /></td>
-                        <td><div>{{ taskItem(task, boxItem.packing_task_item_id)?.commodity_name || '-' }}</div><small>SKU：{{ taskItem(task, boxItem.packing_task_item_id)?.commodity_sku || '-' }}</small></td>
+                        <td><ProductImage :src="taskItem(task, boxItem.packing_task_item_id)?.main_image" :alt="boxItem.commodity_name" :width="44" :height="44" :cover="false" /></td>
+                        <td><div>{{ boxItem.commodity_name || taskItem(task, boxItem.packing_task_item_id)?.commodity_name || '-' }}</div><small>SKU：{{ boxItem.sku_code || taskItem(task, boxItem.packing_task_item_id)?.commodity_sku || '-' }}</small></td>
                         <td><div>{{ taskItem(task, boxItem.packing_task_item_id)?.fn_sku || '-' }}</div><small>{{ taskItem(task, boxItem.packing_task_item_id)?.msku || '-' }}</small></td>
                         <td>{{ variantQty(taskItem(task, boxItem.packing_task_item_id)) || '-' }}</td>
-                        <td>{{ boxItem.task_qty }}</td><td>{{ boxProductQuantity(task, boxItem) }}</td>
+                        <td>{{ boxItem.actual_qty }}</td><td>{{ boxProductQuantity(boxItem) }}</td>
                       </tr>
                       <tr v-if="box.items.length === 0"><td colspan="6" class="empty-cell">该箱暂无商品明细</td></tr>
                     </tbody>
@@ -232,8 +232,8 @@ const variantQty = (item: DispatchPackingTaskItem | undefined): number => {
   const requiredQty = Number(item?.required_qty)
   return taskQty > 0 && requiredQty > 0 ? requiredQty / taskQty : 0
 }
-const taskItem = (task: DispatchPackingTask, itemId: number): DispatchPackingTaskItem | undefined => task.items.find((item) => item.id === itemId)
-const boxProductQuantity = (task: DispatchPackingTask, boxItem: PackingPlanBoxItem): number => boxItem.task_qty * variantQty(taskItem(task, boxItem.packing_task_item_id))
+const taskItem = (task: DispatchPackingTask, itemId: number | null): DispatchPackingTaskItem | undefined => task.items.find((item) => item.id === itemId)
+const boxProductQuantity = (boxItem: PackingPlanBoxItem): number => Number(boxItem.actual_qty)
 const boxVolume = (box: WeighingBox): number => {
   const length = Number(box.length); const width = Number(box.width); const height = Number(box.height)
   return length > 0 && width > 0 && height > 0 ? length * width * height : 0

@@ -10,13 +10,13 @@
         </v-chip>
       </div>
       <v-table density="compact" class="product-pool">
-        <thead><tr><th>图片</th><th>商品信息</th><th>FNSKU / MSKU</th><th>变体</th><th>任务量</th><th>商品需求量</th><th>已分配/剩余</th></tr></thead>
+        <thead><tr><th>图片</th><th>计划商品</th><th>FNSKU / MSKU</th><th>变体</th><th>计划任务量</th><th>计划商品量</th><th>实际关联/未装参考</th></tr></thead>
         <tbody>
           <tr v-for="item in plan.items" :key="item.id">
             <td><ProductImage :src="item.main_image" :alt="item.commodity_name" :width="48" :height="48" :cover="false" /></td>
             <td class="text-left"><div>{{ item.commodity_name || '-' }}</div><small>SKU：{{ item.commodity_sku || '-' }}</small></td>
             <td><div>{{ item.fn_sku || '-' }}</div><small>{{ item.msku || '-' }}</small></td>
-            <td>{{ item.variant_qty }}</td><td>{{ itemTaskLimit(plan, item) }}</td><td>{{ itemTaskLimit(plan, item) * item.variant_qty }}</td>
+            <td>{{ item.variant_qty }}</td><td>{{ item.task_qty }}</td><td>{{ item.required_qty }}</td>
             <td>{{ allocatedTaskQty(plan, item.id) }} / {{ remainingTaskQty(plan, item) }}</td>
           </tr>
         </tbody>
@@ -83,18 +83,32 @@
             <v-text-field v-model.number="box.width" type="number" min="0" label="宽(cm)" density="compact" hide-details :disabled="!editable" />
             <v-text-field v-model.number="box.height" type="number" min="0" label="高(cm)" density="compact" hide-details :disabled="!editable" />
           </div>
-          <div class="box-item-header">
-            <span>商品信息</span><span>任务量</span><span>变体</span><span>商品需求量</span><span>操作</span>
+          <div class="box-item-toolbar">
+            <strong>箱内实际库存</strong>
+            <v-btn size="small" color="primary" variant="tonal" :disabled="!editable" @click="addActualItem(box)">添加实际商品</v-btn>
           </div>
-          <div v-for="(boxItem, itemIndex) in box.items" :key="boxItem.packing_task_item_id" class="box-item-row">
-            <span>
-              <span>{{ product(boxItem.packing_task_item_id)?.commodity_name || '-' }}</span>
-              <small>SKU：{{ product(boxItem.packing_task_item_id)?.commodity_sku || '-' }}</small>
+          <div class="box-item-header">
+            <span>计划参考</span><span>实际库存（SKU / 商品 / 货主 / 库位）</span><span>实际数量</span><span>库存提示</span><span>操作</span>
+          </div>
+          <div v-for="(boxItem, itemIndex) in box.items" :key="boxItem.client_line_key" class="box-item-row">
+            <v-select v-model="boxItem.packing_task_item_id" :items="planItemOptions" label="计划参考（可空）" density="compact" clearable hide-details :disabled="!editable" />
+            <v-autocomplete
+              v-model="boxItem.stock_allocation_id"
+              :items="stockOptions"
+              :item-title="stockTitle"
+              item-value="stock_allocation_id"
+              label="选择实际库存"
+              density="compact"
+              hide-details
+              :disabled="!editable"
+              @update:model-value="applyStock(boxItem, $event)"
+            />
+            <v-text-field v-model.number="boxItem.actual_qty" type="number" min="1" step="1" label="实际数量" density="compact" hide-details :disabled="!editable" />
+            <span :class="{ 'negative-stock': projectedAvailable(boxItem) < 0 }">
+              确认后可用：{{ projectedAvailable(boxItem) }}
+              <small v-if="projectedAvailable(boxItem) < 0">允许继续，将形成负库存</small>
             </span>
-            <v-text-field v-model.number="boxItem.task_qty" type="number" min="0" label="任务量" density="compact" hide-details :disabled="!editable" />
-            <span>{{ product(boxItem.packing_task_item_id)?.variant_qty || 0 }}</span>
-            <span>{{ Number(boxItem.task_qty || 0) * Number(product(boxItem.packing_task_item_id)?.variant_qty || 0) }}</span>
-            <v-btn icon="mdi-close" size="x-small" variant="text" :disabled="!editable" @click="box.items[itemIndex].task_qty = 0" />
+            <v-btn icon="mdi-close" size="x-small" variant="text" :disabled="!editable" @click="box.items.splice(itemIndex, 1)" />
           </div>
         </v-card-text>
       </v-card>
@@ -103,6 +117,7 @@
           <strong>装箱信息可随时保存</strong>
           <small v-if="completionHint" :title="completionHint">业务下一步还需：{{ completionHint }}</small>
           <small v-else>信息已填写完整，已具备业务下一步校验条件</small>
+          <small v-if="completionWarnings" class="negative-stock">提示：{{ completionWarnings }}</small>
         </div>
         <div class="editor-actions">
           <v-btn :loading="saving" :disabled="!editable" @click="savePacking">保存</v-btn>
@@ -145,10 +160,10 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { confirmDispatchPacking, getDispatchPackingPlan, saveDispatchPackingPlan } from '@/api/wms/dispatchWorkflow'
+import { confirmDispatchPacking, getDispatchActualPackingStock, getDispatchPackingPlan, saveDispatchPackingPlan } from '@/api/wms/dispatchWorkflow'
 import { hookComponent } from '@/components/system'
 import ProductImage from '@/components/system/product-image.vue'
-import type { PackingPlan, PackingPlanBox } from '@/types/DeliveryManagement/DispatchWorkflow'
+import type { ActualPackingStock, PackingPlan, PackingPlanBox, PackingPlanBoxItem } from '@/types/DeliveryManagement/DispatchWorkflow'
 import {
   allocatedTaskQty,
   copyDraftBox,
@@ -164,6 +179,7 @@ import { advancePackingPlan, inspectPackingPlan } from './packingPlanCompletion'
 const props = defineProps<{ orderId: number; packingTaskId: number; frozen?: boolean; autoCheck?: boolean }>()
 const emit = defineEmits<{ saved: []; completed: [] }>()
 const plan = ref<PackingPlan | null>(null)
+const stockOptions = ref<ActualPackingStock[]>([])
 const loading = ref(false); const saving = ref(false); const completing = ref(false); const checking = ref(false)
 const copyDialog = reactive({ visible: false, sourceIndex: -1, targetIndexes: [] as number[] })
 const errorMessage = ref('')
@@ -171,32 +187,67 @@ const plannedBoxCountInput = ref('1')
 const packingPlanStatus = computed(() => String(plan.value?.packing_plan_status ?? ''))
 const editable = computed(() => !props.frozen && (packingPlanStatus.value === 'DRAFT' || packingPlanStatus.value === 'PACKING_CONFIRMED'))
 const completionHint = computed(() => plan.value ? inspectPackingPlan(plan.value).issues.join('；') : '')
+const completionWarnings = computed(() => plan.value ? inspectPackingPlan(plan.value).warnings.join('；') : '')
+const planItemOptions = computed(() => [
+  { title: '任务外商品', value: null },
+  ...(plan.value?.items.map((item) => ({
+    title: `${item.commodity_name || item.commodity_sku}（${item.commodity_sku || '-'}）`,
+    value: item.id
+  })) ?? [])
+])
 const copySourceOptions = computed(() => plan.value?.boxes
   .map((_, index) => ({ title: `第 ${index + 1} 箱`, value: index })) ?? [])
 const copyTargetOptions = computed(() => plan.value?.boxes
   .map((_, index) => ({ title: `第 ${index + 1} 箱`, value: index }))
   .filter((option) => option.value !== copyDialog.sourceIndex) ?? [])
 const requestId = () => globalThis.crypto?.randomUUID?.() ?? `packing-${Date.now()}-${Math.random().toString(16).slice(2)}`
-const product = (id: number) => plan.value?.items.find((item) => item.id === id)
+const product = (id: number | null) => plan.value?.items.find((item) => item.id === id)
+const stockTitle = (stock: ActualPackingStock) =>
+  `${stock.sku_code} / ${stock.commodity_name} / ${stock.goods_owner_name || '-'} / ${stock.location_name || '-'} / 可用${stock.available_qty}`
+const newLineKey = () => globalThis.crypto?.randomUUID?.() ?? `line-${Date.now()}-${Math.random().toString(16).slice(2)}`
+const addActualItem = (box: PackingPlanBox) => box.items.push({
+  client_line_key: newLineKey(),
+  packing_task_item_id: null,
+  stock_allocation_id: 0,
+  erp_stock_id: 0,
+  wms_sku_id: 0,
+  goods_owner_id: 0,
+  goods_location_id: 0,
+  sku_code: '',
+  commodity_name: '',
+  available_qty: 0,
+  actual_qty: 1,
+  dispatchpicklist_id: null
+})
+const applyStock = (line: PackingPlanBoxItem, allocationId: number | null) => {
+  const stock = stockOptions.value.find((item) => item.stock_allocation_id === Number(allocationId))
+  if (!stock) return
+  Object.assign(line, stock, { dispatchpicklist_id: null })
+  if (line.packing_task_item_id == null) {
+    const matchedPlanItem = plan.value?.items.find((item) => item.commodity_sku === stock.sku_code)
+    if (matchedPlanItem) line.packing_task_item_id = matchedPlanItem.id
+  }
+}
+const projectedAvailable = (line: PackingPlanBoxItem) => {
+  const available = stockOptions.value.find((item) => item.stock_allocation_id === line.stock_allocation_id)?.available_qty
+    ?? line.available_qty
+  const packed = plan.value?.boxes.flatMap((box) => box.items)
+    .filter((item) => item.stock_allocation_id === line.stock_allocation_id)
+    .reduce((sum, item) => sum + Number(item.actual_qty || 0), 0) ?? 0
+  return Number(available) - packed
+}
 const fillBoxProductRows = (packingPlan: PackingPlan, initializeFirstBox = false) => {
   if (initializeFirstBox && (packingPlan.packing_plan_status === 'DRAFT' || String(packingPlan.packing_plan_status) === 'PACKING_CONFIRMED') && packingPlan.boxes.length === 0) {
     packingPlan.boxes.push(newDraftBox(1))
   }
-  packingPlan.boxes.forEach((box) => {
-    const currentItems = new Map(box.items.map((item) => [item.packing_task_item_id, item]))
-    box.items = packingPlan.items.map((item) => currentItems.get(item.id) ?? {
-      packing_task_item_id: item.id,
-      task_qty: 0
-    })
-  })
   plan.value = packingPlan
   plannedBoxCountInput.value = String(Math.max(1, packingPlan.boxes.length))
 }
 const boxesForSave = () => plan.value?.boxes.map((box) => ({
   ...box,
-  items: box.items.filter((item) => Number(item.task_qty) > 0)
+  items: box.items.filter((item) => Number(item.actual_qty) > 0 && Number(item.stock_allocation_id) > 0)
 })) ?? []
-const load = async () => { loading.value = true; errorMessage.value = ''; try { const result = await getDispatchPackingPlan(props.orderId, props.packingTaskId, true); if (!result.isSuccess) throw new Error(result.errorMessage); fillBoxProductRows(result.data, true); if (props.autoCheck) checkPacking() } catch (error) { errorMessage.value = error instanceof Error ? error.message : String(error) } finally { loading.value = false } }
+const load = async () => { loading.value = true; errorMessage.value = ''; try { const [result, stockResult] = await Promise.all([getDispatchPackingPlan(props.orderId, props.packingTaskId, true), getDispatchActualPackingStock(props.orderId, props.packingTaskId)]); if (!result.isSuccess) throw new Error(result.errorMessage); if (!stockResult.isSuccess) throw new Error(stockResult.errorMessage); stockOptions.value = stockResult.data; fillBoxProductRows(result.data, true); if (props.autoCheck) checkPacking() } catch (error) { errorMessage.value = error instanceof Error ? error.message : String(error) } finally { loading.value = false } }
 const addEmptyBox = () => {
   if (!plan.value) return
   plan.value.boxes = expandPackingPlanBoxes(plan.value, plan.value.boxes.length + 1)
@@ -306,7 +357,7 @@ onMounted(load)
 
 <style scoped lang="less">
 .packing-editor { padding: 4px; background: rgb(var(--v-theme-surface)); }
-.editor-heading,.box-title,.box-actions,.editor-actions,.box-toolbar,.box-item-row,.editor-footer { display: flex; align-items: center; gap: 12px; }
+.editor-heading,.box-title,.box-actions,.editor-actions,.box-toolbar,.box-item-toolbar,.box-item-row,.editor-footer { display: flex; align-items: center; gap: 12px; }
 .editor-heading,.box-title { justify-content: space-between; }.product-pool { margin-top: 10px; }.box-toolbar { margin: 0 0 14px; }
 .planned-box-count { flex: 0 0 110px; max-width: 110px; }
 .packing-progress { margin-bottom: 14px; overflow: hidden; border: 1px solid rgba(var(--v-border-color),var(--v-border-opacity)); border-radius: 6px; }
@@ -314,11 +365,13 @@ onMounted(load)
 .progress-product { display: flex; align-items: center; gap: 10px; }.progress-product small { display: block; }
 .packed-summary { color: rgb(var(--v-theme-success)); }.remaining-summary { color: rgb(var(--v-theme-warning)); }.packed-summary small,.remaining-summary small { display: block; }
 .box-card { background: rgb(var(--v-theme-surface)); }.box-card + .box-card { margin-top: 12px; }.measurement-grid { display: grid; grid-template-columns: repeat(4, minmax(120px,1fr)); gap: 10px; }
-.box-item-header,.box-item-row { display: grid; grid-template-columns: minmax(180px,2fr) minmax(100px,1fr) minmax(70px,.7fr) minmax(110px,1fr) 48px; align-items: center; gap: 12px; }
+.box-item-toolbar { justify-content: space-between; margin-top: 16px; }
+.box-item-header,.box-item-row { display: grid; grid-template-columns: minmax(170px,1fr) minmax(320px,2.2fr) minmax(110px,.7fr) minmax(150px,1fr) 48px; align-items: center; gap: 12px; }
 .box-item-header { margin-top: 16px; padding: 8px 0; border-bottom: 1px solid rgba(var(--v-border-color),var(--v-border-opacity)); font-weight: 600; }
 .box-item-row { margin-top: 10px; }.box-item-row small { display: block; }
 .editor-footer { position: sticky; z-index: 3; bottom: -20px; justify-content: space-between; margin: 16px -20px -20px; padding: 12px 20px; border-top: 1px solid rgba(var(--v-border-color),var(--v-border-opacity)); background: rgb(var(--v-theme-surface)); box-shadow: 0 -3px 10px rgba(0,0,0,.08); }
 .completion-status { min-width: 0; }.completion-status strong,.completion-status small { display: block; }.completion-status small { max-width: 900px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .editor-actions { justify-content: flex-end; flex-shrink: 0; }
 small { opacity: .65; }
+.negative-stock { color: rgb(var(--v-theme-warning)); }
 </style>

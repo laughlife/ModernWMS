@@ -5,7 +5,7 @@ import {
   saveDispatchPackingPlan
 } from '@/api/wms/dispatchWorkflow'
 import type { PackingPlan, PackingPlanBox } from '@/types/DeliveryManagement/DispatchWorkflow'
-import { allocatedTaskQty, itemTaskLimit, remainingTaskQty } from './packingPlanPolicy'
+import { inspectActualPackingLines, remainingTaskQty } from './packingPlanPolicy'
 
 export interface UnfinishedPackingProduct {
   name: string
@@ -15,6 +15,7 @@ export interface UnfinishedPackingProduct {
 
 export interface PackingPlanInspection {
   issues: string[]
+  warnings: string[]
   unfinishedProducts: UnfinishedPackingProduct[]
 }
 
@@ -22,25 +23,7 @@ const requestId = (prefix: string): string =>
   globalThis.crypto?.randomUUID?.() ?? `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`
 
 export const inspectPackingPlan = (plan: PackingPlan): PackingPlanInspection => {
-  const issues: string[] = []
-  if (plan.boxes.length === 0) issues.push('至少建立一个箱子')
-  plan.boxes.forEach((box, index) => {
-    const missing: string[] = []
-    if (Number(box.weight) <= 0) missing.push('重量')
-    if (Number(box.length) <= 0) missing.push('长')
-    if (Number(box.width) <= 0) missing.push('宽')
-    if (Number(box.height) <= 0) missing.push('高')
-    if (!box.items.some((item) => Number(item.task_qty) > 0)) missing.push('商品任务量')
-    if (box.items.some((item) => !Number.isInteger(Number(item.task_qty)) || Number(item.task_qty) < 0)) missing.push('有效整数任务量')
-    if (missing.length > 0) issues.push(`第${index + 1}箱缺少${missing.join('、')}`)
-  })
-  plan.items.forEach((item) => {
-    const totalTaskQty = itemTaskLimit(plan, item)
-    const actualTaskQty = allocatedTaskQty(plan, item.id)
-    if (actualTaskQty > totalTaskQty) {
-      issues.push(`${item.commodity_name || item.commodity_sku || '未命名商品'}（sku：${item.commodity_sku || '-'}）总任务量${totalTaskQty}，实际任务量${actualTaskQty}`)
-    }
-  })
+  const { issues, warnings } = inspectActualPackingLines(plan)
   const unfinishedProducts = plan.items
     .map((item) => ({ item, remaining: remainingTaskQty(plan, item) }))
     .filter(({ remaining }) => remaining > 0)
@@ -49,12 +32,12 @@ export const inspectPackingPlan = (plan: PackingPlan): PackingPlanInspection => 
       remainingTaskQty: remaining,
       remainingRequiredQty: remaining * Number(item.variant_qty)
     }))
-  return { issues, unfinishedProducts }
+  return { issues, warnings, unfinishedProducts }
 }
 
 const boxesForSave = (boxes: PackingPlanBox[]): PackingPlanBox[] => boxes.map((box) => ({
   ...box,
-  items: box.items.filter((item) => Number(item.task_qty) > 0)
+  items: box.items.filter((item) => Number(item.actual_qty) > 0 && Number(item.stock_allocation_id) > 0)
 }))
 
 export const advancePackingPlan = async (orderId: number, packingTaskId: number, plan: PackingPlan): Promise<void> => {

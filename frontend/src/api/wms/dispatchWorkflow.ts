@@ -13,6 +13,7 @@ import type {
   DispatchStatusCounts,
   OutboundCommandRequest,
   OutboundCommandResult,
+  ActualPackingStock,
   PackingPlan,
   SavePackingPlanRequest,
   ConfirmActualPackingRequest,
@@ -118,6 +119,14 @@ export const getDispatchPackingPlan = (orderId: number, packingTaskId: number, h
   url: `/dispatch-workflow/${orderId}/packing-tasks/${packingTaskId}/packing-plan`, method: 'get',
   ...(hideLoading ? { hideLoading: true } : {})
 })
+
+export const getDispatchActualPackingStock = (orderId: number, packingTaskId: number, keyword = '') =>
+  request<ActualPackingStock[]>({
+    url: `/dispatch-workflow/${orderId}/packing-tasks/${packingTaskId}/actual-stock`,
+    method: 'get',
+    params: { keyword },
+    hideLoading: true
+  })
 
 export const saveDispatchPackingPlan = (orderId: number, packingTaskId: number, data: SavePackingPlanRequest) =>
   request<PackingPlan>({ url: `/dispatch-workflow/${orderId}/packing-tasks/${packingTaskId}/packing-plan`, method: 'put', data })

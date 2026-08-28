@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { PackingPlan, PackingPlanBox } from '@/types/DeliveryManagement/DispatchWorkflow'
 import {
+  canConfirmPackingPlan,
   expandPackingPlanBoxes,
+  inspectActualPackingLines,
   normalizePlannedBoxCount,
   plannedBoxCountDigits
 } from './packingPlanPolicy'
@@ -15,7 +17,20 @@ const box = (sequence: number, taskQty: number): PackingPlanBox => ({
   width: null,
   height: null,
   row_version: 0,
-  items: [{ packing_task_item_id: 11, task_qty: taskQty }]
+  items: taskQty > 0 ? [{
+    client_line_key: `line-${sequence}`,
+    packing_task_item_id: 11,
+    stock_allocation_id: 101,
+    erp_stock_id: 1001,
+    wms_sku_id: 7,
+    goods_owner_id: 88,
+    goods_location_id: 66,
+    sku_code: 'OTHER-SKU',
+    commodity_name: '其他货主商品',
+    available_qty: -20,
+    actual_qty: taskQty,
+    dispatchpicklist_id: null
+  }] : []
 })
 
 const plan = (boxes: PackingPlanBox[] = [box(1, 3)]): PackingPlan => ({
@@ -49,7 +64,7 @@ describe('计划箱数', () => {
     expect(normalizePlannedBoxCount('6')).toBe(6)
   })
 
-  it('填写n后自动补齐第2到第n箱并沿用剩余任务量规则', () => {
+  it('填写n后自动补齐第2到第n箱且不伪造实际商品', () => {
     const packingPlan = plan()
 
     const expanded = expandPackingPlanBoxes(packingPlan, 3)
@@ -57,13 +72,50 @@ describe('计划箱数', () => {
     expect(expanded).toHaveLength(3)
     expect(expanded[0]).toBe(packingPlan.boxes[0])
     expect(expanded.map((item) => item.box_sequence)).toEqual([1, 2, 3])
-    expect(expanded[1].items).toEqual([{ packing_task_item_id: 11, task_qty: 2 }])
-    expect(expanded[2].items).toEqual([{ packing_task_item_id: 11, task_qty: 0 }])
+    expect(expanded[1].items).toEqual([])
+    expect(expanded[2].items).toEqual([])
   })
 
   it('计划数调小时不删除已有箱', () => {
     const packingPlan = plan([box(1, 3), box(2, 2), box(3, 0)])
 
     expect(expandPackingPlanBoxes(packingPlan, 1)).toHaveLength(3)
+  })
+})
+
+describe('实际装箱规则', () => {
+  it('允许超计划、不同SKU、其他货主和负可用库存', () => {
+    const packingPlan = plan([{
+      ...box(1, 501),
+      weight: 1,
+      length: 10,
+      width: 10,
+      height: 10
+    }])
+
+    expect(inspectActualPackingLines(packingPlan).issues).toEqual([])
+    expect(inspectActualPackingLines(packingPlan).warnings).toContain('OTHER-SKU 当前可用-20，本箱填写501，确认后可能形成负库存')
+    expect(canConfirmPackingPlan(packingPlan)).toBe(true)
+  })
+
+  it('允许任务外商品但拒绝重复行键和非正数量', () => {
+    const packingPlan = plan([{
+      ...box(1, 1),
+      weight: 1,
+      length: 10,
+      width: 10,
+      height: 10
+    }])
+    const original = packingPlan.boxes[0].items[0]
+    packingPlan.boxes[0].items = [
+      { ...original, packing_task_item_id: null, actual_qty: 0 },
+      { ...original, packing_task_item_id: null }
+    ]
+
+    expect(inspectActualPackingLines(packingPlan).issues).toEqual([
+      '第1箱实际商品数量必须为正整数',
+      '第1箱实际商品行键重复'
+    ])
+    expect(canConfirmPackingPlan(packingPlan)).toBe(false)
   })
 })

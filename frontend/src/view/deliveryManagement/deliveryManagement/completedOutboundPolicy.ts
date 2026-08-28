@@ -53,7 +53,7 @@ export type CompletedTaskDetail = DispatchOrderDetail['packing_tasks'][number] &
 }
 
 export interface CompletedBoxProduct {
-  packingTaskItemId: number
+  packingTaskItemId: number | null
   mainImage: string
   commodityName: string
   commoditySku: string
@@ -109,12 +109,14 @@ export const completedBoxProducts = (
 ): CompletedBoxProduct[] => {
   const productsById = new Map(task.items.map(item => [item.id, item]))
   return box.items.map(boxItem => {
-    const product = productsById.get(boxItem.packing_task_item_id)
+    const product = boxItem.packing_task_item_id === null
+      ? undefined
+      : productsById.get(boxItem.packing_task_item_id)
     return {
       packingTaskItemId: boxItem.packing_task_item_id,
       mainImage: product?.main_image ?? '',
-      commodityName: product?.commodity_name ?? '-',
-      commoditySku: product?.commodity_sku ?? '-'
+      commodityName: boxItem.commodity_name || product?.commodity_name || '-',
+      commoditySku: boxItem.sku_code || product?.commodity_sku || '-'
     }
   })
 }

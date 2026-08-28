@@ -4,12 +4,14 @@ import { defineComponent } from 'vue'
 import type { PackingPlan } from '@/types/DeliveryManagement/DispatchWorkflow'
 import PackingTaskWeighingEditor from './packing-task-weighing-editor.vue'
 
-const { getDispatchPackingPlan } = vi.hoisted(() => ({
-  getDispatchPackingPlan: vi.fn()
+const { getDispatchPackingPlan, getDispatchActualPackingStock } = vi.hoisted(() => ({
+  getDispatchPackingPlan: vi.fn(),
+  getDispatchActualPackingStock: vi.fn()
 }))
 
 vi.mock('@/api/wms/dispatchWorkflow', () => ({
   getDispatchPackingPlan,
+  getDispatchActualPackingStock,
   saveDispatchPackingPlan: vi.fn(),
   confirmDispatchPacking: vi.fn(),
   confirmDispatchActualPacking: vi.fn(),
@@ -76,6 +78,7 @@ const mountEditor = async () => {
 describe('装箱编辑器计划箱数布局', () => {
   beforeEach(() => {
     getDispatchPackingPlan.mockResolvedValue({ isSuccess: true, data: plan() })
+    getDispatchActualPackingStock.mockResolvedValue({ isSuccess: true, data: [] })
   })
 
   it('将计划箱数和新增箱放在装箱进度与箱子明细之间', async () => {
@@ -102,10 +105,10 @@ describe('装箱编辑器计划箱数布局', () => {
     expect(wrapper.findAll('.box-card')).toHaveLength(3)
   })
 
-  it('新建计划的第一箱任务量初始化为0', async () => {
+  it('新建计划的第一箱不伪造实际商品并提供添加入口', async () => {
     const wrapper = await mountEditor()
-    const taskQtyInput = wrapper.get('.box-item-row input')
 
-    expect((taskQtyInput.element as HTMLInputElement).value).toBe('0')
+    expect(wrapper.findAll('.box-item-row')).toHaveLength(0)
+    expect(wrapper.text()).toContain('添加实际商品')
   })
 })

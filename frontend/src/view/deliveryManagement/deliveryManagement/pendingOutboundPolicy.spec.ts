@@ -66,13 +66,28 @@ const order = (overrides: Partial<DispatchOrderDetail> = {}): DispatchOrderDetai
 
 type BoxWithItems = WeighingBox & { items: PackingPlanBoxItem[] }
 
+const actualLine = (line: number, packingTaskItemId: number, actualQty: number): PackingPlanBoxItem => ({
+  client_line_key: `line-${line}`,
+  packing_task_item_id: packingTaskItemId,
+  stock_allocation_id: 100 + line,
+  erp_stock_id: 1000 + line,
+  wms_sku_id: 20 + line,
+  goods_owner_id: 30,
+  goods_location_id: 40,
+  sku_code: `SKU-${line}`,
+  commodity_name: `商品-${line}`,
+  available_qty: 100,
+  actual_qty: actualQty,
+  dispatchpicklist_id: null
+})
+
 const boxes: Record<number, BoxWithItems[]> = {
   101: [
-    { id: 1, packing_task_id: 101, source_box_identity: 'A-1', box_sequence: 1, weight: 10, length: 40, width: 30, height: 20, measurement_status: 'MEASURED', copied_from_box_id: null, row_version: 1, items: [{ packing_task_item_id: 1, task_qty: 3 }] },
-    { id: 2, packing_task_id: 101, source_box_identity: 'A-2', box_sequence: 2, weight: 12, length: 50, width: 30, height: 20, measurement_status: 'MEASURED', copied_from_box_id: null, row_version: 1, items: [{ packing_task_item_id: 2, task_qty: 4 }] }
+    { id: 1, packing_task_id: 101, source_box_identity: 'A-1', box_sequence: 1, weight: 10, length: 40, width: 30, height: 20, measurement_status: 'MEASURED', copied_from_box_id: null, row_version: 1, items: [actualLine(1, 1, 3)] },
+    { id: 2, packing_task_id: 101, source_box_identity: 'A-2', box_sequence: 2, weight: 12, length: 50, width: 30, height: 20, measurement_status: 'MEASURED', copied_from_box_id: null, row_version: 1, items: [actualLine(2, 2, 4)] }
   ],
   102: [
-    { id: 3, packing_task_id: 102, source_box_identity: 'B-1', box_sequence: 1, weight: 8, length: 30, width: 20, height: 10, measurement_status: 'MEASURED', copied_from_box_id: null, row_version: 1, items: [{ packing_task_item_id: 3, task_qty: 1 }] }
+    { id: 3, packing_task_id: 102, source_box_identity: 'B-1', box_sequence: 1, weight: 8, length: 30, width: 20, height: 10, measurement_status: 'MEASURED', copied_from_box_id: null, row_version: 1, items: [actualLine(3, 3, 5)] }
   ]
 }
 
@@ -100,7 +115,7 @@ describe('pendingOutboundPolicy', () => {
 
   it('marks the loading quantities as mismatched when physical boxes contain fewer products', () => {
     const incompleteBoxes = structuredClone(boxes)
-    incompleteBoxes[101][0].items[0].task_qty = 2
+    incompleteBoxes[101][0].items[0].actual_qty = 2
 
     expect(getPendingOutboundMetrics(order(), incompleteBoxes)).toMatchObject({
       plannedLoadingQty: 12,
