@@ -8,7 +8,6 @@ using ModernWMS.Core.DynamicSearch;
 using ModernWMS.Core.JWT;
 using ModernWMS.Core.Models;
 using ModernWMS.WMS.Entities.ViewModels.PackingTask;
-using ModernWMS.WMS.Services.PackingTask;
 using ModernWMS.WMS.Services;
 
 namespace ModernWMS.Tests.PackingTask;
@@ -25,18 +24,6 @@ public class PackingTaskQueryServiceTests
 
         Assert.Contains(typeof(IMySqlConnectionFactory), parameterTypes);
         Assert.DoesNotContain(parameterTypes, t => t.Name.EndsWith("DbContext", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public void Constructor_delegates_packing_stock_mutations_to_the_erp_client()
-    {
-        var parameterTypeNames = typeof(PackingTaskQueryService).GetConstructors()
-            .SelectMany(t => t.GetParameters())
-            .Select(t => t.ParameterType.Name)
-            .ToArray();
-
-        Assert.Contains("IErpPackingStockClient", parameterTypeNames);
-        Assert.DoesNotContain("IStockAllocationMutationService", parameterTypeNames);
     }
 
     [Fact]
@@ -184,7 +171,7 @@ public class PackingTaskQueryServiceTests
         {
             id = 11, sellfox_item_id = 1001, sellfox_task_id = 101, commodity_id = 501
         });
-        source.AvailabilityByItemId[11] = new PackingTaskStockAvailability("SKU-BASE", 100, AvailableQty: 100);
+        source.AvailabilityByItemId[11] = new PackingTaskStockAvailability("SKU-BASE", 100);
         var access = new ModernWMS.Tests.DispatchWorkflow.RecordingWarehouseAccess();
 
         var result = await CreateService(source, access: access.Contract)
@@ -204,7 +191,7 @@ public class PackingTaskQueryServiceTests
         {
             id = 11, sellfox_item_id = 1001, sellfox_task_id = 101, commodity_id = 501
         });
-        source.AvailabilityByItemId[11] = new PackingTaskStockAvailability("SKU-BASE", 100, 30, 100);
+        source.AvailabilityByItemId[11] = new PackingTaskStockAvailability("SKU-BASE", 100, 30);
 
         var result = await CreateService(source).PageAsync(new PageSearch(), CurrentUserContext());
 
@@ -226,7 +213,7 @@ public class PackingTaskQueryServiceTests
     }
 
     [Fact]
-    public async Task DeleteStockSelectionAsync_fails_closed_when_the_erp_client_is_unavailable()
+    public async Task DeleteStockSelectionAsync_releases_the_locked_selection()
     {
         var source = new InMemoryPackingTaskQueryDataSource();
         var service = CreateService(source);
@@ -237,82 +224,110 @@ public class PackingTaskQueryServiceTests
                 sellfox_task_id = 101,
                 sellfox_item_id = 1001,
                 stock_id = 12,
-                qty = 0,
-                goods_owner_id = 8,
-                row_version = 1,
-                request_id = "withdraw-101"
+                qty = 0
             },
             CurrentUserContext());
 
-        Assert.False(flag);
-        Assert.Contains("ERP", message, StringComparison.Ordinal);
+        Assert.True(flag);
+        Assert.Equal("已取消选择，锁定库存已释放", message);
     }
 
     [Fact]
-    public async Task SelectStockAsync_rejects_sku_mismatch_without_a_server_timed_challenge()
-    {
-        var erp = new RecordingErpPackingStockClient
-        {
-            Plan = MismatchPlan(rowVersion: 0)
-        };
-        var service = CreateService(new InMemoryPackingTaskQueryDataSource(), erp: erp);
-
-        var (flag, message) = await service.SelectStockAsync(new PackingTaskStockSelectRequest
-        {
-            sellfox_task_id = 101,
-            sellfox_item_id = 1001,
-            stock_id = 12,
-            goods_owner_id = 8,
-            qty = 4,
-            row_version = 0,
-            request_id = "mismatch-without-challenge",
-            sku_mismatch_confirmed = true
-        }, CurrentUserContext());
-
-        Assert.False(flag);
-        Assert.Contains("3 秒", message, StringComparison.Ordinal);
-        Assert.Empty(erp.ContributionCommands);
-    }
-
-    [Fact]
-    public async Task SelectStockAsync_uses_the_erp_plan_row_version_instead_of_the_pool_or_client_version()
-    {
-        var erp = new RecordingErpPackingStockClient
-        {
-            Plan = new ErpPackingStockPlan
-            {
-                rowVersion = 41,
-                pools = [new ErpPackingStockPool
-                {
-                    stockId = 12, goodsOwnerId = 8, skuMatched = true, availableQty = 20
-                }]
-            }
-        };
-        var service = CreateService(new InMemoryPackingTaskQueryDataSource(), erp: erp);
-
-        var (flag, message) = await service.SelectStockAsync(new PackingTaskStockSelectRequest
-        {
-            sellfox_task_id = 101, sellfox_item_id = 1001, stock_id = 12, goods_owner_id = 8,
-            qty = 4, row_version = 0, request_id = "plan-row-version", sku_mismatch_confirmed = false
-        }, CurrentUserContext());
-
-        Assert.True(flag, message);
-        Assert.Equal(41, Assert.Single(erp.ContributionCommands).RowVersion);
-    }
-
-    [Fact]
-    public void Packing_selection_service_compiled_code_contains_no_local_selection_or_reservation_sql()
+    public void Packing_selection_production_sql_never_physically_deletes_and_every_reference_is_active_scoped()
     {
         var commands = PackingSelectionProductionSql();
 
-        Assert.Empty(commands);
+        Assert.NotEmpty(commands);
+        Assert.DoesNotContain(commands, sql => Regex.IsMatch(
+            sql, @"DELETE\s+FROM\s+`?wms_packing_task_stock_selection`?", RegexOptions.IgnoreCase));
+        Assert.All(commands, sql =>
+        {
+            var normalized = sql.Replace("`", string.Empty, StringComparison.Ordinal);
+            if (Regex.IsMatch(normalized,
+                @"INSERT\s+INTO\s+wms_packing_task_stock_selection", RegexOptions.IgnoreCase))
+            {
+                Assert.Contains("status", normalized, StringComparison.OrdinalIgnoreCase);
+                Assert.Contains("'ACTIVE'", normalized, StringComparison.Ordinal);
+                return;
+            }
+            var tableReferences = Regex.Matches(
+                normalized, @"\bwms_packing_task_stock_selection\b", RegexOptions.IgnoreCase).Count;
+            var activeGuards = Regex.Matches(
+                normalized, @"(?:\b\w+\.)?\bstatus\s*=\s*'ACTIVE'", RegexOptions.IgnoreCase).Count;
+            Assert.True(activeGuards >= tableReferences,
+                $"Every packing selection table reference must be ACTIVE-scoped. SQL: {sql}");
+        });
+    }
+
+    [Fact]
+    public void Packing_selection_cancel_and_rollback_sql_preserves_rows_with_actor_reason_and_version()
+    {
+        var commands = PackingSelectionProductionSql();
+        var manualCancels = commands.Where(sql => sql.Contains("WMS_MANUAL_CANCEL", StringComparison.Ordinal)).ToList();
+        var rollback = Assert.Single(commands, sql => sql.Contains("DISPATCH_ROLLBACK", StringComparison.Ordinal));
+
+        Assert.Equal(2, manualCancels.Count);
+        Assert.All(manualCancels, sql =>
+            AssertCancellationTransition(sql, "用户取消装箱任务库存选择"));
+        AssertCancellationTransition(rollback, "待拣货回退释放库存选择");
+    }
+
+    [Fact]
+    public void Packing_selection_completed_picking_sql_transfers_instead_of_deleting()
+    {
+        var transfer = Assert.Single(PackingSelectionProductionSql(),
+            sql => sql.Contains("DISPATCH_PICKING", StringComparison.Ordinal));
+
+        Assert.Contains("SET `status`='TRANSFERRED'", transfer, StringComparison.Ordinal);
+        Assert.Contains("`last_update_time`=@now", transfer, StringComparison.Ordinal);
+        Assert.Contains("`row_version`=`row_version`+1", transfer, StringComparison.Ordinal);
+        Assert.Contains("AND `status`='ACTIVE'", transfer, StringComparison.Ordinal);
+        Assert.DoesNotContain("DELETE", transfer, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Packing_selection_save_sql_ignores_history_and_inserts_a_new_active_cycle()
+    {
+        var commands = PackingSelectionProductionSql();
+        var existingLookups = commands.Where(sql =>
+            sql.Contains("FOR UPDATE", StringComparison.OrdinalIgnoreCase)
+            && sql.Contains("sellfox_item_id", StringComparison.OrdinalIgnoreCase)
+            && (sql.Contains("stock_id = @StockId", StringComparison.OrdinalIgnoreCase)
+                || sql.Contains("`stock_allocation_id`=@AllocationId", StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+        var inserts = commands.Where(sql => Regex.IsMatch(sql,
+            @"INSERT\s+INTO\s+`?wms_packing_task_stock_selection`?", RegexOptions.IgnoreCase)).ToList();
+
+        Assert.Equal(2, existingLookups.Count);
+        Assert.All(existingLookups, sql => Assert.Matches(
+            @"`?status`?\s*=\s*'ACTIVE'", sql));
+        Assert.Equal(2, inserts.Count);
+        Assert.All(inserts, sql =>
+        {
+            Assert.Contains("status", sql, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("'ACTIVE'", sql, StringComparison.Ordinal);
+            Assert.DoesNotContain("ON DUPLICATE KEY", sql, StringComparison.OrdinalIgnoreCase);
+        });
+    }
+
+    [Fact]
+    public void Packing_selection_cutover_guard_counts_only_active_legacy_locks()
+    {
+        var script = File.ReadAllText(FindRepositoryFile("flyway", "manual", "erp_stock_allocation_cutover.sql"));
+        const string guardMessage = "仍有旧WMS装箱锁定，必须先完成或撤销";
+        var guardEnd = script.IndexOf(guardMessage, StringComparison.Ordinal);
+        Assert.True(guardEnd > 0, "Cutover packing-selection guard was not found.");
+        var guardStart = script.LastIndexOf("SELECT COUNT(*) INTO v_count", guardEnd, StringComparison.Ordinal);
+        Assert.True(guardStart >= 0, "Cutover packing-selection count query was not found.");
+        var guardSql = script[guardStart..guardEnd];
+
+        Assert.Matches(@"selection\.`status`\s*=\s*'ACTIVE'", guardSql);
     }
 
     private static PackingTaskQueryService CreateService(
         IPackingTaskQueryDataSource source,
         bool enabled = true,
-        ModernWMS.WMS.IServices.IWarehouseAccessService? access = null,
-        IErpPackingStockClient? erp = null)
+        ModernWMS.WMS.IServices.IWarehouseAccessService? access = null)
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -320,7 +335,7 @@ public class PackingTaskQueryServiceTests
                 ["Features:PackingTaskFirstStep"] = enabled.ToString()
             })
             .Build();
-        return new PackingTaskQueryService(source, configuration, access, erp);
+        return new PackingTaskQueryService(source, configuration, access);
     }
 
     private static ErpPackingTaskEntity Task(
@@ -338,18 +353,6 @@ public class PackingTaskQueryServiceTests
 
     private static CurrentUser CurrentUserContext() => new();
 
-    private static ErpPackingStockPlan MismatchPlan(long rowVersion) => new()
-    {
-        rowVersion = rowVersion,
-        pools = [new ErpPackingStockPool
-        {
-            stockId = 12,
-            goodsOwnerId = 8,
-            skuMatched = false,
-            availableQty = 20
-        }]
-    };
-
     private static void AssertCancellationTransition(string sql, string reason)
     {
         Assert.Contains("SET `status`='CANCELLED'", sql, StringComparison.Ordinal);
@@ -363,8 +366,8 @@ public class PackingTaskQueryServiceTests
     }
 
     private static IReadOnlyList<string> PackingSelectionProductionSql() =>
-        new[] { typeof(PackingTaskQueryService) }
-            .Concat(typeof(PackingTaskQueryService).GetNestedTypes(BindingFlags.NonPublic))
+        typeof(PackingTaskQueryService).Assembly.GetTypes()
+            .Where(type => type.Namespace?.StartsWith("ModernWMS.WMS.Services", StringComparison.Ordinal) == true)
             .SelectMany(type => type.GetMethods(
                 BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance))
             .SelectMany(ReadStringLiterals)
@@ -473,38 +476,5 @@ public class PackingTaskQueryServiceTests
         public Task<PackingTaskStockSaveResult> DeleteSelectionAsync(
             PackingTaskStockSelectRequest request, CurrentUser currentUser) =>
             System.Threading.Tasks.Task.FromResult(new PackingTaskStockSaveResult(true, "已取消选择，锁定库存已释放"));
-    }
-
-    private sealed class RecordingErpPackingStockClient : IErpPackingStockClient
-    {
-        public ErpPackingStockPlan Plan { get; init; } = new();
-        public List<ErpPackingStockContributionCommand> ContributionCommands { get; } = [];
-
-        public Task<ErpPackingStockResult<ErpPackingStockPlan>> GetPlanAsync(
-            ErpPackingStockPlanQuery request, CancellationToken cancellationToken = default) =>
-            System.Threading.Tasks.Task.FromResult(ErpPackingStockResult<ErpPackingStockPlan>.Success(Plan));
-
-        public Task<ErpPackingStockResult<ErpPackingStockPlan>> UpdateVariantAsync(
-            ErpPackingStockVariantCommand request, CancellationToken cancellationToken = default) =>
-            System.Threading.Tasks.Task.FromResult(ErpPackingStockResult<ErpPackingStockPlan>.Success(Plan));
-
-        public Task<ErpPackingStockResult<ErpPackingStockPlan>> UpdateContributionAsync(
-            ErpPackingStockContributionCommand request, CancellationToken cancellationToken = default)
-        {
-            ContributionCommands.Add(request);
-            return System.Threading.Tasks.Task.FromResult(ErpPackingStockResult<ErpPackingStockPlan>.Success(Plan));
-        }
-
-        public Task<ErpPackingStockResult<ErpPackingStockPlan>> WithdrawParticipantAsync(
-            ErpPackingStockParticipantWithdrawCommand request, CancellationToken cancellationToken = default) =>
-            System.Threading.Tasks.Task.FromResult(ErpPackingStockResult<ErpPackingStockPlan>.Success(Plan));
-
-        public Task<ErpPackingStockResult<ErpPackingStockPlan>> RetryAsync(
-            ErpPackingStockRetryCommand request, CancellationToken cancellationToken = default) =>
-            System.Threading.Tasks.Task.FromResult(ErpPackingStockResult<ErpPackingStockPlan>.Success(Plan));
-
-        public Task<ErpPackingStockResult<bool>> ConsumeAsync(
-            ErpPackingStockConsumeCommand request, CancellationToken cancellationToken = default) =>
-            System.Threading.Tasks.Task.FromResult(ErpPackingStockResult<bool>.Success(true));
     }
 }

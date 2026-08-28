@@ -243,8 +243,6 @@ public class DispatchPackingTaskEntity : BaseModel
     /// 获取或设置 packing_plan_status。
     /// </summary>
     [MaxLength(24)] public string packing_plan_status { get; set; } = "DRAFT";
-    /// <summary>ERP packing-stock consume outbox state; does not alter the dispatch order state machine.</summary>
-    [MaxLength(24)] public string consume_status { get; set; } = "NOT_REQUIRED";
     /// <summary>
     /// 获取或设置 actual_confirmed_at。
     /// </summary>
@@ -384,8 +382,6 @@ public class DispatchPackingTaskItemEntity : BaseModel
     /// 获取或设置 source_stock_available。
     /// </summary>
     public int? source_stock_available { get; set; }
-    /// <summary>Ruoyi 装箱库存计划在生成拣货投影时的冻结版本。</summary>
-    public long? erp_stock_plan_row_version { get; set; }
     /// <summary>
     /// 获取或设置 variant_qty。
     /// </summary>
@@ -604,10 +600,6 @@ public class WeighingBoxItemEntity : BaseModel
     /// </summary>
     public int packing_task_item_id { get; set; }
     /// <summary>
-    /// 获取或设置 goods_owner_id。实装归属必须与 ERP 库存贡献货主一致。
-    /// </summary>
-    public int goods_owner_id { get; set; }
-    /// <summary>
     /// 获取或设置 task_qty。
     /// </summary>
     public int task_qty { get; set; }
@@ -622,24 +614,5 @@ public class WeighingBoxItemEntity : BaseModel
     /// <summary>
     /// 获取或设置 row_version。
     /// </summary>
-    [ConcurrencyCheck] public long row_version { get; set; }
-}
-
-/// <summary>Durable, idempotent ERP consume command created with actual-packing confirmation.</summary>
-[Table("packing_consume_outbox")]
-public class PackingConsumeOutboxEntity : BaseModel
-{
-    public int dispatch_order_id { get; set; }
-    public int packing_task_id { get; set; }
-    public long sellfox_task_id { get; set; }
-    public long sellfox_item_id { get; set; }
-    [MaxLength(64)] public string request_id { get; set; } = string.Empty;
-    public string payload_json { get; set; } = string.Empty;
-    [MaxLength(24)] public string status { get; set; } = "PENDING";
-    public int attempt_count { get; set; }
-    [MaxLength(500)] public string last_error { get; set; } = string.Empty;
-    public DateTime? consumed_at { get; set; }
-    public DateTime create_time { get; set; }
-    public DateTime last_update_time { get; set; }
     [ConcurrencyCheck] public long row_version { get; set; }
 }

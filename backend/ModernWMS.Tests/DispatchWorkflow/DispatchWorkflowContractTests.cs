@@ -3,27 +3,13 @@ using Microsoft.AspNetCore.Authorization;
 using ModernWMS.Core.JWT;
 using ModernWMS.WMS.Controllers.DispatchWorkflow;
 using ModernWMS.WMS.Entities.ViewModels.DispatchWorkflow;
-using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Services.DispatchWorkflow;
-using ModernWMS.WMS.IServices.StockAllocation;
 using MySqlConnector;
 
 namespace ModernWMS.Tests.DispatchWorkflow;
 
 public sealed class DispatchWorkflowContractTests
 {
-    [Fact]
-    public void Dispatch_workflow_does_not_own_stock_allocation_mutations()
-    {
-        var constructorDependencies = typeof(DispatchWorkflowService).GetConstructors()
-            .SelectMany(constructor => constructor.GetParameters())
-            .Select(parameter => parameter.ParameterType)
-            .ToArray();
-
-        Assert.DoesNotContain(typeof(IStockAllocationMutationService), constructorDependencies);
-        Assert.NotNull(typeof(DispatchPackingTaskItemEntity).GetProperty("erp_stock_plan_row_version"));
-    }
-
     [Theory]
     [InlineData(nameof(DispatchWorkflowController.CompletePickingAsync))]
     [InlineData(nameof(DispatchWorkflowController.RollbackPendingPickAsync))]

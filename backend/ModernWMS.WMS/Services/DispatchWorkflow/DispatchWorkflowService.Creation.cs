@@ -4,7 +4,6 @@ using ModernWMS.Core.JWT;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels.DispatchWorkflow;
 using ModernWMS.WMS.Entities.ViewModels.PackingTask;
-using ModernWMS.WMS.Services.PackingTask;
 using MySqlConnector;
 
 namespace ModernWMS.WMS.Services.DispatchWorkflow;
@@ -34,19 +33,6 @@ public partial class DispatchWorkflowService
         if (!string.IsNullOrWhiteSpace(request.idempotency_key)
             && !string.Equals(request.idempotency_key.Trim(), key, StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("idempotency_key does not match the sorted source_task_ids set", nameof(request));
-
-        await using(var replayConnection=await _connectionFactory.OpenConnectionAsync(cancellationToken))
-        {
-            var replay=await replayConnection.QuerySingleOrDefaultAsync<DispatchOrderEntity>(new CommandDefinition(
-                "SELECT * FROM `wms_dispatch_order` WHERE `create_idempotency_key`=@key LIMIT 1;",
-                new{key},cancellationToken:cancellationToken));
-            if(replay!=null&&replay.status is not (DispatchOrderStatus.ManualCancelled or DispatchOrderStatus.SourceCancelled))
-            {
-                if(replay.warehouse_id!=request.warehouse_id)throw new InvalidOperationException("idempotent task set belongs to another warehouse");
-                return await LoadDetailAsync(replay.id,cancellationToken);
-            }
-        }
-        var canonicalPlans=await LoadCanonicalCreationPlansAsync(request.warehouse_id,snapshots,currentUser,cancellationToken);
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
@@ -82,10 +68,8 @@ public partial class DispatchWorkflowService
             if (occupied.Count > 0) throw new InvalidOperationException($"packing tasks already belong to an active order: {string.Join(',', occupied.Order())}");
             var runtime = await LoadInventoryRuntimeAsync(connection, transaction,
                 request.warehouse_id, cancellationToken);
-            var bindingRows = runtime.Mode == CanonicalInventoryMode
-                ? await LoadCanonicalCreationBindingRowsAsync(connection,transaction,
-                    canonicalPlans??throw new InvalidOperationException("ERP装箱库存计划未加载"),cancellationToken)
-                : await LoadCreationBindingRowsAsync(connection,transaction,taskIds,false,cancellationToken);
+            var bindingRows = await LoadCreationBindingRowsAsync(connection,transaction,
+                taskIds,runtime.Mode == CanonicalInventoryMode,cancellationToken);
             var bindingQty = bindingRows.GroupBy(x => (x.TaskId, x.ItemId))
                 .ToDictionary(x => x.Key, x => x.Sum(row => row.LockedQty));
             foreach (var snapshot in snapshots)
@@ -114,8 +98,7 @@ public partial class DispatchWorkflowService
                 """, order, transaction, cancellationToken: cancellationToken));
             foreach (var snapshot in snapshots.OrderBy(x => x.SourceTaskId))
                 await InsertTaskAsync(connection, transaction, order.id,
-                    CreateTask(snapshot, null, now, bindingQty, availableSnapshots,
-                        canonicalPlans?.ToDictionary(x=>x.Key,x=>x.Value.rowVersion)), cancellationToken);
+                    CreateTask(snapshot, null, now, bindingQty, availableSnapshots), cancellationToken);
             await EnsureCreationSourceUnchangedAsync(taskIds, snapshots, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return await LoadDetailAsync(order.id, cancellationToken);
@@ -130,73 +113,6 @@ public partial class DispatchWorkflowService
             if (occupied.Count > 0) throw new InvalidOperationException($"packing tasks already belong to an active order: {string.Join(',', occupied.Order())}");
             throw new InvalidOperationException("dispatch order creation conflicted with another concurrent request", exception);
         }
-    }
-
-    private async Task<IReadOnlyDictionary<(long TaskId,long ItemId),ErpPackingStockPlan>?> LoadCanonicalCreationPlansAsync(
-        long warehouseId,IReadOnlyList<PackingTaskSourceSnapshot> snapshots,CurrentUser user,CancellationToken ct)
-    {
-        await using var c=await _connectionFactory.OpenConnectionAsync(ct);
-        var runtime=await LoadInventoryRuntimeAsync(c,null,warehouseId,ct);
-        if(runtime.Mode!=CanonicalInventoryMode)return null;
-        var client=_erpPackingStockClient
-            ??throw new InvalidOperationException("ERP 装箱库存客户端未注册，统一模式拒绝创建拣货单");
-        var actorId=user.user_id.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        var actorName=string.IsNullOrWhiteSpace(user.user_name)?$"用户{user.user_id}":user.user_name.Trim();
-        var result=new Dictionary<(long TaskId,long ItemId),ErpPackingStockPlan>();
-        foreach(var snapshot in snapshots)
-        foreach(var item in snapshot.Items)
-        {
-            var response=await client.GetPlanAsync(new ErpPackingStockPlanQuery(
-                snapshot.SourceTaskId,item.SourceItemId,actorId,actorName),ct);
-            if(!response.IsSuccess||response.Data==null)throw new InvalidOperationException(response.ErrorMessage);
-            var plan=response.Data;
-            var remaining=plan.activeBindings.Where(x=>x.remainingQty>0).Sum(x=>x.remainingQty);
-            if(!string.Equals(plan.status,"SELECTED",StringComparison.Ordinal)
-               ||plan.requiredQty<=0||plan.requiredQty>int.MaxValue||plan.reservedQty!=plan.requiredQty
-               ||plan.shortageQty!=0||remaining!=plan.requiredQty)
-                throw new InvalidOperationException($"装箱任务{snapshot.TaskNo}商品{item.CommoditySku}尚未完成ERP库存预占");
-            result.Add((snapshot.SourceTaskId,item.SourceItemId),plan);
-        }
-        return result;
-    }
-
-    private static async Task<List<CreationBindingRow>> LoadCanonicalCreationBindingRowsAsync(
-        System.Data.IDbConnection connection,IDbTransaction transaction,
-        IReadOnlyDictionary<(long TaskId,long ItemId),ErpPackingStockPlan> plans,CancellationToken ct)
-    {
-        var bindings=plans.SelectMany(entry=>entry.Value.activeBindings.Where(x=>x.remainingQty>0)
-            .Select(binding=>new{entry.Key.TaskId,entry.Key.ItemId,Binding=binding})).ToList();
-        var allocationIds=bindings.Select(x=>x.Binding.allocationId).Distinct().ToArray();
-        var allocations=(await connection.QueryAsync<CanonicalCreationAllocationRow>(new CommandDefinition("""
-            SELECT `id` AllocationId,`erp_stock_id` ErpStockId,`goods_owner_id` GoodsOwnerId,
-                   `allocated_qty` AllocatedQty,`occupied_qty` OccupiedQty,`location_state` LocationState
-              FROM `wms_erp_stock_allocation`
-             WHERE `id` IN @allocationIds
-             ORDER BY `id` FOR UPDATE;
-            """,new{allocationIds},transaction,cancellationToken:ct))).ToDictionary(x=>x.AllocationId);
-        if(allocations.Count!=allocationIds.Length)
-            throw new InvalidOperationException("ERP装箱库存库位分配不存在");
-        var reservedByAllocation=bindings.GroupBy(x=>x.Binding.allocationId)
-            .ToDictionary(x=>x.Key,x=>x.Sum(row=>row.Binding.remainingQty));
-        var result=new List<CreationBindingRow>();
-        foreach(var row in bindings)
-        {
-            var binding=row.Binding;
-            var allocation=allocations[binding.allocationId];
-            if(allocation.ErpStockId!=binding.erpStockId||allocation.GoodsOwnerId!=binding.goodsOwnerId
-               ||allocation.LocationState!="ACTIVE"
-               ||allocation.AllocatedQty<allocation.OccupiedQty
-               ||allocation.OccupiedQty<reservedByAllocation[binding.allocationId])
-                throw new InvalidOperationException("ERP装箱库存预占绑定已变化");
-            result.Add(new CreationBindingRow
-            {
-                TaskId=row.TaskId,ItemId=row.ItemId,StockKey=binding.allocationId,
-                LockedQty=checked((int)binding.remainingQty),
-                AvailableBeforeTask=checked((int)(allocation.AllocatedQty-allocation.OccupiedQty
-                    +reservedByAllocation[binding.allocationId]))
-            });
-        }
-        return result;
     }
 
     private static async Task<List<CreationBindingRow>> LoadCreationBindingRowsAsync(
@@ -273,8 +189,7 @@ public partial class DispatchWorkflowService
     private static DispatchPackingTaskEntity CreateTask(PackingTaskSourceSnapshot snapshot,
         IReadOnlyDictionary<long,int>? mappings, DateTime now,
         IReadOnlyDictionary<(long TaskId,long ItemId),int>? bindingQty = null,
-        IReadOnlyDictionary<(long TaskId,long ItemId),int>? availableSnapshots = null,
-        IReadOnlyDictionary<(long TaskId,long ItemId),long>? planVersions = null)
+        IReadOnlyDictionary<(long TaskId,long ItemId),int>? availableSnapshots = null)
     {
         var task = new DispatchPackingTaskEntity
         {
@@ -285,15 +200,13 @@ public partial class DispatchWorkflowService
             create_time=now,last_update_time=now,items=snapshot.Items.Select(x=>CreateItem(
                 x,snapshot.SourceVersion,mappings,now,
                 bindingQty?.GetValueOrDefault((snapshot.SourceTaskId,x.SourceItemId)),
-                availableSnapshots?.GetValueOrDefault((snapshot.SourceTaskId,x.SourceItemId)),
-                planVersions?.GetValueOrDefault((snapshot.SourceTaskId,x.SourceItemId)))).ToList()
+                availableSnapshots?.GetValueOrDefault((snapshot.SourceTaskId,x.SourceItemId)))).ToList()
         };
         task.SetActiveState(true); return task;
     }
 
     private static DispatchPackingTaskItemEntity CreateItem(PackingTaskSourceItem item,string version,
-        IReadOnlyDictionary<long,int>? mappings,DateTime now,int? requiredQty = null,int? availableQty = null,
-        long? planRowVersion = null)
+        IReadOnlyDictionary<long,int>? mappings,DateTime now,int? requiredQty = null,int? availableQty = null)
     {
         var lockedQty = requiredQty ?? item.Quantity;
         if (item.Quantity <= 0 || lockedQty <= 0 || lockedQty % item.Quantity != 0)
@@ -302,8 +215,7 @@ public partial class DispatchWorkflowService
         {
         source_item_id=item.SourceItemId,source_commodity_id=item.CommodityId,wms_sku_id=mappings==null?null:MappedSkuId(item,mappings),
         commodity_sku=item.CommoditySku,commodity_name=item.CommodityName,fn_sku=item.FnSku,msku=item.Msku,
-        required_qty=lockedQty,source_quantity_shipped=item.Quantity,source_stock_available=availableQty,
-        erp_stock_plan_row_version=planRowVersion,variant_qty=lockedQty/item.Quantity,
+        required_qty=lockedQty,source_quantity_shipped=item.Quantity,source_stock_available=availableQty,variant_qty=lockedQty/item.Quantity,
         source_version=version,source_snapshot=item.SourceSnapshot,
         is_active=true,create_time=now,last_update_time=now
         };
@@ -339,16 +251,6 @@ public partial class DispatchWorkflowService
         public int AvailableBeforeTask { get; init; }
     }
 
-    private sealed class CanonicalCreationAllocationRow
-    {
-        public long AllocationId { get; init; }
-        public long ErpStockId { get; init; }
-        public int GoodsOwnerId { get; init; }
-        public long AllocatedQty { get; init; }
-        public long OccupiedQty { get; init; }
-        public string LocationState { get; init; } = string.Empty;
-    }
-
     private static async Task InsertTaskAsync(System.Data.IDbConnection c, IDbTransaction tx, int orderId,
         DispatchPackingTaskEntity task, CancellationToken ct)
     {
@@ -369,9 +271,9 @@ public partial class DispatchWorkflowService
             item.id=await c.ExecuteScalarAsync<int>(new CommandDefinition("""
                 INSERT INTO `wms_dispatch_packing_task_item`
                   (`packing_task_id`,`source_item_id`,`source_commodity_id`,`wms_sku_id`,`commodity_sku`,`commodity_name`,`fn_sku`,`msku`,
-                   `required_qty`,`source_quantity_shipped`,`source_stock_available`,`erp_stock_plan_row_version`,`source_version`,`source_snapshot`,`is_active`,`create_time`,`last_update_time`,`row_version`)
+                   `required_qty`,`source_quantity_shipped`,`source_stock_available`,`source_version`,`source_snapshot`,`is_active`,`create_time`,`last_update_time`,`row_version`)
                 VALUES (@packing_task_id,@source_item_id,@source_commodity_id,@wms_sku_id,@commodity_sku,@commodity_name,@fn_sku,@msku,
-                   @required_qty,@source_quantity_shipped,@source_stock_available,@erp_stock_plan_row_version,@source_version,@source_snapshot,@is_active,@create_time,@last_update_time,@row_version);
+                   @required_qty,@source_quantity_shipped,@source_stock_available,@source_version,@source_snapshot,@is_active,@create_time,@last_update_time,@row_version);
                 SELECT LAST_INSERT_ID();
                 """,item,tx,cancellationToken:ct));
         }

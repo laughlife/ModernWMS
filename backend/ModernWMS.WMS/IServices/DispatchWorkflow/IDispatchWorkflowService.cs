@@ -64,10 +64,6 @@ public interface IDispatchWorkflowService : IDependency
     Task<PackingPlanViewModel> ConfirmActualPackingAsync(int orderId, int packingTaskId,
         ConfirmActualPackingRequest request, CurrentUser currentUser, CancellationToken cancellationToken = default);
 
-    /// <summary>重试已提交但尚未完成的 ERP 装箱库存消费。</summary>
-    Task<PackingPlanViewModel> RetryPackingConsumeAsync(int orderId, int packingTaskId,
-        CurrentUser currentUser, CancellationToken cancellationToken = default);
-
     /// <summary>保存称重箱信息。</summary>
     Task<WeighingCommandResult> SaveWeighingBoxAsync(
         int orderId,

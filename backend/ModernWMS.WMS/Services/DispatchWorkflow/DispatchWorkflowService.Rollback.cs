@@ -3,6 +3,7 @@ using Dapper;
 using ModernWMS.Core.JWT;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels.DispatchWorkflow;
+using ModernWMS.WMS.IServices.StockAllocation;
 using MySqlConnector;
 
 namespace ModernWMS.WMS.Services.DispatchWorkflow;
@@ -44,11 +45,37 @@ public partial class DispatchWorkflowService
             if (tasks.Count == 0)
                 throw DispatchWorkflowCommandException.StatusNotAllowedForRollback("the order has no active packing task to roll back");
             var runtime = await LoadInventoryRuntimeAsync(c,tx,order.warehouse_id,ct);
+            if (runtime.Mode == CanonicalInventoryMode)
+            {
+                var sourceTaskIds=tasks.Select(x=>x.source_task_id).ToArray();
+                var reserved=(await c.QueryAsync<ReservedAllocationRow>(new CommandDefinition("""
+                    SELECT `id`,`erp_stock_id`,`stock_allocation_id`,`reservation_id`,
+                           `reservation_item_id`,`qty`
+                      FROM `wms_packing_task_stock_selection`
+                     WHERE `sellfox_task_id` IN @sourceTaskIds
+                       AND `status`='ACTIVE'
+                       AND `erp_stock_id` IS NOT NULL AND `stock_allocation_id` IS NOT NULL
+                     ORDER BY `erp_stock_id`,`stock_allocation_id`,`id` FOR UPDATE;
+                    """,new { sourceTaskIds},tx,cancellationToken:ct))).AsList();
+                var mutation=RequireStockAllocationMutationService();
+                if(reserved.Count>0)
+                {
+                    var prelocks=reserved.Select(row=>new StockReservationPrelockRequest(
+                        DispatchMutationContext(user,order.warehouse_id,"DISPATCH_RELEASE",order.id,row.id,
+                            row.erp_stock_id,row.stock_allocation_id,row.qty,requestId,
+                            row.reservation_id,row.reservation_item_id),row.erp_stock_id,
+                        row.stock_allocation_id,"UNLOCK")).ToArray();
+                    await mutation.PrelockReservationOwnersAsync(c,tx,
+                        [order.warehouse_id],prelocks,ct);
+                }
+                foreach(var row in reserved)
+                    await mutation.ReleaseAsync(c,tx,
+                        DispatchMutationContext(user,order.warehouse_id,"DISPATCH_RELEASE",order.id,row.id,row.erp_stock_id,
+                            row.stock_allocation_id,row.qty,requestId,row.reservation_id,row.reservation_item_id),
+                        row.erp_stock_id,row.stock_allocation_id,row.qty,ct);
+            }
             var now = DateTime.Now;
-            // 统一模式下库存预占属于装箱任务，不属于发货单。回退待拣货单只释放本地工作流；
-            // 任务级预占继续保留，供重新建单使用。旧模式仍清理本地选择投影。
-            if (runtime.Mode != CanonicalInventoryMode)
-                await c.ExecuteAsync(new CommandDefinition("""
+            await c.ExecuteAsync(new CommandDefinition("""
                 UPDATE `wms_packing_task_stock_selection`
                    SET `status`='CANCELLED',`cancelled_by`=@cancelledBy,
                        `cancelled_by_name`=@cancelledByName,`cancelled_at`=@now,

@@ -3,6 +3,7 @@ using Dapper;
 using ModernWMS.Core.JWT;
 using ModernWMS.WMS.Entities.Models;
 using ModernWMS.WMS.Entities.ViewModels.DispatchWorkflow;
+using ModernWMS.WMS.IServices.StockAllocation;
 using MySqlConnector;
 
 namespace ModernWMS.WMS.Services.DispatchWorkflow;
@@ -113,19 +114,35 @@ public partial class DispatchWorkflowService
     private async Task CancelAfterSourceChangeAsync(System.Data.IDbConnection c,IDbTransaction tx,
         DispatchOrderEntity order,CurrentUser user,string requestId,DateTime now,CancellationToken ct)
     {
+        var runtime=await LoadInventoryRuntimeAsync(c,tx,order.warehouse_id,ct);
         var picks=(await c.QueryAsync<DispatchpicklistEntity>(new CommandDefinition("""
             SELECT p.* FROM `wms_dispatchpicklist` p
             JOIN `wms_dispatchlist` d ON d.`id`=p.`dispatchlist_id`
             WHERE d.`dispatch_order_id`=@id ORDER BY p.`erp_stock_id`,p.`stock_allocation_id`,p.`id` FOR UPDATE;
             """,new{id=order.id},tx,cancellationToken:ct))).AsList();
-        var settlementStarted=await c.ExecuteScalarAsync<bool>(new CommandDefinition("""
-            SELECT EXISTS(SELECT 1 FROM `wms_dispatch_packing_task`
-             WHERE `dispatch_order_id`=@id AND `is_active`=1
-               AND (`packing_plan_status`='ACTUAL_CONFIRMED' OR `consume_status`<>'NOT_REQUIRED'));
-            """,new{id=order.id},tx,cancellationToken:ct));
-        if(settlementStarted||picks.Any(x=>x.is_update_stock))throw DispatchWorkflowCommandException.StockAlreadyDeducted();
-        // 库存计划属于装箱任务；来源变更由 Ruoyi 的调账事件调整预占。
-        // WMS 只撤销本地拣货/称重投影，不再直接释放共享库存。
+        if(picks.Any(x=>x.is_update_stock))throw DispatchWorkflowCommandException.StockAlreadyDeducted();
+        if(runtime.Mode==CanonicalInventoryMode)
+        {
+            if(picks.Any(x=>x.erp_stock_id is null||x.stock_allocation_id is null))
+                throw DispatchWorkflowCommandException.StockConflict("统一ERP库存模式检测到遗留旧库存拣货明细，已拒绝取消");
+            var releasable=picks.Where(x=>x.picked_qty>0).ToList();
+            if(releasable.Count>0)
+            {
+                var mutation=RequireStockAllocationMutationService();
+                var prelocks=releasable.Select(pick=>new StockReservationPrelockRequest(
+                    DispatchMutationContext(user,order.warehouse_id,"DISPATCH_RELEASE",order.id,pick.id,
+                        pick.erp_stock_id!.Value,pick.stock_allocation_id!.Value,pick.picked_qty,
+                        $"SOURCE_CANCEL:{requestId}",pick.reservation_id,pick.reservation_item_id),
+                    pick.erp_stock_id.Value,pick.stock_allocation_id.Value,"UNLOCK")).ToArray();
+                await mutation.PrelockReservationOwnersAsync(c,tx,[order.warehouse_id],prelocks,ct);
+                foreach(var pick in releasable.OrderBy(x=>x.erp_stock_id).ThenBy(x=>x.stock_allocation_id).ThenBy(x=>x.id))
+                    await mutation.ReleaseAsync(c,tx,
+                        DispatchMutationContext(user,order.warehouse_id,"DISPATCH_RELEASE",order.id,pick.id,
+                            pick.erp_stock_id!.Value,pick.stock_allocation_id!.Value,pick.picked_qty,$"SOURCE_CANCEL:{requestId}",
+                            pick.reservation_id,pick.reservation_item_id),
+                        pick.erp_stock_id.Value,pick.stock_allocation_id.Value,pick.picked_qty,ct);
+            }
+        }
         await c.ExecuteAsync(new CommandDefinition("""
             DELETE p FROM `wms_dispatchpicklist` p JOIN `wms_dispatchlist` d ON d.`id`=p.`dispatchlist_id` WHERE d.`dispatch_order_id`=@id;
             UPDATE `wms_dispatchlist` SET `dispatch_status`=0,`last_update_time`=@now WHERE `dispatch_order_id`=@id;

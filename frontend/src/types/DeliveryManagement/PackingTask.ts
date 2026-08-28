@@ -56,8 +56,6 @@ export interface SelectableStockVO {
   selected: boolean
   selected_qty?: number
   is_creator_stock: boolean
-  row_version: number
-  can_manage: boolean
 }
 
 export interface PackingTaskStockPageRequest {
@@ -79,19 +77,4 @@ export interface PackingTaskStockSelectRequest {
   stock_allocation_id?: number | null
   qty: number
   variant?: number
-  row_version: number
-  request_id: string
-  goods_owner_id: number
-  sku_mismatch_confirmed: boolean
-  sku_mismatch_challenge?: string
-}
-
-export interface PackingTaskSkuMismatchChallengeRequest {
-  sellfox_task_id: number
-  sellfox_item_id: number
-  stock_id: number
-  goods_owner_id: number
-  qty: number
-  variant: number
-  request_id: string
 }

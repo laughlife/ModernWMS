@@ -53,15 +53,11 @@ public class PackingTaskQueryController : BaseController
     public async Task<ResultModel<PageData<SelectableStockViewModel>>> SelectableStockPageAsync(
         PackingTaskStockPageRequest request)
     {
-        var result = await _packingTaskQueryService.SelectableStockPageAsync(request, CurrentUser);
-        if (!result.IsSuccess)
-        {
-            return ResultModel<PageData<SelectableStockViewModel>>.Error(result.ErrorMessage);
-        }
+        var (data, totals) = await _packingTaskQueryService.SelectableStockPageAsync(request, CurrentUser);
         return ResultModel<PageData<SelectableStockViewModel>>.Success(new PageData<SelectableStockViewModel>
         {
-            Rows = result.Data,
-            Totals = result.Totals
+            Rows = data,
+            Totals = totals
         });
     }
 
@@ -75,22 +71,6 @@ public class PackingTaskQueryController : BaseController
         return flag
             ? ResultModel<bool>.Success(true, message)
             : ResultModel<bool>.Error(message);
-    }
-
-    /// <summary>签发 SKU 不匹配确认挑战；挑战从服务端计时且只能使用一次。</summary>
-    [HttpPost("sku-mismatch-challenge")]
-    public async Task<ResultModel<string>> BeginSkuMismatchChallengeAsync(
-        PackingTaskSkuMismatchChallengeRequest request)
-    {
-        try
-        {
-            var challenge = await _packingTaskQueryService.BeginSkuMismatchChallengeAsync(request, CurrentUser);
-            return ResultModel<string>.Success(challenge);
-        }
-        catch (ArgumentException exception)
-        {
-            return ResultModel<string>.Error(exception.Message);
-        }
     }
 
     /// <summary>

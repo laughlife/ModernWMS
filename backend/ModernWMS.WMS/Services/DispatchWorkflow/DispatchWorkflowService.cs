@@ -10,8 +10,8 @@ using ModernWMS.WMS.Entities.ViewModels.PackingTask;
 using ModernWMS.WMS.IServices;
 using ModernWMS.WMS.IServices.DispatchWorkflow;
 using ModernWMS.WMS.IServices.PackingTask;
+using ModernWMS.WMS.IServices.StockAllocation;
 using ModernWMS.WMS.Services.Dispatchlist;
-using ModernWMS.WMS.Services.PackingTask;
 
 namespace ModernWMS.WMS.Services.DispatchWorkflow;
 
@@ -24,7 +24,7 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
     private readonly IPackingTaskSourceReader _sourceReader;
     private readonly IWarehouseAccessService _warehouseAccessService;
     private readonly IDispatchSignNotificationClient? _dispatchSignNotificationClient;
-    private readonly IErpPackingStockClient? _erpPackingStockClient;
+    private readonly IStockAllocationMutationService? _stockAllocationMutationService;
 
     /// <summary>
     /// 初始化 DispatchWorkflowService 的新实例。
@@ -34,13 +34,13 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
         IPackingTaskSourceReader sourceReader,
         IWarehouseAccessService warehouseAccessService,
         IDispatchSignNotificationClient? dispatchSignNotificationClient = null,
-        IErpPackingStockClient? erpPackingStockClient = null)
+        IStockAllocationMutationService? stockAllocationMutationService = null)
     {
         _connectionFactory = connectionFactory;
         _sourceReader = sourceReader;
         _warehouseAccessService = warehouseAccessService;
         _dispatchSignNotificationClient = dispatchSignNotificationClient;
-        _erpPackingStockClient = erpPackingStockClient;
+        _stockAllocationMutationService = stockAllocationMutationService;
     }
 
     private const string LegacyInventoryMode = "LEGACY_READ";
@@ -66,6 +66,43 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
         if (runtime.Mode is not (LegacyInventoryMode or CanonicalInventoryMode))
             throw new InvalidOperationException($"ERP仓库 {erpWarehouseId} 的库存运行模式无效");
         return runtime;
+    }
+
+    private IStockAllocationMutationService RequireStockAllocationMutationService() =>
+        _stockAllocationMutationService
+        ?? throw new InvalidOperationException("统一ERP库存模式未注册库存分配变更服务，操作已拒绝");
+
+    private static StockMutationContext DispatchMutationContext(
+        CurrentUser user,
+        long erpWarehouseId,
+        string action,
+        long orderId,
+        long bizItemId,
+        long erpStockId,
+        long allocationId,
+        long quantity,
+        string requestIdentity,
+        long? reservationId,
+        long? reservationItemId)
+    {
+        var operationKey = HashText(
+            $"{action}:{orderId}:{bizItemId}:{erpStockId}:{allocationId}:{quantity}:{requestIdentity}");
+        var operatorName=string.IsNullOrWhiteSpace(user.user_name)?$"用户{user.user_id}":user.user_name.Trim();
+        if(operatorName.Length>64)operatorName=operatorName[..64];
+        return new StockMutationContext(
+
+            erpWarehouseId,
+            operationKey,
+            action,
+            orderId,
+            bizItemId,
+            user.user_id,
+            operatorName,
+            action,
+            new StockReservationMutationContext(
+                "WMS_RESERVATION_V1",operationKey,"MODERN_WMS","DISPATCH_ORDER",orderId,null,
+                "DISPATCH_ORDER",orderId,"DISPATCH_PICK",bizItemId,"DISPATCH_PICK:"+bizItemId,
+                reservationId,reservationItemId));
     }
 
     private sealed class InventoryRuntime

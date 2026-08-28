@@ -3,7 +3,6 @@ using ModernWMS.Core.JWT;
 using ModernWMS.Core.Models;
 using ModernWMS.WMS.Entities.ViewModels;
 using ModernWMS.WMS.Entities.ViewModels.PackingTask;
-using ModernWMS.WMS.Services;
 
 namespace ModernWMS.WMS.IServices;
 
@@ -20,7 +19,7 @@ public interface IPackingTaskQueryService : IDependency
     /// <summary>
     /// 定义 SelectableStockPageAsync 操作。
     /// </summary>
-    Task<PackingTaskSelectableResult> SelectableStockPageAsync(
+    Task<(List<SelectableStockViewModel> data, int totals)> SelectableStockPageAsync(
         PackingTaskStockPageRequest request,
         CurrentUser currentUser);
 
@@ -37,8 +36,6 @@ public interface IPackingTaskQueryService : IDependency
     Task<(bool flag, string message)> DeleteStockSelectionAsync(
         PackingTaskStockSelectRequest request,
         CurrentUser currentUser);
-
-    Task<string> BeginSkuMismatchChallengeAsync(PackingTaskSkuMismatchChallengeRequest request, CurrentUser currentUser);
 }
 
 /// <summary>装箱任务分页查询结果。</summary>

@@ -195,7 +195,6 @@ export interface PackingPlanItem {
 
 export interface PackingPlanBoxItem {
   packing_task_item_id: number
-  goods_owner_id: number
   task_qty: number
 }
 
@@ -216,7 +215,6 @@ export interface PackingPlan {
   packing_task_id: number
   packing_task_no: string
   packing_plan_status: 'DRAFT' | 'ACTUAL_CONFIRMED' | 'COMPLETED'
-  consume_status: 'NOT_REQUIRED' | 'PENDING' | 'FAILED' | 'CONSUMED'
   row_version: number
   task_row_version: number
   items: PackingPlanItem[]
