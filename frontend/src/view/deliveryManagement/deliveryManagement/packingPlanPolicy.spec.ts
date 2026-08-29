@@ -20,11 +20,7 @@ const box = (sequence: number, taskQty: number): PackingPlanBox => ({
   items: taskQty > 0 ? [{
     client_line_key: `line-${sequence}`,
     packing_task_item_id: 11,
-    stock_allocation_id: 101,
     erp_stock_id: 1001,
-    wms_sku_id: 7,
-    goods_owner_id: 88,
-    goods_location_id: 66,
     sku_code: 'OTHER-SKU',
     commodity_name: '其他货主商品',
     available_qty: -20,

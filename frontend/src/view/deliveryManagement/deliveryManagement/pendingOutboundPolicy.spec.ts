@@ -69,11 +69,7 @@ type BoxWithItems = WeighingBox & { items: PackingPlanBoxItem[] }
 const actualLine = (line: number, packingTaskItemId: number, actualQty: number): PackingPlanBoxItem => ({
   client_line_key: `line-${line}`,
   packing_task_item_id: packingTaskItemId,
-  stock_allocation_id: 100 + line,
   erp_stock_id: 1000 + line,
-  wms_sku_id: 20 + line,
-  goods_owner_id: 30,
-  goods_location_id: 40,
   sku_code: `SKU-${line}`,
   commodity_name: `商品-${line}`,
   available_qty: 100,

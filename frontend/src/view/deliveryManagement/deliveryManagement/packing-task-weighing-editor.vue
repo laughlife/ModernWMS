@@ -88,15 +88,15 @@
             <v-btn size="small" color="primary" variant="tonal" :disabled="!editable" @click="addActualItem(box)">添加实际商品</v-btn>
           </div>
           <div class="box-item-header">
-            <span>计划参考</span><span>实际库存（SKU / 商品 / 货主 / 库位）</span><span>实际数量</span><span>库存提示</span><span>操作</span>
+            <span>计划参考</span><span>实际ERP库存（SKU / 商品 / 创建人）</span><span>实际数量</span><span>库存提示</span><span>操作</span>
           </div>
           <div v-for="(boxItem, itemIndex) in box.items" :key="boxItem.client_line_key" class="box-item-row">
             <v-select v-model="boxItem.packing_task_item_id" :items="planItemOptions" label="计划参考（可空）" density="compact" clearable hide-details :disabled="!editable" />
             <v-autocomplete
-              v-model="boxItem.stock_allocation_id"
+              v-model="boxItem.erp_stock_id"
               :items="stockOptions"
               :item-title="stockTitle"
-              item-value="stock_allocation_id"
+              item-value="erp_stock_id"
               label="选择实际库存"
               density="compact"
               hide-details
@@ -203,24 +203,20 @@ const copyTargetOptions = computed(() => plan.value?.boxes
 const requestId = () => globalThis.crypto?.randomUUID?.() ?? `packing-${Date.now()}-${Math.random().toString(16).slice(2)}`
 const product = (id: number | null) => plan.value?.items.find((item) => item.id === id)
 const stockTitle = (stock: ActualPackingStock) =>
-  `${stock.sku_code} / ${stock.commodity_name} / ${stock.goods_owner_name || '-'} / ${stock.location_name || '-'} / 可用${stock.available_qty}`
+  `${stock.sku_code} / ${stock.commodity_name} / ${stock.order_user_name || '-'} / 可用${stock.available_qty}`
 const newLineKey = () => globalThis.crypto?.randomUUID?.() ?? `line-${Date.now()}-${Math.random().toString(16).slice(2)}`
 const addActualItem = (box: PackingPlanBox) => box.items.push({
   client_line_key: newLineKey(),
   packing_task_item_id: null,
-  stock_allocation_id: 0,
   erp_stock_id: 0,
-  wms_sku_id: 0,
-  goods_owner_id: 0,
-  goods_location_id: 0,
   sku_code: '',
   commodity_name: '',
   available_qty: 0,
   actual_qty: 1,
   dispatchpicklist_id: null
 })
-const applyStock = (line: PackingPlanBoxItem, allocationId: number | null) => {
-  const stock = stockOptions.value.find((item) => item.stock_allocation_id === Number(allocationId))
+const applyStock = (line: PackingPlanBoxItem, erpStockId: number | null) => {
+  const stock = stockOptions.value.find((item) => item.erp_stock_id === Number(erpStockId))
   if (!stock) return
   Object.assign(line, stock, { dispatchpicklist_id: null })
   if (line.packing_task_item_id == null) {
@@ -229,10 +225,10 @@ const applyStock = (line: PackingPlanBoxItem, allocationId: number | null) => {
   }
 }
 const projectedAvailable = (line: PackingPlanBoxItem) => {
-  const available = stockOptions.value.find((item) => item.stock_allocation_id === line.stock_allocation_id)?.available_qty
+  const available = stockOptions.value.find((item) => item.erp_stock_id === line.erp_stock_id)?.available_qty
     ?? line.available_qty
   const packed = plan.value?.boxes.flatMap((box) => box.items)
-    .filter((item) => item.stock_allocation_id === line.stock_allocation_id)
+    .filter((item) => item.erp_stock_id === line.erp_stock_id)
     .reduce((sum, item) => sum + Number(item.actual_qty || 0), 0) ?? 0
   return Number(available) - packed
 }
@@ -245,7 +241,7 @@ const fillBoxProductRows = (packingPlan: PackingPlan, initializeFirstBox = false
 }
 const boxesForSave = () => plan.value?.boxes.map((box) => ({
   ...box,
-  items: box.items.filter((item) => Number(item.actual_qty) > 0 && Number(item.stock_allocation_id) > 0)
+  items: box.items.filter((item) => Number(item.actual_qty) > 0 && Number(item.erp_stock_id) > 0)
 })) ?? []
 const load = async () => { loading.value = true; errorMessage.value = ''; try { const [result, stockResult] = await Promise.all([getDispatchPackingPlan(props.orderId, props.packingTaskId, true), getDispatchActualPackingStock(props.orderId, props.packingTaskId)]); if (!result.isSuccess) throw new Error(result.errorMessage); if (!stockResult.isSuccess) throw new Error(stockResult.errorMessage); stockOptions.value = stockResult.data; fillBoxProductRows(result.data, true); if (props.autoCheck) checkPacking() } catch (error) { errorMessage.value = error instanceof Error ? error.message : String(error) } finally { loading.value = false } }
 const addEmptyBox = () => {

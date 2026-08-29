@@ -166,13 +166,13 @@ describe('dispatch workflow api contract', () => {
     expectLastRequest({ url: '/packing-task-query/selectable-stock', method: 'post', data: pagePayload })
 
     const selectPayload = {
-      sellfox_task_id: 20526, sellfox_item_id: 94691, stock_id: 12, qty: 500
+      sellfox_task_id: 20526, sellfox_item_id: 94691, erp_stock_id: 12, variant: 5
     }
     selectPackingTaskStock(selectPayload)
     expectLastRequest({ url: '/packing-task-query/select-stock', method: 'post', data: selectPayload })
 
-    deletePackingTaskStockSelection({ ...selectPayload, qty: 0 })
-    expectLastRequest({ url: '/packing-task-query/delete-selection', method: 'post', data: { ...selectPayload, qty: 0 } })
+    deletePackingTaskStockSelection(selectPayload)
+    expectLastRequest({ url: '/packing-task-query/delete-selection', method: 'post', data: selectPayload })
   })
 
   it('locks source decision, outbound, cancellation and signing command payloads', () => {

@@ -39,7 +39,7 @@ export const inspectActualPackingLines = (plan: PackingPlan): ActualPackingInspe
     if (box.items.some((item) => !Number.isInteger(Number(item.actual_qty)) || Number(item.actual_qty) <= 0)) {
       issues.push(`第${index + 1}箱实际商品数量必须为正整数`)
     }
-    if (box.items.some((item) => !item.client_line_key?.trim() || Number(item.stock_allocation_id) <= 0)) {
+    if (box.items.some((item) => !item.client_line_key?.trim() || Number(item.erp_stock_id) <= 0)) {
       issues.push(`第${index + 1}箱必须选择实际库存`)
     }
     const keys = box.items.map((item) => item.client_line_key)

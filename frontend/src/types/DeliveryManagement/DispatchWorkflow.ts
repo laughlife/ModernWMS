@@ -196,11 +196,7 @@ export interface PackingPlanItem {
 export interface PackingPlanBoxItem {
   client_line_key: string
   packing_task_item_id: number | null
-  stock_allocation_id: number
   erp_stock_id: number
-  wms_sku_id: number
-  goods_owner_id: number
-  goods_location_id: number
   sku_code: string
   commodity_name: string
   available_qty: number
@@ -209,13 +205,10 @@ export interface PackingPlanBoxItem {
 }
 
 export interface ActualPackingStock {
-  stock_allocation_id: number
   erp_stock_id: number
-  wms_sku_id: number
-  goods_owner_id: number
-  goods_location_id: number
-  goods_owner_name: string
-  location_name: string
+  commodity_id: number | null
+  order_user_id: number
+  order_user_name: string
   sku_code: string
   commodity_name: string
   available_qty: number

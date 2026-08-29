@@ -26,19 +26,13 @@ export const deriveVariant = (
   return Math.max(1, Math.round(lockedQty / quantity))
 }
 
-export const getPackingStockCapacity = (
-  stock: Pick<SelectableStockVO, 'available_qty' | 'selected_qty'>
-): number => Math.max(0, stock.available_qty || 0) + Math.max(0, stock.selected_qty || 0)
-
 export const validatePackingStockSelection = (
-  stock: Pick<SelectableStockVO, 'available_qty' | 'selected_qty'>,
-  taskNum: number | null | undefined,
+  _stock: Pick<SelectableStockVO, 'available_qty' | 'selected_qty'>,
+  _taskNum: number | null | undefined,
   variant: number
-): { ok: true } | { ok: false; reason: 'INVALID_VARIANT' | 'INSUFFICIENT_AVAILABLE' } => {
+): { ok: true } | { ok: false; reason: 'INVALID_VARIANT' } => {
   if (!Number.isInteger(variant) || variant <= 0) return { ok: false, reason: 'INVALID_VARIANT' }
-  return computeLockedQty(taskNum, variant) <= getPackingStockCapacity(stock)
-    ? { ok: true }
-    : { ok: false, reason: 'INSUFFICIENT_AVAILABLE' }
+  return { ok: true }
 }
 
 export const isPackingItemReady = (item: PackingTaskItemVO): boolean => {

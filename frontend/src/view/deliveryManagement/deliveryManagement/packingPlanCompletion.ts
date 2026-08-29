@@ -37,7 +37,7 @@ export const inspectPackingPlan = (plan: PackingPlan): PackingPlanInspection => 
 
 const boxesForSave = (boxes: PackingPlanBox[]): PackingPlanBox[] => boxes.map((box) => ({
   ...box,
-  items: box.items.filter((item) => Number(item.actual_qty) > 0 && Number(item.stock_allocation_id) > 0)
+  items: box.items.filter((item) => Number(item.actual_qty) > 0 && Number(item.erp_stock_id) > 0)
 }))
 
 export const advancePackingPlan = async (orderId: number, packingTaskId: number, plan: PackingPlan): Promise<void> => {

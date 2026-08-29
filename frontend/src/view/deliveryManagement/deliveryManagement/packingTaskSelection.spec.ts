@@ -5,6 +5,7 @@ import {
   createTaskSetIdempotencyKey,
   removeCreatedPackingTasks,
   resetPackingTaskPageState,
+  validatePackingStockSelection,
   validatePackingTaskSelection
 } from './packingTaskSelection'
 
@@ -17,6 +18,13 @@ const task = (sellfoxTaskId: number, warehouseId: number): PackingTaskVO => ({
 })
 
 describe('packing task selection', () => {
+  it('允许直接选择负可用量的ERP库存，只校验变体数量', () => {
+    expect(validatePackingStockSelection({ available_qty: -30, selected_qty: 0 },5,2))
+      .toEqual({ ok: true })
+    expect(validatePackingStockSelection({ available_qty: 100, selected_qty: 0 },5,0))
+      .toEqual({ ok: false, reason: 'INVALID_VARIANT' })
+  })
+
   it('does not build a source request before the parent selects a warehouse', () => {
     expect(buildPackingTaskPageRequest(null, '', 1, 20)).toBeNull()
   })

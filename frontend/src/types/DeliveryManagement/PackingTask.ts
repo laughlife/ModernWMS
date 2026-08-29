@@ -34,28 +34,21 @@ export interface PackingTaskVO {
 }
 
 export interface SelectableStockVO {
-  stock_id: number
-  erp_stock_id?: number | null
-  stock_allocation_id?: number | null
-  sku_id: number
+  erp_stock_id: number
+  commodity_id?: number | null
   sku_code: string
-  spu_code: string
   commodity_name: string
   main_image: string
-  goods_location_id: number | null
-  location_name: string
   warehouse_id: number
   warehouse_name: string
-  goods_owner_id: number
-  goods_owner_name: string
-  qty: number
+  order_user_id: number
+  order_user_name: string
   available_qty: number
-  series_number: string
-  expiry_date?: string | null
+  occupied_qty: number
+  total_qty: number
   matched: boolean
   selected: boolean
-  selected_qty?: number
-  is_creator_stock: boolean
+  selected_qty: number
 }
 
 export interface PackingTaskStockPageRequest {
@@ -63,18 +56,12 @@ export interface PackingTaskStockPageRequest {
   sellfox_item_id: number
   page_index: number
   page_size: number
-  search_others?: boolean
   keyword?: string
-  location?: string
-  owner?: string
 }
 
 export interface PackingTaskStockSelectRequest {
   sellfox_task_id: number
   sellfox_item_id: number
-  stock_id: number
-  erp_stock_id?: number | null
-  stock_allocation_id?: number | null
-  qty: number
-  variant?: number
+  erp_stock_id: number
+  variant: number
 }

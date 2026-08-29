@@ -65,30 +65,10 @@
             variant="outlined"
             clearable
             class="search-field"
-            @keyup.enter="method.searchOthers"
+            @keyup.enter="method.search"
           />
-          <v-text-field
-            v-model="searchForm.location"
-            label="库位"
-            hide-details
-            density="compact"
-            variant="outlined"
-            clearable
-            class="search-field"
-            @keyup.enter="method.searchOthers"
-          />
-          <v-text-field
-            v-model="searchForm.owner"
-            label="所属人"
-            hide-details
-            density="compact"
-            variant="outlined"
-            clearable
-            class="search-field"
-            @keyup.enter="method.searchOthers"
-          />
-          <v-btn color="primary" variant="tonal" :loading="loading" @click="method.searchOthers">
-            搜索其他库存
+          <v-btn color="primary" variant="tonal" :loading="loading" @click="method.search">
+            搜索库存
           </v-btn>
           <v-btn variant="text" :disabled="loading" @click="method.resetSearch">重置</v-btn>
         </div>
@@ -117,16 +97,16 @@
               </div>
             </template>
           </vxe-column>
-          <vxe-column title="库位/所属人" min-width="160" align="left" header-align="left">
+          <vxe-column title="库存创建人" min-width="160" align="left" header-align="left">
             <template #default="{ row }">
               <div class="merged-cell">
-                <div class="merged-primary">{{ row.location_name || '-' }}</div>
-                <div class="merged-secondary">{{ row.goods_owner_name || '-' }}</div>
+                <div class="merged-primary">{{ row.order_user_name || '-' }}</div>
+                <div class="merged-secondary">ID：{{ row.order_user_id }}</div>
               </div>
             </template>
           </vxe-column>
-          <vxe-column title="库存量/可用量" width="140">
-            <template #default="{ row }">{{ row.qty }} / {{ row.available_qty }}</template>
+          <vxe-column title="总量 / 可用 / 占用" width="170">
+            <template #default="{ row }">{{ row.total_qty }} / {{ row.available_qty }} / {{ row.occupied_qty }}</template>
           </vxe-column>
           <vxe-column title="任务量" width="90">
             <template #default>{{ taskQty }}</template>
@@ -152,8 +132,7 @@
             <template #default="{ row }">
               <v-chip v-if="row.selected" size="small" color="success" variant="tonal">已选择</v-chip>
               <v-chip v-else-if="row.matched" size="small" color="primary" variant="tonal">匹配</v-chip>
-              <v-chip v-else-if="row.is_creator_stock" size="small" color="info" variant="tonal">创建人</v-chip>
-              <v-chip v-else size="small" variant="tonal">其它</v-chip>
+              <v-chip v-else size="small" variant="tonal">其他商品</v-chip>
             </template>
           </vxe-column>
           <vxe-column title="操作" width="190" fixed="right">
@@ -242,10 +221,9 @@ const selectedRows = ref<StockRow[]>([])
 const total = ref(0)
 const pageIndex = ref(1)
 const selectingStockId = ref<string | null>(null)
-const stockIdentity = (row: Pick<SelectableStockVO, 'stock_id' | 'stock_allocation_id'>): string =>
-  row.stock_allocation_id ? `allocation:${row.stock_allocation_id}` : `legacy:${row.stock_id}`
-const searchForm = reactive({ keyword: '', location: '', owner: '' })
-const searching = ref(false)
+const stockIdentity = (row: Pick<SelectableStockVO, 'erp_stock_id'>): string =>
+  `erp-stock:${row.erp_stock_id}`
+const searchForm = reactive({ keyword: '' })
 
 // 装箱任务量（箱数），锁定数量 = 装箱任务量 × 变体数量。
 const taskQty = computed(() => item.value?.task_num ?? 1)
@@ -266,9 +244,8 @@ const toRow = (r: SelectableStockVO): StockRow => ({
   variant: deriveVariant(taskQty.value, r.selected_qty, r.selected)
 })
 
-const footerText = computed(() => searching.value
-  ? `搜索其他库存，共 ${total.value} 条匹配记录`
-  : `当前展示创建人（${task.value?.create_name || '-'}）的库存，共 ${total.value} 条；搜索可查看其他库存`)
+const footerText = computed(() =>
+  `仅展示任务创建人（${task.value?.create_name || '-'}）在当前仓库的库存，共 ${total.value} 条`)
 
 // 已选择的库存行显示绿色背景。
 const rowClassName = ({ row }: { row: StockRow }): string => row.selected ? 'selected-row' : ''
@@ -283,10 +260,7 @@ const method = reactive({
         sellfox_item_id: item.value.sellfox_item_id,
         page_index: pageIndex.value,
         page_size: PAGE_SIZE,
-        search_others: searching.value,
-        keyword: searchForm.keyword.trim(),
-        location: searchForm.location.trim(),
-        owner: searchForm.owner.trim()
+        keyword: searchForm.keyword.trim()
       })
       if (!result.isSuccess) {
         hookComponent.$message({ type: 'error', content: result.errorMessage })
@@ -304,16 +278,12 @@ const method = reactive({
       loading.value = false
     }
   },
-  searchOthers: () => {
-    searching.value = true
+  search: () => {
     pageIndex.value = 1
     method.loadPage()
   },
   resetSearch: () => {
     searchForm.keyword = ''
-    searchForm.location = ''
-    searchForm.owner = ''
-    searching.value = false
     pageIndex.value = 1
     method.loadPage()
   },
@@ -328,23 +298,11 @@ const method = reactive({
         content: '所选的变体和商品信息变体数量不一致，是否继续执行？',
         confirmText: '是',
         cancleText: '否',
-        handleConfirm: () => method.checkStockOwner(row)
+        handleConfirm: () => method.confirmSelectStock(row)
       })
       return
     }
-    method.checkStockOwner(row)
-  },
-  checkStockOwner: (row: StockRow) => {
-    if (row.is_creator_stock) {
-      method.confirmSelectStock(row)
-      return
-    }
-    hookComponent.$dialog({
-      content: '所选库存不是创建人的商品，是否继续执行',
-      confirmText: '是',
-      cancleText: '否',
-      handleConfirm: () => method.confirmSelectStock(row)
-    })
+    method.confirmSelectStock(row)
   },
   confirmSelectStock: async (row: StockRow) => {
     if (!item.value || !task.value) return
@@ -354,10 +312,6 @@ const method = reactive({
       hookComponent.$message({ type: 'warning', content: '请输入大于0的变体数量' })
       return
     }
-    if (!validation.ok) {
-      hookComponent.$message({ type: 'warning', content: '可用量不足' })
-      return
-    }
     // 锁定数量 = 装箱任务量 × 变体数量。
     const lockedQty = computeLockedQty(taskQty.value, variant)
     selectingStockId.value = stockIdentity(row)
@@ -365,10 +319,7 @@ const method = reactive({
       const result = await selectPackingTaskStock({
         sellfox_task_id: task.value.sellfox_task_id,
         sellfox_item_id: item.value.sellfox_item_id,
-        stock_id: row.stock_id,
         erp_stock_id: row.erp_stock_id,
-        stock_allocation_id: row.stock_allocation_id,
-        qty: lockedQty,
         variant
       })
       if (!result.isSuccess) {
@@ -380,7 +331,7 @@ const method = reactive({
         ...row,
         selected: true,
         selected_qty: lockedQty,
-        available_qty: Math.max(0, row.available_qty + (row.selected_qty ?? 0) - lockedQty)
+        available_qty: row.available_qty + (row.selected_qty ?? 0) - lockedQty
       }
       stockRows.value = stockRows.value.map((t) =>
         stockIdentity(t) === stockIdentity(row) ? selected : t
@@ -405,10 +356,8 @@ const method = reactive({
       const result = await deletePackingTaskStockSelection({
         sellfox_task_id: task.value.sellfox_task_id,
         sellfox_item_id: item.value.sellfox_item_id,
-        stock_id: row.stock_id,
         erp_stock_id: row.erp_stock_id,
-        stock_allocation_id: row.stock_allocation_id,
-        qty: 0
+        variant: row.variant
       })
       if (!result.isSuccess) {
         hookComponent.$message({ type: 'error', content: result.errorMessage })
@@ -437,9 +386,6 @@ const openDialog = (taskRow: PackingTaskVO, itemRow: PackingTaskItemVO): void =>
   pageIndex.value = 1
   selectingStockId.value = null
   searchForm.keyword = ''
-  searchForm.location = ''
-  searchForm.owner = ''
-  searching.value = false
   visible.value = true
   method.loadPage()
 }
