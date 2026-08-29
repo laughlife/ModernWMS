@@ -45,6 +45,12 @@ public sealed record StockReservationPrelockRequest(
     long AllocationId,
     string EventType);
 
+/// <summary>Stock-only reservation prelock request used by packing workflows.</summary>
+public sealed record PackingStockPrelockRequest(
+    StockMutationContext Context,
+    long ErpStockId,
+    string EventType);
+
 /// <summary>
 /// 表示 StockQuantitySnapshot 类型。
 /// </summary>
@@ -81,6 +87,19 @@ public sealed record StockAllocationMutationResult(
     StockQuantitySnapshot StockBefore,
     StockQuantitySnapshot StockAfter,
     IReadOnlyList<StockAllocationMutationChange> AllocationChanges,
+    bool IsReplay,
+    long? SharedCommandId = null,
+    long? ReservationId = null,
+    long? ReservationItemId = null);
+
+/// <summary>Result of a stock-only packing inventory mutation.</summary>
+public sealed record PackingStockMutationResult(
+    string OperationKey,
+    string MutationType,
+    long ErpStockId,
+    long? ErpStockRecordId,
+    StockQuantitySnapshot StockBefore,
+    StockQuantitySnapshot StockAfter,
     bool IsReplay,
     long? SharedCommandId = null,
     long? ReservationId = null,

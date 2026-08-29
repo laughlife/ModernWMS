@@ -13,7 +13,6 @@ namespace ModernWMS.WMS.Services.StockAllocation;
 /// </summary>
 public sealed class StockAllocationMutationService : IStockAllocationMutationService
 {
-    private const string CanonicalMode = "CANONICAL_ERP";
     private const string SavepointName = "mwms_stock_allocation_mutation";
 
     /// <inheritdoc />
@@ -28,8 +27,6 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
         ArgumentNullException.ThrowIfNull(requests);
         if (requests.Count == 0) return;
         var warehouseIds = ValidateIds(erpWarehouseIds, nameof(erpWarehouseIds));
-            throw new InvalidOperationException("批量预锁包含跨租户预占来源");
-        await LockRuntimeConfigsAsync(connection, transaction, warehouseIds, cancellationToken);
         foreach (var request in requests
                      .OrderBy(x => x.Context.Reservation?.ExistingReservationId ?? long.MaxValue)
                      .ThenBy(x => x.Context.Reservation?.SourceSystem, StringComparer.Ordinal)
@@ -59,9 +56,6 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
         var warehouseIds = ValidateIds(erpWarehouseIds, nameof(erpWarehouseIds));
         var stockIds = ValidateIds(erpStockIds, nameof(erpStockIds));
         var requestedAllocationIds = ValidateIds(allocationIds, nameof(allocationIds), false);
-
-        await LockRuntimeConfigsAsync(
-            connection, transaction, warehouseIds, cancellationToken);
 
         var lockedStocks = (await connection.QueryAsync<StockRow>(new CommandDefinition(
             """
@@ -94,7 +88,7 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
             transaction,
             cancellationToken: cancellationToken))).AsList();
         if (allocations.Count != requestedAllocationIds.Length)
-            throw new KeyNotFoundException("批量预锁包含不存在、跨租户或不属于指定ERP库存的位置分配");
+            throw new KeyNotFoundException("批量预锁包含不存在或不属于指定ERP库存的位置分配");
         foreach (var stock in lockedStocks)
         {
             var ids = allocations.Where(t => t.ErpStockId == stock.Id).Select(t => t.Id).ToArray();
@@ -187,8 +181,6 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
         await CreateSavepointAsync(connection, transaction, cancellationToken);
         try
         {
-            await EnsureRuntimeAllowsMutationAsync(
-                connection, transaction, context.ErpWarehouseId, cancellationToken);
             var stock = await LockStockAsync(connection, transaction, erpStockId, cancellationToken);
             EnsureWarehouseUnchanged(erpStockId, context.ErpWarehouseId, stock.WarehouseId);
 
@@ -312,8 +304,6 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
         await CreateSavepointAsync(connection, transaction, cancellationToken);
         try
         {
-            await EnsureRuntimeAllowsMutationAsync(
-                connection, transaction, context.ErpWarehouseId, cancellationToken);
             var deltas = MutationDeltas.For(kind, quantity);
             StockReservationMutationCoordinator.LockedOwner? reservationOwner = null;
             if (StockReservationMutationCoordinator.RequiresReservation(deltas.EventType))
@@ -690,49 +680,6 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
             new { erpStockId }, transaction, cancellationToken: cancellationToken))
         ?? throw new KeyNotFoundException($"ERP库存不存在或已删除：{erpStockId}");
 
-    private static async Task EnsureRuntimeAllowsMutationAsync(
-        IDbConnection connection,
-        IDbTransaction transaction,
-        long warehouseId,
-        CancellationToken cancellationToken)
-        => await LockRuntimeConfigsAsync(
-            connection, transaction, [warehouseId], cancellationToken);
-
-    /// <summary>
-    /// Normal inventory transactions take shared runtime-gate locks so they do
-    /// not serialize an entire warehouse. Maintenance/cutover code must acquire
-    /// the same config rows with FOR UPDATE before changing the gate.
-    /// </summary>
-    private static async Task LockRuntimeConfigsAsync(
-        IDbConnection connection,
-        IDbTransaction transaction,
-        IReadOnlyCollection<long> warehouseIds,
-        CancellationToken cancellationToken)
-    {
-        var ids = warehouseIds.Distinct().OrderBy(t => t).ToArray();
-        var configs = (await connection.QueryAsync<RuntimeConfigRow>(new CommandDefinition(
-            """
-            SELECT `erp_warehouse_id` WarehouseId,`mode` Mode,
-                   `maintenance_enabled` MaintenanceEnabled
-              FROM `wms_inventory_runtime_config`
-             WHERE `erp_warehouse_id` IN @ids
-             ORDER BY `erp_warehouse_id`
-             LOCK IN SHARE MODE
-            """,
-            new { ids }, transaction, cancellationToken: cancellationToken))).AsList();
-        if (configs.Count != ids.Length)
-            throw new InvalidOperationException("一个或多个ERP仓库尚未配置WMS统一库存模式");
-        var maintenance = configs.FirstOrDefault(t => t.MaintenanceEnabled);
-        if (maintenance != null)
-            throw new InvalidOperationException(
-                $"ERP仓库 {maintenance.WarehouseId} 正处于库存维护窗口，禁止库存变更");
-        var legacy = configs.FirstOrDefault(
-            t => !string.Equals(t.Mode, CanonicalMode, StringComparison.Ordinal));
-        if (legacy != null)
-            throw new InvalidOperationException(
-                $"ERP仓库 {legacy.WarehouseId} 尚未切换为唯一ERP库存模式");
-    }
-
     private static async Task<List<AllocationRow>> LockAllocationsAsync(
         IDbConnection connection,
         IDbTransaction transaction,
@@ -751,7 +698,7 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
             """,
             new { erpStockId, ids }, transaction, cancellationToken: cancellationToken))).AsList();
         if (rows.Count != ids.Length)
-            throw new KeyNotFoundException("库存位置分配不存在、跨租户或不属于指定ERP库存");
+            throw new KeyNotFoundException("库存位置分配不存在或不属于指定ERP库存");
         return rows;
     }
 
@@ -1354,12 +1301,6 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
         public string LocationState { get; init; } = string.Empty;
     }
 
-    private sealed class RuntimeConfigRow
-    {
-        public long WarehouseId { get; init; }
-        public string Mode { get; init; } = string.Empty;
-        public bool MaintenanceEnabled { get; init; }
-    }
 
     private sealed class InventoryOperationRow
     {

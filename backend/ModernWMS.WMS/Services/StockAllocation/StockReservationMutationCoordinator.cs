@@ -31,7 +31,7 @@ internal static class StockReservationMutationCoordinator
     internal sealed record MutationState(
         LockedOwner Owner,
         ClaimedCommand Command,
-        long AllocationReservationId,
+        long? AllocationReservationId,
         long RemainingAfter);
 
     internal static bool RequiresReservation(string eventType) =>
@@ -183,17 +183,22 @@ internal static class StockReservationMutationCoordinator
         StockMutationContext context,
         LockedOwner owner,
         long stockId,
-        long allocationId,
+        long? allocationId,
         string eventType,
         long quantity,
         CancellationToken cancellationToken)
     {
         var request = RequireRequest(context);
         var proposedAction = ResolveAction(eventType, quantity, owner.ItemRemainingQty);
-        var allocationFingerprint = Hash($"{stockId}|{allocationId}|{quantity}");
-        var allocationReservation = await LockOrCreateAllocationReservationAsync(
-            connection, transaction, context, owner.ReservationItemId, stockId,
-            allocationId, eventType, cancellationToken);
+        var allocationFingerprint = Hash(
+            allocationId == null
+                ? $"{stockId}|STOCK_ONLY|{quantity}"
+                : $"{stockId}|{allocationId}|{quantity}");
+        var allocationReservation = allocationId == null
+            ? null
+            : await LockOrCreateAllocationReservationAsync(
+                connection, transaction, context, owner.ReservationItemId, stockId,
+                allocationId.Value, eventType, cancellationToken);
 
         var command = await connection.QuerySingleOrDefaultAsync<CommandRow>(new CommandDefinition(
             """
@@ -229,7 +234,7 @@ internal static class StockReservationMutationCoordinator
                 }, transaction, cancellationToken: cancellationToken));
             return new MutationState(owner,
                 new ClaimedCommand(command.Id, command.Action, replayFingerprint, true),
-                allocationReservation.Id, resultRemaining ?? owner.ItemRemainingQty);
+                allocationReservation?.Id, resultRemaining ?? owner.ItemRemainingQty);
         }
 
         var action = proposedAction;
@@ -303,11 +308,12 @@ internal static class StockReservationMutationCoordinator
 
         await UpdateReservationItemAsync(connection, transaction, context, owner,
             eventType, quantity, remainingAfter, now, cancellationToken);
-        await UpdateAllocationReservationAsync(connection, transaction, context,
-            allocationReservation, eventType, quantity, now, cancellationToken);
+        if (allocationReservation != null)
+            await UpdateAllocationReservationAsync(connection, transaction, context,
+                allocationReservation, eventType, quantity, now, cancellationToken);
         return new MutationState(owner,
             new ClaimedCommand(sharedCommandId, action, requestFingerprint, false),
-            allocationReservation.Id, remainingAfter);
+            allocationReservation?.Id, remainingAfter);
     }
 
     internal static async Task CompleteAsync(
@@ -610,7 +616,7 @@ internal static class StockReservationMutationCoordinator
     };
 
     private static string RequestFingerprint(StockReservationMutationContext request, string action,
-        LockedOwner owner, long stockId, long allocationId, long quantity,
+        LockedOwner owner, long stockId, long? allocationId, long quantity,
         string allocationFingerprint) => Hash(
         $"{request.Namespace}|{request.CommandId}|{action}|{owner.ReservationId}|" +
         $"{owner.ReservationItemId}|{stockId}|{allocationId}|{quantity}|{allocationFingerprint}");
