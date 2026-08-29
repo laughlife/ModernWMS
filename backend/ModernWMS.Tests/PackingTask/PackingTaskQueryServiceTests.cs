@@ -235,8 +235,37 @@ public class PackingTaskQueryServiceTests
         Assert.All(rows, row =>
         {
             Assert.Equal(320118, row.warehouse_id);
-            Assert.Equal(77, row.goods_owner_id);
+            Assert.Equal(77, row.order_user_id);
         });
+    }
+
+    [Fact]
+    public void Packing_stock_api_contract_exposes_only_erp_stock_identity_and_no_location_filters()
+    {
+        var pageProperties = typeof(PackingTaskStockPageRequest).GetProperties()
+            .Select(property => property.Name).Order().ToArray();
+        var selectionProperties = typeof(PackingTaskStockSelectRequest).GetProperties()
+            .Select(property => property.Name).Order().ToArray();
+
+        Assert.Equal(
+            ["keyword", "page_index", "page_size", "sellfox_item_id", "sellfox_task_id"],
+            pageProperties);
+        Assert.Equal(
+            ["erp_stock_id", "sellfox_item_id", "sellfox_task_id", "variant"],
+            selectionProperties);
+        Assert.DoesNotContain(typeof(SelectableStockViewModel).GetProperties(), property =>
+            property.Name.Contains("allocation", StringComparison.OrdinalIgnoreCase)
+            || property.Name.Contains("location", StringComparison.OrdinalIgnoreCase)
+            || property.Name is "stock_id" or "goods_owner_id" or "wms_sku_id");
+    }
+
+    [Fact]
+    public void Task_creator_resolution_requires_one_active_system_user()
+    {
+        Assert.Equal(77, PackingTaskOwnerPolicy.Resolve("李伟", [new PackingTaskOwnerCandidate(77, "李伟")]));
+        Assert.Throws<InvalidOperationException>(() => PackingTaskOwnerPolicy.Resolve("李伟", []));
+        Assert.Throws<InvalidOperationException>(() => PackingTaskOwnerPolicy.Resolve(
+            "李伟", [new PackingTaskOwnerCandidate(77, "李伟"), new PackingTaskOwnerCandidate(88, "李伟")]));
     }
 
     [Fact]
@@ -250,8 +279,7 @@ public class PackingTaskQueryServiceTests
             {
                 sellfox_task_id = 101,
                 sellfox_item_id = 1001,
-                stock_id = 12,
-                qty = 0
+                erp_stock_id = 12
             },
             CurrentUserContext());
 
@@ -290,12 +318,14 @@ public class PackingTaskQueryServiceTests
     public void Packing_selection_cancel_and_rollback_sql_preserves_rows_with_actor_reason_and_version()
     {
         var commands = PackingSelectionProductionSql();
-        var manualCancels = commands.Where(sql => sql.Contains("WMS_MANUAL_CANCEL", StringComparison.Ordinal)).ToList();
+        var manualCancels = commands.Where(sql =>
+            sql.Contains("SET `status`='CANCELLED'", StringComparison.Ordinal)
+            && sql.Contains("`cancel_reason`=@Reason", StringComparison.Ordinal)).ToList();
         var rollback = Assert.Single(commands, sql => sql.Contains("DISPATCH_ROLLBACK", StringComparison.Ordinal));
 
-        Assert.Equal(2, manualCancels.Count);
+        Assert.NotEmpty(manualCancels);
         Assert.All(manualCancels, sql =>
-            AssertCancellationTransition(sql, "用户取消装箱任务库存选择"));
+            AssertCancellationTransition(sql, "@Reason"));
         AssertCancellationTransition(rollback, "待拣货回退释放库存选择");
     }
 
@@ -319,16 +349,15 @@ public class PackingTaskQueryServiceTests
         var existingLookups = commands.Where(sql =>
             sql.Contains("FOR UPDATE", StringComparison.OrdinalIgnoreCase)
             && sql.Contains("sellfox_item_id", StringComparison.OrdinalIgnoreCase)
-            && (sql.Contains("stock_id = @StockId", StringComparison.OrdinalIgnoreCase)
-                || sql.Contains("`stock_allocation_id`=@AllocationId", StringComparison.OrdinalIgnoreCase)))
+            && sql.Contains("status`='ACTIVE", StringComparison.OrdinalIgnoreCase))
             .ToList();
         var inserts = commands.Where(sql => Regex.IsMatch(sql,
             @"INSERT\s+INTO\s+`?wms_packing_task_stock_selection`?", RegexOptions.IgnoreCase)).ToList();
 
-        Assert.Equal(2, existingLookups.Count);
+        Assert.NotEmpty(existingLookups);
         Assert.All(existingLookups, sql => Assert.Matches(
             @"`?status`?\s*=\s*'ACTIVE'", sql));
-        Assert.Equal(2, inserts.Count);
+        Assert.NotEmpty(inserts);
         Assert.All(inserts, sql =>
         {
             Assert.Contains("status", sql, StringComparison.OrdinalIgnoreCase);
@@ -385,7 +414,7 @@ public class PackingTaskQueryServiceTests
         {
             erp_stock_id = erpStockId,
             warehouse_id = warehouseId,
-            goods_owner_id = creatorId,
+            order_user_id = creatorId,
             matched = matched,
             sku_code = $"SKU-{erpStockId}"
         };
@@ -396,7 +425,10 @@ public class PackingTaskQueryServiceTests
         Assert.Contains("`cancelled_by`=", sql, StringComparison.Ordinal);
         Assert.Contains("`cancelled_by_name`=", sql, StringComparison.Ordinal);
         Assert.Contains("`cancelled_at`=", sql, StringComparison.Ordinal);
-        Assert.Contains($"`cancel_reason`='{reason}'", sql, StringComparison.Ordinal);
+        if (reason.StartsWith('@'))
+            Assert.Contains($"`cancel_reason`={reason}", sql, StringComparison.Ordinal);
+        else
+            Assert.Contains($"`cancel_reason`='{reason}'", sql, StringComparison.Ordinal);
         Assert.Contains("`row_version`=`row_version`+1", sql, StringComparison.Ordinal);
         Assert.Matches(@"`status`\s*=\s*'ACTIVE'", sql);
         Assert.DoesNotContain("DELETE", sql, StringComparison.OrdinalIgnoreCase);

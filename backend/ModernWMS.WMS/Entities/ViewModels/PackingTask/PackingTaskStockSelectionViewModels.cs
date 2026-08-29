@@ -1,170 +1,64 @@
 namespace ModernWMS.WMS.Entities.ViewModels.PackingTask;
 
-/// <summary>
-/// 查询装箱任务明细可选择的库存列表。
-/// 默认只返回创建人自己的库存；search_others=true 时按条件搜索其他人的库存。
-/// </summary>
-public class PackingTaskStockPageRequest
+/// <summary>Queries task-owner stock in the task's ERP warehouse.</summary>
+public sealed class PackingTaskStockPageRequest
 {
-    /// <summary>
-    /// 获取或设置 sellfox_task_id。
-    /// </summary>
+    /// <summary>Sellfox task identifier.</summary>
     public long sellfox_task_id { get; set; }
-    /// <summary>
-    /// 获取或设置 sellfox_item_id。
-    /// </summary>
+    /// <summary>Sellfox task-item identifier.</summary>
     public long sellfox_item_id { get; set; }
-    /// <summary>
-    /// 获取或设置 page_index。
-    /// </summary>
+    /// <summary>One-based page number.</summary>
     public int page_index { get; set; } = 1;
-    /// <summary>
-    /// 获取或设置 page_size。
-    /// </summary>
+    /// <summary>Page size.</summary>
     public int page_size { get; set; } = 20;
-
-    /// <summary>
-    /// 是否搜索其他人的库存；false（默认）只返回创建人自己的库存。
-    /// </summary>
-    public bool search_others { get; set; }
-
-    /// <summary>搜索条件：SKU/商品名称（模糊匹配）。</summary>
+    /// <summary>Optional product/SKU keyword.</summary>
     public string keyword { get; set; } = string.Empty;
-
-    /// <summary>搜索条件：库位（模糊匹配）。</summary>
-    public string location { get; set; } = string.Empty;
-
-    /// <summary>搜索条件：所属人（模糊匹配）。</summary>
-    public string owner { get; set; } = string.Empty;
 }
 
-/// <summary>
-/// 保存装箱任务明细对某个库存行的选择。
-/// </summary>
-public class PackingTaskStockSelectRequest
+/// <summary>Binds one task item to an ERP stock row.</summary>
+public sealed class PackingTaskStockSelectRequest
 {
-    /// <summary>
-    /// 获取或设置 sellfox_task_id。
-    /// </summary>
+    /// <summary>Sellfox task identifier.</summary>
     public long sellfox_task_id { get; set; }
-    /// <summary>
-    /// 获取或设置 sellfox_item_id。
-    /// </summary>
+    /// <summary>Sellfox task-item identifier.</summary>
     public long sellfox_item_id { get; set; }
-    /// <summary>
-    /// 获取或设置 stock_id。
-    /// </summary>
-    public int stock_id { get; set; }
-    /// <summary>
-    /// 获取或设置 erp_stock_id。
-    /// </summary>
-    public long? erp_stock_id { get; set; }
-    /// <summary>
-    /// 获取或设置 stock_allocation_id。
-    /// </summary>
-    public long? stock_allocation_id { get; set; }
-    /// <summary>
-    /// 获取或设置 qty。
-    /// </summary>
-    public int qty { get; set; }
-    /// <summary>变体数量；服务端按赛狐当前任务量重新计算锁定数量。</summary>
+    /// <summary>Authoritative <c>trk_stock.id</c>.</summary>
+    public long erp_stock_id { get; set; }
+    /// <summary>Variant multiplier; locked quantity is current task quantity times this value.</summary>
     public int variant { get; set; }
 }
 
-/// <summary>
-/// 可选择的库存行。
-/// </summary>
-public class SelectableStockViewModel
+/// <summary>A directly selectable <c>trk_stock</c> row.</summary>
+public sealed class SelectableStockViewModel
 {
-    /// <summary>
-    /// 获取或设置 stock_id。
-    /// </summary>
-    public int stock_id { get; set; }
-    /// <summary>
-    /// 获取或设置 erp_stock_id。
-    /// </summary>
-    public long? erp_stock_id { get; set; }
-    /// <summary>
-    /// 获取或设置 stock_allocation_id。
-    /// </summary>
-    public long? stock_allocation_id { get; set; }
-    /// <summary>
-    /// 获取或设置 sku_id。
-    /// </summary>
-    public int sku_id { get; set; }
-    /// <summary>
-    /// 获取或设置 sku_code。
-    /// </summary>
+    /// <summary>Authoritative <c>trk_stock.id</c>.</summary>
+    public long erp_stock_id { get; set; }
+    /// <summary>ERP commodity identifier.</summary>
+    public long? commodity_id { get; set; }
+    /// <summary>ERP commodity SKU snapshot.</summary>
     public string sku_code { get; set; } = string.Empty;
-    /// <summary>
-    /// 获取或设置 spu_code。
-    /// </summary>
-    public string spu_code { get; set; } = string.Empty;
-    /// <summary>
-    /// 获取或设置 commodity_name。
-    /// </summary>
+    /// <summary>ERP commodity name snapshot.</summary>
     public string commodity_name { get; set; } = string.Empty;
-    /// <summary>
-    /// 获取或设置 main_image。
-    /// </summary>
+    /// <summary>Commodity image URL when available.</summary>
     public string main_image { get; set; } = string.Empty;
-    /// <summary>
-    /// 获取或设置 goods_location_id。
-    /// </summary>
-    public int? goods_location_id { get; set; }
-    /// <summary>
-    /// 获取或设置 location_name。
-    /// </summary>
-    public string location_name { get; set; } = string.Empty;
-    /// <summary>
-    /// 获取或设置 warehouse_id。
-    /// </summary>
-    public int warehouse_id { get; set; }
-    /// <summary>
-    /// 获取或设置 warehouse_name。
-    /// </summary>
+    /// <summary>ERP warehouse identifier.</summary>
+    public long warehouse_id { get; set; }
+    /// <summary>Task warehouse name snapshot.</summary>
     public string warehouse_name { get; set; } = string.Empty;
-    /// <summary>
-    /// 获取或设置 goods_owner_id。
-    /// </summary>
-    public int goods_owner_id { get; set; }
-    /// <summary>
-    /// 获取或设置 goods_owner_name。
-    /// </summary>
-    public string goods_owner_name { get; set; } = string.Empty;
-    /// <summary>
-    /// 获取或设置 qty。
-    /// </summary>
-    public int qty { get; set; }
-    /// <summary>
-    /// 获取或设置 available_qty。
-    /// </summary>
-    public int available_qty { get; set; }
-    /// <summary>
-    /// 获取或设置 series_number。
-    /// </summary>
-    public string series_number { get; set; } = string.Empty;
-    /// <summary>
-    /// 获取或设置 expiry_date。
-    /// </summary>
-    public DateTime? expiry_date { get; set; }
-    /// <summary>
-    /// 获取或设置 matched。
-    /// </summary>
+    /// <summary>Task creator's unique system user identifier.</summary>
+    public long order_user_id { get; set; }
+    /// <summary>Task creator name snapshot.</summary>
+    public string order_user_name { get; set; } = string.Empty;
+    /// <summary>ERP available quantity; inventory debt may be negative.</summary>
+    public long available_qty { get; set; }
+    /// <summary>ERP occupied quantity.</summary>
+    public long occupied_qty { get; set; }
+    /// <summary>ERP total quantity; inventory debt may be negative.</summary>
+    public long total_qty { get; set; }
+    /// <summary>Whether the stock commodity matches the task item.</summary>
     public bool matched { get; set; }
-    /// <summary>
-    /// 获取或设置 selected。
-    /// </summary>
+    /// <summary>Whether this row is the active selection.</summary>
     public bool selected { get; set; }
-
-    /// <summary>
-    /// 该库存行已选择的锁定数量（即已维护的变体数）。未选择时为 0。
-    /// </summary>
-    public int selected_qty { get; set; }
-
-    /// <summary>
-    /// 是否属于装箱任务创建人自己的库存（所属人名称包含创建人名称）。
-    /// 创建人库存选择时不弹确认框；他人库存选择时前端弹确认框且后端记录日志。
-    /// </summary>
-    public bool is_creator_stock { get; set; }
+    /// <summary>Quantity held by the active selection.</summary>
+    public long selected_qty { get; set; }
 }
