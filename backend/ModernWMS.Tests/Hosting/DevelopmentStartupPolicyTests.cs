@@ -6,12 +6,12 @@ public class DevelopmentStartupPolicyTests
     public void Development_launcher_never_runs_database_migrations()
     {
         var repositoryRoot = FindRepositoryRoot();
-        var script = File.ReadAllText(Path.Combine(repositoryRoot, "scripts", "Start-Development.ps1"));
+        var script = File.ReadAllText(Path.Combine(repositoryRoot, "scripts", "一键启动前后端.ps1"));
 
         Assert.DoesNotContain("ApplyMigrations", script, StringComparison.Ordinal);
         Assert.DoesNotContain("initialize-database-only", script, StringComparison.Ordinal);
         Assert.DoesNotContain("DatabaseInitialization", script, StringComparison.Ordinal);
-        Assert.Contains("'watch', 'run'", script, StringComparison.Ordinal);
+        Assert.Contains("'Watch-Backend.ps1'", script, StringComparison.Ordinal);
     }
 
     private static string FindRepositoryRoot()
@@ -19,7 +19,7 @@ public class DevelopmentStartupPolicyTests
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (directory != null)
         {
-            if (File.Exists(Path.Combine(directory.FullName, "scripts", "Start-Development.ps1")))
+            if (File.Exists(Path.Combine(directory.FullName, "scripts", "一键启动前后端.ps1")))
             {
                 return directory.FullName;
             }

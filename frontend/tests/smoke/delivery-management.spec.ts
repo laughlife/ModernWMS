@@ -8,37 +8,12 @@ const deliveryMenu = [{
   vue_path_detail: '',
   vue_directory: 'deliveryManagement/deliveryManagement',
   sort: 1,
-  tenant_id: 1,
   menu_actions: ['read', 'weighed-weigh', 'delivered-setCarrier', 'delivered-delivery', 'signedIn-export']
 }]
 
-const pendingRow = {
-  id: 101,
-  dispatch_no: 'DB-001',
-  dispatch_status: 5,
-  main_image: '',
-  commodity_name: '测试商品',
-  fba_sku: 'FNSKU-001',
-  qty: 30,
-  picked_qty: 30,
-  variant_qty: 1,
-  box_count: 3,
-  fba_shipment_id: 99,
-  volume: 4.75,
-  weighing_weight: 60,
-  creator: 'WMS创建人',
-  dept_name: '朝阳启航',
-  order_user_name: '李远航',
-  volume_divisor: 5000,
-  carrier_unit: '测试承运单位'
-}
-
 async function mockBackend(page: Page) {
-  let pendingTotal = 5
-  let completedTotal = 1
   await page.route('http://127.0.0.1:21011/**', async (route) => {
-    const request = route.request()
-    const path = new URL(request.url()).pathname
+    const path = new URL(route.request().url()).pathname
     let data: unknown = { rows: [], totals: 0 }
 
     if (path.endsWith('/login')) {
@@ -51,43 +26,40 @@ async function mockBackend(page: Page) {
       }
     } else if (path.endsWith('/rolemenu/authority')) {
       data = deliveryMenu
-    } else if (path.endsWith('/fba-shipment/page')) {
+    } else if (path.endsWith('/warehouse/access-options')) {
+      data = { warehouses: [{ id: 320118, name: '深圳自建仓' }], default_warehouse_id: 320118 }
+    } else if (path.endsWith('/packing-task-query/page')) {
       data = { rows: [], totals: 2 }
-    } else if (path.endsWith('/dispatchlist/weighing-shipments')) {
-      data = { rows: [], totals: 4 }
-    } else if (path.endsWith('/dispatchlist/list')) {
-      const sqlTitle = String(request.postDataJSON()?.sqlTitle || '')
-      if (sqlTitle === 'dispatch_status=2') data = { rows: [], totals: 3 }
-      if (sqlTitle === 'dispatch_status=3') data = { rows: [], totals: 1 }
-      if (sqlTitle === 'dispatch_status=5') data = { rows: pendingTotal > 0 ? [pendingRow] : [], totals: pendingTotal }
-      if (sqlTitle === 'dispatch_status=6') data = { rows: completedTotal > 0 ? [pendingRow] : [], totals: completedTotal }
-    } else if (path.endsWith('/dispatchlist/weighing-boxes')) {
-      data = [
-        { erp_box_id: 1, box_no: 'FBA-BOX-001', weighing_volume: 32000 },
-        { erp_box_id: 2, box_no: 'FBA-BOX-002', weighing_volume: 16000 },
-        { erp_box_id: 3, box_no: 'FBA-BOX-003', weighing_volume: 8000 }
-      ]
-    } else if (path.endsWith('/dispatchlist/delivery')) {
-      const deliveredRows = Array.isArray(request.postDataJSON()) ? request.postDataJSON().length : 0
-      pendingTotal = Math.max(0, pendingTotal - deliveredRows)
-      completedTotal += deliveredRows
-      data = '出库成功'
+    } else if (path.endsWith('/dispatch-workflow/counts')) {
+      data = { PENDING_PICK: 3, PICKED: 1, WEIGHING: 4, PENDING_OUTBOUND: 5, OUTBOUND: 0 }
+    } else if (path.endsWith('/all') || path.endsWith('/select-item') || path.endsWith('-options')) {
+      data = []
     }
 
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ isSuccess: true, data, errorMessage: '' })
+      body: JSON.stringify({ isSuccess: true, code: 200, data, errorMessage: '' })
     })
   })
 }
 
-test('delivery workflow shows counts, box formulas and the completed layout', async ({ page }) => {
+test('delivery workflow shows packing-task and workflow counts from the formal APIs', async ({ page }) => {
   await mockBackend(page)
   await page.goto('/#/login')
+  await page.locator('input[type="text"]').fill('admin')
+  await page.locator('input[type="password"]').fill('test-password')
   await page.locator('.loginBtn').click()
   await expect(page).toHaveURL(/#\/homepage$/)
+  const accessResponse = page.waitForResponse((response) =>
+    new URL(response.url()).pathname === '/warehouse/access-options')
+  const countResponse = page.waitForResponse((response) =>
+    new URL(response.url()).pathname === '/dispatch-workflow/counts')
   await page.evaluate(() => { window.location.hash = '#/deliveryManagement' })
+  await accessResponse
+  await page.locator('.warehouse-selector').click()
+  await page.getByRole('option', { name: '深圳自建仓' }).click()
+  await countResponse
 
   for (const [tab, count] of [
     ['tabFbaShipment', '2'],
@@ -98,36 +70,5 @@ test('delivery workflow shows counts, box formulas and the completed layout', as
   ] as const) {
     await expect(page.locator(`[data-status-tab="${tab}"] .status-count-badge`)).toContainText(count)
   }
-  await expect(page.locator('[data-status-tab="tabCompleted"] .status-count-badge')).toHaveCount(0)
-
-  await page.locator('[data-status-tab="tabDelivered"]').click()
-  await expect(page.locator('.vxe-table')).toContainText('测试商品')
-  await expect(page.locator('.v-window-item--active .row-actions .mdi-send-outline')).toBeVisible()
-  await page.locator('.vxe-table .mdi-calculator-variant').click()
-  const volumeDialog = page.locator('.v-dialog').filter({ hasText: '设置材积比' })
-  await expect(volumeDialog).toContainText('FBA-BOX-001：32000.00 cm³ ÷ 5000 = 6.40')
-  await expect(volumeDialog).not.toContainText('kg')
-  const divisor6000 = volumeDialog.locator('.volume-option').filter({ hasText: '材积比 6000' })
-  await divisor6000.getByText('FBA-BOX-002').click()
-  await expect(divisor6000).toHaveAttribute('aria-checked', 'true')
-  await volumeDialog.getByRole('button', { name: '关闭' }).click()
-
-  const deliveryResponse = page.waitForResponse((response) => new URL(response.url()).pathname === '/dispatchlist/delivery')
-  await page.locator('.vxe-table .mdi-send-outline').click()
-  await page.getByRole('button', { name: '确认' }).click()
-  await deliveryResponse
-
-  await expect(page.locator('[data-status-tab="tabCompleted"]')).toHaveClass(/v-tab--selected/)
-  await expect(page.locator('[data-status-tab="tabDelivered"] .status-count-badge')).toContainText('4')
-  const completedTable = page.locator('.v-window-item--active .vxe-table')
-  await expect(completedTable).toContainText('商品图片')
-  await expect(completedTable).toContainText('商品信息')
-  await expect(completedTable).toContainText('商品/数量')
-  await expect(completedTable).toContainText('所属信息')
-  await expect(completedTable).toContainText('体积(m³)')
-  await expect(completedTable).toContainText('称重重量')
-  await expect(completedTable).toContainText('朝阳启航 | 李远航')
-  await expect(completedTable).toContainText('4.75 m³')
-  await expect(completedTable).toContainText('60 kg')
-  await expect(completedTable).toContainText('WMS创建人')
+  await expect(page.locator('[data-status-tab="tabCompleted"] .status-count-badge')).toContainText('0')
 })

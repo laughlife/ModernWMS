@@ -14,7 +14,6 @@ const menus = [
   vue_path_detail: '',
   vue_directory,
   sort: index + 1,
-  tenant_id: 1,
   menu_actions: ['read', 'save', 'export', 'printQrCode', 'printBarCode', 'print']
 }))
 
@@ -45,7 +44,7 @@ async function mockBackend(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ isSuccess: true, data, errorMessage: '' })
+      body: JSON.stringify({ isSuccess: true, code: 200, data, errorMessage: '' })
     })
   })
 }
@@ -53,6 +52,8 @@ async function mockBackend(page: Page) {
 async function login(page: Page) {
   await page.goto('/#/login')
   await page.waitForLoadState('networkidle')
+  await page.locator('input[type="text"]').fill('admin')
+  await page.locator('input[type="password"]').fill('test-password')
   await page.locator('.loginBtn').click()
   await expect(page).toHaveURL(/#\/homepage$/, { timeout: 10_000 })
 }

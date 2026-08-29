@@ -9,7 +9,7 @@ public sealed record PackingStockPrelockResult(
     IReadOnlyList<long> StockIds);
 
 /// <summary>
-/// Validates stock-only packing prelocks without tenant, location or allocation semantics.
+/// Validates stock-only packing prelocks without location or allocation semantics.
 /// </summary>
 public static class PackingStockPrelockPolicy
 {

@@ -367,6 +367,29 @@ public class PackingTaskQueryServiceTests
     }
 
     [Fact]
+    public void Packing_stock_mutations_write_business_and_balance_audit_logs()
+    {
+        var literals=typeof(PackingTaskQueryService).Assembly.GetTypes()
+            .Where(type=>type.Namespace?.StartsWith("ModernWMS.WMS.Services",StringComparison.Ordinal)==true)
+            .SelectMany(type=>type.GetMethods(BindingFlags.Public|BindingFlags.NonPublic
+                                              |BindingFlags.Static|BindingFlags.Instance))
+            .SelectMany(ReadStringLiterals)
+            .ToArray();
+
+        Assert.Contains(literals,sql=>
+            sql.Contains("INSERT INTO `wms_action_log`",StringComparison.OrdinalIgnoreCase)
+            &&sql.Contains("`user_name`",StringComparison.OrdinalIgnoreCase)
+            &&sql.Contains("`action_content`",StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(literals,sql=>
+            sql.Contains("INSERT INTO `trk_stock_record`",StringComparison.OrdinalIgnoreCase)
+            &&sql.Contains("`operation_key`",StringComparison.OrdinalIgnoreCase)
+            &&sql.Contains("`available_change_qty`",StringComparison.OrdinalIgnoreCase)
+            &&sql.Contains("`occupied_change_qty`",StringComparison.OrdinalIgnoreCase)
+            &&sql.Contains("`total_change_qty`",StringComparison.OrdinalIgnoreCase)
+            &&sql.Contains("`reservation_item_id`",StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void Packing_selection_cutover_guard_counts_only_active_legacy_locks()
     {
         var script = File.ReadAllText(FindRepositoryFile("flyway", "manual", "erp_stock_allocation_cutover.sql"));

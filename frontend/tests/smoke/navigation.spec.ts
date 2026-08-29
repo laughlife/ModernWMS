@@ -30,14 +30,13 @@ const menus = [
   vue_path_detail: '',
   vue_directory,
   sort: index + 1,
-  tenant_id: 1,
   menu_actions: ['read', 'save', 'import', 'export', 'resetPwd', 'stock-export']
 }))
 
 async function mockBackend(page: Page) {
   await page.route('http://127.0.0.1:21011/**', async (route) => {
     const path = new URL(route.request().url()).pathname
-    const data = path.endsWith('/login')
+    let data: unknown = path.endsWith('/login')
       ? {
           access_token: 'visual-test-token',
           refresh_token: 'visual-test-refresh-token',
@@ -48,11 +47,16 @@ async function mockBackend(page: Page) {
       : path.endsWith('/rolemenu/authority')
         ? menus
         : { rows: [], totals: 0 }
+    if (path.endsWith('/warehouse/access-options')) {
+      data = { warehouses: [{ id: 320118, name: '深圳自建仓' }], default_warehouse_id: 320118 }
+    } else if (path.endsWith('/all') || path.endsWith('/select-item') || path.endsWith('-options')) {
+      data = []
+    }
 
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ isSuccess: true, data, errorMessage: '' })
+      body: JSON.stringify({ isSuccess: true, code: 200, data, errorMessage: '' })
     })
   })
 }
@@ -63,6 +67,8 @@ test('sidebar menu click navigates to the selected page', async ({ page }) => {
   await mockBackend(page)
 
   await page.goto('/#/login')
+  await page.locator('input[type="text"]').fill('admin')
+  await page.locator('input[type="password"]').fill('test-password')
   await page.locator('.loginBtn').click()
   await expect(page).toHaveURL(/#\/homepage$/)
 
@@ -97,6 +103,8 @@ test('critical pages remain navigable', async ({ page }) => {
   await expect(page.locator('.languageIcon')).toHaveCount(0)
   if (baselineDir) await page.screenshot({ path: resolve(baselineDir, '01-login.png'), fullPage: true })
 
+  await page.locator('input[type="text"]').fill('admin')
+  await page.locator('input[type="password"]').fill('test-password')
   const loginResponse = page.waitForResponse((response) => new URL(response.url()).pathname === '/login')
   await page.locator('.loginBtn').click()
   await loginResponse

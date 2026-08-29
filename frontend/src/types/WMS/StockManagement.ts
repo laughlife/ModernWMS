@@ -1,7 +1,6 @@
 export interface StockLocationVO {
     erp_stock_id: number | null
     stock_allocation_id: number | null
-    inventory_mode: 'LEGACY_READ' | 'CANONICAL_ERP'
     location_state: 'LEGACY' | 'ACTIVE' | 'UNLOCATED'
     is_pending_location: boolean
     allocation_consistent: boolean

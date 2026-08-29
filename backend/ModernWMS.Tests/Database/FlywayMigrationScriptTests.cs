@@ -7,7 +7,7 @@ public sealed class FlywayMigrationScriptTests
 {
     private const string ExpectedFlywayVersion = "11.15.0";
 
-    [Fact]
+    [PowerShellFact]
     public async Task Default_execution_only_reads_and_validates_the_schema()
     {
         var result = await RunScriptAsync();
@@ -17,7 +17,7 @@ public sealed class FlywayMigrationScriptTests
         Assert.All(result.Invocations, AssertSafeConfiguration);
     }
 
-    [Fact]
+    [PowerShellFact]
     public async Task Apply_execution_migrates_only_after_info_and_validation()
     {
         var result = await RunScriptAsync("-Apply");
@@ -27,7 +27,7 @@ public sealed class FlywayMigrationScriptTests
         Assert.All(result.Invocations, AssertSafeConfiguration);
     }
 
-    [Fact]
+    [PowerShellFact]
     public async Task Execution_rejects_an_unpinned_flyway_version_before_database_commands()
     {
         var result = await RunScriptAsync(toolVersion: "11.15.1");
@@ -37,7 +37,7 @@ public sealed class FlywayMigrationScriptTests
         Assert.Contains(ExpectedFlywayVersion, result.StandardError, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [PowerShellFact]
     public async Task Execution_requires_explicit_development_database_confirmation()
     {
         var result = await RunScriptAsync(confirmDevelopmentDatabase: false);
@@ -47,7 +47,7 @@ public sealed class FlywayMigrationScriptTests
         Assert.Contains("ConfirmDevelopmentDatabase", result.StandardError, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [PowerShellFact]
     public async Task Execution_rejects_a_non_loopback_database_before_flyway_is_called()
     {
         var result = await RunScriptAsync(url: "jdbc:mysql://production.example.com:3306/ruoyi-vue-pro");
@@ -108,7 +108,7 @@ public sealed class FlywayMigrationScriptTests
             {
                 StartInfo = new ProcessStartInfo
                 {
-                    FileName = "powershell.exe",
+                    FileName = PowerShellTestEnvironment.Executable!,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false
@@ -147,7 +147,7 @@ public sealed class FlywayMigrationScriptTests
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (directory != null)
         {
-            if (File.Exists(Path.Combine(directory.FullName, "scripts", "Start-Development.ps1")))
+            if (File.Exists(Path.Combine(directory.FullName, "scripts", "Update-Database.ps1")))
             {
                 return directory.FullName;
             }

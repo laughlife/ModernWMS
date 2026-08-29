@@ -14,7 +14,6 @@ const menus = [
   vue_path_detail: '',
   vue_directory,
   sort: index + 1,
-  tenant_id: 1,
   menu_actions: ['read', 'save', 'import', 'export', 'resetPwd']
 }))
 
@@ -73,13 +72,15 @@ async function mockBackend(
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ isSuccess: true, data, errorMessage: '' })
+      body: JSON.stringify({ isSuccess: true, code: 200, data, errorMessage: '' })
     })
   })
 }
 
 async function login(page: Page) {
   await page.goto('/#/login')
+  await page.locator('input[type="text"]').fill('admin')
+  await page.locator('input[type="password"]').fill('test-password')
   await page.locator('.loginBtn').click()
   await expect(page).toHaveURL(/#\/homepage$/)
 }
@@ -94,7 +95,7 @@ test('VXE table pagination, filtering, export and import preview remain usable',
   await page.evaluate(() => { window.location.hash = '#/userManagement' })
   await expect(page.locator('.vxe-table')).toContainText('Administrator')
 
-  await page.getByRole('textbox', { name: '员工编号', exact: true }).fill('U001')
+  await page.getByRole('textbox', { name: '用户名', exact: true }).fill('U001')
   await expect.poll(() => userRequests.some((body) => JSON.stringify(body).includes('U001'))).toBe(true)
 
   await page.locator('.v-pagination .v-btn').filter({ hasText: '2' }).click()
@@ -111,7 +112,7 @@ test('VXE table pagination, filtering, export and import preview remain usable',
 
   const workbook = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([{
-    '员工编号': 'U002',
+    '用户名': 'U002',
     '员工名称': 'Imported User',
     '联系方式': '13900000000',
     '用户角色': 'Operator',

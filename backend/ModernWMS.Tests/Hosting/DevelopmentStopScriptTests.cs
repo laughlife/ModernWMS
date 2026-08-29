@@ -7,7 +7,7 @@ namespace ModernWMS.Tests.Hosting;
 
 public class DevelopmentStopScriptTests
 {
-    [Fact]
+    [PowerShellFact]
     public void Stop_script_matches_iso_start_time_after_json_deserialization()
     {
         var sourceScript = Path.Combine(AppContext.BaseDirectory, "TestAssets", "一键停止前后端.ps1");
@@ -31,7 +31,7 @@ public class DevelopmentStopScriptTests
         {
             trackedProcess = Process.Start(new ProcessStartInfo
             {
-                FileName = "pwsh.exe",
+                FileName = PowerShellTestEnvironment.Executable!,
                 ArgumentList = { "-NoProfile", "-Command", "Start-Sleep -Seconds 120" },
                 UseShellExecute = false,
                 CreateNoWindow = true
@@ -56,7 +56,7 @@ public class DevelopmentStopScriptTests
 
             using var stopProcess = Process.Start(new ProcessStartInfo
             {
-                FileName = "pwsh.exe",
+                FileName = PowerShellTestEnvironment.Executable!,
                 ArgumentList = { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", testScript },
                 UseShellExecute = false,
                 RedirectStandardOutput = true,

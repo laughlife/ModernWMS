@@ -31,6 +31,10 @@ public class DispatchWorkflowEndpointTests
     [InlineData("POST", "/dispatch-workflow/1/complete-picking")]
     [InlineData("POST", "/dispatch-workflow/1/rollback-pending-pick")]
     [InlineData("GET", "/dispatch-workflow/1/print")]
+    [InlineData("POST", "/packing-task-query/page")]
+    [InlineData("POST", "/packing-task-query/selectable-stock")]
+    [InlineData("POST", "/packing-task-query/select-stock")]
+    [InlineData("POST", "/packing-task-query/delete-selection")]
     public async Task Dispatch_workflow_endpoints_reject_anonymous_requests(string method, string url)
     {
         await using var factory = CreateFactory();
