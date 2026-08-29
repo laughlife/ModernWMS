@@ -13,6 +13,37 @@ namespace ModernWMS.WMS.Services.StockAllocation;
 /// </summary>
 internal static class StockReservationMutationCoordinator
 {
+    internal const string ReservationTotalsSql = """
+        SELECT CAST(COALESCE(SUM(`remaining_qty`),0) AS SIGNED) RemainingQty,
+               CAST(COALESCE(SUM(`released_qty`),0) AS SIGNED) ReleasedQty,
+               CAST(COALESCE(SUM(`consumed_qty`),0) AS SIGNED) ConsumedQty
+          FROM `trk_stock_reservation_item`
+         WHERE `reservation_id`=@reservationId AND `deleted`=b'0'
+        """;
+
+    internal const string ReservationConservationSql = """
+        SELECT item.`remaining_qty` ItemRemainingQty,
+               CAST(COALESCE((SELECT SUM(location_owner.`remaining_qty`)
+                                FROM `wms_erp_stock_reservation_allocation` location_owner
+                               WHERE location_owner.`reservation_item_id`=item.`id`
+                                 AND location_owner.`deleted`=b'0'),0) AS SIGNED) ItemLocationRemainingQty,
+               stock.`occupied_qty` StockOccupiedQty,
+               CAST(COALESCE((SELECT SUM(stock_owner.`remaining_qty`)
+                                FROM `trk_stock_reservation_item` stock_owner
+                               WHERE stock_owner.`stock_id`=@stockId
+                                 AND stock_owner.`deleted`=b'0'),0) AS SIGNED) StockOwnerRemainingQty,
+               allocation.`occupied_qty` AllocationOccupiedQty,
+               CAST(COALESCE((SELECT SUM(allocation_owner.`remaining_qty`)
+                                FROM `wms_erp_stock_reservation_allocation` allocation_owner
+                               WHERE allocation_owner.`stock_allocation_id`=@allocationId
+                                 AND allocation_owner.`deleted`=b'0'),0) AS SIGNED) AllocationOwnerRemainingQty
+          FROM `trk_stock_reservation_item` item
+          JOIN `trk_stock` stock ON stock.`id`=@stockId AND stock.`deleted`=b'0'
+          JOIN `wms_erp_stock_allocation` allocation ON allocation.`id`=@allocationId
+         WHERE item.`id`=@reservationItemId
+           AND item.`stock_id`=@stockId AND item.`deleted`=b'0'
+        """;
+
     internal sealed record LockedOwner(
         long ReservationId,
         long ReservationItemId,
@@ -382,29 +413,7 @@ internal static class StockReservationMutationCoordinator
         CancellationToken cancellationToken)
     {
         var quantities = await connection.QuerySingleAsync<ReservationConservationRow>(new CommandDefinition(
-            """
-            SELECT item.`remaining_qty` ItemRemainingQty,
-                   COALESCE((SELECT SUM(location_owner.`remaining_qty`)
-                               FROM `wms_erp_stock_reservation_allocation` location_owner
-                              WHERE location_owner.`reservation_item_id`=item.`id`
-                                AND location_owner.`deleted`=b'0'),0) ItemLocationRemainingQty,
-                   stock.`occupied_qty` StockOccupiedQty,
-                   COALESCE((SELECT SUM(stock_owner.`remaining_qty`)
-                               FROM `trk_stock_reservation_item` stock_owner
-                              WHERE stock_owner.`stock_id`=@stockId
-                                AND stock_owner.`deleted`=b'0'),0) StockOwnerRemainingQty,
-                   allocation.`occupied_qty` AllocationOccupiedQty,
-                   COALESCE((SELECT SUM(allocation_owner.`remaining_qty`)
-                               FROM `wms_erp_stock_reservation_allocation` allocation_owner
-                              WHERE allocation_owner.`stock_allocation_id`=@allocationId
-                                AND allocation_owner.`deleted`=b'0'),0) AllocationOwnerRemainingQty
-              FROM `trk_stock_reservation_item` item
-              JOIN `trk_stock` stock ON stock.`id`=@stockId AND stock.`deleted`=b'0'
-              JOIN `wms_erp_stock_allocation` allocation
-                ON allocation.`id`=@allocationId
-             WHERE item.`id`=@reservationItemId
-               AND item.`stock_id`=@stockId AND item.`deleted`=b'0'
-            """,
+            ReservationConservationSql,
             new
             {
 
@@ -543,13 +552,7 @@ internal static class StockReservationMutationCoordinator
         long reservationId, DateTime now, CancellationToken cancellationToken)
     {
         var totals = await connection.QuerySingleAsync<ReservationTotals>(new CommandDefinition(
-            """
-            SELECT COALESCE(SUM(`remaining_qty`),0) RemainingQty,
-                   COALESCE(SUM(`released_qty`),0) ReleasedQty,
-                   COALESCE(SUM(`consumed_qty`),0) ConsumedQty
-              FROM `trk_stock_reservation_item`
-             WHERE `reservation_id`=@reservationId AND `deleted`=b'0'
-            """,
+            ReservationTotalsSql,
             new { reservationId }, transaction,
             cancellationToken: cancellationToken));
         var status = totals.RemainingQty > 0
