@@ -213,6 +213,33 @@ public class PackingTaskQueryServiceTests
     }
 
     [Fact]
+    public async Task SelectableStock_returns_same_creator_same_warehouse_and_prioritizes_matching_product()
+    {
+        var source = new InMemoryPackingTaskQueryDataSource
+        {
+            SelectableData = new PackingTaskSelectableData(
+            [
+                Stock(9002, 320118, 77, matched: false),
+                Stock(9001, 320118, 77, matched: true)
+            ],
+            320118,
+            "深圳自建仓")
+        };
+
+        var (rows, totals) = await CreateService(source).SelectableStockPageAsync(
+            new PackingTaskStockPageRequest { sellfox_task_id = 101, sellfox_item_id = 1001 },
+            CurrentUserContext());
+
+        Assert.Equal(2, totals);
+        Assert.Equal([9001L, 9002L], rows.Select(row => row.erp_stock_id).ToArray());
+        Assert.All(rows, row =>
+        {
+            Assert.Equal(320118, row.warehouse_id);
+            Assert.Equal(77, row.goods_owner_id);
+        });
+    }
+
+    [Fact]
     public async Task DeleteStockSelectionAsync_releases_the_locked_selection()
     {
         var source = new InMemoryPackingTaskQueryDataSource();
@@ -353,6 +380,16 @@ public class PackingTaskQueryServiceTests
 
     private static CurrentUser CurrentUserContext() => new();
 
+    private static SelectableStockViewModel Stock(
+        long erpStockId, int warehouseId, int creatorId, bool matched) => new()
+        {
+            erp_stock_id = erpStockId,
+            warehouse_id = warehouseId,
+            goods_owner_id = creatorId,
+            matched = matched,
+            sku_code = $"SKU-{erpStockId}"
+        };
+
     private static void AssertCancellationTransition(string sql, string reason)
     {
         Assert.Contains("SET `status`='CANCELLED'", sql, StringComparison.Ordinal);
@@ -433,6 +470,7 @@ public class PackingTaskQueryServiceTests
         public HashSet<long> ActiveSourceTaskIds { get; } = [];
         public Dictionary<long, PackingTaskStockAvailability> AvailabilityByItemId { get; } = [];
         public List<PackingTaskPageRequest> PageRequests { get; } = [];
+        public PackingTaskSelectableData? SelectableData { get; init; }
 
         public Task<PackingTaskPageData> LoadPageAsync(PackingTaskPageRequest request)
         {
@@ -467,7 +505,7 @@ public class PackingTaskQueryServiceTests
 
         public Task<PackingTaskSelectableData?> LoadSelectableStockAsync(
             PackingTaskStockPageRequest request, CurrentUser currentUser) =>
-            System.Threading.Tasks.Task.FromResult<PackingTaskSelectableData?>(null);
+            System.Threading.Tasks.Task.FromResult(SelectableData);
 
         public Task<PackingTaskStockSaveResult> SaveSelectionAsync(
             PackingTaskStockSelectRequest request, CurrentUser currentUser) =>

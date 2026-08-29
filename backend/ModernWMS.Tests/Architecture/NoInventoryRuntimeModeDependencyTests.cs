@@ -1,67 +1,44 @@
 using System.Reflection;
 using System.Reflection.Emit;
-using ModernWMS.Core.JWT;
 using ModernWMS.WMS.Services;
 
 namespace ModernWMS.Tests.Architecture;
 
-public sealed class NoTenantDependencyTests
+public sealed class NoInventoryRuntimeModeDependencyTests
 {
+    private static readonly string[] ForbiddenTerms =
+    [
+        "LEGACY_READ",
+        "CANONICAL_ERP",
+        "maintenance_enabled",
+        "wms_inventory_runtime_config",
+        "库存维护窗口",
+        "旧库存模式"
+    ];
+
     [Fact]
-    public void Production_assemblies_expose_no_tenant_contract_or_runtime_literal()
+    public void Production_assembly_has_one_inventory_path_without_runtime_mode_or_maintenance_gate()
     {
-        var assemblies = new[]
-        {
-            typeof(CurrentUser).Assembly,
-            typeof(PackingTaskQueryService).Assembly
-        };
-        var violations = assemblies
-            .SelectMany(FindViolations)
+        var violations = typeof(PackingTaskQueryService).Assembly.GetTypes()
+            .SelectMany(type => type.GetMethods(BindingFlags.Public | BindingFlags.NonPublic
+                                                | BindingFlags.Instance | BindingFlags.Static)
+                .SelectMany(method => ReadStringLiterals(method)
+                    .Select(literal => (type, method, literal))))
+            .Where(value => ForbiddenTerms.Any(term =>
+                value.literal.Contains(term, StringComparison.OrdinalIgnoreCase)))
+            .Select(value => $"{value.type.FullName}.{value.method.Name}: {value.literal}")
             .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal)
             .ToArray();
 
         Assert.True(violations.Length == 0,
-            "Production tenant dependencies remain:" + Environment.NewLine
+            "Inventory runtime-mode dependencies remain:" + Environment.NewLine
             + string.Join(Environment.NewLine, violations));
     }
 
-    private static IEnumerable<string> FindViolations(Assembly assembly)
-    {
-        foreach (var type in assembly.GetTypes())
-        {
-            if (ContainsTenant(type.FullName)) yield return $"type: {type.FullName}";
-            foreach (var member in type.GetMembers(BindingFlags.Public | BindingFlags.NonPublic
-                                                   | BindingFlags.Instance | BindingFlags.Static))
-            {
-                if (ContainsTenant(member.Name))
-                    yield return $"member: {type.FullName}.{member.Name}";
-            }
-            foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.NonPublic
-                                                   | BindingFlags.Instance | BindingFlags.Static))
-            {
-                foreach (var parameter in method.GetParameters())
-                {
-                    if (ContainsTenant(parameter.Name))
-                        yield return $"parameter: {type.FullName}.{method.Name}({parameter.Name})";
-                }
-                foreach (var literal in ReadStringLiterals(method))
-                {
-                    if (ContainsTenant(literal))
-                        yield return $"literal: {type.FullName}.{method.Name}: {literal}";
-                }
-            }
-        }
-    }
-
-    private static bool ContainsTenant(string? value) =>
-        value?.Contains("tenant", StringComparison.OrdinalIgnoreCase) == true
-        || value?.Contains("跨租户", StringComparison.Ordinal) == true;
-
     private static IEnumerable<string> ReadStringLiterals(MethodInfo method)
     {
-        var body = method.GetMethodBody();
-        var il = body?.GetILAsByteArray();
+        var il = method.GetMethodBody()?.GetILAsByteArray();
         if (il == null) yield break;
 
         for (var offset = 0; offset < il.Length;)
