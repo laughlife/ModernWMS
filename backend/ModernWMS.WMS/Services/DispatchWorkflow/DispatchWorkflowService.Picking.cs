@@ -85,10 +85,10 @@ public partial class DispatchWorkflowService
                     INSERT INTO `wms_dispatchpicklist` (`dispatchlist_id`,`packing_task_item_id`,`stock_id`,`erp_stock_id`,`stock_allocation_id`,`reservation_id`,`reservation_item_id`,`goods_owner_id`,`goods_location_id`,`sku_id`,`pick_qty`,`picked_qty`,
                       `is_update_stock`,`last_update_time`,`series_number`,`picker_id`,`picker`,`expiry_date`,`price`,`putaway_date`)
                     VALUES (@detailId,@itemId,@stockId,@erpStockId,@allocationId,@reservationId,@reservationItemId,@ownerId,@locationId,@skuId,@quantity,@quantity,0,@now,@series,@userId,@name,@expiry,@price,@putaway);
-                    """,new{detailId=details[a.Item.id],itemId=a.Item.id,a.StockId,erpStockId=a.ErpStockId,
+                    """,new{detailId=details[a.Item.id],itemId=a.Item.id,stockId=(int?)null,erpStockId=a.ErpStockId,
                         allocationId=(long?)null,reservationId=a.ReservationId,
-                        reservationItemId=a.ReservationItemId,ownerId=0,locationId=0,
-                        skuId=0,a.Quantity,now,series=string.Empty,userId=user.user_id,name=user.user_name,
+                        reservationItemId=a.ReservationItemId,ownerId=(int?)null,locationId=(int?)null,
+                        skuId=(int?)null,a.Quantity,now,series=string.Empty,userId=user.user_id,name=user.user_name,
                         expiry=ModernWMS.Core.Utility.UtilConvert.MinDate,Price=0m,
                         putaway=ModernWMS.Core.Utility.UtilConvert.MinDate},tx,cancellationToken:ct));
             await c.ExecuteAsync(new CommandDefinition("""
@@ -185,9 +185,7 @@ public partial class DispatchWorkflowService
     private sealed record PickingAllocation(
         DispatchPackingTaskItemEntity Item,long ErpStockId,long? ReservationId,
         long? ReservationItemId,int Quantity,int SelectionId)
-    {
-        public int StockId=>0;
-    }
+    { }
 
     private sealed class BoundSelectionRow
     {

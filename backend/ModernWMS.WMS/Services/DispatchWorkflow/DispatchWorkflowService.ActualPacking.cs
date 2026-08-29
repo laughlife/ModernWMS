@@ -266,8 +266,8 @@ public partial class DispatchWorkflowService
               `erp_stock_id`,`stock_allocation_id`,`reservation_id`,`reservation_item_id`,`goods_owner_id`,
               `goods_location_id`,`sku_id`,`pick_qty`,`picked_qty`,`is_update_stock`,`last_update_time`,
               `series_number`,`picker_id`,`picker`,`expiry_date`,`price`,`putaway_date`)
-            VALUES (@detailId,@taskItemId,0,@erpStockId,NULL,@reservationId,@reservationItemId,
-              0,0,0,@quantity,@quantity,0,@now,'',@userId,@name,@minDate,0,@minDate);
+            VALUES (@detailId,@taskItemId,NULL,@erpStockId,NULL,@reservationId,@reservationItemId,
+              NULL,NULL,NULL,@quantity,@quantity,0,@now,'',@userId,@name,@minDate,0,@minDate);
             SELECT LAST_INSERT_ID();
             """,new{detailId,taskItemId=group.Key.PackingTaskItemId,erpStockId=group.Key.ErpStockId,
                 reservationId=reservation.ReservationId,reservationItemId=reservation.ReservationItemId,

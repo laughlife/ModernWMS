@@ -310,8 +310,8 @@ internal sealed class DapperPackingTaskQueryDataSource(
                        `goods_location_id`,`goods_owner_id`,`sku_code`,`selected_by`,`selected_by_name`,
                        `create_time`,`last_update_time`,`status`,`operation_source`)
                     VALUES
-                      (@TaskId,@ItemId,0,0,@ErpStockId,NULL,@ReservationId,@ReservationItemId,@Qty,
-                       NULL,0,@SkuCode,@SelectedBy,@SelectedByName,@Now,@Now,'ACTIVE','MODERN_WMS');
+                      (@TaskId,@ItemId,NULL,NULL,@ErpStockId,NULL,@ReservationId,@ReservationItemId,@Qty,
+                       NULL,NULL,@SkuCode,@SelectedBy,@SelectedByName,@Now,@Now,'ACTIVE','MODERN_WMS');
                     """, new
                 {
                     TaskId = request.sellfox_task_id,
