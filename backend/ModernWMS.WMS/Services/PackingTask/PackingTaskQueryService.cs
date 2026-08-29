@@ -6,6 +6,7 @@ using ModernWMS.Core.Models;
 using ModernWMS.WMS.Entities.ViewModels;
 using ModernWMS.WMS.Entities.ViewModels.PackingTask;
 using ModernWMS.WMS.IServices;
+using ModernWMS.WMS.IServices.PackingTask;
 using ModernWMS.WMS.IServices.StockAllocation;
 
 namespace ModernWMS.WMS.Services;
@@ -67,9 +68,11 @@ public class PackingTaskQueryService : IPackingTaskQueryService
         IMySqlConnectionFactory connectionFactory,
         IConfiguration configuration,
         IWarehouseAccessService warehouseAccessService,
-        IPackingStockMutationService packingStockMutationService)
+        IPackingStockMutationService packingStockMutationService,
+        ILegacyPackingSelectionReleaseAdapter legacyReleaseAdapter)
         : this(new DapperPackingTaskQueryDataSource(
-            connectionFactory, packingStockMutationService), configuration, warehouseAccessService)
+            connectionFactory, packingStockMutationService, legacyReleaseAdapter),
+            configuration, warehouseAccessService)
     {
     }
 

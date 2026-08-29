@@ -6,6 +6,7 @@ using ModernWMS.Core.Database;
 using ModernWMS.Core.DBContext.Entities;
 using ModernWMS.Core.JWT;
 using ModernWMS.WMS.Entities.ViewModels.PackingTask;
+using ModernWMS.WMS.IServices.PackingTask;
 using ModernWMS.WMS.IServices.StockAllocation;
 
 namespace ModernWMS.WMS.Services;
@@ -13,12 +14,15 @@ namespace ModernWMS.WMS.Services;
 /// <summary>Direct <c>trk_stock</c> persistence boundary for Sellfox packing tasks.</summary>
 internal sealed class DapperPackingTaskQueryDataSource(
     IMySqlConnectionFactory connectionFactory,
-    IPackingStockMutationService stockMutationService) : IPackingTaskQueryDataSource
+    IPackingStockMutationService stockMutationService,
+    ILegacyPackingSelectionReleaseAdapter legacyReleaseAdapter) : IPackingTaskQueryDataSource
 {
     private readonly IMySqlConnectionFactory _connectionFactory = connectionFactory
         ?? throw new ArgumentNullException(nameof(connectionFactory));
     private readonly IPackingStockMutationService _stockMutationService = stockMutationService
         ?? throw new ArgumentNullException(nameof(stockMutationService));
+    private readonly ILegacyPackingSelectionReleaseAdapter _legacyReleaseAdapter = legacyReleaseAdapter
+        ?? throw new ArgumentNullException(nameof(legacyReleaseAdapter));
 
     private const string GroupMemberNamesSql = """
         WITH RECURSIVE dept_tree AS (
@@ -240,9 +244,6 @@ internal sealed class DapperPackingTaskQueryDataSource(
             if (activeRows.Count > 1)
                 return await RollbackAsync(transaction, "装箱明细存在多条活动库存绑定，请先完成历史清理");
             var existing = activeRows.SingleOrDefault();
-            if (existing?.ErpStockId is not null && existing.StockAllocationId is not null)
-                return await RollbackAsync(transaction, "历史位置分配绑定必须通过兼容释放适配器处理");
-
             var actions = BuildActions(request, currentUser, task, existing, targetQty);
             if (actions.Count > 0)
             {
@@ -280,11 +281,21 @@ internal sealed class DapperPackingTaskQueryDataSource(
                 };
                 if (action.StockId == request.erp_stock_id && action.EventType == "LOCK")
                     targetMutation = result;
+                if (action.EventType == "UNLOCK" && action.LegacyAllocationId is > 0)
+                {
+                    if (action.ReservationItemId is not > 0)
+                        throw new InvalidOperationException("历史位置分配绑定缺少共享预占明细");
+                    await _legacyReleaseAdapter.SettleReleaseAsync(
+                        connection, transaction, action.StockId,
+                        action.LegacyAllocationId.Value, action.ReservationItemId.Value,
+                        action.Quantity, currentUser.user_name ?? string.Empty);
+                }
             }
 
             var targetStock = stocks.Single(stock => stock.Id == request.erp_stock_id);
             var now = DateTime.Now;
-            if (existing == null || existing.ErpStockId != request.erp_stock_id)
+            if (existing == null || existing.ErpStockId != request.erp_stock_id
+                                 || existing.StockAllocationId != null)
             {
                 if (existing != null)
                 {
@@ -317,7 +328,6 @@ internal sealed class DapperPackingTaskQueryDataSource(
             }
             else
             {
-                var reservation = actions.Count == 0 ? null : actions[^1];
                 await connection.ExecuteAsync(new CommandDefinition(
                     """
                     UPDATE `wms_packing_task_stock_selection`
@@ -380,8 +390,6 @@ internal sealed class DapperPackingTaskQueryDataSource(
                 ErpStockId = request.erp_stock_id
             }, transaction));
             if (selection == null) return await RollbackAsync(transaction, "该ERP库存未在选择中");
-            if (selection.StockAllocationId != null)
-                return await RollbackAsync(transaction, "历史位置分配绑定必须通过兼容释放适配器处理");
             if (selection.ErpStockId is not > 0 || selection.ReservationId is null
                 || selection.ReservationItemId is null || selection.Qty <= 0)
                 return await RollbackAsync(transaction, "库存绑定缺少共享预占身份，禁止无主释放");
@@ -404,6 +412,13 @@ internal sealed class DapperPackingTaskQueryDataSource(
                 return await RollbackAsync(transaction, "绑定库存不再属于任务创建人或任务仓库");
             await _stockMutationService.ReleaseAsync(
                 connection, transaction, context, selection.ErpStockId.Value, selection.Qty);
+            if (selection.StockAllocationId is > 0)
+            {
+                await _legacyReleaseAdapter.SettleReleaseAsync(
+                    connection, transaction, selection.ErpStockId.Value,
+                    selection.StockAllocationId.Value, selection.ReservationItemId.Value,
+                    selection.Qty, currentUser.user_name ?? string.Empty);
+            }
             var now = DateTime.Now;
             await CancelSelectionAsync(connection, transaction, selection.Id, currentUser,
                 "用户取消装箱任务库存选择", "WMS_MANUAL_CANCEL", now);
@@ -429,34 +444,46 @@ internal sealed class DapperPackingTaskQueryDataSource(
         var actions = new List<MutationAction>();
         if (existing == null)
         {
-            actions.Add(Action("LOCK", request.erp_stock_id, targetQty, null, null, 1));
+            actions.Add(Action("LOCK", request.erp_stock_id, targetQty, null, null, 1, null));
             return actions;
         }
         if (existing.ErpStockId is not > 0)
             throw new InvalidOperationException("历史库存绑定缺少ERP库存身份");
+        if (existing.StockAllocationId is > 0)
+        {
+            actions.Add(Action("UNLOCK", existing.ErpStockId.Value, existing.Qty,
+                existing.ReservationId, existing.ReservationItemId, existing.RowVersion + 1,
+                existing.StockAllocationId));
+            actions.Add(Action("LOCK", request.erp_stock_id, targetQty,
+                null, null, existing.RowVersion + 2, null));
+            return actions;
+        }
         if (existing.ErpStockId == request.erp_stock_id)
         {
             var delta = targetQty - existing.Qty;
             if (delta > 0) actions.Add(Action("LOCK", request.erp_stock_id, delta,
-                existing.ReservationId, existing.ReservationItemId, existing.RowVersion + 1));
+                existing.ReservationId, existing.ReservationItemId, existing.RowVersion + 1, null));
             if (delta < 0) actions.Add(Action("UNLOCK", request.erp_stock_id, -delta,
-                existing.ReservationId, existing.ReservationItemId, existing.RowVersion + 1));
+                existing.ReservationId, existing.ReservationItemId, existing.RowVersion + 1, null));
             return actions;
         }
         actions.Add(Action("UNLOCK", existing.ErpStockId.Value, existing.Qty,
-            existing.ReservationId, existing.ReservationItemId, existing.RowVersion + 1));
-        actions.Add(Action("LOCK", request.erp_stock_id, targetQty, null, null, existing.RowVersion + 2));
+            existing.ReservationId, existing.ReservationItemId, existing.RowVersion + 1, null));
+        actions.Add(Action("LOCK", request.erp_stock_id, targetQty,
+            null, null, existing.RowVersion + 2, null));
         return actions;
 
         MutationAction Action(
             string eventType, long stockId, long quantity, long? reservationId,
-            long? reservationItemId, long sequence) => new(
+            long? reservationItemId, long sequence, long? legacyAllocationId) => new(
             eventType,
             stockId,
             quantity,
             BuildContext(currentUser, request.sellfox_task_id, request.sellfox_item_id,
                 task.WarehouseId, stockId, eventType == "LOCK" ? "RESERVE" : "RELEASE",
-                quantity, sequence, reservationId, reservationItemId));
+                quantity, sequence, reservationId, reservationItemId),
+            legacyAllocationId,
+            reservationItemId);
     }
 
     private static StockMutationContext BuildContext(
@@ -593,7 +620,9 @@ internal sealed class DapperPackingTaskQueryDataSource(
         string EventType,
         long StockId,
         long Quantity,
-        StockMutationContext Context);
+        StockMutationContext Context,
+        long? LegacyAllocationId,
+        long? ReservationItemId);
 
     private sealed class AvailabilityRow
     {
