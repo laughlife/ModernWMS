@@ -13,28 +13,10 @@ namespace ModernWMS.WMS.Services;
 /// </summary>
 public partial class ErpPendingReceiptService
 {
-    private const string CanonicalInventoryMode = "CANONICAL_ERP";
-
-    private async Task EnsureCanonicalInventoryWriteEnabledAsync(long erpWarehouseId)
+    private static Task EnsureCanonicalInventoryWriteEnabledAsync(long erpWarehouseId)
     {
-        var connection = _activeConnection
-            ?? throw new InvalidOperationException("数据库连接尚未打开");
-        var config = await connection.QuerySingleOrDefaultAsync<InventoryRuntimeGate>(
-            """
-            SELECT mode,maintenance_enabled
-             FROM wms_inventory_runtime_config
-             WHERE erp_warehouse_id=@erpWarehouseId
-             LIMIT 1 FOR SHARE
-            """,
-            new { erpWarehouseId },
-            _activeTransaction);
-        InventoryRuntimePolicy.EnsureWriteAllowed(
-            config?.mode,
-            config?.maintenance_enabled ?? false);
-        // The shared config-row lock lets normal inventory commands run concurrently while a
-        // maintenance-window UPDATE waits for every in-flight command to release its shared lock.
-        // CANONICAL_ERP may only be enabled after the ERP migration has enforced one active POOL
-        // row per warehouse/product/owner/forwarder business dimension.
+        if(erpWarehouseId<=0)throw new InvalidOperationException("ERP仓库标识无效");
+        return Task.CompletedTask;
     }
 
     private async Task<ErpStockPosting> PostErpStockAsync(
@@ -491,7 +473,6 @@ public partial class ErpPendingReceiptService
         return operationKey;
     }
 
-    private sealed record InventoryRuntimeGate(string mode, bool maintenance_enabled);
     private sealed record ErpStockBalance(long id, long available_qty, long occupied_qty, long total_qty);
     private sealed record ErpStockPosting(
         long StockId,

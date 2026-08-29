@@ -46,7 +46,7 @@ namespace ModernWMS.WMS.Entities.ViewModels
         /// <summary>
         /// Inventory read mode for the warehouse.
         /// </summary>
-        public string inventory_mode { get; set; } = "LEGACY_READ";
+        public string inventory_mode { get; set; } = "ERP_STOCK";
 
         /// <summary>
         /// Allocation state: ACTIVE, UNLOCATED, RETIRED or LEGACY.

@@ -297,8 +297,8 @@ public class StockadjustService : BaseService<StockadjustEntity>, IStockadjustSe
 
 internal static class CanonicalInventorySupport
 {
-    internal const string LegacyMode = "LEGACY_READ";
-    internal const string CanonicalMode = "CANONICAL_ERP";
+    internal const string LegacyMode = "DECOMMISSIONED";
+    internal const string CanonicalMode = "ERP_STOCK";
 
     internal static async Task<InventoryRoute> GetRouteAsync(
         MySqlConnection connection,
@@ -315,24 +315,12 @@ internal static class CanonicalInventorySupport
             """, new { goodsLocationId });
         if (warehouse == null || warehouse.ErpWarehouseId <= 0)
             throw new InvalidOperationException("库位未映射有效的ERP仓库，禁止库存操作");
-        var config = await connection.QuerySingleOrDefaultAsync<RuntimeGate>("""
-            SELECT `mode` Mode,`maintenance_enabled` MaintenanceEnabled
-              FROM `wms_inventory_runtime_config`
-             WHERE `erp_warehouse_id`=@erpWarehouseId
-             LIMIT 1;
-            """, new { erpWarehouseId = warehouse.ErpWarehouseId });
-        var route = new InventoryRoute
+        return new InventoryRoute
         {
             GoodsLocationId = goodsLocationId,
             ErpWarehouseId = warehouse.ErpWarehouseId,
-            Mode = config?.Mode ?? LegacyMode,
-            MaintenanceEnabled = config?.MaintenanceEnabled ?? false
+            Mode = CanonicalMode
         };
-        if (route.MaintenanceEnabled)
-            throw new InvalidOperationException($"ERP仓库 {route.ErpWarehouseId} 正处于库存维护窗口，禁止库存操作");
-        if (route.Mode is not LegacyMode and not CanonicalMode)
-            throw new InvalidOperationException($"ERP仓库 {route.ErpWarehouseId} 的库存运行模式无效：{route.Mode}");
-        return route;
     }
 
     internal static async Task<InventoryRoute> LockRouteAsync(
@@ -341,37 +329,8 @@ internal static class CanonicalInventorySupport
 
         InventoryRoute snapshot)
     {
-        var locked = await LockRuntimeAsync(connection, transaction, snapshot);
         await ValidateLocationRouteAsync(connection, transaction, snapshot);
-        return locked;
-    }
-
-    private static async Task<InventoryRoute> LockRuntimeAsync(
-        MySqlConnection connection,
-        IDbTransaction transaction,
-
-        InventoryRoute snapshot)
-    {
-        var config = await connection.QuerySingleOrDefaultAsync<RuntimeGate>("""
-            SELECT `mode` Mode,`maintenance_enabled` MaintenanceEnabled
-              FROM `wms_inventory_runtime_config`
-             WHERE `erp_warehouse_id`=@erpWarehouseId
-             FOR SHARE;
-            """, new { erpWarehouseId = snapshot.ErpWarehouseId }, transaction);
-        var locked = new InventoryRoute
-        {
-            GoodsLocationId = snapshot.GoodsLocationId,
-            ErpWarehouseId = snapshot.ErpWarehouseId,
-            Mode = config?.Mode ?? LegacyMode,
-            MaintenanceEnabled = config?.MaintenanceEnabled ?? false
-        };
-        if (locked.MaintenanceEnabled)
-            throw new InvalidOperationException($"ERP仓库 {locked.ErpWarehouseId} 正处于库存维护窗口，禁止库存操作");
-        if (locked.Mode is not LegacyMode and not CanonicalMode)
-            throw new InvalidOperationException($"ERP仓库 {locked.ErpWarehouseId} 的库存运行模式无效：{locked.Mode}");
-        if (locked.Mode != snapshot.Mode)
-            throw new InvalidOperationException("库存运行模式在业务操作期间发生变化，请重试");
-        return locked;
+        return snapshot;
     }
 
     private static async Task ValidateLocationRouteAsync(
@@ -406,7 +365,8 @@ internal static class CanonicalInventorySupport
         {
             if (group.Select(x => x.Mode).Distinct(StringComparer.Ordinal).Count() != 1)
                 throw new InvalidOperationException($"ERP仓库 {group.Key} 的库存路由快照不一致，请重试");
-            _ = await LockRuntimeAsync(connection, transaction, group.First());
+            if(group.First().Mode!=CanonicalMode)
+                throw new InvalidOperationException($"ERP仓库 {group.Key} 未使用唯一ERP库存路由");
         }
         foreach (var snapshot in routes.SelectMany(x => x).OrderBy(x => x.ErpWarehouseId).ThenBy(x => x.GoodsLocationId))
             await ValidateLocationRouteAsync(connection, transaction, snapshot);
@@ -581,19 +541,12 @@ internal static class CanonicalInventorySupport
     {
         public int GoodsLocationId { get; init; }
         public long ErpWarehouseId { get; init; }
-        public string Mode { get; init; } = LegacyMode;
-        public bool MaintenanceEnabled { get; init; }
+        public string Mode { get; init; } = CanonicalMode;
     }
 
     private sealed class RouteWarehouse
     {
         public long ErpWarehouseId { get; init; }
-    }
-
-    private sealed class RuntimeGate
-    {
-        public string Mode { get; init; } = LegacyMode;
-        public bool MaintenanceEnabled { get; init; }
     }
 
     internal sealed class CanonicalAllocation

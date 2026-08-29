@@ -416,22 +416,6 @@ public class DispatchlistPickingService : IDispatchlistPickingService
                 await transaction.RollbackAsync();
                 return (false, "统一ERP库存模式不支持已出库库存的无损撤销，请按ERP库存流水执行人工向前修复");
             }
-            var legacyRuntimeBlocked = await connection.ExecuteScalarAsync<bool>("""
-                SELECT EXISTS(
-                    SELECT 1 FROM `wms_dispatchpicklist` pick
-                    JOIN `wms_goodslocation` location ON location.`id`=pick.`goods_location_id`
-                    JOIN `wms_warehouse` warehouse ON warehouse.`id`=location.`warehouse_id`
-                    JOIN `wms_inventory_runtime_config` config
-                      ON config.`erp_warehouse_id`=warehouse.`erp_warehouse_id`
-                   WHERE pick.`dispatchlist_id`=@id
-                     AND (config.`maintenance_enabled`=1 OR config.`mode`='CANONICAL_ERP'));
-                """,new { id},transaction);
-            if(legacyRuntimeBlocked)
-            {
-                await transaction.RollbackAsync();
-                return(false,"统一ERP库存模式禁止撤回并写入旧 wms_stock；请按ERP库存流水执行人工向前修复");
-            }
-
             var stockKeys = pickRows
                 .GroupBy(t => new
                 {

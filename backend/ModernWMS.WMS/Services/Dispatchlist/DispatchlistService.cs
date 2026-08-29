@@ -356,12 +356,8 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
         string dispatch_no, CurrentUser currentUser)
     {
         await using var connection=await _connectionFactory.OpenConnectionAsync();
-        var canonicalEnabled=await connection.ExecuteScalarAsync<bool>("""
-            SELECT EXISTS(SELECT 1 FROM `wms_inventory_runtime_config`
-             WHERE (`maintenance_enabled`=1 OR `mode`='CANONICAL_ERP'));
-            """);
-        if(canonicalEnabled)
-            throw new InvalidOperationException("统一ERP库存模式下旧版手工库存分配入口已停用，请使用按仓库准备拣货流程");
+        throw new InvalidOperationException("手工库存分配入口已停用，请使用ERP库存准备拣货流程");
+#pragma warning disable CS0162
         var rows=(await connection.QueryAsync<DispatchlistConfirmDetailViewModel>("""
             SELECT d.`id` `dispatchlist_id`,d.`sku_id`,d.`dispatch_no`,sku.`sku_code`,spu.`spu_code`,
               d.`dispatch_status`,spu.`spu_description`,spu.`spu_name`,sku.`bar_code`,d.`qty`
@@ -391,6 +387,7 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
             }).ToList();
         }
         return rows;
+#pragma warning restore CS0162
     }
 
     /// <summary>
@@ -651,17 +648,13 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
                         ??throw new InvalidOperationException("出库拣货明细缺少库位分配引用")
                 }).ToArray();
                 var runtimes=(await connection.QueryAsync<DispatchRuntimeRow>("""
-                    SELECT stock.`id` ErpStockId,config.`mode` Mode,
-                           config.`maintenance_enabled` MaintenanceEnabled,stock.`warehouse_id` ErpWarehouseId
+                    SELECT stock.`id` ErpStockId,stock.`warehouse_id` ErpWarehouseId
                       FROM `trk_stock` stock
-                      LEFT JOIN `wms_inventory_runtime_config` config
-                        ON config.`erp_warehouse_id`=stock.`warehouse_id`
                      WHERE stock.`id` IN @stockIds AND stock.`deleted`=b'0';
                     """,new {
                         stockIds=canonicalPicks.Select(x=>x.ErpStockId).Distinct().ToArray()},transaction)).AsList();
-                if(runtimes.Count!=canonicalPicks.Select(x=>x.ErpStockId).Distinct().Count()
-                    ||runtimes.Any(x=>x.MaintenanceEnabled||x.Mode!=CanonicalInventoryMode))
-                    return await RollbackResult((false,"ERP仓库未处于可写的统一库存模式，已拒绝出库"),transaction);
+                if(runtimes.Count!=canonicalPicks.Select(x=>x.ErpStockId).Distinct().Count())
+                    return await RollbackResult((false,"ERP库存不存在或已删除，已拒绝出库"),transaction);
                 var mutation=_stockAllocationMutationService
                     ??throw new InvalidOperationException("统一ERP库存模式未注册库存分配变更服务，操作已拒绝");
                 var shipPrelocks=canonicalPicks.Select(entry=>new StockReservationPrelockRequest(
@@ -858,8 +851,8 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
     private async Task<(bool flag,string msg)> DataChanged(IDbTransaction transaction)=>
         await RollbackResult((false,"[202]"+_stringLocalizer["data_changed"]),transaction);
 
-    private const string LegacyInventoryMode="LEGACY_READ";
-    private const string CanonicalInventoryMode="CANONICAL_ERP";
+    private const string LegacyInventoryMode="DECOMMISSIONED";
+    private const string CanonicalInventoryMode="ERP_STOCK";
 
     private async Task<(bool flag,string msg)> PrepareCanonicalPickingAsync(
         IDbConnection connection,IDbTransaction transaction,string dispatchNo,int warehouseId,int goodsOwnerId,
@@ -971,18 +964,7 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
              WHERE `id`=@warehouseId AND `is_valid`=1 LIMIT 1;
             """,new{warehouseId},transaction)
             ?? throw new InvalidOperationException("仓库不存在或未映射ERP仓库");
-        var runtime=await connection.QuerySingleOrDefaultAsync<DispatchRuntimeRow>("""
-            SELECT `mode` Mode,`maintenance_enabled` MaintenanceEnabled,
-                   @erpWarehouseId ErpWarehouseId
-              FROM `wms_inventory_runtime_config`
-             WHERE `erp_warehouse_id`=@erpWarehouseId FOR UPDATE;
-            """,new{erpWarehouseId},transaction)
-            ??new DispatchRuntimeRow{Mode=LegacyInventoryMode,ErpWarehouseId=erpWarehouseId};
-        if(runtime.MaintenanceEnabled)
-            throw new InvalidOperationException($"ERP仓库 {erpWarehouseId} 正处于库存维护窗口，出库操作已暂停");
-        if(runtime.Mode is not(LegacyInventoryMode or CanonicalInventoryMode))
-            throw new InvalidOperationException("库存运行模式无效，操作已拒绝");
-        return runtime;
+        return new DispatchRuntimeRow{Mode=CanonicalInventoryMode,ErpWarehouseId=erpWarehouseId};
     }
 
     private static StockMutationContext BuildLegacyDispatchMutationContext(CurrentUser user,long erpWarehouseId,string bizType,
@@ -1053,7 +1035,6 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
     private sealed class DispatchRuntimeRow
     {
         public string Mode{get;init;}=LegacyInventoryMode;
-        public bool MaintenanceEnabled{get;init;}
         public long ErpWarehouseId{get;init;}
         public long ErpStockId{get;init;}
     }

@@ -32,7 +32,7 @@ namespace ModernWMS.WMS.Entities.ViewModels
         /// <summary>
         /// 获取或设置 inventory_mode。
         /// </summary>
-        public string inventory_mode { get; set; } = "LEGACY_READ";
+        public string inventory_mode { get; set; } = "ERP_STOCK";
 
         /// <summary>
         /// 获取或设置 location_state。
