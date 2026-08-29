@@ -114,33 +114,36 @@ public partial class DispatchWorkflowService
     private async Task CancelAfterSourceChangeAsync(System.Data.IDbConnection c,IDbTransaction tx,
         DispatchOrderEntity order,CurrentUser user,string requestId,DateTime now,CancellationToken ct)
     {
-        var runtime=await LoadInventoryRuntimeAsync(c,tx,order.warehouse_id,ct);
         var picks=(await c.QueryAsync<DispatchpicklistEntity>(new CommandDefinition("""
             SELECT p.* FROM `wms_dispatchpicklist` p
             JOIN `wms_dispatchlist` d ON d.`id`=p.`dispatchlist_id`
-            WHERE d.`dispatch_order_id`=@id ORDER BY p.`erp_stock_id`,p.`stock_allocation_id`,p.`id` FOR UPDATE;
+            WHERE d.`dispatch_order_id`=@id ORDER BY p.`erp_stock_id`,p.`id` FOR UPDATE;
             """,new{id=order.id},tx,cancellationToken:ct))).AsList();
         if(picks.Any(x=>x.is_update_stock))throw DispatchWorkflowCommandException.StockAlreadyDeducted();
-        if(runtime.Mode==CanonicalInventoryMode)
+        if(picks.Any(x=>x.erp_stock_id is null or <=0))
+            throw DispatchWorkflowCommandException.StockConflict("检测到无ERP库存标识的历史拣货明细，已拒绝自动取消");
+        var releasable=picks.Where(x=>x.picked_qty>0).ToList();
+        if(releasable.Any(x=>x.reservation_id is null or <=0||x.reservation_item_id is null or <=0))
+            throw DispatchWorkflowCommandException.StockConflict("拣货明细缺少可安全释放的共享预占凭据");
+        if(releasable.Count>0)
         {
-            if(picks.Any(x=>x.erp_stock_id is null||x.stock_allocation_id is null))
-                throw DispatchWorkflowCommandException.StockConflict("统一ERP库存模式检测到遗留旧库存拣货明细，已拒绝取消");
-            var releasable=picks.Where(x=>x.picked_qty>0).ToList();
-            if(releasable.Count>0)
+            var mutation=RequirePackingStockMutationService();
+            var prelocks=releasable.Select(pick=>new PackingStockPrelockRequest(
+                DispatchStockMutationContext(user,order.warehouse_id,"DISPATCH_RELEASE",order.id,pick.id,
+                    pick.erp_stock_id!.Value,pick.picked_qty,
+                    $"SOURCE_CANCEL:{requestId}",pick.reservation_id,pick.reservation_item_id),
+                pick.erp_stock_id.Value,"UNLOCK")).ToArray();
+            await mutation.PrelockAsync(c,tx,[order.warehouse_id],prelocks,ct);
+            foreach(var pick in releasable.OrderBy(x=>x.erp_stock_id).ThenBy(x=>x.id))
             {
-                var mutation=RequireStockAllocationMutationService();
-                var prelocks=releasable.Select(pick=>new StockReservationPrelockRequest(
-                    DispatchMutationContext(user,order.warehouse_id,"DISPATCH_RELEASE",order.id,pick.id,
-                        pick.erp_stock_id!.Value,pick.stock_allocation_id!.Value,pick.picked_qty,
-                        $"SOURCE_CANCEL:{requestId}",pick.reservation_id,pick.reservation_item_id),
-                    pick.erp_stock_id.Value,pick.stock_allocation_id.Value,"UNLOCK")).ToArray();
-                await mutation.PrelockReservationOwnersAsync(c,tx,[order.warehouse_id],prelocks,ct);
-                foreach(var pick in releasable.OrderBy(x=>x.erp_stock_id).ThenBy(x=>x.stock_allocation_id).ThenBy(x=>x.id))
-                    await mutation.ReleaseAsync(c,tx,
-                        DispatchMutationContext(user,order.warehouse_id,"DISPATCH_RELEASE",order.id,pick.id,
-                            pick.erp_stock_id!.Value,pick.stock_allocation_id!.Value,pick.picked_qty,$"SOURCE_CANCEL:{requestId}",
-                            pick.reservation_id,pick.reservation_item_id),
-                        pick.erp_stock_id.Value,pick.stock_allocation_id.Value,pick.picked_qty,ct);
+                await mutation.ReleaseAsync(c,tx,
+                    DispatchStockMutationContext(user,order.warehouse_id,"DISPATCH_RELEASE",order.id,pick.id,
+                        pick.erp_stock_id!.Value,pick.picked_qty,$"SOURCE_CANCEL:{requestId}",
+                        pick.reservation_id,pick.reservation_item_id),pick.erp_stock_id.Value,pick.picked_qty,ct);
+                if(pick.stock_allocation_id is >0)
+                    await RequireLegacyPackingReleaseAdapter().SettleReleaseAsync(
+                        c,tx,pick.erp_stock_id.Value,pick.stock_allocation_id.Value,
+                        pick.reservation_item_id!.Value,pick.picked_qty,user.user_name??string.Empty,ct);
             }
         }
         await c.ExecuteAsync(new CommandDefinition("""

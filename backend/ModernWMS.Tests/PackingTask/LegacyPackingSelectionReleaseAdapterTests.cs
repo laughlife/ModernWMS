@@ -27,6 +27,24 @@ public sealed class LegacyPackingSelectionReleaseAdapterTests
             "UPDATE `wms_erp_stock_reservation_allocation`", StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public void Adapter_exposes_historical_consumption_settlement_without_creating_position_rows()
+    {
+        var method=typeof(LegacyPackingSelectionReleaseAdapter).GetMethod("SettleConsumeAsync");
+
+        Assert.NotNull(method);
+        var adapterType=typeof(LegacyPackingSelectionReleaseAdapter);
+        var sql=adapterType.Assembly.GetTypes()
+            .Where(type=>type==adapterType
+                ||type.FullName?.StartsWith(adapterType.FullName+"+",StringComparison.Ordinal)==true)
+            .SelectMany(type=>type.GetMethods(
+                BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.Instance|BindingFlags.Static))
+            .SelectMany(ReadStringLiterals).ToArray();
+        Assert.Contains(sql,value=>value.Contains("`consumed_qty`=`consumed_qty`+CASE WHEN @Consume=1",
+            StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(sql,value=>value.Contains("INSERT INTO",StringComparison.OrdinalIgnoreCase));
+    }
+
     private static IEnumerable<string> ReadStringLiterals(MethodInfo method)
     {
         var il = method.GetMethodBody()?.GetILAsByteArray();

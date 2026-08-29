@@ -8,59 +8,57 @@ public sealed class ActualPackingMaterializationPolicyTests
     public void Actual_less_than_current_releases_only_the_difference()
     {
         var result = ActualPackingMaterializationPolicy.Build(
-            [Pick(1, 11, 7, 1001, 101, 500)],
-            [Target("11:7:1001:101", 11, 7, 1001, 101, 480)]);
+            [Pick(1, 11, 1001, 500)],
+            [Target("11:1001", 11, 1001, 480)]);
 
         var release = Assert.Single(result.Releases);
-        Assert.Equal(1, release.PickId);
-        Assert.Equal(20, release.Quantity);
+        Assert.Equal((1, 20), (release.PickId, release.Quantity));
         Assert.Empty(result.Reserves);
     }
 
     [Fact]
-    public void Equal_actual_quantity_keeps_the_existing_allocation()
+    public void Equal_actual_quantity_keeps_the_existing_stock()
     {
         var result = ActualPackingMaterializationPolicy.Build(
-            [Pick(1, 11, 7, 1001, 101, 500)],
-            [Target("11:7:1001:101", 11, 7, 1001, 101, 500)]);
+            [Pick(1, 11, 1001, 500)],
+            [Target("11:1001", 11, 1001, 500)]);
 
         Assert.Empty(result.Releases);
         Assert.Empty(result.Reserves);
     }
 
     [Fact]
-    public void Actual_more_than_current_reserves_the_difference_even_when_stock_is_short()
+    public void Multiple_lines_for_same_erp_stock_are_grouped_without_allocation_identity()
     {
         var result = ActualPackingMaterializationPolicy.Build(
-            [Pick(1, 11, 7, 1001, 101, 480)],
-            [Target("11:7:1001:101", 11, 7, 1001, 101, 500)]);
+            [Pick(1, 11, 1001, 480)],
+            [Target("box-a", 11, 1001, 250), Target("box-b", 11, 1001, 250)]);
 
         var reserve = Assert.Single(result.Reserves);
-        Assert.Equal(20, reserve.Quantity);
-        Assert.Equal(101, reserve.StockAllocationId);
-        Assert.Empty(result.Releases);
+        Assert.Equal((1001L, 20), (reserve.ErpStockId, reserve.Quantity));
+        Assert.DoesNotContain(typeof(ActualPackingReserve).GetProperties(), property =>
+            property.Name.Contains("Allocation", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
-    public void Changed_allocation_and_task_external_sku_release_old_and_reserve_actual()
+    public void Changed_stock_releases_old_and_reserves_actual()
     {
         var result = ActualPackingMaterializationPolicy.Build(
-            [Pick(1, 11, 7, 1001, 101, 500)],
-            [Target("extra:9:2002:202", null, 9, 2002, 202, 501)]);
+            [Pick(1, 11, 1001, 500)],
+            [Target("extra:2002", null, 2002, 501)]);
 
         var release = Assert.Single(result.Releases);
         Assert.Equal((1, 500), (release.PickId, release.Quantity));
         var reserve = Assert.Single(result.Reserves);
         Assert.Null(reserve.PackingTaskItemId);
-        Assert.Equal((9, 2002L, 202L, 501),
-            (reserve.WmsSkuId, reserve.ErpStockId, reserve.StockAllocationId, reserve.Quantity));
+        Assert.Equal((2002L, 501), (reserve.ErpStockId, reserve.Quantity));
     }
 
     private static ActualPackingCurrentPick Pick(
-        int pickId,int? taskItemId,int skuId,long erpStockId,long allocationId,int quantity) =>
-        new(pickId,taskItemId,skuId,erpStockId,allocationId,quantity);
+        int pickId, int? taskItemId, long erpStockId, int quantity) =>
+        new(pickId, taskItemId, erpStockId, quantity);
 
     private static ActualPackingTarget Target(
-        string businessKey,int? taskItemId,int skuId,long erpStockId,long allocationId,int quantity) =>
-        new(businessKey,taskItemId,skuId,erpStockId,allocationId,quantity);
+        string businessKey, int? taskItemId, long erpStockId, int quantity) =>
+        new(businessKey, taskItemId, erpStockId, quantity);
 }

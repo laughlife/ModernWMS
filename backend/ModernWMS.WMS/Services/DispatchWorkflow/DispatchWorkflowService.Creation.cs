@@ -66,10 +66,8 @@ public partial class DispatchWorkflowService
             }
             var occupied = await FindOccupiedTaskIdsAsync(connection, transaction, taskIds, cancellationToken);
             if (occupied.Count > 0) throw new InvalidOperationException($"packing tasks already belong to an active order: {string.Join(',', occupied.Order())}");
-            var runtime = await LoadInventoryRuntimeAsync(connection, transaction,
-                request.warehouse_id, cancellationToken);
             var bindingRows = await LoadCreationBindingRowsAsync(connection,transaction,
-                taskIds,runtime.Mode == CanonicalInventoryMode,cancellationToken);
+                taskIds,cancellationToken);
             var bindingQty = bindingRows.GroupBy(x => (x.TaskId, x.ItemId))
                 .ToDictionary(x => x.Key, x => x.Sum(row => row.LockedQty));
             foreach (var snapshot in snapshots)
@@ -117,47 +115,19 @@ public partial class DispatchWorkflowService
 
     private static async Task<List<CreationBindingRow>> LoadCreationBindingRowsAsync(
         System.Data.IDbConnection connection,IDbTransaction transaction,
-        IReadOnlyCollection<long> taskIds,bool canonical,CancellationToken cancellationToken)
+        IReadOnlyCollection<long> taskIds,CancellationToken cancellationToken)
     {
-        var sql = canonical ? """
+        const string sql = """
                 SELECT selection.`sellfox_task_id` AS TaskId,selection.`sellfox_item_id` AS ItemId,
-                       selection.`stock_allocation_id` AS StockKey,selection.`qty` AS LockedQty,
-                       allocation.`allocated_qty`-allocation.`occupied_qty`+selection.`qty` AS AvailableBeforeTask
+                       selection.`erp_stock_id` AS StockKey,selection.`qty` AS LockedQty,
+                       stock.`available_qty`+selection.`qty` AS AvailableBeforeTask
                   FROM `wms_packing_task_stock_selection` selection
-                  JOIN `wms_erp_stock_allocation` allocation
-                    ON allocation.`id`=selection.`stock_allocation_id`
-                   AND allocation.`erp_stock_id`=selection.`erp_stock_id`
+                  JOIN `trk_stock` stock ON stock.`id`=selection.`erp_stock_id`
+                   AND stock.`deleted`=b'0'
                  WHERE selection.`sellfox_task_id` IN @taskIds
                    AND selection.`status`='ACTIVE'
                    AND selection.`erp_stock_id` IS NOT NULL
-                   AND selection.`stock_allocation_id` IS NOT NULL
-                   AND allocation.`location_state`='ACTIVE'
-                 ORDER BY selection.`stock_allocation_id`,selection.`sellfox_item_id`,selection.`id` FOR UPDATE;
-                """ : """
-                SELECT selection.`sellfox_task_id` AS TaskId,selection.`sellfox_item_id` AS ItemId,
-                       selection.`stock_id` AS StockKey,selection.`qty` AS LockedQty,
-                       GREATEST(0,CASE WHEN stock.`is_freeze`=1 THEN 0 ELSE stock.`qty`
-                         -COALESCE((SELECT SUM(pick.`pick_qty`) FROM `wms_dispatchpicklist` pick
-                           JOIN `wms_dispatchlist` detail ON detail.`id`=pick.`dispatchlist_id`
-                           WHERE detail.`dispatch_status`>1 AND detail.`dispatch_status`<6 AND pick.`stock_id`=stock.`id`),0)
-                         -COALESCE((SELECT SUM(process.`qty`) FROM `wms_stockprocessdetail` process
-                           WHERE process.`is_update_stock`=0 AND process.`sku_id`=stock.`sku_id`
-                             AND process.`goods_location_id`=stock.`goods_location_id` AND process.`goods_owner_id`=stock.`goods_owner_id`),0)
-                         -COALESCE((SELECT SUM(move.`qty`) FROM `wms_stockmove` move
-                           WHERE move.`move_status`=0 AND move.`sku_id`=stock.`sku_id`
-                             AND move.`orig_goods_location_id`=stock.`goods_location_id` AND move.`goods_owner_id`=stock.`goods_owner_id`),0)
-                         -COALESCE((SELECT SUM(other_selection.`qty`) FROM `wms_packing_task_stock_selection` other_selection
-                           WHERE other_selection.`stock_id`=stock.`id`
-                             AND other_selection.`status`='ACTIVE'),0)
-                         +COALESCE((SELECT SUM(task_selection.`qty`) FROM `wms_packing_task_stock_selection` task_selection
-                           WHERE task_selection.`stock_id`=stock.`id`
-                             AND task_selection.`sellfox_task_id` IN @taskIds
-                             AND task_selection.`status`='ACTIVE'),0) END) AS AvailableBeforeTask
-                FROM `wms_packing_task_stock_selection` selection
-                JOIN `wms_stock` stock ON stock.`id`=selection.`stock_id`
-                WHERE selection.`sellfox_task_id` IN @taskIds
-                  AND selection.`status`='ACTIVE'
-                ORDER BY selection.`stock_id`,selection.`sellfox_item_id`,selection.`id` FOR UPDATE;
+                 ORDER BY selection.`erp_stock_id`,selection.`sellfox_item_id`,selection.`id` FOR UPDATE;
                 """;
         return (await connection.QueryAsync<CreationBindingRow>(new CommandDefinition(
             sql,new{taskIds},transaction,cancellationToken:cancellationToken))).AsList();

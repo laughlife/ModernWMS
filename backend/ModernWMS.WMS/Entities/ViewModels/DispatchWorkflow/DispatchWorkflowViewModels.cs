@@ -433,16 +433,8 @@ public sealed class PackingPlanBoxItemViewModel
     /// 获取或设置 packing_task_item_id。
     /// </summary>
     public int? packing_task_item_id { get; set; }
-    /// <summary>Selected stock-allocation identity.</summary>
-    public long stock_allocation_id { get; set; }
-    /// <summary>Server-resolved ERP stock identity.</summary>
+    /// <summary>Authoritative ERP stock identity.</summary>
     public long erp_stock_id { get; set; }
-    /// <summary>Server-resolved WMS SKU.</summary>
-    public int wms_sku_id { get; set; }
-    /// <summary>Server-resolved owner snapshot.</summary>
-    public int goods_owner_id { get; set; }
-    /// <summary>Server-resolved location snapshot.</summary>
-    public int goods_location_id { get; set; }
     /// <summary>Server-resolved SKU-code snapshot.</summary>
     public string sku_code { get; set; } = string.Empty;
     /// <summary>Server-resolved commodity-name snapshot.</summary>
@@ -455,16 +447,13 @@ public sealed class PackingPlanBoxItemViewModel
     public int? dispatchpicklist_id { get; set; }
 }
 
-/// <summary>Selectable actual stock allocation for packing.</summary>
+/// <summary>Selectable ERP stock for actual packing.</summary>
 public sealed class ActualPackingStockViewModel
 {
-    public long stock_allocation_id { get; set; }
     public long erp_stock_id { get; set; }
-    public int wms_sku_id { get; set; }
-    public int goods_owner_id { get; set; }
-    public int goods_location_id { get; set; }
-    public string goods_owner_name { get; set; } = string.Empty;
-    public string location_name { get; set; } = string.Empty;
+    public long? commodity_id { get; set; }
+    public long order_user_id { get; set; }
+    public string order_user_name { get; set; } = string.Empty;
     public string sku_code { get; set; } = string.Empty;
     public string commodity_name { get; set; } = string.Empty;
     public long available_qty { get; set; }

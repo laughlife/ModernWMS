@@ -22,7 +22,8 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
     private readonly IMySqlConnectionFactory _connectionFactory;
     private readonly IPackingTaskSourceReader _sourceReader;
     private readonly IWarehouseAccessService _warehouseAccessService;
-    private readonly IStockAllocationMutationService? _stockAllocationMutationService;
+    private readonly IPackingStockMutationService? _packingStockMutationService;
+    private readonly ILegacyPackingSelectionReleaseAdapter? _legacyPackingReleaseAdapter;
 
     /// <summary>
     /// 初始化 DispatchWorkflowService 的新实例。
@@ -31,80 +32,46 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
         IMySqlConnectionFactory connectionFactory,
         IPackingTaskSourceReader sourceReader,
         IWarehouseAccessService warehouseAccessService,
-        IStockAllocationMutationService? stockAllocationMutationService = null)
+        IPackingStockMutationService? packingStockMutationService = null,
+        ILegacyPackingSelectionReleaseAdapter? legacyPackingReleaseAdapter = null)
     {
         _connectionFactory = connectionFactory;
         _sourceReader = sourceReader;
         _warehouseAccessService = warehouseAccessService;
-        _stockAllocationMutationService = stockAllocationMutationService;
+        _packingStockMutationService = packingStockMutationService;
+        _legacyPackingReleaseAdapter = legacyPackingReleaseAdapter;
     }
 
-    private const string LegacyInventoryMode = "LEGACY_READ";
-    private const string CanonicalInventoryMode = "CANONICAL_ERP";
+    private IPackingStockMutationService RequirePackingStockMutationService() =>
+        _packingStockMutationService
+        ?? throw new InvalidOperationException("未注册装箱ERP库存变更服务，操作已拒绝");
 
-    private static async Task<InventoryRuntime> LoadInventoryRuntimeAsync(
-        System.Data.IDbConnection connection,
-        System.Data.IDbTransaction? transaction,
+    private ILegacyPackingSelectionReleaseAdapter RequireLegacyPackingReleaseAdapter() =>
+        _legacyPackingReleaseAdapter
+        ?? throw new InvalidOperationException("未注册历史位置分配结清适配器，操作已拒绝");
 
-        long erpWarehouseId,
-        CancellationToken cancellationToken)
-    {
-        var suffix = transaction == null ? string.Empty : " FOR UPDATE";
-        var runtime = await connection.QuerySingleOrDefaultAsync<InventoryRuntime>(new CommandDefinition(
-            $"""
-            SELECT `mode` Mode,`maintenance_enabled` MaintenanceEnabled
-              FROM `wms_inventory_runtime_config`
-             WHERE `erp_warehouse_id`=@erpWarehouseId{suffix};
-            """, new { erpWarehouseId }, transaction, cancellationToken: cancellationToken));
-        runtime ??= new InventoryRuntime { Mode = LegacyInventoryMode };
-        if (runtime.MaintenanceEnabled)
-            throw new InvalidOperationException($"ERP仓库 {erpWarehouseId} 正处于库存维护窗口，出库操作已暂停");
-        if (runtime.Mode is not (LegacyInventoryMode or CanonicalInventoryMode))
-            throw new InvalidOperationException($"ERP仓库 {erpWarehouseId} 的库存运行模式无效");
-        return runtime;
-    }
-
-    private IStockAllocationMutationService RequireStockAllocationMutationService() =>
-        _stockAllocationMutationService
-        ?? throw new InvalidOperationException("统一ERP库存模式未注册库存分配变更服务，操作已拒绝");
-
-    private static StockMutationContext DispatchMutationContext(
+    private static StockMutationContext DispatchStockMutationContext(
         CurrentUser user,
         long erpWarehouseId,
         string action,
         long orderId,
         long bizItemId,
         long erpStockId,
-        long allocationId,
         long quantity,
         string requestIdentity,
         long? reservationId,
         long? reservationItemId)
     {
-        var operationKey = HashText(
-            $"{action}:{orderId}:{bizItemId}:{erpStockId}:{allocationId}:{quantity}:{requestIdentity}");
+        var operationKey=HashText(
+            $"{action}:{orderId}:{bizItemId}:{erpStockId}:{quantity}:{requestIdentity}");
         var operatorName=string.IsNullOrWhiteSpace(user.user_name)?$"用户{user.user_id}":user.user_name.Trim();
         if(operatorName.Length>64)operatorName=operatorName[..64];
         return new StockMutationContext(
-
-            erpWarehouseId,
-            operationKey,
-            action,
-            orderId,
-            bizItemId,
-            user.user_id,
-            operatorName,
-            action,
+            erpWarehouseId,operationKey,action,orderId,bizItemId,user.user_id,operatorName,action,
             new StockReservationMutationContext(
                 "WMS_RESERVATION_V1",operationKey,"MODERN_WMS","DISPATCH_ORDER",orderId,null,
-                "DISPATCH_ORDER",orderId,"DISPATCH_PICK",bizItemId,"DISPATCH_PICK:"+bizItemId,
-                reservationId,reservationItemId));
-    }
-
-    private sealed class InventoryRuntime
-    {
-        public string Mode { get; init; } = LegacyInventoryMode;
-        public bool MaintenanceEnabled { get; init; }
+                "DISPATCH_ORDER",orderId,"DISPATCH_PICK",bizItemId,
+                $"DISPATCH_PICK:{bizItemId}:{erpStockId}",reservationId,reservationItemId));
     }
 
     /// <summary>

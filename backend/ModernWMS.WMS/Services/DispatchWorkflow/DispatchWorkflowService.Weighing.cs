@@ -36,9 +36,8 @@ public partial class DispatchWorkflowService
             """,new{boxIds},cancellationToken:ct))).AsList();
         foreach(var box in boxes)box.items=boxItems.Where(x=>x.weighing_box_id==box.id)
             .Select(x=>new PackingPlanBoxItemViewModel{client_line_key=x.client_line_key,
-                packing_task_item_id=x.packing_task_item_id,stock_allocation_id=x.stock_allocation_id,
-                erp_stock_id=x.erp_stock_id,wms_sku_id=x.wms_sku_id,goods_owner_id=x.goods_owner_id,
-                goods_location_id=x.goods_location_id,sku_code=x.sku_code,commodity_name=x.commodity_name,
+                packing_task_item_id=x.packing_task_item_id,erp_stock_id=x.erp_stock_id,
+                sku_code=x.sku_code,commodity_name=x.commodity_name,
                 actual_qty=x.actual_qty,dispatchpicklist_id=x.dispatchpicklist_id}).ToList();
         return boxes;
     }

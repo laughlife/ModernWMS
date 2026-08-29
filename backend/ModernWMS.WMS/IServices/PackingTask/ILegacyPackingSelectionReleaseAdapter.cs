@@ -16,4 +16,15 @@ public interface ILegacyPackingSelectionReleaseAdapter : IDependency
         long quantity,
         string operatorName,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Consumes existing allocation occupation without creating any position row.</summary>
+    Task SettleConsumeAsync(
+        IDbConnection connection,
+        IDbTransaction transaction,
+        long erpStockId,
+        long allocationId,
+        long reservationItemId,
+        long quantity,
+        string operatorName,
+        CancellationToken cancellationToken = default);
 }

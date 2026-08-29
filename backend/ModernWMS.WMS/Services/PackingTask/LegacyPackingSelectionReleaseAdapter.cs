@@ -11,7 +11,7 @@ namespace ModernWMS.WMS.Services;
 public sealed class LegacyPackingSelectionReleaseAdapter : ILegacyPackingSelectionReleaseAdapter
 {
     /// <inheritdoc />
-    public async Task SettleReleaseAsync(
+    public Task SettleConsumeAsync(
         IDbConnection connection,
         IDbTransaction transaction,
         long erpStockId,
@@ -19,7 +19,33 @@ public sealed class LegacyPackingSelectionReleaseAdapter : ILegacyPackingSelecti
         long reservationItemId,
         long quantity,
         string operatorName,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        SettleAsync(connection,transaction,erpStockId,allocationId,reservationItemId,quantity,
+            operatorName,true,cancellationToken);
+
+    /// <inheritdoc />
+    public Task SettleReleaseAsync(
+        IDbConnection connection,
+        IDbTransaction transaction,
+        long erpStockId,
+        long allocationId,
+        long reservationItemId,
+        long quantity,
+        string operatorName,
+        CancellationToken cancellationToken = default) =>
+        SettleAsync(connection,transaction,erpStockId,allocationId,reservationItemId,quantity,
+            operatorName,false,cancellationToken);
+
+    private static async Task SettleAsync(
+        IDbConnection connection,
+        IDbTransaction transaction,
+        long erpStockId,
+        long allocationId,
+        long reservationItemId,
+        long quantity,
+        string operatorName,
+        bool consume,
+        CancellationToken cancellationToken)
     {
         if (erpStockId <= 0) throw new ArgumentOutOfRangeException(nameof(erpStockId));
         if (allocationId <= 0) throw new ArgumentOutOfRangeException(nameof(allocationId));
@@ -74,8 +100,11 @@ public sealed class LegacyPackingSelectionReleaseAdapter : ILegacyPackingSelecti
         var decompositionAffected = await connection.ExecuteAsync(new CommandDefinition(
             """
             UPDATE `wms_erp_stock_reservation_allocation`
-               SET `released_qty`=`released_qty`+@Quantity,`remaining_qty`=@RemainingAfter,
-                   `status`=CASE WHEN @RemainingAfter=0 THEN 'RELEASED' ELSE 'PARTIALLY_SETTLED' END,
+               SET `released_qty`=`released_qty`+CASE WHEN @Consume=0 THEN @Quantity ELSE 0 END,
+                   `consumed_qty`=`consumed_qty`+CASE WHEN @Consume=1 THEN @Quantity ELSE 0 END,
+                   `remaining_qty`=@RemainingAfter,
+                   `status`=CASE WHEN @RemainingAfter>0 THEN 'PARTIALLY_SETTLED'
+                                 WHEN @Consume=1 THEN 'CONSUMED' ELSE 'RELEASED' END,
                    `row_version`=`row_version`+1,`updater`=@OperatorName,`update_time`=@Now
              WHERE `id`=@Id AND `row_version`=@RowVersion
                AND `remaining_qty`=@BeforeRemaining;
@@ -84,6 +113,7 @@ public sealed class LegacyPackingSelectionReleaseAdapter : ILegacyPackingSelecti
             decomposition.Id,
             decomposition.RowVersion,
             Quantity = quantity,
+            Consume = consume,
             RemainingAfter = remainingAfter,
             BeforeRemaining = decomposition.RemainingQty,
             OperatorName = NormalizeOperator(operatorName),

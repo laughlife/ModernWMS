@@ -602,16 +602,16 @@ public class WeighingBoxItemEntity : BaseModel
     /// 获取或设置 packing_task_item_id。
     /// </summary>
     public int? packing_task_item_id { get; set; }
-    /// <summary>WMS SKU resolved from the selected stock allocation.</summary>
-    public int wms_sku_id { get; set; }
+    /// <summary>Historical WMS SKU snapshot; new stock-only rows leave it null.</summary>
+    public int? wms_sku_id { get; set; }
     /// <summary>ERP stock balance row used by this actual line.</summary>
     public long erp_stock_id { get; set; }
-    /// <summary>Exact WMS stock allocation used by this actual line.</summary>
-    public long stock_allocation_id { get; set; }
-    /// <summary>Actual stock owner snapshot.</summary>
-    public int goods_owner_id { get; set; }
-    /// <summary>Actual stock location snapshot.</summary>
-    public int goods_location_id { get; set; }
+    /// <summary>Historical position allocation snapshot; new rows leave it null.</summary>
+    public long? stock_allocation_id { get; set; }
+    /// <summary>Historical WMS owner snapshot; new rows leave it null.</summary>
+    public int? goods_owner_id { get; set; }
+    /// <summary>Historical WMS location snapshot; new rows leave it null.</summary>
+    public int? goods_location_id { get; set; }
     /// <summary>SKU snapshot.</summary>
     [MaxLength(255)]
     public string sku_code { get; set; } = string.Empty;
