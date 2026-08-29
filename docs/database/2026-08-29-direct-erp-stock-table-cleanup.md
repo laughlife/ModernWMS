@@ -15,9 +15,13 @@
 | `trk_stock_record` | ERP 库存余额变动流水 | 必须保留 |
 | `trk_stock_reservation` | 共享预占主表 | 必须保留 |
 | `trk_stock_reservation_item` | 共享预占明细与幂等身份 | 必须保留 |
+| `trk_stock_reservation_command` | 共享预占命令与幂等结果 | 必须保留 |
+| `trk_stock_reservation_command_item` | 共享预占命令明细 | 必须保留 |
 | `wms_packing_task_stock_selection` | 装箱任务到 `erp_stock_id` 的选择关系 | 必须保留 |
+| `wms_dispatch_order`、`wms_dispatch_packing_task`、`wms_dispatch_packing_task_item` | WMS 出库单、装箱任务及商品明细 | 必须保留 |
 | `wms_dispatchpicklist` | 出库拣货与预占身份承接表 | 必须保留 |
-| `wms_weighing_box_item` | 实际装箱商品到 `erp_stock_id` 的关系 | 必须保留 |
+| `wms_weighing_box`、`wms_weighing_box_item` | 实际装箱箱体及商品到 `erp_stock_id` 的关系 | 必须保留 |
+| `wms_dispatch_workflow_operation` | 出库命令幂等与结果账本 | 必须保留 |
 | `wms_action_log` | 用户绑定、换绑、取消等操作日志 | 必须保留 |
 
 `wms_packing_task_stock_selection`、`wms_dispatchpicklist`、`wms_weighing_box_item` 中原有的 WMS SKU、库存、货主、库位和位置分配字段只用于历史兼容；迁移后允许 `NULL`，方案 A 新增行不再写入伪造的 `0` 身份。
