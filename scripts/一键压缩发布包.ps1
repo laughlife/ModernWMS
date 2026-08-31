@@ -177,7 +177,7 @@ foreach ($requiredPath in @($backendProject, $databaseUpdateScript)) {
 }
 
 $healthMapping = Get-ChildItem -LiteralPath $backendSourceRoot -Recurse -Filter '*.cs' -File |
-    Select-String -SimpleMatch 'MapHealthChecks("/health")' |
+    Select-String -SimpleMatch 'MapHealthChecks("/health"' |
     Select-Object -First 1
 if ($null -eq $healthMapping) {
     throw '后端源码未找到 /health 健康检查映射，停止生成生产发布包。'
