@@ -20,7 +20,7 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
         gl.`warehouse_area_property`, gl.`location_name`, gl.`location_length`, gl.`location_width`,
         gl.`location_heigth`, gl.`location_volume`, gl.`location_load`, gl.`roadway_number`,
         gl.`shelf_number`, gl.`layer_number`, gl.`tag_number`, gl.`create_time`,
-        gl.`last_update_time`, gl.`is_valid`, gl.gl.`warehouse_area_id`
+        gl.`last_update_time`, gl.`is_valid`, gl.`warehouse_area_id`
         """;
 
     private static readonly IReadOnlyDictionary<string, string> SearchColumns =
@@ -35,6 +35,7 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
             ["shelf_number"] = "gl.`shelf_number`", ["layer_number"] = "gl.`layer_number`",
             ["tag_number"] = "gl.`tag_number`", ["create_time"] = "gl.`create_time`",
             ["last_update_time"] = "gl.`last_update_time`", ["is_valid"] = "gl.`is_valid`",
+            ["warehouse_area_id"] = "gl.`warehouse_area_id`",
         };
 
     private readonly IMySqlConnectionFactory _connectionFactory;
