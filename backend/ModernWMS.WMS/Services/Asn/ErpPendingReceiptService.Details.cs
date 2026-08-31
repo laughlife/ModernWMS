@@ -141,8 +141,6 @@ public partial class ErpPendingReceiptService
         var productsByShipment = new Dictionary<long, List<ErpPendingReceiptProductViewModel>>();
         var receiptAllocationsByItem = await ReadReceiptAllocationsAsync(
             rows.Where(t => t.data_source == "WMS_RECEIPT").Select(t => checked((int)t.id)).ToList());
-        var historicalAllocations = await ReadHistoricalReceiptAllocationsAsync(
-            rows.Where(t => t.stock_record_id.HasValue).Select(t => t.stock_record_id!.Value).Distinct().ToList());
         var data = rows.Select(row =>
         {
             if (!productsByShipment.TryGetValue(row.shipment_id, out var products))
@@ -183,13 +181,9 @@ public partial class ErpPendingReceiptService
             }
             else
             {
-                allocations = row.stock_record_id.HasValue
-                    ? historicalAllocations.GetValueOrDefault(row.stock_record_id.Value)?.Allocations
-                    : null;
+                allocations = [];
             }
-            var locationState = row.data_source == "ERP_HISTORY" && row.stock_record_id.HasValue
-                ? historicalAllocations.GetValueOrDefault(row.stock_record_id.Value)?.LocationState ?? "UNLOCATED"
-                : row.location_state;
+            var locationState = row.location_state;
 
             return new ErpReceiptDetailViewModel
             {
@@ -225,53 +219,6 @@ public partial class ErpPendingReceiptService
         return (data, totals);
     }
 
-    private async Task<Dictionary<long, HistoricalReceiptAllocation>> ReadHistoricalReceiptAllocationsAsync(
-        IReadOnlyCollection<long> stockRecordIds)
-    {
-        if (stockRecordIds.Count == 0)
-        {
-            return [];
-        }
-
-        await using var connection = await _connectionFactory.OpenConnectionAsync();
-        var rows = await connection.QueryAsync<HistoricalReceiptAllocationRow>("""
-            SELECT log.`erp_stock_record_id` AS `stock_record_id`,a.`warehouse_area_id`,
-                   COALESCE(area.`area_name`,location.`warehouse_area_name`,'') AS `warehouse_area_name`,
-                   a.`goods_location_id`,COALESCE(location.`location_name`,'') AS `goods_location_name`,
-                   a.`goods_owner_id`,COALESCE(owner.`goods_owner_name`,'') AS `goods_owner_name`,
-                   SUM(log.`allocated_delta`) AS `qty`,a.`location_state`
-              FROM `wms_erp_stock_allocation_log` log
-              JOIN `wms_erp_stock_allocation` a
-                ON a.`id`=log.`allocation_id`
-              LEFT JOIN `wms_warehousearea` area
-                ON area.`id`=a.`warehouse_area_id`
-              LEFT JOIN `wms_goodslocation` location
-                ON location.`id`=a.`goods_location_id`
-              LEFT JOIN `wms_goodsowner` owner
-                ON owner.`id`=a.`goods_owner_id`
-             WHERE log.`erp_stock_record_id` IN @stockRecordIds
-               AND log.`biz_type`='RECEIPT_IN' AND log.`allocated_delta`>0
-              GROUP BY log.`erp_stock_record_id`,a.`warehouse_area_id`,a.`goods_location_id`,a.`location_state`,
-                       area.`area_name`,location.`warehouse_area_name`,location.`location_name`,
-                       a.`goods_owner_id`,owner.`goods_owner_name`
-             ORDER BY log.`erp_stock_record_id`,a.`location_state`,a.`warehouse_area_id`,a.`goods_owner_id`;
-            """, new { stockRecordIds });
-        return rows.GroupBy(t => t.stock_record_id).ToDictionary(
-            t => t.Key,
-            t => new HistoricalReceiptAllocation(
-                t.Any(row => row.location_state == "UNLOCATED") ? "UNLOCATED" : "ACTIVE",
-                t.Select(row => new ErpReceiptAllocationViewModel
-                {
-                    warehouse_area_id = row.warehouse_area_id,
-                    warehouse_area_name = row.warehouse_area_name,
-                    goods_location_id = row.goods_location_id,
-                    goods_location_name = row.goods_location_name,
-                    goods_owner_id = row.goods_owner_id,
-                    goods_owner_name = row.goods_owner_name,
-                    qty = row.qty
-                }).ToList()));
-    }
-
     private sealed record ReceiptDetailRow(
         long id, long? stock_record_id, long shipment_id, long? erp_stock_id,
         string purchase_no, string shipment_batch_no,
@@ -283,20 +230,4 @@ public partial class ErpPendingReceiptService
         long warehouse_id, string warehouse_name, string lifecycle_status, string data_source,
         string location_state);
 
-    private sealed record HistoricalReceiptAllocation(
-        string LocationState,
-        List<ErpReceiptAllocationViewModel> Allocations);
-
-    private sealed class HistoricalReceiptAllocationRow
-    {
-        public long stock_record_id { get; set; }
-        public int? warehouse_area_id { get; set; }
-        public string warehouse_area_name { get; set; } = string.Empty;
-        public int? goods_location_id { get; set; }
-        public string goods_location_name { get; set; } = string.Empty;
-        public int goods_owner_id { get; set; }
-        public string goods_owner_name { get; set; } = string.Empty;
-        public long qty { get; set; }
-        public string location_state { get; set; } = string.Empty;
-    }
 }

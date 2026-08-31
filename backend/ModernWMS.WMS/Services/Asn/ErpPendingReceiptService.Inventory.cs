@@ -57,7 +57,6 @@ public partial class ErpPendingReceiptService
             var item = inputItems[product.source_item_key];
             var itemInboundQty = checked(item.actual_receipt_qty - item.loss_qty);
             long? erpStockId = null;
-            long? primaryStockAllocationId = null;
             var wmsSkuId = await EnsureWmsSkuAsync(product, currentUser, now);
             var allocations = await BuildReceiptAllocationsAsync(
                 shipment,
@@ -78,8 +77,7 @@ public partial class ErpPendingReceiptService
                     currentUser,
                     now);
                 erpStockId = posting.StockId;
-                await LockStockAllocationsInIdOrderAsync(erpStockId.Value);
-                var erpStockRecordId = await WriteErpStockReceiptRecordAsync(
+                _ = await WriteErpStockReceiptRecordAsync(
                     posting,
                     shipment,
                     product,
@@ -87,24 +85,6 @@ public partial class ErpPendingReceiptService
                     index + 1,
                     currentUser,
                     now);
-                for (var allocIndex = 0; allocIndex < allocations.Count; allocIndex++)
-                {
-                    var allocation = allocations[allocIndex];
-                    var stockAllocationId = await PostStockAllocationAsync(
-                        posting,
-                        erpStockRecordId,
-                        shipment,
-                        index + 1,
-                        wmsSkuId,
-                        allocation,
-                        currentUser,
-                        now);
-                    if (allocIndex == 0)
-                    {
-                        primaryStockAllocationId = stockAllocationId;
-                    }
-                }
-                await EnsureStockAllocationInvariantAsync(erpStockId.Value);
             }
 
             await ExecuteAsync(
@@ -140,7 +120,7 @@ public partial class ErpPendingReceiptService
                 ("@shipmentQty", item.shipment_qty), ("@actualQty", item.actual_receipt_qty),
                 ("@lossQty", item.loss_qty), ("@inboundQty", itemInboundQty),
                 ("@erpStockId", erpStockId), ("@wmsSkuId", wmsSkuId),
-                ("@primaryStockAllocationId", primaryStockAllocationId),
+                ("@primaryStockAllocationId", null),
                 ("@now", now));
 
             if (allocations.Count > 0)

@@ -20,7 +20,7 @@ public partial class ErpPendingReceiptService
             var area = await ResolveDefaultAreaAsync(warehouseId, product.dept_id, currentUser);
             product.default_warehouse_area_id = area?.Id;
             product.default_warehouse_area_name = area?.Name ?? string.Empty;
-            // GET阶段不自动锁定库位；确认事务内再根据当时的真实候选决定唯一库位。
+            // GET 阶段不提前确定库位；确认事务内再根据当时的真实候选决定唯一库位。
             product.default_goods_location_id = null;
             product.default_goods_location_name = string.Empty;
 
