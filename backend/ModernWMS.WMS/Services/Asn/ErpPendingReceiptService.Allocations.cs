@@ -20,9 +20,6 @@ public partial class ErpPendingReceiptService
             var area = await ResolveDefaultAreaAsync(warehouseId, product.dept_id, currentUser);
             product.default_warehouse_area_id = area?.Id;
             product.default_warehouse_area_name = area?.Name ?? string.Empty;
-            // GET 阶段不提前确定库位；确认事务内再根据当时的真实候选决定唯一库位。
-            product.default_goods_location_id = null;
-            product.default_goods_location_name = string.Empty;
 
             var ownerId = await ScalarOrDefaultAsync<int>(
                 "SELECT wms_goods_owner_id FROM wms_erp_goods_owner_map WHERE erp_dept_id=@deptId AND erp_order_user_id=@userId LIMIT 1",
@@ -59,15 +56,11 @@ public partial class ErpPendingReceiptService
         if (requested.Count == 0)
         {
             var defaultArea = await ResolveDefaultAreaForShipmentAsync(shipment, product, currentUser);
-            var defaultLocation = defaultArea == null
-                ? null
-                : await ResolveUniqueLocationForShipmentAsync(shipment, defaultArea.Id, currentUser);
             requested =
             [
                 new ErpReceiptAllocationInputViewModel
                 {
                     warehouse_area_id = defaultArea?.Id,
-                    goods_location_id = defaultLocation?.Id,
                     goods_owner_id = 0,
                     qty = inboundQty
                 }
@@ -78,17 +71,6 @@ public partial class ErpPendingReceiptService
         var allocationInvalid = false;
         foreach (var allocation in requested)
         {
-            try
-            {
-                _ = ReceiptStorageRoutePolicy.Resolve(
-                    allocation.warehouse_area_id,
-                    allocation.goods_location_id);
-            }
-            catch (InvalidOperationException)
-            {
-                allocationInvalid = true;
-                break;
-            }
             if (allocation.qty <= 0 || allocation.qty > inboundQty - allocatedQty)
             {
                 allocationInvalid = true;
@@ -100,20 +82,19 @@ public partial class ErpPendingReceiptService
         {
             throw new InvalidOperationException($"商品 {product.sku} 的入库分配数量必须大于 0，且合计等于实际入库数量 {inboundQty}");
         }
-        if (requested.GroupBy(t => new { t.warehouse_area_id, t.goods_location_id, t.goods_owner_id }).Any(t => t.Count() > 1))
+        if (requested.GroupBy(t => new { t.warehouse_area_id, t.goods_owner_id }).Any(t => t.Count() > 1))
         {
-            throw new InvalidOperationException($"商品 {product.sku} 存在重复的仓储位置和库存所属人组合");
+            throw new InvalidOperationException($"商品 {product.sku} 存在重复的库区和库存所属人组合");
         }
 
         var result = new List<ReceiptAllocation>(requested.Count);
         foreach (var allocation in requested)
         {
-            var storage = await ResolveReceiptStorageAsync(
+            var storage = await ResolveReceiptAreaAsync(
                 shipment,
                 product,
                 currentUser,
-                allocation.warehouse_area_id,
-                allocation.goods_location_id);
+                allocation.warehouse_area_id);
             var ownerId = allocation.goods_owner_id;
             string ownerName;
             if (ownerId == 0)
@@ -135,19 +116,16 @@ public partial class ErpPendingReceiptService
             }
 
             result.Add(new ReceiptAllocation(
-                storage.LocationId,
-                storage.LocationName,
                 storage.AreaId,
                 storage.AreaName,
                 storage.OperatorGroupName,
-                storage.LocationState,
                 ownerId,
                 ownerName,
                 allocation.qty));
         }
-        if (result.GroupBy(t => new { t.AreaId, t.LocationId, t.GoodsOwnerId }).Any(t => t.Count() > 1))
+        if (result.GroupBy(t => new { t.AreaId, t.GoodsOwnerId }).Any(t => t.Count() > 1))
         {
-            throw new InvalidOperationException($"商品 {product.sku} 存在重复的仓储位置和库存所属人组合");
+            throw new InvalidOperationException($"商品 {product.sku} 存在重复的库区和库存所属人组合");
         }
         return result;
     }
@@ -201,44 +179,6 @@ public partial class ErpPendingReceiptService
         return await reader.ReadAsync()
             ? new AreaReference(reader.GetInt32(0), reader.GetString(1))
             : null;
-    }
-
-    private async Task<LocationReference?> ResolveUniqueLocationForShipmentAsync(
-        ErpLogisticsInfoEntity shipment,
-        int areaId,
-        CurrentUser currentUser)
-    {
-        var warehouseId = await ScalarOrDefaultAsync<int>(
-            "SELECT id FROM wms_warehouse WHERE erp_warehouse_id=@erpWarehouseId AND is_valid=1 LIMIT 1",
-            ("@erpWarehouseId", shipment.to_warehouse_id));
-        return warehouseId == null
-            ? null
-            : await ResolveUniqueLocationAsync(warehouseId.Value, areaId);
-    }
-
-    private async Task<LocationReference?> ResolveUniqueLocationAsync(
-        int warehouseId,
-        int areaId)
-    {
-        await using var connectionLease = await OpenConnectionLeaseAsync();
-        await using var command = CreateCommand(
-            """
-            SELECT id,location_name
-              FROM wms_goodslocation
-             WHERE warehouse_id=@warehouseId AND warehouse_area_id=@areaId
-               AND is_valid=1
-              ORDER BY id
-              LIMIT 2
-              FOR SHARE
-            """,
-            ("@warehouseId", warehouseId), ("@areaId", areaId));
-        await using var reader = await command.ExecuteReaderAsync();
-        if (!await reader.ReadAsync())
-        {
-            return null;
-        }
-        var result = new LocationReference(reader.GetInt32(0), reader.GetString(1));
-        return await reader.ReadAsync() ? null : result;
     }
 
     private static string BuildDefaultGoodsOwnerName(ErpPendingReceiptProductViewModel product)

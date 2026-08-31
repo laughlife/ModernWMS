@@ -110,11 +110,6 @@ public class ErpReceiptAllocationInputViewModel
     public int? warehouse_area_id { get; set; }
 
     /// <summary>
-    /// 可选库位；没有绑定或不能唯一确定时保留为空。
-    /// </summary>
-    public int? goods_location_id { get; set; }
-
-    /// <summary>
     /// Zero means the purchaser-derived default goods owner.
     /// </summary>
     public int goods_owner_id { get; set; }

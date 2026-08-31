@@ -197,14 +197,6 @@ public class ErpPendingReceiptProductViewModel
     /// </summary>
     public string default_warehouse_area_name { get; set; } = string.Empty;
     /// <summary>
-    /// 获取或设置 default_goods_location_id。
-    /// </summary>
-    public int? default_goods_location_id { get; set; }
-    /// <summary>
-    /// 获取或设置 default_goods_location_name。
-    /// </summary>
-    public string default_goods_location_name { get; set; } = string.Empty;
-    /// <summary>
     /// 获取或设置 default_goods_owner_id。
     /// </summary>
     public long? default_goods_owner_id { get; set; }

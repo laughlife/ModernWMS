@@ -127,8 +127,6 @@ export interface ErpPendingReceiptProductVO {
   dept_name: string
   default_warehouse_area_id: number | null
   default_warehouse_area_name: string
-  default_goods_location_id: number | null
-  default_goods_location_name: string
   default_goods_owner_id?: number | null
   default_goods_owner_name: string
 }

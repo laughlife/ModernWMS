@@ -107,19 +107,6 @@
                             density="compact"
                             clearable
                             hide-details="auto"
-                            @update:model-value="method.syncAllocationLocation(allocation)"
-                          ></v-select>
-                          <v-select
-                            v-model="allocation.goodsLocationId"
-                            :items="method.locationOptions(allocation)"
-                            item-title="location_name"
-                            item-value="id"
-                            label="库位（可空）"
-                            variant="outlined"
-                            density="compact"
-                            clearable
-                            :disabled="!allocation.warehouseAreaId"
-                            hide-details="auto"
                           ></v-select>
                           <v-select
                             v-model="allocation.goodsOwnerId"
@@ -294,16 +281,15 @@ import { hookComponent } from '@/components/system'
 import ProductImage from '@/components/system/product-image.vue'
 import i18n from '@/languages/i18n'
 import type { ErpPendingReceiptVO } from '@/types/WMS/StockAsn'
-import type { GoodsLocationVO, WarehouseAreaVO } from '@/types/Base/Warehouse'
+import type { WarehouseAreaVO } from '@/types/Base/Warehouse'
 import type { OwnerOfCargoVO } from '@/types/Base/OwnerOfCargo'
-import { getGoodsLocation, getWarehouseAreaSelect } from '@/api/base/warehouseSetting'
+import { getWarehouseAreaSelect } from '@/api/base/warehouseSetting'
 import { getOwnerOfCargoAll } from '@/api/base/ownerOfCargo'
 import ErpReceiptImageUpload from './erp-receipt-image-upload.vue'
 
 type ReceiptFreightPaymentStatus = 'NO_PAY' | 'PAY'
 type ReceiptAllocationForm = {
   warehouseAreaId: number | null
-  goodsLocationId: number | null
   goodsOwnerId: number | null
   qty: number
 }
@@ -318,8 +304,6 @@ type ReceiptItemForm = {
   lossQty: number
   defaultWarehouseAreaId: number | null
   defaultWarehouseAreaName: string
-  defaultGoodsLocationId: number | null
-  defaultGoodsLocationName: string
   defaultGoodsOwnerId: number
   defaultGoodsOwnerName: string
   allocations: ReceiptAllocationForm[]
@@ -336,7 +320,6 @@ const data = reactive({
   optionsLoading: false,
   currentRow: null as ErpPendingReceiptVO | null,
   warehouseAreaOptions: [] as WarehouseAreaVO[],
-  goodsLocationOptions: [] as GoodsLocationVO[],
   goodsOwnerOptions: [] as OwnerOfCargoVO[],
   form: {
     items: [] as ReceiptItemForm[],
@@ -387,13 +370,10 @@ const method = reactive({
       lossQty: 0,
       defaultWarehouseAreaId: product.default_warehouse_area_id ?? null,
       defaultWarehouseAreaName: product.default_warehouse_area_name,
-      defaultGoodsLocationId: product.default_goods_location_id ?? null,
-      defaultGoodsLocationName: product.default_goods_location_name,
       defaultGoodsOwnerId: product.default_goods_owner_id ?? 0,
       defaultGoodsOwnerName: product.default_goods_owner_name || product.order_user_name,
       allocations: [{
         warehouseAreaId: product.default_warehouse_area_id ?? null,
-        goodsLocationId: product.default_goods_location_id ?? null,
         goodsOwnerId: product.default_goods_owner_id ?? 0,
         qty: Number(product.quantity ?? 0)
       }]
@@ -409,26 +389,22 @@ const method = reactive({
     data.showDialog = true
     data.optionsLoading = true
     data.warehouseAreaOptions = []
-    data.goodsLocationOptions = []
     data.goodsOwnerOptions = []
     nextTick(() => formRef.value?.resetValidation?.())
     try {
-      const [areaResponse, locationResponse, ownerResponse] = await Promise.all([
+      const [areaResponse, ownerResponse] = await Promise.all([
         row.wms_warehouse_id > 0 ? getWarehouseAreaSelect(row.wms_warehouse_id) : Promise.resolve(null),
-        row.wms_warehouse_id > 0 ? getGoodsLocation() : Promise.resolve(null),
         getOwnerOfCargoAll()
       ])
       if ((areaResponse && !areaResponse.data.isSuccess)
-        || (locationResponse && !locationResponse.data.isSuccess)
         || !ownerResponse.data.isSuccess) {
         hookComponent.$message({
           type: 'error',
-          content: areaResponse?.data.errorMessage || locationResponse?.data.errorMessage || ownerResponse.data.errorMessage
+          content: areaResponse?.data.errorMessage || ownerResponse.data.errorMessage
         })
         return
       }
       data.warehouseAreaOptions = (areaResponse?.data.data ?? []).filter((area: WarehouseAreaVO) => area.is_valid)
-      data.goodsLocationOptions = (locationResponse?.data.data ?? []).filter((location: GoodsLocationVO) => location.is_valid)
       data.goodsOwnerOptions = ownerResponse.data.data.filter((owner: OwnerOfCargoVO) => owner.is_valid !== false)
     } catch {
       hookComponent.$message({
@@ -468,7 +444,6 @@ const method = reactive({
           loss_qty: Number(item.lossQty),
           allocations: method.itemInboundQty(item) === 0 ? [] : item.allocations.map((allocation) => ({
             warehouse_area_id: allocation.warehouseAreaId == null ? null : Number(allocation.warehouseAreaId),
-            goods_location_id: allocation.goodsLocationId == null ? null : Number(allocation.goodsLocationId),
             goods_owner_id: Number(allocation.goodsOwnerId),
             qty: Number(allocation.qty)
           }))
@@ -510,8 +485,7 @@ const method = reactive({
     const inbound = method.itemInboundQty(item)
     if (inbound === 0) return true
     return item.allocations.length > 0
-      && item.allocations.every((allocation, index) => (allocation.goodsLocationId == null || Number(allocation.warehouseAreaId) > 0)
-        && (index === 0
+      && item.allocations.every((allocation, index) => (index === 0
           ? allocation.goodsOwnerId !== null && Number(allocation.goodsOwnerId) >= 0
           : allocation.goodsOwnerId !== null && Number(allocation.goodsOwnerId) > 0)
         && Number.isInteger(Number(allocation.qty))
@@ -538,7 +512,6 @@ const method = reactive({
   addAllocation: (item: ReceiptItemForm) => {
     item.allocations.push({
       warehouseAreaId: item.defaultWarehouseAreaId,
-      goodsLocationId: item.defaultGoodsLocationId,
       goodsOwnerId: null,
       qty: 0
     })
@@ -546,22 +519,9 @@ const method = reactive({
   removeAllocation: (item: ReceiptItemForm, allocationIndex: number) => {
     if (item.allocations.length > 1) item.allocations.splice(allocationIndex, 1)
   },
-  locationOptions: (allocation: ReceiptAllocationForm) => allocation.warehouseAreaId == null
-    ? []
-    : data.goodsLocationOptions.filter((location) => location.warehouse_area_id === allocation.warehouseAreaId),
   autoAllocationHint: (item: ReceiptItemForm, allocation: ReceiptAllocationForm) => {
     if (allocation.warehouseAreaId !== item.defaultWarehouseAreaId || !item.defaultWarehouseAreaName) return ''
-    const locations = method.locationOptions(allocation)
-    const locationHint = allocation.goodsLocationId == null && locations.length === 1
-      ? `；确认入库时将自动使用唯一库位：${locations[0].location_name}`
-      : ''
-    return `已按小组自动分配库区：${item.defaultWarehouseAreaName}${locationHint}`
-  },
-  syncAllocationLocation: (allocation: ReceiptAllocationForm) => {
-    if (allocation.warehouseAreaId == null
-      || !method.locationOptions(allocation).some((location) => location.id === allocation.goodsLocationId)) {
-      allocation.goodsLocationId = null
-    }
+    return `已按小组自动分配库区：${item.defaultWarehouseAreaName}`
   },
   actualQtyRules: (item: ReceiptItemForm) => [
     (value: number) => Number.isInteger(Number(value)) || i18n.global.t('wms.erpPendingReceipt.receipt_qty_integer'),
@@ -736,7 +696,7 @@ defineExpose({
 
 .receiptAllocationRow {
   display: grid;
-  grid-template-columns: minmax(125px, 1fr) minmax(125px, 1fr) minmax(145px, 1fr) 105px 36px;
+  grid-template-columns: minmax(220px, 1.6fr) minmax(165px, 1fr) 110px 36px;
   gap: 8px;
   align-items: start;
 }
