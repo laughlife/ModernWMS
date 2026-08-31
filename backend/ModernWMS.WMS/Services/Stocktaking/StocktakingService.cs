@@ -181,52 +181,23 @@ public class StocktakingService : BaseService<StocktakingEntity>, IStocktakingSe
                 connection, transaction, routeSnapshot);
             var now = DateTime.Now;
             var qty = 0;
-            if (route.Mode == CanonicalInventorySupport.CanonicalMode)
+            if (!entity.erp_stock_id.HasValue || !entity.stock_allocation_id.HasValue)
+                return await RollbackResult((false, "盘点单未绑定ERP库存分配，旧库存盘点路径已停用"), transaction);
+            if (entity.difference_qty != 0)
             {
-                if (!entity.erp_stock_id.HasValue || !entity.stock_allocation_id.HasValue)
-                    return await RollbackResult((false, "盘点单未绑定ERP库存分配，禁止确认"), transaction);
-                if (entity.difference_qty != 0)
-                {
-                    await _stockMutationService.PrelockAsync(
-                        connection, transaction,
-                        [route.ErpWarehouseId],
-                        [entity.erp_stock_id.Value], [entity.stock_allocation_id.Value]);
-                    await _stockMutationService.AdjustAvailableAsync(
-                        connection, transaction,
-                        CanonicalInventorySupport.Context(
-                            route.ErpWarehouseId,
-                            $"MWMS:TA:{entity.id}", "STOCKTAKING_ADJUST",
-                            entity.id, entity.id, currentUser, entity.creator, "盘点差异调整"),
-                        entity.erp_stock_id.Value, entity.stock_allocation_id.Value,
-                        entity.difference_qty);
-                    qty++;
-                }
-            }
-            else
-            {
-                var stockId = await connection.QuerySingleOrDefaultAsync<int?>("""
-                SELECT `id` FROM `wms_stock`
-                WHERE `sku_id`=@sku_id AND `goods_owner_id`=@goods_owner_id
-                  AND `goods_location_id`=@goods_location_id AND `series_number`=@series_number
-                  AND `expiry_date`=@expiry_date AND `price`=@price AND `putaway_date`=@putaway_date
-                LIMIT 1 FOR UPDATE;
-                """, entity, transaction);
-                qty = stockId.HasValue
-                    ? await connection.ExecuteAsync("""
-                    UPDATE `wms_stock` SET `qty`=`qty`+@differenceQty,`last_update_time`=@now
-                    WHERE `id`=@stockId;
-                    """, new { differenceQty = entity.difference_qty, now, stockId }, transaction)
-                : await connection.ExecuteAsync("""
-                    INSERT INTO `wms_stock`
-                      (`sku_id`,`goods_location_id`,`qty`,`goods_owner_id`,`is_freeze`,`last_update_time`,
-                       `series_number`,`expiry_date`,`price`,`putaway_date`)
-                    VALUES
-                      (@skuId,@goodsLocationId,@qty,@goodsOwnerId,0,@now,@seriesNumber,
-                       @expiryDate,@price,@putawayDate);
-                    """, new { skuId = entity.sku_id, goodsLocationId = entity.goods_location_id,
-                        qty = entity.difference_qty, goodsOwnerId = entity.goods_owner_id, now,
-                        expiryDate = entity.expiry_date, entity.price,
-                        putawayDate = DateTime.Now.ToString("yyyy-MM-dd").ObjToDate() }, transaction);
+                await _stockMutationService.PrelockAsync(
+                    connection, transaction,
+                    [route.ErpWarehouseId],
+                    [entity.erp_stock_id.Value], [entity.stock_allocation_id.Value]);
+                await _stockMutationService.AdjustAvailableAsync(
+                    connection, transaction,
+                    CanonicalInventorySupport.Context(
+                        route.ErpWarehouseId,
+                        $"MWMS:TA:{entity.id}", "STOCKTAKING_ADJUST",
+                        entity.id, entity.id, currentUser, entity.creator, "盘点差异调整"),
+                    entity.erp_stock_id.Value, entity.stock_allocation_id.Value,
+                    entity.difference_qty);
+                qty++;
             }
             qty += await connection.ExecuteAsync("""
                 INSERT INTO `wms_stockadjust`

@@ -382,40 +382,6 @@ public partial class DispatchWorkflowService
         }
     }
 
-    private static void ValidateStocks(IReadOnlyCollection<DispatchpicklistEntity> allocations,
-        IReadOnlyCollection<StockEntity> stocks, bool deduct)
-    {
-        foreach (var group in allocations.GroupBy(x => x.stock_id))
-        {
-            var stock = stocks.SingleOrDefault(x => x.id == group.Key);
-            if (stock == null || group.Any(x => !SameAllocatedIdentity(stock, x)))
-                throw DispatchWorkflowCommandException.StockConflict("the exact allocated stock row no longer exists");
-            if (deduct && (stock.is_freeze || stock.qty < group.Sum(x => x.picked_qty)))
-                throw DispatchWorkflowCommandException.StockConflict("allocated stock has insufficient available quantity");
-        }
-    }
-
-    private static bool SameAllocatedIdentity(StockEntity stock, DispatchpicklistEntity allocation) =>
-        stock.sku_id == allocation.sku_id && stock.goods_location_id == allocation.goods_location_id
-        && stock.goods_owner_id == allocation.goods_owner_id && stock.series_number == allocation.series_number
-        && stock.expiry_date == allocation.expiry_date && stock.price == allocation.price
-        && stock.putaway_date == allocation.putaway_date;
-
-    private static async Task EnsureStocksBelongToOrderWarehouseAsync(IDbConnection connection, IDbTransaction transaction,
-        long erpWarehouseId, IReadOnlyCollection<StockEntity> stocks, CancellationToken cancellationToken)
-    {
-        var warehouseIds = (await connection.QueryAsync<int>(new CommandDefinition("""
-            SELECT `id` FROM `wms_warehouse` WHERE `erp_warehouse_id`=@erpWarehouseId AND `is_valid`=1;
-            """, new { erpWarehouseId }, transaction, cancellationToken: cancellationToken))).AsList();
-        if (warehouseIds.Count != 1)
-            throw DispatchWorkflowCommandException.StockConflict("ERP warehouse has no unique WMS warehouse mapping");
-        var locationIds = (await connection.QueryAsync<int>(new CommandDefinition("""
-            SELECT `id` FROM `wms_goodslocation` WHERE `warehouse_id`=@warehouseId AND `is_valid`=1;
-            """, new { warehouseId = warehouseIds[0] }, transaction, cancellationToken: cancellationToken))).AsList();
-        if (stocks.Any(x => !locationIds.Contains(x.goods_location_id)))
-            throw DispatchWorkflowCommandException.StockConflict("allocated stock does not belong to the order warehouse");
-    }
-
     private static async Task<DispatchWorkflowOperationEntity?> FindOutboundOperationAsync(IDbConnection connection,
         IDbTransaction? transaction, int orderId, DispatchWorkflowOperation operation, string requestId,
         CancellationToken cancellationToken)
@@ -423,25 +389,6 @@ public partial class DispatchWorkflowService
         var value = await FindOperationAsync(connection, transaction, orderId, operation, requestId, cancellationToken);
         return value?.result_status == DispatchWorkflowOperationResultStatus.Succeeded ? value : null;
     }
-
-    private static Task InsertStockRecordAsync(IDbConnection connection, IDbTransaction transaction,
-        DispatchOrderEntity order, DispatchpicklistEntity allocation, CurrentUser user, DateTime now,
-        int delta, int before, int after, string prefix, int cycle, bool deduct, CancellationToken cancellationToken) =>
-        connection.ExecuteAsync(new CommandDefinition("""
-            INSERT INTO `wms_stock_record` (`record_no`,`biz_type`,`biz_id`,`biz_item_id`,`stock_id`,`sku_id`,
-              `goods_location_id`,`goods_owner_id`,`change_qty`,`before_qty`,`after_qty`,`direction`,`operator_id`,
-              `operator_name`,`remark`,`operate_time`)
-            VALUES (@recordNo,@bizType,@orderId,@allocationId,@stockId,@skuId,@locationId,@ownerId,@delta,@before,@after,
-              @direction,@operatorId,@operatorName,@remark,@now);
-            """, new
-            {
-                recordNo = $"MWMS-{(deduct ? "DO" : "DI")}-{order.id}-{allocation.id}-{cycle}",
-                bizType = cycle == 1 ? prefix : $"{prefix}_{cycle}", orderId = order.id, allocationId = allocation.id,
-                stockId = allocation.stock_id, skuId = allocation.sku_id, locationId = allocation.goods_location_id,
-                ownerId = allocation.goods_owner_id, delta, before, after, direction = deduct ? "OUT" : "IN",
-                operatorId = user.user_id, operatorName = Truncate(user.user_name, 128),
-                remark = deduct ? "装箱任务拣货单确认出库" : "装箱任务拣货单撤回出库", now
-            }, transaction, cancellationToken: cancellationToken));
 
     private static OutboundCommandResult ToOutboundResult(DispatchOrderEntity order, string requestId) => new()
         { order_id = order.id, request_id = requestId, status = ToApiStatus(order.status), row_version = order.row_version };
@@ -481,12 +428,6 @@ public partial class DispatchWorkflowService
         return normalized.Length <= length ? normalized : normalized[..length];
     }
 
-    private sealed class StockRecordKey
-    {
-        public string biz_type { get; set; } = string.Empty;
-        public long biz_item_id { get; set; }
-        public int stock_id { get; set; }
-    }
 }
 
 /// <summary>

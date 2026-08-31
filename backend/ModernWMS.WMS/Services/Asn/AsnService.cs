@@ -300,54 +300,8 @@ public class AsnService : BaseService<AsnEntity>, IAsnService
     /// <summary>
     /// 执行 PutAwayAsync 操作。
     /// </summary>
-    public async Task<(bool flag,string msg)> PutAwayAsync(List<AsnPutAwayInputViewModel> rows,CurrentUser user)
-    {
-        rows.RemoveAll(x=>x.putaway_qty<1);
-        if(rows.Any(x=>x.goods_location_id==0))return(false,"[202]"+string.Format(_stringLocalizer["Required"],_stringLocalizer["location_name"]));
-        var locationIds=rows.Select(x=>x.goods_location_id).Distinct().ToList();
-        await using var c=await _connectionFactory.OpenConnectionAsync();
-        var locations=(await c.QueryAsync<GoodslocationEntity>("SELECT * FROM `wms_goodslocation` WHERE `id` IN @locationIds;",new{locationIds})).AsList();
-        if(locations.Count!=locationIds.Count)return(false,"[202]"+string.Format(_stringLocalizer["Required"],_stringLocalizer["location_name"]));
-        var routeSnapshots=new List<CanonicalInventorySupport.InventoryRoute>();
-        foreach(var locationId in locationIds)
-        {
-            var route=await CanonicalInventorySupport.GetRouteAsync(c,locationId);
-            routeSnapshots.Add(route);
-            if(route.Mode==CanonicalInventorySupport.CanonicalMode)
-                return(false,"普通ASN缺少可唯一关联的ERP采购物流库存维度，统一库存模式下禁止上架；请使用ERP签收入库流程");
-        }
-        await using var tx=await c.BeginTransactionAsync(IsolationLevel.Serializable);
-        await CanonicalInventorySupport.LockRoutesAsync(c,tx,routeSnapshots);
-        var asn=await c.QuerySingleOrDefaultAsync<AsnEntity>("SELECT * FROM `wms_asn` WHERE `id`=@id FOR UPDATE;",new{id=rows[0].asn_id},tx);
-        if(asn==null)return(false,"[202]"+_stringLocalizer["not_exists_entity"]);
-        var sum=rows.Sum(x=>x.putaway_qty);
-        if(asn.asn_status!=3)return(false,"[202]"+$"{asn.asn_no}{_stringLocalizer["ASN_Status_Is_Not_Sorted"]}");
-        if(asn.actual_qty+sum>asn.sorted_qty)return(false,"[202]"+$"{asn.asn_no}{_stringLocalizer["ASN_Total_PutAway_Qty_Greater_Than_Sorted_Qty"]}");
-        var damage=rows.Where(x=>locations.First(l=>l.id==x.goods_location_id).warehouse_area_property==5).Sum(x=>x.putaway_qty);
-        await c.ExecuteAsync("""
-          UPDATE `wms_asn` SET `actual_qty`=`actual_qty`+@sum,`damage_qty`=`damage_qty`+@damage,
-          `asn_status`=IF(`actual_qty`+@sum=`sorted_qty`,4,`asn_status`),`last_update_time`=@now WHERE `id`=@id;
-          """,new{id=asn.id,sum,damage,now=DateTime.Now},tx);
-        var sorts=(await c.QueryAsync<AsnsortEntity>("SELECT * FROM `wms_asnsort` WHERE `asn_id`=@id AND `sorted_qty`>`putaway_qty` ORDER BY `id` FOR UPDATE;",new{id=asn.id},tx)).AsList();
-        foreach(var vm in rows)
-        {
-            var left=vm.putaway_qty;
-            foreach(var s in sorts.Where(x=>x.series_number==vm.series_number))
-            { if(left<=0)break;var used=Math.Min(left,s.sorted_qty-s.putaway_qty);s.putaway_qty+=used;left-=used;
-              await c.ExecuteAsync("UPDATE `wms_asnsort` SET `putaway_qty`=@putaway_qty WHERE `id`=@id;",new{s.id,s.putaway_qty},tx); }
-            var putawayDate=DateTime.Now.ToString("yyyy-MM-dd").ObjToDate();
-            var stockId=await c.ExecuteScalarAsync<int?>("""
-              SELECT `id` FROM `wms_stock` WHERE `sku_id`=@skuId AND `goods_location_id`=@locationId AND `goods_owner_id`=@ownerId
-              AND `series_number`=@sn AND `expiry_date`=@expiry AND `price`=@price AND `putaway_date`=@putawayDate LIMIT 1 FOR UPDATE;
-              """,new{skuId=asn.sku_id,locationId=vm.goods_location_id,ownerId=vm.goods_owner_id,sn=vm.series_number,expiry=asn.expiry_date,asn.price,putawayDate},tx);
-            if(stockId.HasValue)await c.ExecuteAsync("UPDATE `wms_stock` SET `qty`=`qty`+@qty,`last_update_time`=@now WHERE `id`=@stockId;",new{qty=vm.putaway_qty,now=DateTime.Now,stockId},tx);
-            else await c.ExecuteAsync("""
-              INSERT INTO `wms_stock` (`sku_id`,`goods_location_id`,`qty`,`goods_owner_id`,`is_freeze`,`last_update_time`,`series_number`,`expiry_date`,`price`,`putaway_date`)
-              VALUES (@skuId,@locationId,@qty,@ownerId,0,@now,@sn,@expiry,@price,@putawayDate);
-              """,new{skuId=asn.sku_id,locationId=vm.goods_location_id,qty=vm.putaway_qty,ownerId=asn.goods_owner_id,now=DateTime.Now,expiry=asn.expiry_date,asn.price,putawayDate},tx);
-        }
-        await tx.CommitAsync();return(true,_stringLocalizer["putaway_success"]);
-    }
+    public Task<(bool flag,string msg)> PutAwayAsync(List<AsnPutAwayInputViewModel> rows,CurrentUser user) =>
+        Task.FromResult((false,"旧收货功能已停用，请使用ERP待收货功能"));
 
     private const string MasterSelect="""
       SELECT `id`,`asn_no`,`asn_batch`,`estimated_arrival_time`,`asn_status`,`weight`,`volume`,`goods_owner_id`,

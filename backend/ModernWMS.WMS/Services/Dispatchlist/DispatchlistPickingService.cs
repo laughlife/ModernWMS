@@ -392,146 +392,8 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         {
             return (false, "没有出库操作权限");
         }
-
-        await using var connection = await _connectionFactory.OpenConnectionAsync();
-        await using var transaction = await connection.BeginTransactionAsync();
-        try
-        {
-            var dispatchRow = await connection.QuerySingleOrDefaultAsync<DispatchlistEntity>(
-                "SELECT * FROM `wms_dispatchlist` WHERE `id`=@id  AND `dispatch_status`=6 FOR UPDATE;",
-                new { id }, transaction);
-            if (dispatchRow == null)
-            {
-                return (false, _stringLocalizer["data_changed"]);
-            }
-
-            var pickRows = (await connection.QueryAsync<DispatchpicklistEntity>(
-                "SELECT * FROM `wms_dispatchpicklist` WHERE `dispatchlist_id`=@id FOR UPDATE;", new { id }, transaction)).AsList();
-            if (pickRows.Count == 0 || pickRows.Any(t => !t.is_update_stock))
-            {
-                return (false, _stringLocalizer["data_changed"]);
-            }
-            if (pickRows.Any(t => t.erp_stock_id is > 0 || t.stock_allocation_id is > 0))
-            {
-                await transaction.RollbackAsync();
-                return (false, "统一ERP库存模式不支持已出库库存的无损撤销，请按ERP库存流水执行人工向前修复");
-            }
-            var stockKeys = pickRows
-                .GroupBy(t => new
-                {
-                    t.stock_id,
-                    t.goods_location_id,
-                    t.sku_id,
-                    t.goods_owner_id,
-                    t.series_number,
-                    t.expiry_date,
-                    t.price,
-                    t.putaway_date
-                })
-                .Select(t => new
-                {
-                    t.Key.stock_id,
-                    t.Key.goods_location_id,
-                    t.Key.sku_id,
-                    t.Key.goods_owner_id,
-                    t.Key.series_number,
-                    t.Key.expiry_date,
-                    t.Key.price,
-                    t.Key.putaway_date,
-                    picked_qty = t.Sum(p => p.picked_qty)
-                })
-                .ToList();
-            var skuIds = stockKeys.Select(t => t.sku_id).Distinct().ToList();
-            var locationIds = stockKeys.Select(t => t.goods_location_id).Distinct().ToList();
-            var stockRows = (await connection.QueryAsync<StockEntity>(
-                "SELECT * FROM `wms_stock` WHERE `sku_id` IN @skuIds AND `goods_location_id` IN @locationIds FOR UPDATE;",
-                new { skuIds, locationIds }, transaction)).AsList();
-            var existingInboundRecords = (await connection.QueryAsync<StockRecordKey>(
-                "SELECT `biz_item_id`,`stock_id` FROM `wms_stock_record` WHERE `biz_id`=@id AND `biz_type` LIKE 'DISPATCH_IN%';",
-                new { id=dispatchRow.id }, transaction)).AsList();
-            var now = DateTime.Now;
-            var operatorName = currentUser.user_name?.Trim() ?? string.Empty;
-            if (operatorName.Length > 128)
-            {
-                operatorName = operatorName[..128];
-            }
-            foreach (var key in stockKeys)
-            {
-                var stock = key.stock_id > 0
-                    ? stockRows.FirstOrDefault(t => t.id == key.stock_id
-                        && t.goods_location_id == key.goods_location_id
-                        && t.sku_id == key.sku_id
-                        && t.goods_owner_id == key.goods_owner_id
-                        && t.series_number == key.series_number
-                        && t.expiry_date == key.expiry_date
-                        && t.price == key.price
-                        && t.putaway_date == key.putaway_date)
-                    : stockRows.Where(t => t.goods_location_id == key.goods_location_id
-                            && t.sku_id == key.sku_id
-                            && t.goods_owner_id == key.goods_owner_id
-                            && t.series_number == key.series_number
-                            && t.expiry_date == key.expiry_date
-                            && t.price == key.price
-                            && t.putaway_date == key.putaway_date)
-                        .OrderBy(t => t.id)
-                        .FirstOrDefault();
-                if (stock == null)
-                {
-                    return (false, _stringLocalizer["data_changed"]);
-                }
-                var runningQty = stock.qty;
-                var groupedPickRows = pickRows
-                    .Where(t => t.stock_id == key.stock_id
-                        && t.goods_location_id == key.goods_location_id
-                        && t.sku_id == key.sku_id
-                        && t.goods_owner_id == key.goods_owner_id
-                        && t.series_number == key.series_number
-                        && t.expiry_date == key.expiry_date
-                        && t.price == key.price
-                        && t.putaway_date == key.putaway_date)
-                    .OrderBy(t => t.id)
-                    .ToList();
-                foreach (var pickRow in groupedPickRows)
-                {
-                    var afterQty = runningQty + pickRow.picked_qty;
-                    var cycle = existingInboundRecords.Count(t => t.biz_item_id == pickRow.id && t.stock_id == stock.id) + 1;
-                    var bizType = cycle == 1 ? "DISPATCH_IN" : $"DISPATCH_IN_{cycle}";
-                    await connection.ExecuteAsync("""
-                        INSERT INTO `wms_stock_record` (`record_no`,`biz_type`,`biz_id`,`biz_item_id`,`stock_id`,`sku_id`,`goods_location_id`,`goods_owner_id`,`change_qty`,`before_qty`,`after_qty`,`direction`,`operator_id`,`operator_name`,`remark`,`operate_time`)
-                        VALUES (@record_no,@bizType,@dispatchlist_id,@pick_id,@stock_id,@sku_id,@location_id,@owner_id,@picked_qty,@beforeQty,@afterQty,'IN',@user_id,@operatorName,'已出库发货单撤回',@now);
-                        """, new { record_no=$"MWMS-DI-{pickRow.dispatchlist_id}-{pickRow.id}-{cycle}", bizType, pickRow.dispatchlist_id, pick_id=pickRow.id, stock_id=stock.id, pickRow.sku_id, location_id=pickRow.goods_location_id, owner_id=pickRow.goods_owner_id, pickRow.picked_qty, beforeQty=runningQty, afterQty, currentUser.user_id, operatorName, now }, transaction);
-                    runningQty = afterQty;
-                }
-                await connection.ExecuteAsync("UPDATE `wms_stock` SET `qty`=@runningQty,`last_update_time`=@now WHERE `id`=@id ;",
-                    new { runningQty, now, stock.id }, transaction);
-            }
-
-            dispatchRow.dispatch_status = 5;
-            dispatchRow.lock_qty = dispatchRow.picked_qty;
-            dispatchRow.actual_qty = 0;
-            dispatchRow.intrasit_qty = 0;
-            dispatchRow.last_update_time = now;
-            foreach (var pickRow in pickRows)
-            {
-                pickRow.is_update_stock = false;
-                pickRow.last_update_time = now;
-            }
-
-            await connection.ExecuteAsync("""
-                UPDATE `wms_dispatchlist` SET `dispatch_status`=5,`lock_qty`=`picked_qty`,`actual_qty`=0,`intrasit_qty`=0,`last_update_time`=@now
-                WHERE `id`=@id  AND `dispatch_status`=6;
-                UPDATE `wms_dispatchpicklist` SET `is_update_stock`=0,`last_update_time`=@now WHERE `dispatchlist_id`=@id;
-                """, new { id, now }, transaction);
-            await transaction.CommitAsync();
-            return (true, _stringLocalizer["operation_success"]);
-        }
-        catch (MySqlException)
-        {
-            await transaction.RollbackAsync();
-            return (false, _stringLocalizer["data_changed"]);
-        }
+        return (false, "已出库后不能回退，请按ERP库存流水执行人工向前修复");
     }
-
     /// <summary>
     /// 执行 GetOutboundCarrierOptionsAsync 操作。
     /// </summary>
@@ -1069,7 +931,6 @@ public class DispatchlistPickingService : IDispatchlistPickingService
         public DateTime? preparedTime { get; init; }
     }
     private sealed class MeasuredBoxTotal { public string dispatch_no { get; set; } = string.Empty; public long fba_shipment_id { get; set; } public decimal weight { get; set; } public decimal volume { get; set; } }
-    private sealed class StockRecordKey { public int biz_item_id { get; set; } public int stock_id { get; set; } }
     private sealed class CarrierRow { public long id { get; set; } public string name { get; set; } = string.Empty; }
     private sealed class BoxKey { public long id { get; set; } public long shipment_id { get; set; } }
 }

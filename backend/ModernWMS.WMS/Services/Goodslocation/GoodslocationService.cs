@@ -222,12 +222,10 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         await using var transaction = await connection.BeginTransactionAsync();
         var existStock = await connection.ExecuteScalarAsync<bool>("""
-            SELECT
-              EXISTS(SELECT 1 FROM `wms_stock` WHERE `qty` > 0 AND `goods_location_id` = @id)
-              OR EXISTS(
-                SELECT 1 FROM `wms_erp_stock_allocation`
-                 WHERE `goods_location_id` = @id AND `location_state` = 'ACTIVE'
-              );
+            SELECT EXISTS(
+              SELECT 1 FROM `wms_erp_stock_allocation`
+               WHERE `goods_location_id` = @id AND `location_state` = 'ACTIVE'
+            );
             """, new { id }, transaction);
         if (existStock)
         {

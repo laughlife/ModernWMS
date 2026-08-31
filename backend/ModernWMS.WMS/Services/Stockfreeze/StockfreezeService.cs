@@ -191,19 +191,6 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
             }
 
             var now = DateTime.Now;
-            if (route.Mode == CanonicalInventorySupport.LegacyMode)
-                await connection.ExecuteAsync("""
-                UPDATE `wms_stock` SET `is_freeze`=@isFreeze
-                 WHERE `goods_location_id`=@goods_location_id AND `goods_owner_id`=@goods_owner_id
-                   AND `sku_id`=@sku_id AND `series_number`=@series_number ;
-                """, new
-                {
-                    isFreeze = viewModel.job_type,
-                    viewModel.goods_location_id,
-                    viewModel.goods_owner_id,
-                    viewModel.sku_id,
-                    viewModel.series_number,
-                }, transaction);
             var id = await connection.ExecuteScalarAsync<int>("""
                 INSERT INTO `wms_stockfreeze` (`job_code`,`job_type`,`sku_id`,`goods_owner_id`,`goods_location_id`,
                     `handler`,`handle_time`,`last_update_time`,`erp_stock_id`,`stock_allocation_id`,

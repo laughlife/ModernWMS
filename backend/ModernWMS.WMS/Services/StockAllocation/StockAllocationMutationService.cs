@@ -7,7 +7,7 @@ namespace ModernWMS.WMS.Services.StockAllocation;
 /// <summary>
 /// The single mutation owner for ERP balance and WMS allocation quantities.
 /// It never opens, commits or rolls back the caller's transaction and never
-/// writes the retired wms_stock/wms_stock_record tables.
+/// writes the retired legacy inventory balance or ledger tables.
 /// Strong-lock order is runtime configuration, ERP stock, allocations by id,
 /// then idempotency and audit rows.
 /// </summary>

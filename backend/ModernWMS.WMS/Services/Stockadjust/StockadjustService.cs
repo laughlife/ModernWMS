@@ -242,41 +242,23 @@ public class StockadjustService : BaseService<StockadjustEntity>, IStockadjustSe
                     """, new { now, sourceId = adjustment.source_table_id }, transaction);
             }
 
-            if (route.Mode == CanonicalInventorySupport.CanonicalMode)
+            if (!adjustment.erp_stock_id.HasValue || !adjustment.stock_allocation_id.HasValue)
+                throw new InvalidOperationException("调整单未绑定ERP库存分配，旧库存调整路径已停用");
+            if (adjustment.qty != 0)
             {
-                if (!adjustment.erp_stock_id.HasValue || !adjustment.stock_allocation_id.HasValue)
-                    throw new InvalidOperationException("调整单未绑定ERP库存分配，禁止确认");
-                if (adjustment.qty != 0)
-                {
-                    await _stockMutationService.PrelockAsync(
-                        connection, transaction,
-                        [route.ErpWarehouseId],
-                        [adjustment.erp_stock_id.Value], [adjustment.stock_allocation_id.Value]);
-                    await _stockMutationService.AdjustAvailableAsync(
-                        connection, transaction,
-                        CanonicalInventorySupport.Context(
-                            route.ErpWarehouseId,
-                            $"MWMS:ADJ:{adjustment.id}", "STOCK_ADJUST_CONFIRM",
-                            adjustment.id, adjustment.source_table_id, null, adjustment.creator, "库存可用量调整"),
-                        adjustment.erp_stock_id.Value, adjustment.stock_allocation_id.Value,
-                        adjustment.qty);
-                    affected++;
-                }
-            }
-            else
-            {
-                affected += await connection.ExecuteAsync("""
-                UPDATE `wms_stock` SET `qty`=`qty`+@qty,`goods_owner_id`=@goods_owner_id,`last_update_time`=@now
-                WHERE `goods_owner_id`=@goods_owner_id AND `series_number`=@series_number
-                  AND `goods_location_id`=@goods_location_id AND `sku_id`=@sku_id
-                  AND `expiry_date`=@expiry_date AND `price`=@price AND `putaway_date`=@putaway_date
-                LIMIT 1;
-                """, new
-            {
-                adjustment.qty, adjustment.goods_owner_id, adjustment.series_number,
-                adjustment.goods_location_id, adjustment.sku_id, adjustment.expiry_date,
-                adjustment.price, adjustment.putaway_date, now
-                }, transaction);
+                await _stockMutationService.PrelockAsync(
+                    connection, transaction,
+                    [route.ErpWarehouseId],
+                    [adjustment.erp_stock_id.Value], [adjustment.stock_allocation_id.Value]);
+                await _stockMutationService.AdjustAvailableAsync(
+                    connection, transaction,
+                    CanonicalInventorySupport.Context(
+                        route.ErpWarehouseId,
+                        $"MWMS:ADJ:{adjustment.id}", "STOCK_ADJUST_CONFIRM",
+                        adjustment.id, adjustment.source_table_id, null, adjustment.creator, "库存可用量调整"),
+                    adjustment.erp_stock_id.Value, adjustment.stock_allocation_id.Value,
+                    adjustment.qty);
+                affected++;
             }
 
             affected += await connection.ExecuteAsync("""
@@ -297,7 +279,6 @@ public class StockadjustService : BaseService<StockadjustEntity>, IStockadjustSe
 
 internal static class CanonicalInventorySupport
 {
-    internal const string LegacyMode = "DECOMMISSIONED";
     internal const string CanonicalMode = "ERP_STOCK";
 
     internal static async Task<InventoryRoute> GetRouteAsync(
