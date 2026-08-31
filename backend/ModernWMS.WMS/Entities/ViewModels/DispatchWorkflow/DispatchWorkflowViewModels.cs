@@ -812,6 +812,10 @@ public sealed class DispatchOrderDetailViewModel : DispatchOrderSummaryViewModel
     /// </summary>
     public string source_version { get; set; } = string.Empty;
     /// <summary>
+    /// 获取或设置 remark。
+    /// </summary>
+    public string remark { get; set; } = string.Empty;
+    /// <summary>
     /// 获取或设置 packing_tasks。
     /// </summary>
     public List<DispatchPackingTaskViewModel> packing_tasks { get; set; } = [];

@@ -72,9 +72,12 @@
       <vxe-column field="creator" :title="$t('wms.deliveryManagement.creator')" width="140" />
       <vxe-column field="create_time" title="创建时间" width="180"><template #default="{ row }">{{ formatDateTime(row.create_time) }}</template></vxe-column>
       <vxe-column field="last_update_time" title="最后更新时间" width="180"><template #default="{ row }">{{ formatDateTime(row.last_update_time) }}</template></vxe-column>
-      <vxe-column :title="$t('system.page.operate')" width="330" fixed="right" :resizable="false">
+      <vxe-column :title="$t('system.page.operate')" width="370" fixed="right" :resizable="false">
         <template #default="{ row }">
           <div class="row-actions">
+            <TooltipBtn :flat="true" icon="mdi-arrow-left" tooltip-text="退回已拣货"
+              :disabled="data.rollbackOrderId === row.id || !data.authorityList.includes('weighed-weigh')"
+              @click="method.rollbackRow(row)" />
             <v-btn size="small" color="primary" variant="tonal" :disabled="row.source_change_pending || data.passedOrderIds.includes(row.id)" @click="method.openWeighing(row)">建立装箱并称重</v-btn>
             <v-btn size="small" color="success" variant="tonal" :disabled="row.source_change_pending || data.passedOrderIds.includes(row.id)" @click="method.openWeighing(row, true)">检测装箱</v-btn>
             <TooltipBtn v-if="row.source_change_pending" :flat="true" icon="mdi-account-alert" tooltip-text="人工选择继续或取消发货"
@@ -145,7 +148,7 @@
 <script lang="ts" setup>
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import type { VxePagerEvents } from 'vxe-table'
-import { decideDispatchSourceChange, getDispatchOrder, getDispatchOrderPage, getDispatchPackingPlan } from '@/api/wms/dispatchWorkflow'
+import { decideDispatchSourceChange, getDispatchOrder, getDispatchOrderPage, getDispatchPackingPlan, rollbackDispatchPreviousStage } from '@/api/wms/dispatchWorkflow'
 import { hookComponent } from '@/components/system'
 import BtnGroup from '@/components/system/btnGroup.vue'
 import DispatchSearchFilters from './dispatch-search-filters.vue'
@@ -164,14 +167,14 @@ import type { WeighingListRequestIdentity } from './dispatchBoxMeasurement'
 import { advancePackingPlan, inspectPackingPlan } from './packingPlanCompletion'
 
 const props = defineProps<{ warehouseId: number | null }>()
-const emit = defineEmits<{ statusChanged: [] }>()
+const emit = defineEmits<{ goToPicked: []; statusChanged: [] }>()
 const xTable = ref()
 let listRequestSequence = 0
 let weighingDialogGeneration = 0
 type WeighingOrderRow = DispatchOrderSummary & { detail: DispatchOrderDetail | null; detail_loading: boolean; detail_error: string }
 const data = reactive({ keyword: '', group_id: null as number | null, member_id: null as number | null,
   loading: false, tableData: [] as WeighingOrderRow[], total: 0, pageIndex: 1, pageSize: DEFAULT_PAGE_SIZE,
-  selectedOrderCount: 0, batchChecking: false, passedOrderIds: [] as number[],
+  selectedOrderCount: 0, batchChecking: false, rollbackOrderId: null as number | null, passedOrderIds: [] as number[],
   btnList: [] as btnGroupItem[], authorityList: getMenuAuthorityList() })
 const weighingDialog = reactive({ visible: false, loading: false, error: '', autoCheck: false, row: null as DispatchOrderSummary | null, task: null as DispatchPackingTask | null })
 const decisionDialog = reactive({ visible: false, submitting: false, reason: '', row: null as DispatchOrderSummary | null })
@@ -223,6 +226,31 @@ const loadOrderDetail = async (row: WeighingOrderRow): Promise<void> => {
 
 const method = reactive({
   refresh: async () => { await method.getWeighed(); emit('statusChanged') },
+  rollbackRow: (row: WeighingOrderRow) => {
+    hookComponent.$dialog({
+      content: `确认将拣货单 ${row.dispatch_no} 退回已拣货吗？称重和装箱数据将被清除。`,
+      handleConfirm: async () => {
+        data.rollbackOrderId = row.id
+        try {
+          const result = await rollbackDispatchPreviousStage(row.id, {
+            request_id: requestId(), row_version: row.row_version
+          })
+          if (!result.isSuccess) {
+            showError(result.errorMessage)
+            await method.getWeighed()
+            return
+          }
+          hookComponent.$message({ type: 'success', content: '已退回已拣货' })
+          emit('statusChanged')
+          emit('goToPicked')
+        } catch (error) {
+          showError(error instanceof Error ? error.message : String(error))
+        } finally {
+          data.rollbackOrderId = null
+        }
+      }
+    })
+  },
   getWeighed: async () => {
     if (props.warehouseId === null) {
       listRequestSequence++

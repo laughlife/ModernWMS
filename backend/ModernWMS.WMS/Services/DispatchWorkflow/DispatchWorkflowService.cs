@@ -95,6 +95,13 @@ public partial class DispatchWorkflowService : IDispatchWorkflowService
             throw new InvalidOperationException("packing task reconciliation left no printable pending-pick order");
         }
 
+        var currentSnapshots = await _sourceReader.ReadAsync(
+            reconciled.packing_tasks.Select(task => task.source_task_id).ToArray(),
+            cancellationToken);
+        reconciled.remark = string.Join("；", currentSnapshots
+            .Select(snapshot => snapshot.Remark.Trim())
+            .Where(remark => !string.IsNullOrWhiteSpace(remark))
+            .Distinct(StringComparer.Ordinal));
         return reconciled;
     }
 

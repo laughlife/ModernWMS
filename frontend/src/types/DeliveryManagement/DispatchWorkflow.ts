@@ -132,6 +132,7 @@ export interface DispatchPackingTask {
 
 export interface DispatchOrderDetail extends DispatchOrderSummary {
   source_version: string
+  remark?: string | null
   packing_tasks: DispatchPackingTask[]
 }
 

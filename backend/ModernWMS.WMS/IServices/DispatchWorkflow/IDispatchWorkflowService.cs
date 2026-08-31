@@ -34,6 +34,13 @@ public interface IDispatchWorkflowService : IDependency
         CurrentUser currentUser,
         CancellationToken cancellationToken = default);
 
+    /// <summary>将未出库的发货单回退到上一个业务环节。</summary>
+    Task<WeighingCommandResult> RollbackPreviousStageAsync(
+        int orderId,
+        WeighingOrderCommandRequest request,
+        CurrentUser currentUser,
+        CancellationToken cancellationToken = default);
+
     /// <summary>开始称重。</summary>
     Task<WeighingCommandResult> StartWeighingAsync(
         int orderId,
@@ -121,7 +128,7 @@ public interface IDispatchWorkflowService : IDependency
         CurrentUser currentUser,
         CancellationToken cancellationToken = default);
 
-    /// <summary>取消出库。</summary>
+    /// <summary>已出库撤回兼容入口；统一ERP库存模式下始终拒绝。</summary>
     Task<OutboundCommandResult> CancelOutboundAsync(
         int orderId,
         OutboundCommandRequest request,

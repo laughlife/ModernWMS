@@ -142,9 +142,12 @@
         </template>
       </vxe-column>
       <vxe-column field="creator" :title="$t('wms.deliveryManagement.creator')" width="130" />
-      <vxe-column field="operate" :title="$t('system.page.operate')" width="190" fixed="right" :resizable="false">
+      <vxe-column field="operate" :title="$t('system.page.operate')" width="230" fixed="right" :resizable="false">
         <template #default="{ row }">
           <div class="row-actions">
+            <TooltipBtn :flat="true" icon="mdi-arrow-left" tooltip-text="退回已称重"
+              :disabled="data.rollbackOrderId === row.id || !data.authorityList.includes('delivered-delivery')"
+              @click="method.rollbackRow(row)" />
             <TooltipBtn v-if="row.source_change_pending" :flat="true" icon="mdi-alert-decagram-outline" tooltip-text="处理来源变更"
               :disabled="!row.detail || !data.authorityList.includes('delivered-delivery')" @click="openDecision(row)" />
             <TooltipBtn :flat="true" icon="mdi-truck-fast-outline" tooltip-text="设置承运信息"
@@ -181,7 +184,7 @@
 <script lang="ts" setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import type { VxePagerEvents } from 'vxe-table'
-import { confirmDispatchOutbound, decideDispatchSourceChange, getDispatchOrder, getDispatchOrderPage, getDispatchTaskBoxes } from '@/api/wms/dispatchWorkflow'
+import { confirmDispatchOutbound, decideDispatchSourceChange, getDispatchOrder, getDispatchOrderPage, getDispatchTaskBoxes, rollbackDispatchPreviousStage } from '@/api/wms/dispatchWorkflow'
 import { hookComponent } from '@/components/system'
 import BtnGroup from '@/components/system/btnGroup.vue'
 import ProductImage from '@/components/system/product-image.vue'
@@ -212,14 +215,15 @@ interface WeighingBoxWithItems extends WeighingBox {
 }
 
 const props = defineProps<{ warehouseId: number | null }>()
-const emit = defineEmits<{ goToCompleted: []; statusChanged: [] }>()
+const emit = defineEmits<{ goToCompleted: []; goToWeighing: []; statusChanged: [] }>()
 const xTable = ref()
 const carrierDialog = ref<InstanceType<typeof DispatchCarrierDialog>>()
 const dispatchWarehouseStore = useDispatchWarehouseStore()
 const requestGuard = createLatestRequestGuard()
 const data = reactive({ keyword: '', group_id: null as number | null, member_id: null as number | null,
   tableData: [] as PendingOutboundRow[], total: 0, pageIndex: 1, pageSize: DEFAULT_PAGE_SIZE,
-  selectedOrderCount: 0, btnList: [] as btnGroupItem[], authorityList: getMenuAuthorityList() })
+  selectedOrderCount: 0, rollbackOrderId: null as number | null,
+  btnList: [] as btnGroupItem[], authorityList: getMenuAuthorityList() })
 const decisionDialog = reactive({ visible: false, submitting: false, reason: '', row: null as PendingOutboundRow | null })
 
 const requestId = (): string => globalThis.crypto?.randomUUID?.() ?? `dispatch-${Date.now()}-${Math.random().toString(16).slice(2)}`
@@ -308,6 +312,31 @@ const submitDecision = async (decision: 'CONTINUE' | 'CANCEL'): Promise<void> =>
 }
 
 const method = reactive({
+  rollbackRow: (row: PendingOutboundRow): void => {
+    hookComponent.$dialog({
+      content: `确认将拣货单 ${row.dispatch_no} 退回已称重吗？承运信息将被清除。`,
+      handleConfirm: async () => {
+        data.rollbackOrderId = row.id
+        try {
+          const result = await rollbackDispatchPreviousStage(row.id, {
+            request_id: requestId(), row_version: row.row_version
+          })
+          if (!result.isSuccess) {
+            hookComponent.$message({ type: 'error', content: result.errorMessage })
+            await method.getDelivery()
+            return
+          }
+          hookComponent.$message({ type: 'success', content: '已退回已称重' })
+          emit('statusChanged')
+          emit('goToWeighing')
+        } catch (error) {
+          hookComponent.$message({ type: 'error', content: error instanceof Error ? error.message : String(error) })
+        } finally {
+          data.rollbackOrderId = null
+        }
+      }
+    })
+  },
   getDelivery: async (): Promise<void> => {
     resetDecision()
     const sequence = beginPendingOutboundLoad(data, requestGuard)

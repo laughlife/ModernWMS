@@ -91,6 +91,15 @@ public sealed class DispatchWorkflowController : BaseController
         CancellationToken cancellationToken) =>
         ExecuteAsync(() => _workflowService.RollbackPendingPickAsync(id, request, CurrentUser, cancellationToken));
 
+    /// <summary>回退到上一个业务环节。</summary>
+    [Authorize]
+    [HttpPost("{id:int}/rollback-previous-stage")]
+    public Task<ActionResult<ResultModel<WeighingCommandResult>>> RollbackPreviousStageAsync(
+        int id,
+        WeighingOrderCommandRequest request,
+        CancellationToken cancellationToken) =>
+        ExecuteAsync(() => _workflowService.RollbackPreviousStageAsync(id, request, CurrentUser, cancellationToken));
+
     /// <summary>开始称重。</summary>
     [Authorize]
     [HttpPost("{id:int}/start-weighing")]
@@ -214,7 +223,7 @@ public sealed class DispatchWorkflowController : BaseController
         ExecuteAsync(() => _workflowService.ConfirmOutboundAsync(
             id, request, CurrentUser, cancellationToken));
 
-    /// <summary>取消出库。</summary>
+    /// <summary>已出库撤回兼容入口；统一ERP库存模式下始终拒绝。</summary>
     [Authorize]
     [HttpPost("{id:int}/cancel-outbound")]
     public Task<ActionResult<ResultModel<OutboundCommandResult>>> CancelOutboundAsync(

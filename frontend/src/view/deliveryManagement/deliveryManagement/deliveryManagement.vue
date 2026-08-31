@@ -66,7 +66,7 @@
             <TabPicked ref="pickedRef" :warehouse-id="selectedWarehouseId" @go-to-weighing="handleGoToWeighing" @go-to-picking="handleGoToPicking" @status-changed="refreshStatusCounts" />
           </v-window-item>
           <v-window-item value="tabWeighed">
-            <TabWeighed ref="weighedRef" :warehouse-id="selectedWarehouseId" @go-to-delivery="handleGoToDelivery" @status-changed="refreshStatusCounts" />
+            <TabWeighed ref="weighedRef" :warehouse-id="selectedWarehouseId" @go-to-picked="handleGoToPicked" @go-to-delivery="handleGoToDelivery" @status-changed="refreshStatusCounts" />
           </v-window-item>
           <v-window-item value="tabDelivered">
             <TabDelivered ref="deliveredRef" :warehouse-id="selectedWarehouseId" @go-to-weighing="handleGoToWeighing"
@@ -171,6 +171,14 @@ const handleGoToWeighing = (): void => {
   activeTab.value = 'tabWeighed'
   nextTick(() => {
     weighedRef.value?.getWeighed()
+  })
+  refreshStatusCounts()
+}
+
+const handleGoToPicked = (): void => {
+  activeTab.value = 'tabPicked'
+  nextTick(() => {
+    pickedRef.value?.getPicked()
   })
   refreshStatusCounts()
 }

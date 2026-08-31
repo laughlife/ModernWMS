@@ -174,55 +174,55 @@
 
   <button ref="printButtonRef" v-print="'#pickingPrintArea'" class="print-trigger" type="button" />
   <div id="pickingPrintArea" class="print-area">
-    <article v-for="order in data.printOrders" :key="order.id" class="print-order">
-      <h2>{{ $t('wms.deliveryManagement.pickingList') }}</h2>
-      <table class="print-meta-table">
-        <tbody>
-          <tr>
-            <td>拣货单号：{{ order.dispatch_no }}</td>
-            <td>装箱任务号：{{ order.packing_task_nos.join('、') || '-' }}</td>
-            <td>仓库名称：{{ warehouseName(order.warehouse_id) }}</td>
-          </tr>
-        </tbody>
-      </table>
-      <table class="print-product-table">
-        <thead>
-          <tr>
-            <th>图片</th>
-            <th>{{ $t('wms.deliveryManagement.productInfo') }}</th>
-            <th>FNSKU / MSKU</th>
-            <th>任务量</th>
-            <th>商品需求量</th>
-            <th>可用量快照</th>
-          </tr>
-        </thead>
-        <tbody>
-          <template v-for="task in order.packing_tasks" :key="task.id">
-            <tr v-for="item in task.items" :key="item.id">
-              <td class="print-image-cell">
+    <article
+      v-for="page in printPages"
+      :key="`${page.order.id}-${page.pageIndex}`"
+      class="print-page"
+    >
+      <header class="print-page-header">
+        <div class="print-page-heading">
+          <strong>拣货单号：{{ page.order.dispatch_no }}</strong>
+          <small>第 {{ page.pageIndex + 1 }} / {{ page.totalPages }} 页</small>
+        </div>
+      </header>
+      <div class="print-products">
+        <section
+          v-for="product in page.products"
+          :key="`${product.taskId}-${product.item.id}`"
+          class="print-product"
+        >
+          <header class="print-product-header">
+            <h2>{{ displayValue(product.item.commodity_name) }}</h2>
+          </header>
+          <div class="print-product-body">
+            <div class="print-image-area">
+              <div class="print-image-frame">
                 <img
-                  v-if="item.main_image"
-                  :src="item.main_image"
-                  :alt="item.commodity_name || item.commodity_sku"
+                  v-if="product.item.main_image"
+                  :src="product.item.main_image"
+                  :alt="product.item.commodity_name || product.item.commodity_sku"
                   referrerpolicy="no-referrer"
                 />
                 <span v-else>-</span>
-              </td>
-              <td>
-                <div>{{ displayValue(item.commodity_name) }}</div>
-                <div>SKU：{{ displayValue(item.commodity_sku) }}</div>
-              </td>
-              <td>
-                <div>{{ displayValue(item.fn_sku) }}</div>
-                <div>{{ displayValue(item.msku) }}</div>
-              </td>
-              <td>{{ displayValue(item.task_qty) }}</td>
-              <td>{{ displayValue(item.required_qty) }}</td>
-              <td>{{ displayValue(item.source_stock_available) }}</td>
-            </tr>
-          </template>
-        </tbody>
-      </table>
+              </div>
+            </div>
+            <dl class="print-product-info">
+              <div><dt>装箱任务号</dt><dd>{{ displayValue(product.taskNo) }}</dd></div>
+              <div><dt>仓库名称</dt><dd>{{ warehouseName(page.order.warehouse_id) }}</dd></div>
+              <div><dt>商品SKU</dt><dd>{{ displayValue(product.item.commodity_sku) }}</dd></div>
+              <div><dt>FNSKU</dt><dd>{{ displayValue(product.item.fn_sku) }}</dd></div>
+              <div><dt>MSKU</dt><dd>{{ displayValue(product.item.msku) }}</dd></div>
+              <div><dt>任务量</dt><dd>{{ displayValue(product.item.task_qty) }}</dd></div>
+              <div><dt>变体</dt><dd>{{ displayValue(variantQty(product.item)) }}</dd></div>
+              <div><dt>商品需求量</dt><dd>{{ displayValue(product.item.required_qty) }}</dd></div>
+              <div><dt>可用量快照</dt><dd>{{ displayValue(product.item.source_stock_available) }}</dd></div>
+              <div v-if="page.order.remark?.trim()" class="print-product-remark">
+                <dt>备注</dt><dd>{{ page.order.remark.trim() }}</dd>
+              </div>
+            </dl>
+          </div>
+        </section>
+      </div>
     </article>
   </div>
 </template>
@@ -248,7 +248,11 @@ import { computedCardHeight, computedTableHeight } from '@/constant/style'
 import { DEFAULT_PAGE_SIZE, PAGE_LAYOUT, PAGE_SIZE } from '@/constant/vxeTable'
 import i18n from '@/languages/i18n'
 import { useDispatchWarehouseStore } from '@/store/module/dispatchWarehouse'
-import type { DispatchOrderDetail, DispatchOrderSummary } from '@/types/DeliveryManagement/DispatchWorkflow'
+import type {
+  DispatchOrderDetail,
+  DispatchOrderSummary,
+  DispatchPackingTaskItem
+} from '@/types/DeliveryManagement/DispatchWorkflow'
 import type { btnGroupItem } from '@/types/System/Form'
 import { getMenuAuthorityList } from '@/utils/common'
 import {
@@ -267,6 +271,21 @@ type PendingPickTableRow = DispatchOrderSummary & {
   detail_loading: boolean
   detail_error: string
 }
+
+type PendingPickPrintProduct = {
+  taskId: number
+  taskNo: string
+  item: DispatchPackingTaskItem
+}
+
+type PendingPickPrintPage = {
+  order: DispatchOrderDetail
+  pageIndex: number
+  totalPages: number
+  products: PendingPickPrintProduct[]
+}
+
+const PENDING_PICK_PRODUCTS_PER_PAGE = 2
 
 const props = defineProps<{ warehouseId: number | null }>()
 const emit = defineEmits<{ statusChanged: [] }>()
@@ -310,6 +329,32 @@ const formatDateTime = (value?: string): string => {
 
 const warehouseName = (warehouseId: number): string =>
   dispatchWarehouseStore.warehouseOptions.find((warehouse) => warehouse.id === warehouseId)?.name || '-'
+
+const variantQty = (item: DispatchPackingTaskItem): number | null => {
+  const taskQty = Number(item.task_qty)
+  const requiredQty = Number(item.required_qty)
+  return taskQty > 0 && requiredQty > 0 ? requiredQty / taskQty : null
+}
+
+const printPages = computed<PendingPickPrintPage[]>(() => data.printOrders.flatMap((order) => {
+  const products = order.packing_tasks.flatMap((task) => task.items.map((item) => ({
+    taskId: task.id,
+    taskNo: task.source_task_no,
+    item
+  })))
+
+  const pages: PendingPickPrintPage[] = []
+  const totalPages = Math.ceil(products.length / PENDING_PICK_PRODUCTS_PER_PAGE)
+  for (let index = 0; index < products.length; index += PENDING_PICK_PRODUCTS_PER_PAGE) {
+    pages.push({
+      order,
+      pageIndex: index / PENDING_PICK_PRODUCTS_PER_PAGE,
+      totalPages,
+      products: products.slice(index, index + PENDING_PICK_PRODUCTS_PER_PAGE)
+    })
+  }
+  return pages
+}))
 
 const createRequestId = (): string => {
   if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID()
@@ -588,19 +633,33 @@ defineExpose({ getGoodsToBePicked: method.getGoodsToBePicked })
 .detail-image-cell { width: 72px; }
 .row-actions { display: flex; justify-content: center; gap: 10px; }
 .print-trigger { position: fixed; left: -10000px; width: 1px; height: 1px; opacity: 0; }
-.print-area { position: fixed; left: -10000px; top: 0; width: 1000px; padding: 20px; background: white; color: #000; }
-.print-order h2 { margin: 0 0 14px; text-align: center; }
-.print-order + .print-order { margin-top: 24px; }
-.print-meta-table { margin-bottom: 12px; }
-.print-meta-table td { width: 33.333%; text-align: left; font-weight: 600; }
-.print-area table { width: 100%; border-collapse: collapse; }
-.print-area th, .print-area td { padding: 7px; border: 1px solid #333; text-align: center; }
-.print-image-cell { width: 76px; }
-.print-image-cell img { display: block; width: 64px; height: 64px; margin: 0 auto; object-fit: contain; }
+.print-area { position: fixed; left: -10000px; top: 0; width: 100mm; background: white; color: #000; }
+.print-page { display: flex; flex-direction: column; width: 100mm; height: 150mm; padding: 4mm; box-sizing: border-box; overflow: hidden; background: #fff; }
+.print-page-header { flex: 0 0 auto; min-height: 7mm; border-bottom: 0.4mm solid #111; font-size: 8.5pt; line-height: 1.2; }
+.print-page-heading { display: flex; align-items: flex-start; justify-content: space-between; }
+.print-page-header small { font-size: 7.5pt; }
+.print-products { display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; }
+.print-product { display: flex; flex: 0 0 50%; min-height: 0; flex-direction: column; padding: 2mm 0; box-sizing: border-box; overflow: hidden; }
+.print-product + .print-product { border-top: 0.3mm solid #222; }
+.print-product-header { flex: 0 0 auto; min-width: 0; margin-bottom: 1.2mm; text-align: center; }
+.print-product-header h2 { margin: 0; overflow: hidden; font-size: 13pt; font-weight: 700; line-height: 1.15; text-overflow: ellipsis; white-space: nowrap; }
+.print-product-body { display: flex; flex: 1 1 auto; min-height: 0; gap: 2.5mm; }
+.print-image-area { display: flex; flex: 0 0 33.333%; min-width: 0; align-items: center; justify-content: center; }
+.print-image-frame { display: flex; width: 100%; height: 100%; max-height: 50mm; align-items: center; justify-content: center; overflow: hidden; }
+.print-image-frame img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.print-image-frame span { font-size: 11pt; }
+.print-product-info { flex: 1 1 auto; min-width: 0; margin: 0; align-self: center; font-size: 9pt; line-height: 1.2; }
+.print-product-info > div { display: grid; grid-template-columns: 21mm minmax(0, 1fr); gap: 1mm; margin: 0 0 0.7mm; }
+.print-product-info dt { font-weight: 600; white-space: nowrap; }
+.print-product-info dt::after { content: '：'; }
+.print-product-info dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.print-product-info .print-product-remark { margin-top: 1mm; }
+.print-product-remark dd { white-space: pre-wrap; }
 
 @media print {
-  .print-area { position: static; left: auto; top: auto; width: 100%; padding: 0; }
-  .print-order { break-inside: auto; page-break-inside: auto; }
-  .print-product-table tr { break-inside: avoid; page-break-inside: avoid; }
+  @page { size: 100mm 150mm; margin: 0; }
+  .print-area { position: static; left: auto; top: auto; width: 100mm; padding: 0; }
+  .print-page { break-after: page; page-break-after: always; break-inside: avoid; page-break-inside: avoid; }
+  .print-page:last-child { break-after: auto; page-break-after: auto; }
 }
 </style>

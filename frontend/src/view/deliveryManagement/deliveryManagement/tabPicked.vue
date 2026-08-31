@@ -119,6 +119,11 @@
         <template #default="{ row }">
           <div class="row-actions">
             <TooltipBtn
+              :flat="true" icon="mdi-arrow-left" tooltip-text="退回待拣货"
+              :disabled="data.loading || data.rollbackOrderId === row.id || !data.authorityList.includes('weighed-weigh')"
+              @click="method.rollbackRow(row)"
+            />
+            <TooltipBtn
               v-if="row.source_change_pending" :flat="true" icon="mdi-account-alert"
               :tooltip-text="$t('wms.deliveryManagement.sourceChangePending')"
               :disabled="!data.authorityList.includes('weighed-weigh')" @click="method.openSourceDecision(row)"
@@ -171,7 +176,7 @@
 <script lang="ts" setup>
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import type { VxePagerEvents } from 'vxe-table'
-import { decideDispatchSourceChange, getDispatchOrder, getDispatchOrderPage, startDispatchWeighing } from '@/api/wms/dispatchWorkflow'
+import { decideDispatchSourceChange, getDispatchOrder, getDispatchOrderPage, rollbackDispatchPreviousStage, startDispatchWeighing } from '@/api/wms/dispatchWorkflow'
 import { hookComponent } from '@/components/system'
 import BtnGroup from '@/components/system/btnGroup.vue'
 import ProductImage from '@/components/system/product-image.vue'
@@ -205,6 +210,7 @@ const data = reactive({
   searchForm: { keyword: '', group_id: null as number | null, member_id: null as number | null },
   loading: false,
   weighingBatch: false,
+  rollbackOrderId: null as number | null,
   selectedOrderCount: 0,
   tableData: [] as PickedOrderRow[],
   tablePage: { total: 0, pageIndex: 1, pageSize: DEFAULT_PAGE_SIZE },
@@ -334,6 +340,31 @@ const method = reactive({
     data.selectedOrderCount = (xTable.value?.getCheckboxRecords?.() ?? []).length
   },
   openSourceDecision: (row: PickedOrderRow) => openDecisionDialog(row),
+  rollbackRow: (row: PickedOrderRow) => {
+    hookComponent.$dialog({
+      content: `确认将拣货单 ${row.dispatch_no} 退回待拣货吗？`,
+      handleConfirm: async () => {
+        data.rollbackOrderId = row.id
+        try {
+          const result = await rollbackDispatchPreviousStage(row.id, {
+            request_id: createRequestId('rollback-picked'), row_version: row.row_version
+          })
+          if (!result.isSuccess) {
+            hookComponent.$message({ type: 'error', content: result.errorMessage })
+            await method.getPicked()
+            return
+          }
+          hookComponent.$message({ type: 'success', content: '已退回待拣货' })
+          emit('statusChanged')
+          emit('goToPicking')
+        } catch (error) {
+          hookComponent.$message({ type: 'error', content: error instanceof Error ? error.message : String(error) })
+        } finally {
+          data.rollbackOrderId = null
+        }
+      }
+    })
+  },
   startWeighingRow: (row: PickedOrderRow) => {
     if (!canStartPickedOrderWeighing(row)) { openDecisionDialog(row); return }
     hookComponent.$dialog({

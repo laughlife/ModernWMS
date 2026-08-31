@@ -12,6 +12,10 @@ public enum DispatchWorkflowOperation : byte
     /// </summary>
     RollbackPendingPick = 5,
     /// <summary>
+    /// 表示回退到上一业务环节。
+    /// </summary>
+    RollbackPreviousStage = 6,
+    /// <summary>
     /// 表示 CompletePicking 枚举值。
     /// </summary>
     CompletePicking = 10,

@@ -23,12 +23,11 @@ public partial class DispatchWorkflowService
             DispatchOrderStatus.PendingOutbound, DispatchOrderStatus.Outbound, true, cancellationToken);
 
     /// <summary>
-    /// 执行 CancelOutboundAsync 操作。
+    /// 已出库是不可逆边界；保留兼容入口并明确拒绝撤回。
     /// </summary>
     public Task<OutboundCommandResult> CancelOutboundAsync(int orderId, OutboundCommandRequest request,
         CurrentUser currentUser, CancellationToken cancellationToken = default) =>
-        ExecuteOutboundMutationAsync(orderId, request, currentUser, DispatchWorkflowOperation.CancelOutbound,
-            DispatchOrderStatus.Outbound, DispatchOrderStatus.PendingOutbound, false, cancellationToken);
+        throw DispatchWorkflowCommandException.CanonicalOutboundCannotBeCancelled();
 
     /// <summary>
     /// 执行 SignAsync 操作。

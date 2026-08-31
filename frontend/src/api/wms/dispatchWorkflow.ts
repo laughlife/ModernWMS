@@ -107,6 +107,11 @@ export const rollbackPendingPick = (orderId: number, data: RollbackPendingPickRe
   url: `/dispatch-workflow/${orderId}/rollback-pending-pick`, method: 'post', data
 })
 
+export const rollbackDispatchPreviousStage = (orderId: number, data: WeighingOrderCommandRequest) =>
+  request<WeighingCommandResult>({
+    url: `/dispatch-workflow/${orderId}/rollback-previous-stage`, method: 'post', data
+  })
+
 export const startDispatchWeighing = (orderId: number, data: WeighingOrderCommandRequest) => request<WeighingCommandResult>({
   url: `/dispatch-workflow/${orderId}/start-weighing`, method: 'post', data
 })

@@ -146,13 +146,6 @@
           <div class="row-actions">
             <TooltipBtn
               :flat="true"
-              icon="mdi-arrow-left"
-              tooltip-text="整单撤回到待出库"
-              :disabled="!canOperate || !canCancelOutbound(row)"
-              @click="cancelRow(row)"
-            />
-            <TooltipBtn
-              :flat="true"
               :icon="notificationCanRetry(row.notification_status) ? 'mdi-refresh' : 'mdi-check-decagram-outline'"
               :tooltip-text="notificationCanRetry(row.notification_status) ? '重试签收通知' : '整单签收'"
               :disabled="!canOperate || (Boolean(row.signed_at) && !notificationCanRetry(row.notification_status))"
@@ -206,7 +199,6 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import type { VxePagerEvents, VxeTableEvents } from 'vxe-table'
 import {
-  cancelDispatchOutbound,
   getDispatchOrder,
   getDispatchOrderPage,
   getDispatchTaskBoxes,
@@ -229,10 +221,8 @@ import type { btnGroupItem } from '@/types/System/Form'
 import { getMenuAuthorityList } from '@/utils/common'
 import { exportData } from '@/utils/exportTable'
 import {
-  buildCancelOutboundCommand,
   buildCompletedPageRequest,
   buildSignCommand,
-  canCancelOutbound,
   completedBoxIdentity,
   completedBoxProducts,
   completedBoxSize,
@@ -396,32 +386,6 @@ const handlePageChange: VxePagerEvents.PageChange = ({ currentPage, pageSize }) 
   state.pageIndex = currentPage
   state.pageSize = pageSize
   void getCompleted()
-}
-
-const cancelRow = (row: CompletedTableRow): void => {
-  if (!canCancelOutbound(row)) return
-  const warehouseId = props.warehouseId
-  if (warehouseId === null) return
-  const context = { sequence: state.requestSeq, warehouseId, orderId: row.id, rowVersion: row.row_version }
-  hookComponent.$dialog({
-    content: `确认整单撤回 ${row.dispatch_no} 到待出库吗？库存扣减将整单回滚。`,
-    handleConfirm: async () => {
-      if (!isCompletedRowContextCurrent(context, state.requestSeq, props.warehouseId, state.tableData)) {
-        hookComponent.$message({ type: 'warning', content: '仓库或列表数据已变化，请重新操作' })
-        return
-      }
-      const command = buildCancelOutboundCommand(row, requestId('cancel-outbound', row.id))
-      const result = await cancelDispatchOutbound(command.orderId, command.request)
-      if (!isCompletedRowContextCurrent(context, state.requestSeq, props.warehouseId, state.tableData)) return
-      if (!result.isSuccess) {
-        hookComponent.$message({ type: 'error', content: result.errorMessage })
-        return
-      }
-      hookComponent.$message({ type: 'success', content: '已整单撤回到待出库' })
-      await getCompleted()
-      emit('statusChanged')
-    }
-  })
 }
 
 const rowShippedQty = (row: CompletedTableRow): number =>

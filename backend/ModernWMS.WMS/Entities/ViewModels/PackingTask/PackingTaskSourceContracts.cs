@@ -41,7 +41,8 @@ public sealed record PackingTaskSourceSnapshot(
     bool IsCancelled,
     IReadOnlyList<PackingTaskSourceItem> Items,
     IReadOnlyList<SellFoxSourceBox> Boxes,
-    string CartonsJson);
+    string CartonsJson,
+    string Remark);
 
 /// <summary>
 /// Strict parsing result. Unsupported input never exposes a partial box collection.

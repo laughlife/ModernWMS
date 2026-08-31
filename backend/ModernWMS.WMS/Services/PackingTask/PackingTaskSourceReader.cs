@@ -162,6 +162,7 @@ public sealed class PackingTaskSourceReader : IPackingTaskSourceReader
                    shop_id,
                    shop_name,
                    marketplace_name,
+                   remark,
                    cartons_json,
                    source_hash,
                    source_canceled,
@@ -280,7 +281,8 @@ public sealed class PackingTaskSourceReader : IPackingTaskSourceReader
             cancelled,
             mappedItems,
             boxes,
-            task.cartons_json ?? string.Empty);
+            task.cartons_json ?? string.Empty,
+            task.remark?.Trim() ?? string.Empty);
     }
 
     private static PackingTaskSourceSnapshot BuildCancelledTombstone(long sourceTaskId)
@@ -297,6 +299,7 @@ public sealed class PackingTaskSourceReader : IPackingTaskSourceReader
             true,
             [],
             [],
+            string.Empty,
             string.Empty);
     }
 
