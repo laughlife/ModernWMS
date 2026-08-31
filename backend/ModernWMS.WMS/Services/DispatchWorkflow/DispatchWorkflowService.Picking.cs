@@ -77,7 +77,7 @@ public partial class DispatchWorkflowService
                     VALUES (@orderId,@taskId,@itemId,@dispatchNo,3,@skuId,@qty,0,0,@name,@now,0,@qty,@qty,0,0,0,0,0,'','',@minDate,'','',0,0,0,0,0,'','','',0,@now,@userId,@name);
                     SELECT LAST_INSERT_ID();
                     """,new{orderId,taskId=item.packing_task_id,itemId=item.id,dispatchNo=order.dispatch_no,skuId=0,qty=item.required_qty,
-                        name=user.user_name,now,minDate=ModernWMS.Core.Utility.UtilConvert.MinDate},tx,cancellationToken:ct));
+                        userId=user.user_id,name=user.user_name,now,minDate=ModernWMS.Core.Utility.UtilConvert.MinDate},tx,cancellationToken:ct));
                 details[item.id]=detailId;
             }
             foreach(var a in allocations)
@@ -145,6 +145,8 @@ public partial class DispatchWorkflowService
         var bindings=(await c.QueryAsync<BoundSelectionRow>(new CommandDefinition("""
             SELECT selection.`id`,selection.`sellfox_item_id`,selection.`erp_stock_id`,
                    selection.`reservation_id`,selection.`reservation_item_id`,selection.`qty`,
+                   reservation_item.`status` AS reservation_status,
+                   reservation_item.`remaining_qty` AS reservation_remaining_qty,
                    task.`id` AS packing_task_id
               FROM `wms_packing_task_stock_selection` selection
               JOIN `wms_dispatch_packing_task` task
@@ -155,6 +157,11 @@ public partial class DispatchWorkflowService
                 ON stock.`id`=selection.`erp_stock_id`
                AND stock.`warehouse_id`=dispatch_order.`warehouse_id`
                AND stock.`deleted`=b'0'
+              LEFT JOIN `trk_stock_reservation_item` reservation_item
+                ON reservation_item.`id`=selection.`reservation_item_id`
+               AND reservation_item.`reservation_id`=selection.`reservation_id`
+               AND reservation_item.`stock_id`=selection.`erp_stock_id`
+               AND reservation_item.`deleted`=b'0'
              WHERE task.`id` IN @taskIds
                AND task.`is_active`=1
                AND selection.`status`='ACTIVE'
@@ -166,6 +173,14 @@ public partial class DispatchWorkflowService
             throw DispatchWorkflowCommandException.StockShortage("装箱任务未绑定ERP库存");
         if(bindings.Any(x=>x.erp_stock_id<=0||x.reservation_id is null or <=0||x.reservation_item_id is null or <=0))
             throw DispatchWorkflowCommandException.StockShortage("装箱任务库存绑定缺少有效预占来源");
+        if(bindings.GroupBy(x=>(x.reservation_id,x.reservation_item_id,x.erp_stock_id)).Any(group=>
+        {
+            var owner=group.First();
+            return owner.reservation_remaining_qty is not >0
+                || group.Sum(x=>(long)x.qty)>owner.reservation_remaining_qty.Value
+                || group.Any(x=>x.reservation_status is not ("ACTIVE" or "PARTIALLY_SETTLED"));
+        }))
+            throw DispatchWorkflowCommandException.StockShortage("装箱任务库存预占已失效，请回退到装箱任务重新选择库存");
 
         var plan=new List<PickingAllocation>();
         foreach(var item in items)
@@ -195,6 +210,8 @@ public partial class DispatchWorkflowService
         public long erp_stock_id{get;init;}
         public long? reservation_id{get;init;}
         public long? reservation_item_id{get;init;}
+        public string? reservation_status{get;init;}
+        public long? reservation_remaining_qty{get;init;}
         public int qty{get;init;}
     }
 }

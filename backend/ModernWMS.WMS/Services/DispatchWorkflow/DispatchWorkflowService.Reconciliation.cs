@@ -223,6 +223,15 @@ public partial class DispatchWorkflowService
         public long? reservation_id { get; init; }
         public long? reservation_item_id { get; init; }
         public int qty { get; init; }
+        public string? reservation_status { get; init; }
+        public long? reservation_released_qty { get; init; }
+        public long? reservation_consumed_qty { get; init; }
+        public long? reservation_remaining_qty { get; init; }
+        public bool CanRelease => reservation_remaining_qty>=qty
+            && reservation_status is "ACTIVE" or "PARTIALLY_SETTLED";
+        public bool IsAlreadyReleased => reservation_remaining_qty==0
+            && reservation_consumed_qty==0 && reservation_released_qty>=qty
+            && reservation_status=="RELEASED";
     }
 
     private static async Task RebuildTaskItemsAsync(System.Data.IDbConnection c,IDbTransaction tx,DispatchPackingTaskEntity task,

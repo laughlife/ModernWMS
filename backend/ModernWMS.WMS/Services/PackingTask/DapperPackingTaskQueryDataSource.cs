@@ -244,7 +244,8 @@ internal sealed class DapperPackingTaskQueryDataSource(
             if (activeRows.Count > 1)
                 return await RollbackAsync(transaction, "装箱明细存在多条活动库存绑定，请先完成历史清理");
             var existing = activeRows.SingleOrDefault();
-            var actions = BuildActions(request, currentUser, task, existing, targetQty);
+            var mutationRequestId = Guid.NewGuid().ToString("N");
+            var actions = BuildActions(request, currentUser, task, existing, targetQty, mutationRequestId);
             if (actions.Count > 0)
             {
                 await _stockMutationService.PrelockAsync(
@@ -398,7 +399,8 @@ internal sealed class DapperPackingTaskQueryDataSource(
                 currentUser, request.sellfox_task_id, request.sellfox_item_id,
                 task.WarehouseId, selection.ErpStockId.Value, "RELEASE",
                 selection.Qty, selection.RowVersion + 1,
-                selection.ReservationId, selection.ReservationItemId);
+                selection.ReservationId, selection.ReservationItemId,
+                Guid.NewGuid().ToString("N"));
             await _stockMutationService.PrelockAsync(connection, transaction, [task.WarehouseId],
                 [new PackingStockPrelockRequest(context, selection.ErpStockId.Value, "UNLOCK")]);
             var boundary = await connection.QuerySingleOrDefaultAsync<StockBoundaryRow>(new CommandDefinition(
@@ -439,7 +441,8 @@ internal sealed class DapperPackingTaskQueryDataSource(
         CurrentUser currentUser,
         TaskContext task,
         SelectionRow? existing,
-        int targetQty)
+        int targetQty,
+        string mutationRequestId)
     {
         var actions = new List<MutationAction>();
         if (existing == null)
@@ -481,7 +484,7 @@ internal sealed class DapperPackingTaskQueryDataSource(
             quantity,
             BuildContext(currentUser, request.sellfox_task_id, request.sellfox_item_id,
                 task.WarehouseId, stockId, eventType == "LOCK" ? "RESERVE" : "RELEASE",
-                quantity, sequence, reservationId, reservationItemId),
+                quantity, sequence, reservationId, reservationItemId, mutationRequestId),
             legacyAllocationId,
             reservationItemId);
     }
@@ -496,9 +499,10 @@ internal sealed class DapperPackingTaskQueryDataSource(
         long quantity,
         long sequence,
         long? reservationId,
-        long? reservationItemId)
+        long? reservationItemId,
+        string mutationRequestId)
     {
-        var identity = $"{action}:{taskId}:{itemId}:{stockId}:{quantity}:{sequence}";
+        var identity = $"{action}:{taskId}:{itemId}:{stockId}:{quantity}:{sequence}:{mutationRequestId}";
         var operationKey = Convert.ToHexString(
             SHA256.HashData(Encoding.UTF8.GetBytes(identity))).ToLowerInvariant();
         var operatorName = string.IsNullOrWhiteSpace(currentUser.user_name)

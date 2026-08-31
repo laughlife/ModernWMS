@@ -97,13 +97,15 @@ export const buildRollbackPendingPickPayload = (
 
 export const getPendingPickFailureOutcome = (errorCode: string): PendingPickFailureOutcome => {
   const workflowErrorCode = errorCode as DispatchWorkflowErrorCode
+  const messageKey = FAILURE_MESSAGE_KEYS[workflowErrorCode]
   const message = FAILURE_MESSAGES[workflowErrorCode]
+    ?? (messageKey ? undefined : `系统操作失败，请联系管理员（${errorCode || '未知错误'}）`)
   return {
     stayOnPendingPick: true,
     refreshList: true,
     refreshDetail: true,
     emitStatusChanged: false,
-    messageKey: FAILURE_MESSAGE_KEYS[workflowErrorCode] ?? 'wms.deliveryManagement.sourceChangeRefresh',
+    messageKey: messageKey ?? 'wms.deliveryManagement.sourceChangeRefresh',
     ...(message ? { message } : {})
   }
 }

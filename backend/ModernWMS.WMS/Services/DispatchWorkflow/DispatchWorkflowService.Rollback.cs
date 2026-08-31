@@ -46,26 +46,39 @@ public partial class DispatchWorkflowService
                 throw DispatchWorkflowCommandException.StatusNotAllowedForRollback("the order has no active packing task to roll back");
             var sourceTaskIds=tasks.Select(x=>x.source_task_id).ToArray();
             var reserved=(await c.QueryAsync<ReservedStockRow>(new CommandDefinition("""
-                SELECT `id`,`erp_stock_id`,`stock_allocation_id`,`reservation_id`,
-                       `reservation_item_id`,`qty`
-                  FROM `wms_packing_task_stock_selection`
-                 WHERE `sellfox_task_id` IN @sourceTaskIds
-                   AND `status`='ACTIVE'
-                   AND `erp_stock_id` IS NOT NULL
-                 ORDER BY `erp_stock_id`,`id` FOR UPDATE;
+                SELECT selection.`id`,selection.`erp_stock_id`,selection.`stock_allocation_id`,
+                       selection.`reservation_id`,selection.`reservation_item_id`,selection.`qty`,
+                       reservation_item.`status` reservation_status,
+                       reservation_item.`released_qty` reservation_released_qty,
+                       reservation_item.`consumed_qty` reservation_consumed_qty,
+                       reservation_item.`remaining_qty` reservation_remaining_qty
+                  FROM `wms_packing_task_stock_selection` selection
+                  LEFT JOIN `trk_stock_reservation_item` reservation_item
+                    ON reservation_item.`id`=selection.`reservation_item_id`
+                   AND reservation_item.`reservation_id`=selection.`reservation_id`
+                   AND reservation_item.`stock_id`=selection.`erp_stock_id`
+                   AND reservation_item.`deleted`=b'0'
+                 WHERE selection.`sellfox_task_id` IN @sourceTaskIds
+                   AND selection.`status`='ACTIVE'
+                   AND selection.`erp_stock_id` IS NOT NULL
+                 ORDER BY selection.`erp_stock_id`,selection.`id` FOR UPDATE;
                 """,new { sourceTaskIds},tx,cancellationToken:ct))).AsList();
-            if(reserved.Any(row=>row.reservation_id is null or <=0||row.reservation_item_id is null or <=0))
+            if(reserved.Any(row=>row.reservation_id is null or <=0
+                || row.reservation_item_id is null or <=0 || row.qty<=0
+                || !row.CanRelease && !row.IsAlreadyReleased
+                || row.IsAlreadyReleased && row.stock_allocation_id is >0))
                 throw new InvalidOperationException("库存预占缺少可安全释放的共享预占凭据");
+            var releasable=reserved.Where(row=>row.CanRelease).ToList();
             var mutation=RequirePackingStockMutationService();
-            if(reserved.Count>0)
+            if(releasable.Count>0)
             {
-                var prelocks=reserved.Select(row=>new PackingStockPrelockRequest(
+                var prelocks=releasable.Select(row=>new PackingStockPrelockRequest(
                     DispatchStockMutationContext(user,order.warehouse_id,"DISPATCH_RELEASE",order.id,row.id,
                         row.erp_stock_id,row.qty,requestId,row.reservation_id,row.reservation_item_id),
                     row.erp_stock_id,"UNLOCK")).ToArray();
                 await mutation.PrelockAsync(c,tx,[order.warehouse_id],prelocks,ct);
             }
-            foreach(var row in reserved)
+            foreach(var row in releasable)
             {
                 await mutation.ReleaseAsync(c,tx,
                     DispatchStockMutationContext(user,order.warehouse_id,"DISPATCH_RELEASE",order.id,row.id,
