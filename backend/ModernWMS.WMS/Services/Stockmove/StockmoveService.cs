@@ -24,13 +24,15 @@ public class StockmoveService : BaseService<StockmoveEntity>, IStockmoveService
                m.`erp_stock_id`,m.`stock_allocation_id`,
                m.`expiry_date`,m.`price`,m.`putaway_date`,sku.`sku_code`,sku.`sku_name`,
                spu.`spu_code`,spu.`spu_name`,dest.`location_name` `dest_googs_location_name`,
-               dest.`warehouse_name` `dest_googs_warehouse`,orig.`location_name` `orig_goods_location_name`,
-               orig.`warehouse_name` `orig_goods_warehouse`
+               dest_wh.`name` `dest_googs_warehouse`,orig.`location_name` `orig_goods_location_name`,
+               orig_wh.`name` `orig_goods_warehouse`
         FROM `wms_stockmove` m
         JOIN `wms_sku` sku ON sku.`id`=m.`sku_id`
         JOIN `wms_spu` spu ON spu.`id`=sku.`spu_id`
         JOIN `wms_goodslocation` orig ON orig.`id`=m.`orig_goods_location_id`
         JOIN `wms_goodslocation` dest ON dest.`id`=m.`dest_googs_location_id`
+        JOIN `erp_warehouse` orig_wh ON orig_wh.`id`=orig.`warehouse_id` AND orig_wh.`id`=320118 AND orig_wh.`deleted`=0
+        JOIN `erp_warehouse` dest_wh ON dest_wh.`id`=dest.`warehouse_id` AND dest_wh.`id`=320118 AND dest_wh.`deleted`=0
         """;
 
     private static readonly IReadOnlyDictionary<string,string> SearchColumns=
@@ -43,8 +45,8 @@ public class StockmoveService : BaseService<StockmoveEntity>, IStockmoveService
             ["handle_time"]="m.`handle_time`",["creator"]="m.`creator`",["create_time"]="m.`create_time`",
             ["sku_code"]="sku.`sku_code`",["sku_name"]="sku.`sku_name`",["spu_code"]="spu.`spu_code`",
             ["spu_name"]="spu.`spu_name`",["dest_googs_location_name"]="dest.`location_name`",
-            ["dest_googs_warehouse"]="dest.`warehouse_name`",["orig_goods_location_name"]="orig.`location_name`",
-            ["orig_goods_warehouse"]="orig.`warehouse_name`",["series_number"]="m.`series_number`",
+            ["dest_googs_warehouse"]="dest_wh.`name`",["orig_goods_location_name"]="orig.`location_name`",
+            ["orig_goods_warehouse"]="orig_wh.`name`",["series_number"]="m.`series_number`",
             ["expiry_date"]="m.`expiry_date`",["price"]="m.`price`",["putaway_date"]="m.`putaway_date`"
         };
 

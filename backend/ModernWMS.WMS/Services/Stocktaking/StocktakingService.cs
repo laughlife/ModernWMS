@@ -271,6 +271,7 @@ public class StocktakingService : BaseService<StocktakingEntity>, IStocktakingSe
         INNER JOIN `wms_sku` sku ON st.`sku_id`=sku.`id`
         INNER JOIN `wms_spu` spu ON sku.`spu_id`=spu.`id`
         INNER JOIN `wms_goodslocation` gsl ON st.`goods_location_id`=gsl.`id`
+        JOIN `erp_warehouse` wh ON wh.`id`=gsl.`warehouse_id` AND wh.`id`=320118 AND wh.`deleted`=0
         LEFT JOIN `wms_goodsowner` gso ON st.`goods_owner_id`=gso.`id`
         LEFT JOIN `wms_stockadjust` adj
           ON st.`id`=adj.`source_table_id` AND adj.`job_type`=1
@@ -279,7 +280,7 @@ public class StocktakingService : BaseService<StocktakingEntity>, IStocktakingSe
     private const string ViewColumns = """
         st.`id`,st.`job_code`,st.`job_status`,(adj.`id` IS NOT NULL) `adjust_status`,
         sku.`id` `sku_id`,sku.`sku_code`,sku.`sku_name`,spu.`spu_code`,spu.`spu_name`,
-        st.`goods_location_id`,gsl.`warehouse_name`,gsl.`location_name`,st.`goods_owner_id`,
+        st.`goods_location_id`,wh.`name` AS `warehouse_name`,gsl.`location_name`,st.`goods_owner_id`,
         COALESCE(gso.`goods_owner_name`,'') `goods_owner_name`,st.`expiry_date`,st.`price`,
         st.`putaway_date`,st.`series_number`,st.`book_qty`,st.`counted_qty`,st.`difference_qty`,
         st.`erp_stock_id`,st.`stock_allocation_id`,
@@ -293,7 +294,7 @@ public class StocktakingService : BaseService<StocktakingEntity>, IStocktakingSe
             ["adjust_status"]="(adj.`id` IS NOT NULL)", ["sku_id"]="sku.`id`",
             ["sku_code"]="sku.`sku_code`", ["sku_name"]="sku.`sku_name`",
             ["spu_code"]="spu.`spu_code`", ["spu_name"]="spu.`spu_name`",
-            ["goods_location_id"]="st.`goods_location_id`", ["warehouse_name"]="gsl.`warehouse_name`",
+            ["goods_location_id"]="st.`goods_location_id`", ["warehouse_name"]="wh.`name`",
             ["location_name"]="gsl.`location_name`", ["goods_owner_id"]="st.`goods_owner_id`",
             ["goods_owner_name"]="gso.`goods_owner_name`", ["expiry_date"]="st.`expiry_date`",
             ["price"]="st.`price`", ["putaway_date"]="st.`putaway_date`",
