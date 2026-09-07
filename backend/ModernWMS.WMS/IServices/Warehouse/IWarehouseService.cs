@@ -2,7 +2,7 @@
  * date：2022-12-21
  * developer：NoNo
  */
- using ModernWMS.Core.Services;
+ using ModernWMS.Core.DI;
  using ModernWMS.Core.Models;
  using ModernWMS.Core.JWT;
  using ModernWMS.WMS.Entities.Models;
@@ -13,7 +13,7 @@
      /// <summary>
      /// Interface of WarehouseService
      /// </summary>
-     public interface IWarehouseService : IBaseService<WarehouseEntity>
+     public interface IWarehouseService : IDependency
      {
         #region Api
         /// <summary>
@@ -23,7 +23,7 @@
         /// <returns></returns>
         Task<List<FormSelectItem>> GetSelectItemsAsnyc(CurrentUser currentUser);
         /// <summary>
-        /// Get ERP domestic warehouses available for optional binding.
+        /// Get the ERP Shenzhen warehouse for the transition period.
         /// </summary>
         Task<List<ErpWarehouseOptionViewModel>> GetErpWarehouseOptionsAsync();
          /// <summary>
@@ -44,7 +44,7 @@
          /// <param name="id">primary key</param>
          /// <param name="currentUser">current user</param>
          /// <returns></returns>
-         Task<WarehouseViewModel?> GetAsync(int id, CurrentUser currentUser);
+         Task<WarehouseViewModel?> GetAsync(long id, CurrentUser currentUser);
         /// <summary>
         /// add a new record
         /// </summary>
@@ -66,7 +66,7 @@
          /// <param name="id">id</param>
          /// <param name="currentUser">current user</param>
          /// <returns></returns>
-        Task<(bool flag, string msg)> DeleteAsync(int id, CurrentUser currentUser);
+        Task<(bool flag, string msg)> DeleteAsync(long id, CurrentUser currentUser);
 
         /// <summary>
         /// import warehouses by excel

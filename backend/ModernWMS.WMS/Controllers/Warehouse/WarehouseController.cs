@@ -127,7 +127,7 @@ namespace ModernWMS.WMS.Controllers
          /// </summary>
          /// <returns>args</returns>
          [HttpGet]
-         public async Task<ResultModel<WarehouseViewModel>> GetAsync(int id)
+         public async Task<ResultModel<WarehouseViewModel>> GetAsync(long id)
          {
              var data = await _warehouseService.GetAsync(id, CurrentUser);
              if (data!=null)
@@ -183,7 +183,7 @@ namespace ModernWMS.WMS.Controllers
          /// <param name="id">id</param>
          /// <returns></returns>
          [HttpDelete]
-         public async Task<ResultModel<string>> DeleteAsync(int id)
+         public async Task<ResultModel<string>> DeleteAsync(long id)
          {
              var (flag, msg) = await _warehouseService.DeleteAsync(id, CurrentUser);
              if (flag)

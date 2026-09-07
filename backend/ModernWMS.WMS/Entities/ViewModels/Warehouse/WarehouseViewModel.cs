@@ -29,7 +29,7 @@ namespace ModernWMS.WMS.Entities.ViewModels
         /// id
         /// </summary>
         [Display(Name = "id")]
-        public int id { get; set; } = 0;
+        public long id { get; set; } = 0;
 
         /// <summary>
         /// warehouse_name
@@ -38,18 +38,6 @@ namespace ModernWMS.WMS.Entities.ViewModels
         [MaxLength(32, ErrorMessage = "MaxLength")]
         [Required(ErrorMessage ="Required")]
         public string warehouse_name { get; set; } = string.Empty;
-
-        /// <summary>
-        /// Bound ERP warehouse id. Binding is optional.
-        /// </summary>
-        [Display(Name = "erp_warehouse_id")]
-        public long? erp_warehouse_id { get; set; }
-
-        /// <summary>
-        /// Current ERP warehouse name resolved from ruoyi-vue-pro.
-        /// </summary>
-        [Display(Name = "erp_warehouse_name")]
-        public string erp_warehouse_name { get; set; } = string.Empty;
 
         /// <summary>
         /// Whether this warehouse is reserved by the system.
