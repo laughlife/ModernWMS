@@ -44,7 +44,7 @@ namespace ModernWMS.WMS.IServices
         /// </summary>
         Task<(bool flag, string msg)> PreparePickingAsync(
             string dispatchNo,
-            int warehouseId,
+            long warehouseId,
             int goodsOwnerId,
             List<DispatchlistAddViewModel> viewModels,
             CurrentUser currentUser);

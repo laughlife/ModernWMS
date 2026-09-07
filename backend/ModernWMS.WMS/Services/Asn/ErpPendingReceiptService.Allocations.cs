@@ -12,7 +12,7 @@ public partial class ErpPendingReceiptService
 {
     private async Task FillDefaultReceiptAllocationsAsync(
         IReadOnlyList<ErpPendingReceiptProductViewModel> products,
-        int warehouseId,
+        long warehouseId,
         CurrentUser currentUser)
     {
         foreach (var product in products)
@@ -135,8 +135,8 @@ public partial class ErpPendingReceiptService
         ErpPendingReceiptProductViewModel product,
         CurrentUser currentUser)
     {
-        var warehouseId = await ScalarOrDefaultAsync<int>(
-            "SELECT id FROM wms_warehouse WHERE erp_warehouse_id=@erpWarehouseId AND is_valid=1 LIMIT 1",
+        var warehouseId = await ScalarOrDefaultAsync<long>(
+            "SELECT id FROM erp_warehouse WHERE id=@erpWarehouseId AND id=320118 AND deleted=0 AND attr='国内仓库' LIMIT 1",
             ("@erpWarehouseId", shipment.to_warehouse_id));
         return warehouseId == null
             ? null
@@ -144,7 +144,7 @@ public partial class ErpPendingReceiptService
     }
 
     private async Task<AreaReference?> ResolveDefaultAreaAsync(
-        int warehouseId,
+        long warehouseId,
         long? deptId,
         CurrentUser currentUser)
     {

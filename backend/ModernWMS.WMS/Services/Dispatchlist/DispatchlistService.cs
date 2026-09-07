@@ -181,7 +181,7 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
               COALESCE(l.`location_name`,'') `location_name`,
               COALESCE(area.`area_name`,l.`warehouse_area_name`,'') `warehouse_area_name`,
               COALESCE(l.`warehouse_area_property`,area.`area_property`,0) `warehouse_area_property`,
-              COALESCE(wh.`warehouse_name`,l.`warehouse_name`,'') `warehouse_name`,
+              COALESCE(wh.`name`,'') `warehouse_name`,
               p.`series_number`,p.`expiry_date`,p.`price`,p.`picker`,p.`picker_id`,p.`putaway_date`
             FROM `wms_dispatchpicklist` p
             INNER JOIN `wms_dispatchlist` d ON p.`dispatchlist_id`=d.`id`
@@ -190,7 +190,7 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
             LEFT JOIN `wms_goodsowner` o ON p.`goods_owner_id`=o.`id`
             LEFT JOIN `wms_erp_stock_allocation` allocation ON allocation.`id`=p.`stock_allocation_id`
             LEFT JOIN `trk_stock` stock ON stock.`id`=allocation.`erp_stock_id` AND stock.`deleted`=b'0'
-            LEFT JOIN `wms_warehouse` wh ON wh.`erp_warehouse_id`=stock.`warehouse_id`
+            LEFT JOIN `erp_warehouse` wh ON wh.`id`=stock.`warehouse_id`
             LEFT JOIN `wms_warehousearea` area ON area.`id`=allocation.`warehouse_area_id`
             LEFT JOIN `wms_goodslocation` l ON p.`goods_location_id`=l.`id`
             WHERE p.`dispatchlist_id`=@dispatch_id ;
@@ -280,7 +280,7 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
     /// <summary>
     /// 执行 PreparePickingAsync 操作。
     /// </summary>
-    public async Task<(bool flag, string msg)> PreparePickingAsync(string dispatchNo, int warehouseId,
+    public async Task<(bool flag, string msg)> PreparePickingAsync(string dispatchNo, long warehouseId,
         int goodsOwnerId, List<DispatchlistAddViewModel> viewModels, CurrentUser currentUser)
     {
         if (string.IsNullOrWhiteSpace(dispatchNo) || dispatchNo.Length > 32 || warehouseId <= 0
@@ -666,7 +666,7 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
         await RollbackResult((false,"[202]"+_stringLocalizer["data_changed"]),transaction);
 
     private async Task<(bool flag,string msg)> PrepareCanonicalPickingAsync(
-        IDbConnection connection,IDbTransaction transaction,string dispatchNo,int warehouseId,int goodsOwnerId,
+        IDbConnection connection,IDbTransaction transaction,string dispatchNo,long warehouseId,int goodsOwnerId,
         IReadOnlyCollection<DispatchlistAddViewModel> viewModels,IReadOnlyCollection<SkuEntity> skus,
         CurrentUser user,long erpWarehouseId)
     {
@@ -768,13 +768,13 @@ public class DispatchlistService : BaseService<DispatchlistEntity>, IDispatchlis
     }
 
     private static async Task<DispatchRuntimeRow> LoadDispatchRuntimeAsync(
-        IDbConnection connection,IDbTransaction transaction,int warehouseId)
+        IDbConnection connection,IDbTransaction transaction,long warehouseId)
     {
         var erpWarehouseId=await connection.QuerySingleOrDefaultAsync<long?>("""
-            SELECT `erp_warehouse_id` FROM `wms_warehouse`
-             WHERE `id`=@warehouseId AND `is_valid`=1 LIMIT 1;
+            SELECT `id` FROM `erp_warehouse`
+             WHERE `id`=@warehouseId AND `id`=320118 AND `deleted`=0 AND `attr`='国内仓库' LIMIT 1;
             """,new{warehouseId},transaction)
-            ?? throw new InvalidOperationException("仓库不存在或未映射ERP仓库");
+            ?? throw new InvalidOperationException("ERP深圳仓不存在或不可用");
         return new DispatchRuntimeRow{ErpWarehouseId=erpWarehouseId};
     }
 

@@ -144,7 +144,6 @@ export interface ErpPendingReceiptVO {
   shipment_time?: string | null
   warehouse_id: number
   warehouse_name: string
-  wms_warehouse_id: number
   freight_forwarder_name: string
   source_freight_payment_type: string
   provider_code: string

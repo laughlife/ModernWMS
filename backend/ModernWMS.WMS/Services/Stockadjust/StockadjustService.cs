@@ -287,15 +287,15 @@ internal static class CanonicalInventorySupport
         int goodsLocationId)
     {
         var warehouse = await connection.QuerySingleOrDefaultAsync<RouteWarehouse>("""
-            SELECT w.`erp_warehouse_id` ErpWarehouseId
+            SELECT w.`id` ErpWarehouseId
               FROM `wms_goodslocation` l
-              JOIN `wms_warehouse` w
-                ON w.`id`=l.`warehouse_id`  AND w.`is_valid`=1
+              JOIN `erp_warehouse` w
+                ON w.`id`=l.`warehouse_id`  AND w.`deleted`=0 AND w.`id`=320118 AND w.`attr`='国内仓库'
              WHERE l.`id`=@goodsLocationId  AND l.`is_valid`=1
              LIMIT 1;
             """, new { goodsLocationId });
         if (warehouse == null || warehouse.ErpWarehouseId <= 0)
-            throw new InvalidOperationException("库位未映射有效的ERP仓库，禁止库存操作");
+            throw new InvalidOperationException("库位不属于有效的ERP深圳仓，禁止库存操作");
         return new InventoryRoute
         {
             GoodsLocationId = goodsLocationId,
@@ -321,15 +321,15 @@ internal static class CanonicalInventorySupport
         InventoryRoute snapshot)
     {
         var warehouseId = await connection.ExecuteScalarAsync<long?>("""
-            SELECT w.`erp_warehouse_id`
+            SELECT w.`id`
               FROM `wms_goodslocation` l
-              JOIN `wms_warehouse` w
-                ON w.`id`=l.`warehouse_id`  AND w.`is_valid`=1
+              JOIN `erp_warehouse` w
+                ON w.`id`=l.`warehouse_id`  AND w.`deleted`=0 AND w.`id`=320118 AND w.`attr`='国内仓库'
              WHERE l.`id`=@goodsLocationId  AND l.`is_valid`=1
              LIMIT 1;
             """, new { goodsLocationId = snapshot.GoodsLocationId }, transaction);
         if (warehouseId != snapshot.ErpWarehouseId)
-            throw new InvalidOperationException("库位的ERP仓库映射在业务操作期间发生变化，请重试");
+            throw new InvalidOperationException("库位的ERP仓库归属在业务操作期间发生变化，请重试");
     }
 
     internal static async Task LockRoutesAsync(

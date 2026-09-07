@@ -393,7 +393,7 @@ const method = reactive({
     nextTick(() => formRef.value?.resetValidation?.())
     try {
       const [areaResponse, ownerResponse] = await Promise.all([
-        row.wms_warehouse_id > 0 ? getWarehouseAreaSelect(row.wms_warehouse_id) : Promise.resolve(null),
+        row.warehouse_id > 0 ? getWarehouseAreaSelect(row.warehouse_id) : Promise.resolve(null),
         getOwnerOfCargoAll()
       ])
       if ((areaResponse && !areaResponse.data.isSuccess)

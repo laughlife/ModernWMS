@@ -290,6 +290,17 @@ public class SpuService : BaseService<SpuEntity>, ISpuService
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
         try
         {
+            foreach (var warehouseId in viewModel.detailList.Where(t => t.id >= 0).Select(t => t.warehouse_id).Distinct())
+            {
+                if (!await connection.ExecuteScalarAsync<bool>("""
+                    SELECT EXISTS(SELECT 1 FROM `erp_warehouse`
+                    WHERE `id`=@warehouseId AND `id`=320118 AND `deleted`=0 AND `attr`='国内仓库');
+                    """, new { warehouseId }, transaction))
+                {
+                    await transaction.RollbackAsync();
+                    return (false, "安全库存仓库必须是有效的ERP深圳仓");
+                }
+            }
             foreach (var item in viewModel.detailList)
             {
                 if (item.id == 0)
@@ -313,8 +324,8 @@ public class SpuService : BaseService<SpuEntity>, ISpuService
         var spuIds = rows.Select(t => t.id).ToArray();
         using var result = await connection.QueryMultipleAsync($"""
             SELECT {SkuColumns} FROM `wms_sku` k WHERE k.`spu_id` IN @spuIds ORDER BY k.`id`;
-            SELECT ss.`id`,ss.`sku_id`,ss.`safety_stock_qty`,ss.`warehouse_id`,w.`warehouse_name`
-              FROM `wms_sku_safety_stock` ss INNER JOIN `wms_warehouse` w ON w.`id`=ss.`warehouse_id`
+            SELECT ss.`id`,ss.`sku_id`,ss.`safety_stock_qty`,ss.`warehouse_id`,w.`name` AS `warehouse_name`
+              FROM `wms_sku_safety_stock` ss INNER JOIN `erp_warehouse` w ON w.`id`=ss.`warehouse_id` AND w.`deleted`=0 AND w.`id`=320118
               INNER JOIN `wms_sku` k ON k.`id`=ss.`sku_id` WHERE k.`spu_id` IN @spuIds ORDER BY ss.`id`;
             """, new { spuIds });
         var skus = (await result.ReadAsync<SkuViewModel>()).AsList();

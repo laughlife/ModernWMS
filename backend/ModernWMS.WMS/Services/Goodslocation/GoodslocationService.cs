@@ -16,7 +16,7 @@ namespace ModernWMS.WMS.Services;
 public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodslocationService
 {
     private const string Projection = """
-        gl.`id`, gl.`warehouse_id`, gl.`warehouse_name`, gl.`warehouse_area_name`,
+        gl.`id`, gl.`warehouse_id`, w.`name` AS `warehouse_name`, gl.`warehouse_area_name`,
         gl.`warehouse_area_property`, gl.`location_name`, gl.`location_length`, gl.`location_width`,
         gl.`location_heigth`, gl.`location_volume`, gl.`location_load`, gl.`roadway_number`,
         gl.`shelf_number`, gl.`layer_number`, gl.`tag_number`, gl.`create_time`,
@@ -27,7 +27,7 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["id"] = "gl.`id`", ["warehouse_id"] = "gl.`warehouse_id`",
-            ["warehouse_name"] = "gl.`warehouse_name`", ["warehouse_area_name"] = "gl.`warehouse_area_name`",
+            ["warehouse_name"] = "w.`name`", ["warehouse_area_name"] = "gl.`warehouse_area_name`",
             ["warehouse_area_property"] = "gl.`warehouse_area_property`", ["location_name"] = "gl.`location_name`",
             ["location_length"] = "gl.`location_length`", ["location_width"] = "gl.`location_width`",
             ["location_heigth"] = "gl.`location_heigth`", ["location_volume"] = "gl.`location_volume`",
@@ -63,7 +63,7 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
             SELECT 'goodslocation' AS `code`,
                    'goodslocations of the warehousearea' AS `comments`,
                    gl.`location_name` AS `name`, CAST(gl.`id` AS CHAR) AS `value`
-            FROM `wms_goodslocation` AS gl
+            FROM `wms_goodslocation` AS gl JOIN `erp_warehouse` w ON w.`id`=gl.`warehouse_id` AND w.`id`=320118 AND w.`deleted`=0 AND w.`attr`='国内仓库'
             WHERE gl.`is_valid` = 1
               AND gl.`warehouse_area_id` = @warehouse_area_id;
             """, new { warehouse_area_id });
@@ -86,9 +86,9 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
 
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         using var result = await connection.QueryMultipleAsync($"""
-            SELECT COUNT(*) FROM `wms_goodslocation` AS gl WHERE {where};
+            SELECT COUNT(*) FROM `wms_goodslocation` AS gl JOIN `erp_warehouse` w ON w.`id`=gl.`warehouse_id` AND w.`id`=320118 AND w.`deleted`=0 AND w.`attr`='国内仓库' WHERE {where};
             SELECT {Projection}
-            FROM `wms_goodslocation` AS gl
+            FROM `wms_goodslocation` AS gl JOIN `erp_warehouse` w ON w.`id`=gl.`warehouse_id` AND w.`id`=320118 AND w.`deleted`=0 AND w.`attr`='国内仓库'
             WHERE {where}
             ORDER BY gl.`create_time` DESC
             LIMIT @page_size OFFSET @offset;
@@ -105,7 +105,7 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         var rows = await connection.QueryAsync<GoodslocationViewModel>($"""
-            SELECT {Projection} FROM `wms_goodslocation` AS gl;
+            SELECT {Projection} FROM `wms_goodslocation` AS gl JOIN `erp_warehouse` w ON w.`id`=gl.`warehouse_id` AND w.`id`=320118 AND w.`deleted`=0 AND w.`attr`='国内仓库';
             """);
         return rows.AsList();
     }
@@ -117,7 +117,7 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         return await connection.QuerySingleOrDefaultAsync<GoodslocationViewModel>($"""
-            SELECT {Projection} FROM `wms_goodslocation` AS gl WHERE gl.`id` = @id LIMIT 1;
+            SELECT {Projection} FROM `wms_goodslocation` AS gl JOIN `erp_warehouse` w ON w.`id`=gl.`warehouse_id` AND w.`id`=320118 AND w.`deleted`=0 AND w.`attr`='国内仓库' WHERE gl.`id` = @id LIMIT 1;
             """, new { id });
     }
 
@@ -128,6 +128,11 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         await using var transaction = await connection.BeginTransactionAsync();
+        if (!await ResolveWarehouseAreaAsync(connection, transaction, viewModel))
+        {
+            await transaction.RollbackAsync();
+            return (0, "库区无效或不属于ERP深圳仓");
+        }
         var exists = await connection.ExecuteScalarAsync<bool>("""
             SELECT EXISTS(SELECT 1 FROM `wms_goodslocation`
                 WHERE `location_name` = @location_name);
@@ -171,6 +176,11 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         await using var transaction = await connection.BeginTransactionAsync();
+        if (!await ResolveWarehouseAreaAsync(connection, transaction, viewModel))
+        {
+            await transaction.RollbackAsync();
+            return (false, "库区无效或不属于ERP深圳仓");
+        }
         var duplicate = await connection.ExecuteScalarAsync<bool>("""
             SELECT EXISTS(SELECT 1 FROM `wms_goodslocation`
                 WHERE `id` <> @id AND `warehouse_id` = @warehouse_id
@@ -183,8 +193,8 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
         }
 
         var exists = await connection.ExecuteScalarAsync<bool>(
-            "SELECT EXISTS(SELECT 1 FROM `wms_goodslocation` WHERE `id` = @id);",
-            new { viewModel.id }, transaction);
+            "SELECT EXISTS(SELECT 1 FROM `wms_goodslocation` WHERE `id` = @id AND `warehouse_id`=@warehouse_id FOR UPDATE);",
+            new { viewModel.id, viewModel.warehouse_id }, transaction);
         if (!exists)
         {
             await transaction.RollbackAsync();
@@ -222,6 +232,13 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         await using var transaction = await connection.BeginTransactionAsync();
+        if (!await connection.ExecuteScalarAsync<bool>("""
+            SELECT EXISTS(SELECT 1 FROM `wms_goodslocation` WHERE `id`=@id AND `warehouse_id`=320118 FOR UPDATE);
+            """, new { id }, transaction))
+        {
+            await transaction.RollbackAsync();
+            return (false, "库位不存在或不属于ERP深圳仓");
+        }
         var existStock = await connection.ExecuteScalarAsync<bool>("""
             SELECT EXISTS(
               SELECT 1 FROM `wms_erp_stock_allocation`
@@ -238,5 +255,22 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
             "DELETE FROM `wms_goodslocation` WHERE `id` = @id;", new { id }, transaction);
         await transaction.CommitAsync();
         return qty > 0 ? (true, _stringLocalizer["delete_success"]) : (false, _stringLocalizer["delete_failed"]);
+    }
+    private static async Task<bool> ResolveWarehouseAreaAsync(
+        System.Data.Common.DbConnection connection, System.Data.Common.DbTransaction transaction,
+        GoodslocationViewModel viewModel)
+    {
+        var area = await connection.QuerySingleOrDefaultAsync<WarehouseareaViewModel>("""
+            SELECT area.`warehouse_id`, w.`name` AS `warehouse_name`, area.`area_name`, area.`area_property`
+            FROM `wms_warehousearea` area JOIN `erp_warehouse` w ON w.`id`=area.`warehouse_id`
+            WHERE area.`id`=@warehouse_area_id AND area.`warehouse_id`=@warehouse_id
+              AND area.`is_valid`=1 AND w.`id`=320118 AND w.`deleted`=0 AND w.`attr`='国内仓库'
+            LIMIT 1 FOR UPDATE;
+            """, new { viewModel.warehouse_area_id, viewModel.warehouse_id }, transaction);
+        if (area == null) return false;
+        viewModel.warehouse_name = area.warehouse_name;
+        viewModel.warehouse_area_name = area.area_name;
+        viewModel.warehouse_area_property = area.area_property;
+        return true;
     }
 }
