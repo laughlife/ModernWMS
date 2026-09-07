@@ -21,11 +21,12 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
                f.`handler`,f.`handle_time`,f.`last_update_time`,f.`series_number`,
                f.`erp_stock_id`,f.`stock_allocation_id`,f.`reservation_id`,f.`reservation_item_id`,
                f.`source_freeze_id`,
-               k.`sku_code`,p.`spu_code`,p.`spu_name`,l.`location_name`,l.`warehouse_name`
+               k.`sku_code`,p.`spu_code`,p.`spu_name`,l.`location_name`,wh.`name` AS `warehouse_name`
           FROM `wms_stockfreeze` f
           INNER JOIN `wms_sku` k ON k.`id`=f.`sku_id`
           INNER JOIN `wms_spu` p ON p.`id`=k.`spu_id`
           INNER JOIN `wms_goodslocation` l ON l.`id`=f.`goods_location_id`
+          JOIN `erp_warehouse` wh ON wh.`id`=l.`warehouse_id` AND wh.`id`=320118 AND wh.`deleted`=0
         """;
 
     private static readonly IReadOnlyDictionary<string, string> SearchColumns =
@@ -36,7 +37,7 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
             ["goods_location_id"] = "f.`goods_location_id`", ["handler"] = "f.`handler`",
             ["handle_time"] = "f.`handle_time`", ["last_update_time"] = "f.`last_update_time`",
             ["sku_code"] = "k.`sku_code`", ["spu_code"] = "p.`spu_code`", ["spu_name"] = "p.`spu_name`",
-            ["location_name"] = "l.`location_name`", ["warehouse_name"] = "l.`warehouse_name`"
+            ["location_name"] = "l.`location_name`", ["warehouse_name"] = "wh.`name`"
         };
 
     private readonly IMySqlConnectionFactory _connectionFactory;
@@ -73,6 +74,7 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
             INNER JOIN `wms_sku` k ON k.`id`=f.`sku_id`
             INNER JOIN `wms_spu` p ON p.`id`=k.`spu_id`
             INNER JOIN `wms_goodslocation` l ON l.`id`=f.`goods_location_id`
+            JOIN `erp_warehouse` wh ON wh.`id`=l.`warehouse_id` AND wh.`id`=320118 AND wh.`deleted`=0
             WHERE {where};
             {ViewSql} WHERE {where} ORDER BY f.`last_update_time` DESC LIMIT @pageSize OFFSET @offset;
             """, filter.Parameters);

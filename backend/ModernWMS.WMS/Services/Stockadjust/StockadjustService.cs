@@ -25,13 +25,14 @@ public class StockadjustService : BaseService<StockadjustEntity>, IStockadjustSe
     private const string PageSelect = """
         SELECT a.`id`,a.`job_code`,a.`is_update_stock`,a.`job_type`,a.`qty`,a.`source_table_id`,
                sku.`id` sku_id,sku.`sku_code`,sku.`sku_name`,spu.`spu_code`,spu.`spu_name`,
-               a.`goods_location_id`,gl.`warehouse_name`,gl.`location_name`,a.`goods_owner_id`,
+               a.`goods_location_id`,wh.`name` AS `warehouse_name`,gl.`location_name`,a.`goods_owner_id`,
                COALESCE(go.`goods_owner_name`,'') goods_owner_name,a.`creator`,a.`create_time`,a.`last_update_time`,
                a.`erp_stock_id`,a.`stock_allocation_id`,a.`series_number`,a.`expiry_date`,a.`price`,a.`putaway_date`
         FROM `wms_stockadjust` a
         JOIN `wms_sku` sku ON sku.`id`=a.`sku_id`
         JOIN `wms_spu` spu ON spu.`id`=sku.`spu_id`
         JOIN `wms_goodslocation` gl ON gl.`id`=a.`goods_location_id`
+        JOIN `erp_warehouse` wh ON wh.`id`=gl.`warehouse_id` AND wh.`id`=320118 AND wh.`deleted`=0
         LEFT JOIN `wms_goodsowner` go ON go.`id`=a.`goods_owner_id`
         WHERE 1=1
         """;
