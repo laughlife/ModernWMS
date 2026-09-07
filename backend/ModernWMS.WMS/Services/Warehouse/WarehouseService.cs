@@ -18,7 +18,7 @@ public class WarehouseService : IWarehouseService
     private const string SelectViewSql = """
         SELECT w.`id`, COALESCE(w.`name`,'') AS `warehouse_name`,
                COALESCE(w.`city`,'') AS `city`, COALESCE(w.`address_line`,'') AS `address`,
-               '' AS `email`, COALESCE(w.`manager`,'') AS `manager`,
+               COALESCE(w.`email`,'') AS `email`, COALESCE(w.`manager`,'') AS `manager`,
                COALESCE(w.`manager_mobile`,'') AS `contact_tel`, w.`creator`, w.`create_time`,
                w.`update_time` AS `last_update_time`, TRUE AS `is_valid`, TRUE AS `is_system`
         FROM `erp_warehouse` w
@@ -27,7 +27,7 @@ public class WarehouseService : IWarehouseService
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["id"]="w.`id`", ["warehouse_name"]="w.`name`", ["city"]="w.`city`",
-            ["address"]="w.`address_line`", ["email"]="''", ["manager"]="w.`manager`",
+            ["address"]="w.`address_line`", ["email"]="w.`email`", ["manager"]="w.`manager`",
             ["contact_tel"]="w.`manager_mobile`", ["creator"]="w.`creator`", ["create_time"]="w.`create_time`",
             ["is_valid"]="(w.`deleted`=0)",
         };
