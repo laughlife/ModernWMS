@@ -163,24 +163,24 @@ public class StockService : BaseService<StockEntity>, IStockService
             offset = (input.pageIndex - 1) * input.pageSize, pageSize = input.pageSize
         });
         const string select = """
-            SELECT d.`dispatch_no`,COALESCE(wh_location.`warehouse_name`,wh_erp.`warehouse_name`,'') `warehouse_name`,
+            SELECT d.`dispatch_no`,COALESCE(wh_location.`name`,wh_erp.`name`,'') `warehouse_name`,
                    COALESCE(gl.`location_name`,'') `location_name`,spu.`spu_name`,spu.`spu_code`,sku.`sku_name`,sku.`sku_code`,
                    p.`series_number`,p.`price`,p.`expiry_date`,p.`putaway_date`,d.`create_time` delivery_date,go.`goods_owner_name`,
                    SUM(p.`picked_qty`) delivery_qty,SUM(p.`picked_qty`*sku.`price`) delivery_amount
             FROM `wms_dispatchlist` d JOIN `wms_dispatchpicklist` p ON p.`dispatchlist_id`=d.`id`
             JOIN `wms_sku` sku ON sku.`id`=d.`sku_id` JOIN `wms_spu` spu ON spu.`id`=sku.`spu_id`
             LEFT JOIN `wms_goodslocation` gl ON gl.`id`=p.`goods_location_id`
-            LEFT JOIN `wms_warehouse` wh_location ON wh_location.`id`=gl.`warehouse_id`
+            LEFT JOIN `erp_warehouse` wh_location ON wh_location.`id`=gl.`warehouse_id`
             LEFT JOIN `wms_erp_stock_allocation` allocation ON allocation.`id`=p.`stock_allocation_id`
             LEFT JOIN `trk_stock` stock ON stock.`id`=COALESCE(p.`erp_stock_id`,allocation.`erp_stock_id`) AND stock.`deleted`=b'0'
-            LEFT JOIN `wms_warehouse` wh_erp ON wh_erp.`erp_warehouse_id`=stock.`warehouse_id` AND wh_erp.`is_valid`=1
+            LEFT JOIN `erp_warehouse` wh_erp ON wh_erp.`id`=stock.`warehouse_id` AND wh_erp.`deleted`=0
             JOIN `wms_goodsowner` go ON go.`id`=p.`goods_owner_id`
-            WHERE d.`dispatch_status`>=6
+            WHERE d.`dispatch_status`>=6 AND COALESCE(gl.`warehouse_id`,stock.`warehouse_id`)=320118
               AND (@delivery_date_from=@minDate OR d.`create_time`>=@delivery_date_from) AND (@delivery_date_to=@minDate OR d.`create_time`<=@delivery_date_to)
               AND spu.`spu_name` LIKE @spuName ESCAPE '!' AND spu.`spu_code` LIKE @spuCode ESCAPE '!'
               AND sku.`sku_name` LIKE @skuName ESCAPE '!' AND sku.`sku_code` LIKE @skuCode ESCAPE '!'
-              AND COALESCE(wh_location.`warehouse_name`,wh_erp.`warehouse_name`,'') LIKE @warehouseName ESCAPE '!'
-            GROUP BY d.`dispatch_no`,COALESCE(wh_location.`warehouse_name`,wh_erp.`warehouse_name`,''),COALESCE(gl.`location_name`,''),
+              AND COALESCE(wh_location.`name`,wh_erp.`name`,'') LIKE @warehouseName ESCAPE '!'
+            GROUP BY d.`dispatch_no`,COALESCE(wh_location.`name`,wh_erp.`name`,''),COALESCE(gl.`location_name`,''),
                      spu.`spu_name`,spu.`spu_code`,sku.`sku_name`,sku.`sku_code`,
                      p.`series_number`,p.`price`,p.`expiry_date`,p.`putaway_date`,d.`create_time`,p.`goods_owner_id`,go.`goods_owner_name`
             """;
@@ -251,8 +251,8 @@ public class StockService : BaseService<StockEntity>, IStockService
                  'ERP_STOCK' inventory_mode,'DIRECT' location_state,
                  FALSE is_pending_location,TRUE allocation_consistent,
                  COALESCE(map.`wms_sku_id`,0) sku_id,0 goods_location_id,0 goods_owner_id,
-                 0 warehouse_area_id,'' warehouse_area_name,COALESCE(wh.`id`,0) warehouse_id,
-                 stock.`warehouse_name`,'' location_name,
+                 0 warehouse_area_id,'' warehouse_area_name,stock.`warehouse_id` warehouse_id,
+                 COALESCE(wh.`name`,'') warehouse_name,'' location_name,
                  COALESCE(spu.`spu_code`,stock.`commodity_sku`) spu_code,
                  COALESCE(spu.`spu_name`,stock.`commodity_name`) spu_name,
                  COALESCE(sku.`sku_code`,stock.`commodity_sku`) sku_code,
@@ -269,8 +269,8 @@ public class StockService : BaseService<StockEntity>, IStockService
             LEFT JOIN `wms_erp_commodity_map` map ON map.`erp_commodity_id`=stock.`commodity_id`
             LEFT JOIN `wms_sku` sku ON sku.`id`=map.`wms_sku_id`
             LEFT JOIN `wms_spu` spu ON spu.`id`=sku.`spu_id`
-            LEFT JOIN `wms_warehouse` wh
-              ON wh.`erp_warehouse_id`=stock.`warehouse_id` AND wh.`is_valid`=1
+            JOIN `erp_warehouse` wh
+              ON wh.`id`=stock.`warehouse_id` AND wh.`deleted`=0 AND wh.`id`=320118 AND wh.`attr`='国内仓库'
            WHERE stock.`deleted`=b'0'
         )
         """;

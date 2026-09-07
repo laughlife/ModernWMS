@@ -35,7 +35,7 @@ namespace ModernWMS.WMS.Entities.ViewModels
         /// warehouse_id
         /// </summary>
         [Display(Name = "warehouse_id")]
-        public int warehouse_id { get; set; } = 0;
+        public long warehouse_id { get; set; } = 0;
 
 
         /// <summary>

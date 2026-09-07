@@ -17,7 +17,7 @@ public class ErpWarehouseOperatorGroupEntity
     /// <summary>
     /// 获取或设置 warehouse_id。
     /// </summary>
-    public int warehouse_id { get; set; }
+    public long warehouse_id { get; set; }
 
     /// <summary>
     /// 获取或设置 dept_id。

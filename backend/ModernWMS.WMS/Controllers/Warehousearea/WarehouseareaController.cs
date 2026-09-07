@@ -53,7 +53,7 @@ namespace ModernWMS.WMS.Controllers
         /// </summary>
         /// <returns></returns>
         [HttpGet("areas-by-warehouse_id")]
-        public async Task<ResultModel<List<FormSelectItem>>> GetSelectItemsAsnyc(int warehouse_id)
+        public async Task<ResultModel<List<FormSelectItem>>> GetSelectItemsAsnyc(long warehouse_id)
         {
             var datas = await _warehouseareaService.GetWarehouseareaByWarehouse_id(warehouse_id,CurrentUser);
             return ResultModel<List<FormSelectItem>>.Success(datas);
@@ -101,7 +101,7 @@ namespace ModernWMS.WMS.Controllers
          /// </summary>
          /// <returns>args</returns>
         [HttpGet("all")]
-         public async Task<ResultModel<List<WarehouseareaViewModel>>> GetAllAsync(int warehouse_id)
+         public async Task<ResultModel<List<WarehouseareaViewModel>>> GetAllAsync(long warehouse_id)
          {
              var data = await _warehouseareaService.GetAllAsync( warehouse_id, CurrentUser);
              if (data.Any())

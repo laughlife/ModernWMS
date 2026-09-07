@@ -31,7 +31,7 @@ namespace ModernWMS.WMS.Entities.ViewModels
         /// <summary>
         /// warehouse_id
         /// </summary>
-        public int warehouse_id { get; set; } = 0;
+        public long warehouse_id { get; set; } = 0;
 
         /// <summary>
         /// spu name

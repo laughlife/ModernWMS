@@ -736,14 +736,14 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
                      (
                        SELECT 1
                          FROM `wms_goodslocation` location
-                         JOIN `wms_warehouse` warehouse
+                         JOIN `erp_warehouse` warehouse
                            ON warehouse.`id`=location.`warehouse_id`
 
                         WHERE location.`id`=allocation.`goods_location_id`
                           AND location.`warehouse_area_id`=allocation.`warehouse_area_id`
 
                           AND location.`is_valid`=1
-                          AND warehouse.`erp_warehouse_id`=@warehouseId
+                          AND warehouse.`id`=@warehouseId AND warehouse.`deleted`=0
                      )
                    )
                  )
@@ -756,13 +756,13 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
                    (
                      SELECT 1
                        FROM `wms_warehousearea` area
-                       JOIN `wms_warehouse` warehouse
+                       JOIN `erp_warehouse` warehouse
                          ON warehouse.`id`=area.`warehouse_id`
 
                       WHERE area.`id`=allocation.`warehouse_area_id`
 
                         AND area.`is_valid`=1
-                        AND warehouse.`erp_warehouse_id`=@warehouseId
+                        AND warehouse.`id`=@warehouseId AND warehouse.`deleted`=0
                    )
                  )
                  OR allocation.`location_state` NOT IN ('ACTIVE','UNLOCATED','RETIRED')

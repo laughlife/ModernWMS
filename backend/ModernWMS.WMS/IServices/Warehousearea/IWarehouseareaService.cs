@@ -35,7 +35,7 @@
          /// Get all records
          /// </summary>
          /// <returns></returns>
-         Task<List<WarehouseareaViewModel>> GetAllAsync(int warehouse_id, CurrentUser currentUser);
+         Task<List<WarehouseareaViewModel>> GetAllAsync(long warehouse_id, CurrentUser currentUser);
          /// <summary>
          /// Get a record by id
          /// </summary>
@@ -72,7 +72,7 @@
         /// <param name="warehouse_id">warehouse's id</param>
         /// <param name="currentUser">current user</param>
         /// <returns></returns>
-        Task<List<FormSelectItem>> GetWarehouseareaByWarehouse_id(int warehouse_id, CurrentUser currentUser);
+        Task<List<FormSelectItem>> GetWarehouseareaByWarehouse_id(long warehouse_id, CurrentUser currentUser);
          #endregion
      }
  }

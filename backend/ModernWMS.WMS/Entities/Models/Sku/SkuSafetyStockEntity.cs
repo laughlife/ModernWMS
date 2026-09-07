@@ -32,7 +32,7 @@ namespace ModernWMS.WMS.Entities.Models
         /// <summary>
         /// warehouse's id
         /// </summary>
-        public int warehouse_id { get; set; } = 0;
+        public long warehouse_id { get; set; } = 0;
 
         /// <summary>
         /// safety stock

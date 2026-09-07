@@ -54,10 +54,6 @@ public class ErpPendingReceiptViewModel
     /// </summary>
     public string warehouse_name { get; set; } = string.Empty;
     /// <summary>
-    /// 获取或设置 wms_warehouse_id。
-    /// </summary>
-    public int wms_warehouse_id { get; set; }
-    /// <summary>
     /// 获取或设置 freight_forwarder_name。
     /// </summary>
     public string freight_forwarder_name { get; set; } = string.Empty;

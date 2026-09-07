@@ -57,7 +57,7 @@ describe('erp receipt confirmation', () => {
     await wrapper.vm.openDialog({
       id: 2067,
       source_version: 1,
-      wms_warehouse_id: 1,
+      warehouse_id: 320118,
       purchase_no: 'PO2608100027',
       warehouse_name: '有座山深圳仓',
       shipment_qty: 600,

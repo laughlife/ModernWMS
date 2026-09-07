@@ -18,14 +18,14 @@ namespace ModernWMS.WMS.Services;
 public class WarehouseareaService : BaseService<WarehouseareaEntity>, IWarehouseareaService
 {
     private const string Projection = """
-        wa.`id`, wa.`warehouse_id`, w.`warehouse_name`, wa.`area_name`, wa.`parent_id`,
+        wa.`id`, wa.`warehouse_id`, w.`name` AS `warehouse_name`, wa.`area_name`, wa.`parent_id`,
         wa.`create_time`, wa.`last_update_time`, wa.`is_valid`,
         wa.`area_property`, wa.`sort`
         """;
     private static readonly IReadOnlyDictionary<string, string> SearchColumns =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            ["id"]="wa.`id`", ["warehouse_id"]="wa.`warehouse_id`", ["warehouse_name"]="w.`warehouse_name`",
+            ["id"]="wa.`id`", ["warehouse_id"]="wa.`warehouse_id`", ["warehouse_name"]="w.`name`",
             ["area_name"]="wa.`area_name`", ["parent_id"]="wa.`parent_id`", ["create_time"]="wa.`create_time`",
             ["last_update_time"]="wa.`last_update_time`", ["is_valid"]="wa.`is_valid`",
         };
@@ -94,8 +94,8 @@ public class WarehouseareaService : BaseService<WarehouseareaEntity>, IWarehouse
         var where = clauses.Count == 0 ? "1=1" : string.Join(" AND ", clauses);
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         using var result = await connection.QueryMultipleAsync($"""
-            SELECT COUNT(*) FROM `wms_warehousearea` wa JOIN `wms_warehouse` w ON w.`id`=wa.`warehouse_id` WHERE {where};
-            SELECT {Projection} FROM `wms_warehousearea` wa JOIN `wms_warehouse` w ON w.`id`=wa.`warehouse_id`
+            SELECT COUNT(*) FROM `wms_warehousearea` wa JOIN `erp_warehouse` w ON w.`id`=wa.`warehouse_id` AND w.`id`=320118 AND w.`deleted`=0 AND w.`attr`='国内仓库' WHERE {where};
+            SELECT {Projection} FROM `wms_warehousearea` wa JOIN `erp_warehouse` w ON w.`id`=wa.`warehouse_id` AND w.`id`=320118 AND w.`deleted`=0 AND w.`attr`='国内仓库'
             WHERE {where} ORDER BY wa.`sort`, wa.`id` LIMIT @page_size OFFSET @offset;
             """, filter.Parameters);
         var totals = await result.ReadSingleAsync<int>();
@@ -105,24 +105,26 @@ public class WarehouseareaService : BaseService<WarehouseareaEntity>, IWarehouse
     }
 
     /// <inheritdoc />
-    public async Task<List<FormSelectItem>> GetWarehouseareaByWarehouse_id(int warehouse_id, CurrentUser currentUser)
+    public async Task<List<FormSelectItem>> GetWarehouseareaByWarehouse_id(long warehouse_id, CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         return (await connection.QueryAsync<FormSelectItem>("""
             SELECT 'warehousearea' `code`, 'warehouseareas of the warehouse' `comments`,
                    `area_name` `name`, CAST(`id` AS CHAR) `value`
             FROM `wms_warehousearea` WHERE `is_valid`=1
-              AND `warehouse_id`=@warehouse_id ORDER BY `sort`, `id`;
+              AND `warehouse_id`=@warehouse_id AND `warehouse_id`=320118
+              AND EXISTS(SELECT 1 FROM `erp_warehouse` WHERE `id`=@warehouse_id AND `deleted`=0 AND `attr`='国内仓库')
+              ORDER BY `sort`, `id`;
             """, new { warehouse_id })).AsList();
     }
 
     /// <inheritdoc />
-    public async Task<List<WarehouseareaViewModel>> GetAllAsync(int warehouse_id, CurrentUser currentUser)
+    public async Task<List<WarehouseareaViewModel>> GetAllAsync(long warehouse_id, CurrentUser currentUser)
     {
         var byWarehouse = warehouse_id > 0 ? "AND wa.`warehouse_id`=@warehouse_id" : string.Empty;
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         var list = (await connection.QueryAsync<WarehouseareaViewModel>($"""
-            SELECT {Projection} FROM `wms_warehousearea` wa JOIN `wms_warehouse` w ON w.`id`=wa.`warehouse_id`
+            SELECT {Projection} FROM `wms_warehousearea` wa JOIN `erp_warehouse` w ON w.`id`=wa.`warehouse_id` AND w.`id`=320118 AND w.`deleted`=0 AND w.`attr`='国内仓库'
             WHERE wa.`is_valid`=1 {byWarehouse} ORDER BY wa.`sort`, wa.`id`;
             """, new { warehouse_id })).AsList();
         await PopulateBindingsAsync(connection, list);
@@ -134,7 +136,7 @@ public class WarehouseareaService : BaseService<WarehouseareaEntity>, IWarehouse
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         var item = await connection.QuerySingleOrDefaultAsync<WarehouseareaViewModel>($"""
-            SELECT {Projection} FROM `wms_warehousearea` wa JOIN `wms_warehouse` w ON w.`id`=wa.`warehouse_id`
+            SELECT {Projection} FROM `wms_warehousearea` wa JOIN `erp_warehouse` w ON w.`id`=wa.`warehouse_id` AND w.`id`=320118 AND w.`deleted`=0 AND w.`attr`='国内仓库'
             WHERE wa.`id`=@id  LIMIT 1;
             """, new { id });
         if (item == null) return null!;
@@ -158,7 +160,7 @@ public class WarehouseareaService : BaseService<WarehouseareaEntity>, IWarehouse
             var id = await connection.ExecuteScalarAsync<int>("""
                 INSERT INTO `wms_warehousearea` (`warehouse_id`,`area_name`,`parent_id`,`create_time`,`last_update_time`,`is_valid`,`area_property`,`sort`)
                 VALUES (@warehouse_id,@area_name,@parent_id,@now,@now,@is_valid,@area_property,@sort); SELECT LAST_INSERT_ID();
-                """, new { viewModel.warehouse_id, viewModel.area_name, viewModel.parent_id, now, viewModel.is_valid, viewModel.sort }, transaction);
+                """, new { viewModel.warehouse_id, viewModel.area_name, viewModel.parent_id, now, viewModel.is_valid, viewModel.area_property, viewModel.sort }, transaction);
             await AddBindingsAsync(connection, transaction, id, groupIds, currentUser.user_name, now);
             await transaction.CommitAsync();
             return id > 0 ? (id, _stringLocalizer["save_success"]) : (0, _stringLocalizer["save_failed"]);
@@ -177,7 +179,7 @@ public class WarehouseareaService : BaseService<WarehouseareaEntity>, IWarehouse
             if (!await ValidGroupsAsync(connection, transaction, groupIds)) return await Rollback(transaction, (false, _stringLocalizer["invalid_operator_group"].Value));
             if (await BindingConflictAsync(connection, transaction, groupIds, viewModel.id)) return await Rollback(transaction, (false, _stringLocalizer["operator_group_already_bound"].Value));
             if (!await WarehouseExistsAsync(connection, transaction, viewModel.warehouse_id)) return await Rollback(transaction, (false, _stringLocalizer["not_exists_entity"].Value));
-            var exists = await connection.ExecuteScalarAsync<bool>("SELECT EXISTS(SELECT 1 FROM `wms_warehousearea` WHERE `id`=@id FOR UPDATE);", new { viewModel.id }, transaction);
+            var exists = await connection.ExecuteScalarAsync<bool>("SELECT EXISTS(SELECT 1 FROM `wms_warehousearea` WHERE `id`=@id AND `warehouse_id`=@warehouse_id FOR UPDATE);", new { viewModel.id, viewModel.warehouse_id }, transaction);
             if (await AreaExistsAsync(connection, transaction, viewModel.warehouse_id, viewModel.area_name, viewModel.id)) return await Rollback(transaction, (false, Duplicate(viewModel.area_name)));
             if (!exists) return await Rollback(transaction, (false, _stringLocalizer["not_exists_entity"].Value));
             var now = DateTime.Now;
@@ -187,7 +189,7 @@ public class WarehouseareaService : BaseService<WarehouseareaEntity>, IWarehouse
                 WHERE `id`=@id ;
                 UPDATE `wms_goodslocation` SET `warehouse_area_name`=@area_name,`warehouse_area_property`=@area_property,`is_valid`=@is_valid
                 WHERE `warehouse_area_id`=@id ;
-                """, new { viewModel.id, viewModel.warehouse_id, viewModel.area_name, viewModel.parent_id, viewModel.is_valid, viewModel.area_property, viewModel.sort}, transaction);
+                """, new { viewModel.id, viewModel.warehouse_id, viewModel.area_name, viewModel.parent_id, viewModel.is_valid, viewModel.area_property, viewModel.sort, now}, transaction);
             var oldIds = (await connection.QueryAsync<long>("SELECT `dept_id` FROM `wms_warehousearea_operator_group` WHERE `warehouse_area_id`=@id ;", new { viewModel.id }, transaction)).AsList();
             if (groupIds.Count == 0)
                 await connection.ExecuteAsync("DELETE FROM `wms_warehousearea_operator_group` WHERE `warehouse_area_id`=@id ;", new { viewModel.id }, transaction);
@@ -207,6 +209,10 @@ public class WarehouseareaService : BaseService<WarehouseareaEntity>, IWarehouse
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted);
         try
         {
+            if (!await connection.ExecuteScalarAsync<bool>("""
+                SELECT EXISTS(SELECT 1 FROM `wms_warehousearea` WHERE `id`=@id AND `warehouse_id`=320118 FOR UPDATE);
+                """, new { id }, transaction))
+                return await Rollback(transaction, (false, "库区不存在或不属于ERP深圳仓"));
             var occupied = await connection.ExecuteScalarAsync<bool>("SELECT EXISTS(SELECT 1 FROM `wms_goodslocation` WHERE `warehouse_area_id`=@id);", new { id }, transaction);
             if (occupied) return await Rollback(transaction, (false, _stringLocalizer["exist_location_not_delete"].Value));
             await connection.ExecuteAsync("DELETE FROM `wms_warehousearea_operator_group` WHERE `warehouse_area_id`=@id ;", new { id }, transaction);
@@ -228,9 +234,9 @@ public class WarehouseareaService : BaseService<WarehouseareaEntity>, IWarehouse
         if (ids.Count == 0) return false;
         return await c.ExecuteScalarAsync<bool>("SELECT EXISTS(SELECT 1 FROM `wms_warehousearea_operator_group` WHERE `dept_id` IN @ids AND (@areaId IS NULL OR `warehouse_area_id`<>@areaId));", new { ids, areaId }, tx);
     }
-    private static Task<bool> WarehouseExistsAsync(MySqlConnection c, IDbTransaction tx, int warehouseId) =>
-        c.ExecuteScalarAsync<bool>("SELECT EXISTS(SELECT 1 FROM `wms_warehouse` WHERE `id`=@warehouseId);", new { warehouseId }, tx);
-    private static Task<bool> AreaExistsAsync(MySqlConnection c, IDbTransaction tx, int warehouseId, string areaName, int? areaId) =>
+    private static Task<bool> WarehouseExistsAsync(MySqlConnection c, IDbTransaction tx, long warehouseId) =>
+        c.ExecuteScalarAsync<bool>("SELECT EXISTS(SELECT 1 FROM `erp_warehouse` WHERE `id`=@warehouseId AND `id`=320118 AND `deleted`=0 AND `attr`='国内仓库');", new { warehouseId }, tx);
+    private static Task<bool> AreaExistsAsync(MySqlConnection c, IDbTransaction tx, long warehouseId, string areaName, int? areaId) =>
         c.ExecuteScalarAsync<bool>("SELECT EXISTS(SELECT 1 FROM `wms_warehousearea` WHERE `warehouse_id`=@warehouseId AND `area_name`=@areaName  AND (@areaId IS NULL OR `id`<>@areaId));", new { warehouseId, areaName, areaId }, tx);
     private static async Task AddBindingsAsync(MySqlConnection c, IDbTransaction tx, int areaId, IReadOnlyCollection<long> ids, string creator, DateTime now)
     {

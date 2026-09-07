@@ -7,13 +7,13 @@ namespace ModernWMS.Tests.Warehouse;
 public class WarehouseAccessServiceTests
 {
     [Fact]
-    public async Task GetAllowedAsync_admin_returns_only_domestic_warehouses_and_prefers_320118()
+    public async Task GetAllowedAsync_admin_returns_only_erp_shenzhen_warehouse()
     {
         var service = CreateService();
 
         var result = await service.GetAllowedAsync(new CurrentUser { user_role = " Admin " });
 
-        Assert.Equal([9L, 320118L], result.warehouses.Select(t => t.id).ToArray());
+        Assert.Equal([320118L], result.warehouses.Select(t => t.id).ToArray());
         Assert.Equal(320118L, result.default_warehouse_id);
     }
 
@@ -29,7 +29,7 @@ public class WarehouseAccessServiceTests
     }
 
     [Fact]
-    public async Task GetAllowedAsync_unions_same_normalized_role_bindings()
+    public async Task GetAllowedAsync_keeps_only_authorized_shenzhen_warehouse()
     {
         var service = CreateService(
             new WarehouseAccessService.RoleWarehouseBinding { role_name = "Picker", warehouse_id = 9 },
@@ -37,8 +37,8 @@ public class WarehouseAccessServiceTests
 
         var result = await service.GetAllowedAsync(new CurrentUser { user_role = " PICKER " });
 
-        Assert.Equal([9L, 320118L], result.warehouses.Select(t => t.id).ToArray());
-        Assert.Equal(9L, result.default_warehouse_id);
+        Assert.Equal([320118L], result.warehouses.Select(t => t.id).ToArray());
+        Assert.Equal(320118L, result.default_warehouse_id);
     }
 
     [Fact]

@@ -34,7 +34,8 @@ public class WarehouseAccessService : IWarehouseAccessService
     public async Task<WarehouseAccessViewModel> GetAllowedAsync(CurrentUser currentUser)
     {
         // 发货/收货等 ERP 协同流程只作用于国内仓，海外仓不出现在仓库选择中。
-        var validWarehouses = await _dataSource.GetDomesticWarehousesAsync();
+        var validWarehouses = (await _dataSource.GetDomesticWarehousesAsync())
+            .Where(t => t.id == PreferredWarehouseId).ToList();
 
         if (IsAdmin(currentUser.user_role))
         {

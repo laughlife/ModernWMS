@@ -196,14 +196,14 @@ public class FbaShipmentService : IFbaShipmentService
             requestedItems.Add(new DispatchlistAddViewModel { sku_id = group.Key, qty = (int)quantity });
         }
 
-        var warehouseId = await connection.QuerySingleOrDefaultAsync<int?>("""
-            SELECT id FROM wms_warehouse
-            WHERE erp_warehouse_id = @erpWarehouseId AND is_valid = 1
+        var warehouseId = await connection.QuerySingleOrDefaultAsync<long?>("""
+            SELECT id FROM erp_warehouse
+            WHERE id = @erpWarehouseId AND id = 320118 AND deleted = 0 AND attr = '国内仓库'
             LIMIT 1
             """, new { erpWarehouseId = ShenzhenWarehouseId });
         if (!warehouseId.HasValue)
         {
-            return (false, "有座山深圳仓尚未绑定有效的WMS仓库");
+            return (false, "ERP深圳仓不存在或不可用");
         }
 
         var goodsOwnerId = await connection.QuerySingleOrDefaultAsync<int?>("""

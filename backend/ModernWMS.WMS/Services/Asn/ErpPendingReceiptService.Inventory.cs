@@ -213,19 +213,19 @@ public partial class ErpPendingReceiptService
     {
         {
             var warehouseValid = await ScalarAsync<bool>(
-                "SELECT is_valid FROM wms_warehouse WHERE erp_warehouse_id=@erpWarehouseId LIMIT 1",
+                "SELECT EXISTS(SELECT 1 FROM erp_warehouse WHERE id=@erpWarehouseId AND id=320118 AND deleted=0 AND attr='国内仓库')",
                 ("@erpWarehouseId", shipment.to_warehouse_id));
             if (!warehouseValid)
             {
                 throw new InvalidOperationException("收货仓库已停用");
             }
         }
-        var warehouseId = await ScalarOrDefaultAsync<int>(
-            "SELECT id FROM wms_warehouse WHERE erp_warehouse_id=@erpWarehouseId AND is_valid=1 LIMIT 1 FOR UPDATE",
+        var warehouseId = await ScalarOrDefaultAsync<long>(
+            "SELECT id FROM erp_warehouse WHERE id=@erpWarehouseId AND id=320118 AND deleted=0 AND attr='国内仓库' LIMIT 1 FOR UPDATE",
             ("@erpWarehouseId", shipment.to_warehouse_id));
         if (warehouseId == null)
         {
-            throw new InvalidOperationException($"ERP收货仓 {shipment.to_warehouse_name} 未关联当前WMS仓库");
+            throw new InvalidOperationException($"ERP收货仓 {shipment.to_warehouse_name} 不是当前可用的ERP深圳仓");
         }
 
         int? areaId = explicitAreaId > 0 ? explicitAreaId : null;

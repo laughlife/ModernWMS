@@ -23,7 +23,7 @@ namespace ModernWMS.WMS.Entities.Models
         /// <summary>
         /// warehouse_id
         /// </summary>
-        public int warehouse_id { get; set; }  = 0;
+        public long warehouse_id { get; set; }  = 0;
 
         /// <summary>
         /// area_name

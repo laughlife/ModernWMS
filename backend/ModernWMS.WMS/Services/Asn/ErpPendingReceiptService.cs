@@ -60,7 +60,9 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
             clauses.Add("(l.`product_snapshot_json` LIKE @productKeyword OR l.`purchase_no` LIKE @productKeyword OR l.`tracking_no` LIKE @productKeyword)");
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         var shipments = (await connection.QueryAsync<ErpLogisticsInfoEntity>($"""
-            SELECT l.* FROM `trk_logistics_info` l WHERE {string.Join(" AND ", clauses)}
+            SELECT l.*, w.`name` AS `to_warehouse_name` FROM `trk_logistics_info` l
+            JOIN `erp_warehouse` w ON w.`id`=l.`to_warehouse_id` AND w.`deleted`=0
+            WHERE {string.Join(" AND ", clauses)}
             ORDER BY l.`shipment_time` DESC, l.`id` DESC;
             """, new { status=WaitReceiptStatus, warehouseId=warehouseId.Value,
                 supplierName=$"%{supplierName}%", productKeyword=$"%{productKeyword}%" })).AsList();
@@ -85,24 +87,13 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
         var pageSize = Math.Clamp(pageSearch.pageSize, 1, 200);
         shipments = shipments.Skip((pageIndex - 1) * pageSize).Take(pageSize).ToList();
 
-        var wmsWarehouseId = await ScalarOrDefaultAsync<int>(
-            """
-            SELECT id FROM wms_warehouse
-             WHERE erp_warehouse_id=@erpId  AND is_valid=1
-             LIMIT 1
-            """,
-            ("@erpId", warehouseId.Value));
-
         var result = new List<ErpPendingReceiptViewModel>(shipments.Count);
         foreach (var shipment in shipments)
         {
             var products = ParseProducts(shipment.product_snapshot_json);
-            if (wmsWarehouseId != null)
-            {
-                await FillDefaultReceiptAllocationsAsync(products, wmsWarehouseId.Value, currentUser);
-            }
+            await FillDefaultReceiptAllocationsAsync(products, warehouseId.Value, currentUser);
             trackMap.TryGetValue(shipment.tracking_no ?? string.Empty, out var track);
-            result.Add(BuildViewModel(shipment, track, products, IsDeliveredTrack(track), wmsWarehouseId ?? 0));
+            result.Add(BuildViewModel(shipment, track, products, IsDeliveredTrack(track)));
         }
 
         return (result, totals);
@@ -393,8 +384,7 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
         ErpLogisticsInfoEntity shipment,
         ErpTrackEntity? track,
         List<ErpPendingReceiptProductViewModel> products,
-        bool delivered,
-        int wmsWarehouseId)
+        bool delivered)
     {
         return new ErpPendingReceiptViewModel
         {
@@ -410,7 +400,6 @@ public partial class ErpPendingReceiptService : IErpPendingReceiptService
             shipment_time = shipment.shipment_time,
             warehouse_id = shipment.to_warehouse_id ?? 0,
             warehouse_name = shipment.to_warehouse_name ?? string.Empty,
-            wms_warehouse_id = wmsWarehouseId,
             freight_forwarder_name = shipment.freight_forwarder_name ?? string.Empty,
             source_freight_payment_type = shipment.source_freight_payment_type ?? string.Empty,
             provider_code = shipment.track_provider_code ?? string.Empty,
