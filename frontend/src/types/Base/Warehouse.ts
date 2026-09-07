@@ -3,8 +3,6 @@ import { UniformFileNaming } from '../System/Form'
 export interface WarehouseVO extends UniformFileNaming {
   id?: number
   warehouse_name: string
-  erp_warehouse_id?: number | null
-  erp_warehouse_name?: string
   is_system?: boolean
   city: string
   address: string
