@@ -1,6 +1,6 @@
 import http from '@/utils/http/request'
 import { PageConfigProps } from '@/types/System/Form'
-import { GoodsLocationVO, WarehouseAreaVO, WarehouseVO } from '@/types/Base/Warehouse'
+import { GoodsLocationVO, WarehouseAreaVO } from '@/types/Base/Warehouse'
 
 /**
  * Warehouse Setting
@@ -12,28 +12,6 @@ export const getWarehouseList = (data: PageConfigProps) => http({
   data
 })
 
-// Add a new warehouse
-export const addWarehouse = (data: WarehouseVO) => http({
-  url: '/warehouse',
-  method: 'post',
-  data
-})
-
-// Update warehouse
-export const updateWarehouse = (data: WarehouseVO) => http({
-  url: '/warehouse',
-  method: 'put',
-  data
-})
-
-// Delete warehouse
-export const deleteWarehouse = (id: number) => http({
-  url: '/warehouse',
-  method: 'delete',
-  params: {
-    id
-  }
-})
 // Get warehouse information
 export const getWarehouse = (id: number) => http({
   url: '/warehouse',
@@ -45,12 +23,6 @@ export const getWarehouse = (id: number) => http({
 // Get the combobox item with warehouse
 export const getWarehouseSelect = () => http({
   url: '/warehouse/select-item',
-  method: 'get'
-})
-
-// Get ERP domestic warehouses available for optional binding
-export const getErpWarehouseOptions = () => http({
-  url: '/warehouse/erp-options',
   method: 'get'
 })
 
@@ -66,13 +38,6 @@ export const getOperatorMemberOptions = (keyword?: string) => http({
   method: 'get',
   params: { keyword },
   hideLoading: true
-})
-
-// Excel Import
-export const excelImport = (data: Array<WarehouseVO>) => http({
-  url: '/warehouse/excel',
-  method: 'post',
-  data
 })
 
 // Get the combobox item with warehouse area
