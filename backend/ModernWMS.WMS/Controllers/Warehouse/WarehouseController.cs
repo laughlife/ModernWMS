@@ -93,6 +93,7 @@ namespace ModernWMS.WMS.Controllers
         /// <param name="pageSearch">args</param>
         /// <returns></returns>
         [HttpPost("list")]
+        [Authorize]
          public async Task<ResultModel<PageData<WarehouseViewModel>>> PageAsync(PageSearch pageSearch)
          {
              var (data, totals) = await _warehouseService.PageAsync(pageSearch, CurrentUser);
@@ -109,6 +110,7 @@ namespace ModernWMS.WMS.Controllers
          /// </summary>
          /// <returns>args</returns>
         [HttpGet("all")]
+        [Authorize]
          public async Task<ResultModel<List<WarehouseViewModel>>> GetAllAsync()
          {
              var data = await _warehouseService.GetAllAsync(CurrentUser);
@@ -127,6 +129,7 @@ namespace ModernWMS.WMS.Controllers
          /// </summary>
          /// <returns>args</returns>
          [HttpGet]
+         [Authorize]
          public async Task<ResultModel<WarehouseViewModel>> GetAsync(long id)
          {
              var data = await _warehouseService.GetAsync(id, CurrentUser);
