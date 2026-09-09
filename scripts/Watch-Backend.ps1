@@ -12,8 +12,11 @@ param(
 
     [string]$LogDirectory,
 
-    [ValidateRange(10, 3600)]
-    [int]$IntervalSeconds = 60
+    [ValidateRange(1, 3600)]
+    [int]$IntervalSeconds = 5,
+
+    [ValidateRange(1, 3600)]
+    [int]$QuietPeriodSeconds = 60
 )
 
 $ErrorActionPreference = 'Stop'
@@ -55,22 +58,35 @@ function Write-WatcherLog {
 function Get-SourceFingerprint {
     param([Parameter(Mandatory = $true)][string]$Root)
 
-    $files = Get-ChildItem -LiteralPath $Root -Recurse -File -ErrorAction SilentlyContinue |
-        Where-Object {
-            $_.FullName -notmatch '\\(bin|obj)(\\|$)' -and
-            $_.FullName -notmatch '\\\.git(\\|$)' -and
-            ($_.Extension -eq '.cs' -or $_.Extension -eq '.csproj' -or
-             ($_.Extension -eq '.json' -and $_.Name -like 'appsettings*.json'))
+    # 在遍历前排除生成目录；逐文件内容哈希可识别保留时间戳的修改和重命名。
+    $directories = [System.Collections.Generic.Stack[string]]::new()
+    $directories.Push($Root)
+    $files = [System.Collections.Generic.List[System.IO.FileInfo]]::new()
+    while ($directories.Count -gt 0) {
+        foreach ($item in (Get-ChildItem -LiteralPath $directories.Pop() -Force -ErrorAction Stop)) {
+            if ($item.PSIsContainer) {
+                if ($item.Name -notin @('bin', 'obj', '.git', '.codex', '.idea', 'node_modules') -and
+                    -not ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+                    $directories.Push($item.FullName)
+                }
+            }
+            elseif ($item.Extension -in @('.cs', '.csproj', '.props', '.targets', '.resx') -or
+                $item.Name -like 'appsettings*.json' -or $item.Name -eq 'nlog.config') {
+                $files.Add($item)
+            }
         }
-    $maxTicks = [long]0
-    $count = 0
-    foreach ($file in $files) {
-        if ($file.LastWriteTimeUtc.Ticks -gt $maxTicks) {
-            $maxTicks = $file.LastWriteTimeUtc.Ticks
-        }
-        $count++
     }
-    return "$count|$maxTicks"
+    foreach ($name in @('global.json', 'Directory.Build.props', 'Directory.Build.targets', 'Directory.Packages.props')) {
+        $path = Join-Path $repositoryRoot $name
+        if (Test-Path -LiteralPath $path) {
+            $files.Add((Get-Item -LiteralPath $path -ErrorAction Stop))
+        }
+    }
+    $snapshot = foreach ($file in ($files | Sort-Object FullName)) {
+        $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256 -ErrorAction Stop).Hash
+        '{0}|{1}|{2}|{3}' -f $file.FullName, $file.Length, $file.LastWriteTimeUtc.Ticks, $hash
+    }
+    return ($snapshot -join "`n")
 }
 
 function Get-PortOwner {
@@ -378,7 +394,7 @@ function Initialize-DevelopmentState {
 }
 
 Write-WatcherLog "后端变更检测已启动：项目 $Project，端口 $Port，检测间隔 $IntervalSeconds 秒。"
-Write-WatcherLog '重启规则：检测到源码变更后，等待源码连续 1 个检测周期无变化，且距上次重启满 1 个检测周期，才自动重启。'
+Write-WatcherLog "重启规则：每 $IntervalSeconds 秒扫描后端；每次检测到变更都重新计时，连续 $QuietPeriodSeconds 秒无变化才重启。前端由 Vite 热更新。"
 
 $dotnetCommand = (Get-Command 'dotnet' -ErrorAction Stop).Source
 $nodeCommand = (Get-Command 'node.exe' -ErrorAction Stop).Source
@@ -405,18 +421,18 @@ try {
 
             $appAlive = ($null -ne $appProcess) -and (-not $appProcess.HasExited)
             $now = Get-Date
-            $rateLimited = ($null -ne $lastRestartUtc) -and (($now - $lastRestartUtc).TotalSeconds -lt $IntervalSeconds)
+            $rateLimited = ($null -ne $lastRestartUtc) -and (($now - $lastRestartUtc).TotalSeconds -lt $QuietPeriodSeconds)
             $quietPeriodOk = (-not $pendingRestart) -or
-                (($null -ne $stableSinceUtc) -and (($now - $stableSinceUtc).TotalSeconds -ge $IntervalSeconds))
+                (($null -ne $stableSinceUtc) -and (($now - $stableSinceUtc).TotalSeconds -ge $QuietPeriodSeconds))
 
             $shouldStart = $false
             $reason = ''
-            if ($null -eq $appProcess) {
+            if ($null -eq $appProcess -and $quietPeriodOk -and (-not $rateLimited)) {
                 $shouldStart = $true
                 $reason = '初始启动'
             }
             elseif (-not $appAlive) {
-                if (-not $rateLimited) {
+                if ($quietPeriodOk -and (-not $rateLimited)) {
                     $shouldStart = $true
                     $reason = '进程已退出，自动恢复'
                 }
@@ -466,6 +482,9 @@ try {
             }
         }
         catch {
+            # 读取失败不代表源码稳定，恢复可读后仍须等待完整安静期。
+            $pendingRestart = $true
+            $stableSinceUtc = Get-Date
             Write-WatcherLog "本轮处理失败，继续运行：$($_.Exception.Message)"
         }
 
