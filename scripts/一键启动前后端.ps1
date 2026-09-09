@@ -1,3 +1,4 @@
+#requires -Version 7.0
 [CmdletBinding()]
 param(
     [ValidateRange(1, 65535)]
@@ -5,6 +6,15 @@ param(
 
     [ValidateRange(1, 65535)]
     [int]$FrontendPort = 81,
+
+    [ValidateRange(1, 3600)]
+    [int]$IntervalSeconds = 5,
+
+    [ValidateRange(1, 3600)]
+    [int]$QuietPeriodSeconds = 60,
+
+    [ValidateRange(30, 1800)]
+    [int]$StartupTimeoutSeconds = 180,
 
     [switch]$CheckOnly
 )
@@ -35,6 +45,13 @@ function Get-ProcessStartTimeUtcString {
     return $Process.StartTime.ToUniversalTime().ToString('O')
 }
 
+function ConvertTo-ProcessStartTimeUtcString {
+    param($Value)
+    if ($Value -is [DateTimeOffset]) { return $Value.UtcDateTime.ToString('O') }
+    if ($Value -is [DateTime]) { return $Value.ToUniversalTime().ToString('O') }
+    return [string]$Value
+}
+
 function Test-TrackedProcess {
     param($Entry)
 
@@ -48,9 +65,10 @@ function Test-TrackedProcess {
     }
 
     try {
+        $expectedStartTime = ConvertTo-ProcessStartTimeUtcString -Value $Entry.startTimeUtc
         return [string]::Equals(
             (Get-ProcessStartTimeUtcString -Process $process),
-            [string]$Entry.startTimeUtc,
+            [string]$expectedStartTime,
             [System.StringComparison]::OrdinalIgnoreCase)
     }
     catch {
@@ -188,6 +206,7 @@ function Find-AvailablePort {
     )
 
     for ($candidatePort = $StartPort; $candidatePort -le 65535; $candidatePort++) {
+        if ($candidatePort -eq $BackendPort) { continue }
         $owner = Get-PortOwner -Port $candidatePort
         if (-not $owner) {
             if ($candidatePort -ne $StartPort) {
@@ -211,19 +230,6 @@ function Assert-CommandAvailable {
     }
 
     return $command.Source
-}
-
-function Save-DevelopmentState {
-    param($BackendEntry, $FrontendEntry)
-
-    New-Item -ItemType Directory -Path $runtimeDirectory -Force | Out-Null
-    [ordered]@{
-        repositoryRoot = $repositoryRoot
-        createdAtUtc = [DateTime]::UtcNow.ToString('O')
-        backend = $BackendEntry
-        frontend = $FrontendEntry
-        logDirectory = $logDirectory
-    } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $statePath -Encoding UTF8
 }
 
 function Stop-StartedServiceProcesses {
@@ -289,7 +295,12 @@ $frontendEntry = $null
 $stateOwnedByThisInvocation = $false
 
 try {
-    $mutexAcquired = $mutex.WaitOne([TimeSpan]::FromSeconds(10))
+    try {
+        $mutexAcquired = $mutex.WaitOne([TimeSpan]::FromSeconds(10))
+    }
+    catch [System.Threading.AbandonedMutexException] {
+        $mutexAcquired = $true
+    }
     if (-not $mutexAcquired) {
         throw '另一个 ModernWMS 启动器正在执行，请稍后重试。'
     }
@@ -304,6 +315,11 @@ try {
     $dotnetCommand = Assert-CommandAvailable -Name 'dotnet'
     $npmCommand = Assert-CommandAvailable -Name 'npm.cmd'
     $nodeCommand = Assert-CommandAvailable -Name 'node.exe'
+    $pwshCommand = Assert-CommandAvailable -Name 'pwsh.exe'
+    $watcherScript = Join-Path $PSScriptRoot 'Watch-Backend.ps1'
+    if (-not (Test-Path -LiteralPath $watcherScript)) {
+        throw "找不到后端变更检测脚本：$watcherScript"
+    }
     $viteCliPath = Join-Path $frontendDirectory 'node_modules\vite\bin\vite.js'
 
     $requiredAssetFiles = @(
@@ -351,23 +367,20 @@ try {
 
     Write-Host '[数据库] 开发启动不检查、不修改数据库；结构变更只通过 scripts\Update-Database.ps1 显式执行。'
 
-    Write-Host "[1/2] 启动后端变更检测（每分钟检测源码，稳定后自动重启）：http://127.0.0.1:$BackendPort"
-    $watcherScript = Join-Path $PSScriptRoot 'Watch-Backend.ps1'
-    if (-not (Test-Path -LiteralPath $watcherScript)) {
-        throw "找不到后端变更检测脚本：$watcherScript"
-    }
-    $selfExecutable = (Get-Process -Id $PID).Path
-    $backendProcess = Start-Process -FilePath $selfExecutable `
+    Write-Host "[1/2] 启动后端变更检测（每 $IntervalSeconds 秒扫描，连续 $QuietPeriodSeconds 秒无修改后重启）：http://127.0.0.1:$BackendPort"
+    $backendProcess = Start-Process -FilePath $pwshCommand `
         -ArgumentList @(
             '-NoProfile',
             '-ExecutionPolicy', 'Bypass',
-            '-File', $watcherScript,
-            '-Project', $backendProject,
+            '-File', ('"{0}"' -f $watcherScript),
+            '-Project', ('"{0}"' -f $backendProject),
             '-Port', [string]$BackendPort,
             '-FrontendPort', [string]$FrontendPort,
-            '-StatePath', $statePath,
-            '-LogDirectory', $logDirectory,
-            '-IntervalSeconds', '60'
+            '-StatePath', ('"{0}"' -f $statePath),
+            '-LogDirectory', ('"{0}"' -f $logDirectory),
+            '-IntervalSeconds', [string]$IntervalSeconds,
+            '-QuietPeriodSeconds', [string]$QuietPeriodSeconds,
+            '-StartupTimeoutSeconds', [string]$StartupTimeoutSeconds
         ) `
         -WorkingDirectory $repositoryRoot `
         -NoNewWindow `
@@ -379,41 +392,49 @@ try {
         port = $BackendPort
         portOwnershipConfirmed = $false
     }
-    Save-DevelopmentState -BackendEntry $backendEntry -FrontendEntry $null
+    # 状态文件仅由 watcher 原子写入，启动器只读取，避免覆盖前端/重启后的 PID。
     $stateOwnedByThisInvocation = $true
 
     $backendReady = $false
     $healthUrl = "http://127.0.0.1:$BackendPort/health"
-    for ($attempt = 1; $attempt -le 60; $attempt++) {
+    $startupDeadline = [DateTime]::UtcNow.AddSeconds($StartupTimeoutSeconds)
+    while ([DateTime]::UtcNow -lt $startupDeadline) {
         if ($backendProcess.HasExited) {
             throw "后端启动失败（退出码 $($backendProcess.ExitCode)）。日志：$logDirectory"
         }
         try {
             $response = Invoke-WebRequest -Uri $healthUrl -UseBasicParsing -TimeoutSec 2
-            if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 500) {
-                $backendReady = $true
-                break
+            if ($response.StatusCode -eq 200) {
+                $currentState = Get-DevelopmentState
+                if ($currentState -and [int]$currentState.backend.pid -eq $backendProcess.Id -and
+                    (Test-TrackedProcess -Entry $currentState.backend) -and
+                    (Test-TrackedProcess -Entry (Get-ServiceListenerEntry -Entry $currentState.backend))) {
+                    $null = New-PortListenerEntry -Port $BackendPort -ExpectedProcessId ([int]$currentState.backend.listener.pid)
+                    $backendEntry = $currentState.backend
+                    $backendReady = $true
+                    break
+                }
             }
         }
-        catch {
-            Start-Sleep -Milliseconds 500
-        }
+        catch { }
+        Start-Sleep -Milliseconds 500
     }
     if (-not $backendReady) {
-        throw "后端在 30 秒内未通过健康检查 $healthUrl。日志：$logDirectory"
+        throw "后端在 $StartupTimeoutSeconds 秒内未通过健康检查 $healthUrl（含编译时间）。详见当前控制台输出。"
     }
-    $backendEntry['listener'] = New-PortListenerEntry `
-        -Port $BackendPort `
-        -NotBeforeUtc $backendProcess.StartTime.ToUniversalTime() `
-        -ExpectedProcessName 'ModernWMS' `
-        -ExpectedPathRoot (Split-Path -Parent $backendProject)
-    $backendEntry['portOwnershipConfirmed'] = $true
-    Save-DevelopmentState -BackendEntry $backendEntry -FrontendEntry $null
 
     Write-Host "[2/2] 等待前端就绪（前端由后端变更检测进程统一管理）：http://127.0.0.1:$FrontendPort"
     $frontendReady = $false
     for ($attempt = 1; $attempt -le 60; $attempt++) {
-        if (Get-PortOwner -Port $FrontendPort) {
+        if ($backendProcess.HasExited) {
+            throw '后端变更检测进程已退出，无法继续等待前端。'
+        }
+        $currentState = Get-DevelopmentState
+        if ($currentState -and (Test-TrackedProcess -Entry $currentState.backend) -and
+            [int]$currentState.backend.pid -eq $backendProcess.Id -and
+            (Test-TrackedProcess -Entry $currentState.frontend)) {
+            $frontendEntry = $currentState.frontend
+            $null = New-PortListenerEntry -Port $FrontendPort -ExpectedProcessId ([int]$frontendEntry.pid)
             $frontendReady = $true
             break
         }
@@ -428,9 +449,13 @@ try {
     Write-Host "  后端：http://127.0.0.1:$BackendPort"
     Write-Host '  实时日志：当前控制台'
     Write-Host "  运行状态：$statePath"
-    Write-Host '  停止：powershell -ExecutionPolicy Bypass -File scripts\一键停止前后端.ps1'
+    Write-Host '  停止：pwsh -NoProfile -File scripts\一键停止前后端.ps1'
     Write-Host '[日志输出中] 启动器将保持运行；请从另一个控制台执行停止脚本。'
 
+    # 启动事务结束即释放锁，使另一个控制台可以执行停止脚本。
+    $mutex.ReleaseMutex()
+    $mutexAcquired = $false
+    $stateOwnedByThisInvocation = $false
     $backendProcess.WaitForExit()
     if ($backendProcess.ExitCode -eq 0) {
         Write-Host '[运行结束] 后端变更检测进程已正常退出。'
@@ -441,14 +466,30 @@ try {
 }
 catch {
     if ($stateOwnedByThisInvocation) {
-        $frontendStopped = Stop-StartedServiceProcesses -Entry $frontendEntry
+        $mayRemoveState = $false
+        # 失败清理前读取 watcher 的最新条目；只接受本次控制进程的状态。
+        try {
+            $currentState = Get-DevelopmentState
+            $mayRemoveState = $currentState -and [int]$currentState.backend.pid -eq $backendEntry.pid -and
+                [string]::Equals(
+                    (ConvertTo-ProcessStartTimeUtcString -Value $currentState.backend.startTimeUtc),
+                    (ConvertTo-ProcessStartTimeUtcString -Value $backendEntry.startTimeUtc),
+                    [System.StringComparison]::OrdinalIgnoreCase)
+            # 控制进程可能已经退出，仍需清理同一次启动留下的已验证子进程。
+            if ($mayRemoveState) {
+                $backendEntry = $currentState.backend
+                $frontendEntry = $currentState.frontend
+            }
+        }
+        catch { Write-Warning '无法读取最新进程状态，将清理本次启动的控制进程树。' }
         $backendStopped = Stop-StartedServiceProcesses -Entry $backendEntry
+        $frontendStopped = Stop-StartedServiceProcesses -Entry $frontendEntry
         $frontendPortReleased = Test-ServicePortReleased -Entry $frontendEntry
         $backendPortReleased = Test-ServicePortReleased -Entry $backendEntry
         $cleanupComplete = $frontendStopped -and $backendStopped -and
             $frontendPortReleased -and $backendPortReleased
         if (Test-Path -LiteralPath $statePath) {
-            if ($cleanupComplete) {
+            if ($cleanupComplete -and $mayRemoveState) {
                 Remove-Item -LiteralPath $statePath -Force
             }
             else {

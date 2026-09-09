@@ -1,3 +1,4 @@
+#requires -Version 7.0
 [CmdletBinding()]
 param(
     [string]$Project,
@@ -16,11 +17,15 @@ param(
     [int]$IntervalSeconds = 5,
 
     [ValidateRange(1, 3600)]
-    [int]$QuietPeriodSeconds = 60
+    [int]$QuietPeriodSeconds = 60,
+
+    [ValidateRange(30, 1800)]
+    [int]$StartupTimeoutSeconds = 180
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+if ($Port -eq $FrontendPort) { throw '后端端口和前端端口不能相同。' }
 
 $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 if ([string]::IsNullOrWhiteSpace($Project)) {
@@ -129,13 +134,14 @@ function Wait-PortReleased {
 }
 
 function Test-BackendHealthy {
-    param([int]$TimeoutSeconds = 30)
+    param([int]$TimeoutSeconds = $StartupTimeoutSeconds)
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     while ((Get-Date) -lt $deadline) {
+        if ($appProcess.HasExited) { return $false }
         try {
             $response = Invoke-WebRequest -Uri $healthUrl -UseBasicParsing -TimeoutSec 2
-            if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 500) {
+            if ($response.StatusCode -eq 200) {
                 return $true
             }
         }
@@ -156,6 +162,28 @@ function Get-ListenerEntry {
     $process = Get-Process -Id $owner.ProcessId -ErrorAction SilentlyContinue
     if ($null -eq $process) {
         return $null
+    }
+    $controller = if ($TargetPort -eq $Port) { $appProcess } else { $frontendProcess }
+    if ($null -eq $controller -or $controller.HasExited -or
+        $process.StartTime.ToUniversalTime() -lt $controller.StartTime.ToUniversalTime()) {
+        throw "端口 $TargetPort 不属于当前服务进程，拒绝认领 PID $($process.Id)。"
+    }
+    if ($TargetPort -eq $FrontendPort) {
+        if ($process.Id -ne $controller.Id) {
+            throw "前端端口被其他进程占用，拒绝认领 PID $($process.Id)。"
+        }
+    }
+    else {
+        # dotnet run 的监听者是子进程；验证祖先链，不能仅凭端口/名称认领。
+        $ancestorId = $process.Id
+        $owned = $false
+        for ($depth = 0; $depth -lt 16 -and $ancestorId -gt 0; $depth++) {
+            if ($ancestorId -eq $controller.Id) { $owned = $true; break }
+            $ancestor = Get-CimInstance -ClassName Win32_Process -Filter "ProcessId = $ancestorId" -ErrorAction Stop
+            if ($null -eq $ancestor) { break }
+            $ancestorId = [int]$ancestor.ParentProcessId
+        }
+        if (-not $owned) { throw "后端端口不属于本次 dotnet 进程树，拒绝认领 PID $($process.Id)。" }
     }
     $executablePath = $null
     try {
@@ -274,7 +302,7 @@ function Start-AppProcess {
     $env:Cors__AllowedOrigins__8 = "http://192.168.100.102:$FrontendPort"
 
     return Start-Process -FilePath $DotnetPath `
-        -ArgumentList @('run', '--project', $Project, '--no-launch-profile', '--no-restore') `
+        -ArgumentList @('run', '--project', ('"{0}"' -f $Project), '--no-launch-profile', '--no-restore') `
         -WorkingDirectory $repositoryRoot `
         -NoNewWindow `
         -PassThru
@@ -296,7 +324,7 @@ function Start-FrontendProcess {
         $env:VITE_SERVER_PORT = [string]$Port
         $env:VITE_CLI_PORT = [string]$FrontendPort
         return Start-Process -FilePath $NodePath `
-            -ArgumentList @($viteCliPath, '--host', '0.0.0.0', '--port', [string]$FrontendPort, '--strictPort') `
+            -ArgumentList @(('"{0}"' -f $viteCliPath), '--host', '0.0.0.0', '--port', [string]$FrontendPort, '--strictPort') `
             -WorkingDirectory $frontendDirectory `
             -NoNewWindow `
             -PassThru
@@ -309,88 +337,58 @@ function Start-FrontendProcess {
 }
 
 function Initialize-DevelopmentState {
-    $existing = $null
-    $stateExists = Test-Path -LiteralPath $StatePath
-    if ($stateExists) {
-        try {
-            $existing = Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json
+    if (Test-Path -LiteralPath $StatePath) {
+        $existing = Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json
+        if (-not [string]::Equals([string]$existing.repositoryRoot, $repositoryRoot,
+            [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw '状态文件不属于当前仓库，拒绝覆盖。'
         }
-        catch {
-            Write-WatcherLog "警告：状态文件损坏，将覆盖：$StatePath"
-            $existing = $null
-        }
-    }
-
-    $selfManaged = $false
-    if ($null -ne $existing -and $null -ne $existing.backend) {
-        try {
-            $selfManaged = ([int]$existing.backend.pid -eq $PID)
-        }
-        catch {
-            $selfManaged = $false
-        }
-    }
-
-    if (-not $selfManaged) {
-        $conflictPid = 0
-        if ($null -ne $existing -and $null -ne $existing.backend) {
-            try {
-                $backendPid = [int]$existing.backend.pid
-            }
-            catch {
-                $backendPid = 0
-            }
-            if ($backendPid -gt 0 -and $backendPid -ne $PID) {
-                $proc = Get-Process -Id $backendPid -ErrorAction SilentlyContinue
-                if ($null -ne $proc) {
-                    $startTimeMatch = $false
-                    try {
-                        $startTimeMatch = [string]::Equals(
-                            $proc.StartTime.ToUniversalTime().ToString('O'),
-                            [string]$existing.backend.startTimeUtc,
-                            [System.StringComparison]::OrdinalIgnoreCase)
-                    }
-                    catch {
-                        $startTimeMatch = $false
-                    }
-                    if ($startTimeMatch) {
-                        $conflictPid = $backendPid
-                    }
+        foreach ($service in @($existing.backend, $existing.frontend)) {
+            if ($null -eq $service) { continue }
+            $targets = @($service)
+            if ($service.PSObject.Properties['listener']) { $targets += $service.listener }
+            foreach ($entry in $targets) {
+                if ($null -eq $entry) { continue }
+                $process = Get-Process -Id ([int]$entry.pid) -ErrorAction SilentlyContinue
+                if ($null -ne $process -and [string]::Equals(
+                    $process.StartTime.ToUniversalTime().ToString('O'),
+                    (ConvertTo-ProcessStartTimeUtcString -Value $entry.startTimeUtc),
+                    [System.StringComparison]::OrdinalIgnoreCase)) {
+                    throw "已有本仓库进程 PID $($entry.pid) 运行，请先执行一键停止前后端.ps1。"
                 }
             }
         }
-        if ($conflictPid -gt 0) {
-            throw "检测到已有后端控制进程（PID $conflictPid）在运行。请先运行 scripts\一键停止前后端.ps1 或从 Rider 停止后再启动。"
-        }
-
-        $owner = Get-PortOwner -Port $Port
+    }
+    foreach ($targetPort in @($Port, $FrontendPort)) {
+        $owner = Get-PortOwner -Port $targetPort
         if ($null -ne $owner) {
-            throw "后端端口 $Port 已被占用：PID $($owner.ProcessId) ($($owner.ProcessName))。请先停止占用进程。"
+            throw "端口 $targetPort 已被 PID $($owner.ProcessId) 占用，拒绝认领或终止。"
         }
     }
 
     New-Item -ItemType Directory -Path $LogDirectory -Force | Out-Null
-
-    if (-not $selfManaged) {
-        $backendEntry = [ordered]@{
+    New-Item -ItemType Directory -Path (Split-Path -Parent $StatePath) -Force | Out-Null
+    $tempPath = "$StatePath.tmp"
+    [ordered]@{
+        repositoryRoot = $repositoryRoot
+        createdAtUtc = [DateTime]::UtcNow.ToString('O')
+        backend = [ordered]@{
             pid = $PID
             startTimeUtc = (Get-Process -Id $PID).StartTime.ToUniversalTime().ToString('O')
             port = $Port
             portOwnershipConfirmed = $false
         }
-        # 保留已有状态中的前端条目，避免单独运行本脚本时把前端跟踪信息覆盖丢失。
-        $frontendEntry = if ($null -ne $existing -and $null -ne $existing.frontend) { $existing.frontend } else { $null }
-        $tempPath = "$StatePath.tmp"
-        [ordered]@{
-            repositoryRoot = $repositoryRoot
-            createdAtUtc = [DateTime]::UtcNow.ToString('O')
-            backend = $backendEntry
-            frontend = $frontendEntry
-            logDirectory = $LogDirectory
-        } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $tempPath -Encoding UTF8
-        Move-Item -LiteralPath $tempPath -Destination $StatePath -Force
-        Write-WatcherLog "状态文件已初始化：控制进程 PID $PID，后端端口 $Port，前端端口 $FrontendPort，日志 $LogDirectory。"
-    }
+        frontend = $null
+        logDirectory = $LogDirectory
+    } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $tempPath -Encoding UTF8
+    Move-Item -LiteralPath $tempPath -Destination $StatePath -Force
+    Write-WatcherLog "状态文件已初始化：控制进程 PID $PID，后端端口 $Port，前端端口 $FrontendPort。"
+}
+function ConvertTo-ProcessStartTimeUtcString {
+    param($Value)
+    if ($Value -is [DateTimeOffset]) { return $Value.UtcDateTime.ToString('O') }
+    if ($Value -is [DateTime]) { return $Value.ToUniversalTime().ToString('O') }
+    return [string]$Value
 }
 
 Write-WatcherLog "后端变更检测已启动：项目 $Project，端口 $Port，检测间隔 $IntervalSeconds 秒。"
@@ -405,12 +403,32 @@ $pendingRestart = $false
 $stableSinceUtc = $null
 $lastRestartUtc = $null
 
-Initialize-DevelopmentState
+# 独立运行 watcher 时也必须保持单实例；此锁与启动/停止事务锁分离。
+$watcherHash = [System.Security.Cryptography.SHA256]::Create()
+try {
+    $watcherKey = ([BitConverter]::ToString($watcherHash.ComputeHash(
+        [System.Text.Encoding]::UTF8.GetBytes($repositoryRoot.ToLowerInvariant()))) -replace '-', '').Substring(0, 12).ToLowerInvariant()
+}
+finally { $watcherHash.Dispose() }
+$watcherMutex = [System.Threading.Mutex]::new($false, "Local\ModernWMS-watcher-$watcherKey")
+$watcherMutexAcquired = $false
 
 try {
+    try { $watcherMutexAcquired = $watcherMutex.WaitOne(0) }
+    catch [System.Threading.AbandonedMutexException] { $watcherMutexAcquired = $true }
+    if (-not $watcherMutexAcquired) { throw '本仓库已有变更检测进程，拒绝重复启动。' }
+    Initialize-DevelopmentState
     while ($true) {
         try {
-            $fingerprint = Get-SourceFingerprint -Root $backendRoot
+            try {
+                $fingerprint = Get-SourceFingerprint -Root $backendRoot
+            }
+            catch {
+                # 读取失败不代表源码稳定，恢复可读后仍须等待完整安静期。
+                $pendingRestart = $true
+                $stableSinceUtc = Get-Date
+                throw
+            }
 
             if ($null -ne $lastFingerprint -and $fingerprint -ne $lastFingerprint) {
                 $pendingRestart = $true
@@ -446,7 +464,7 @@ try {
                 Write-WatcherLog "触发重启：$reason"
                 Stop-AppProcess -Process $appProcess
                 if (-not (Wait-PortReleased -TargetPort $Port)) {
-                    Write-WatcherLog "警告：端口 $Port 未在超时时间内释放，仍尝试启动。"
+                    throw "端口 $Port 未在超时时间内释放，取消本轮启动，不终止或认领占用进程。"
                 }
                 $appProcess = Start-AppProcess -DotnetPath $dotnetCommand
                 $pendingRestart = $false
@@ -457,13 +475,21 @@ try {
                     Update-StateListener
                 }
                 else {
-                    Write-WatcherLog '警告：健康检查未通过，将在下一轮重试。'
+                    Stop-AppProcess -Process $appProcess
+                    $pendingRestart = $true
+                    $stableSinceUtc = Get-Date
+                    throw '健康检查未通过，已停止本轮后端，等待安静期后重试。'
                 }
             }
 
             # 确保前端 vite 始终运行：端口未监听则（重新）启动，避免重启后端后前端掉线。
             $frontendListening = ($null -ne (Get-PortOwner -Port $FrontendPort))
-            if (-not $frontendListening) {
+            if ($frontendListening) {
+                # 已占用也必须证明是本监控器启动的 node，不能视为任意服务已就绪。
+                $null = Get-ListenerEntry -TargetPort $FrontendPort
+            }
+            else {
+                Stop-AppProcess -Process $frontendProcess
                 Write-WatcherLog "前端未监听端口 $FrontendPort，正在启动前端 vite..."
                 $frontendProcess = Start-FrontendProcess -NodePath $nodeCommand
                 if ($null -ne $frontendProcess) {
@@ -476,15 +502,13 @@ try {
                         Update-StateFrontend
                     }
                     else {
-                        Write-WatcherLog '警告：前端未在超时时间内监听，将在下一轮重试。'
+                        Stop-AppProcess -Process $frontendProcess
+                        throw '前端未在超时时间内监听，已停止本轮进程，稍后重试。'
                     }
                 }
             }
         }
         catch {
-            # 读取失败不代表源码稳定，恢复可读后仍须等待完整安静期。
-            $pendingRestart = $true
-            $stableSinceUtc = Get-Date
             Write-WatcherLog "本轮处理失败，继续运行：$($_.Exception.Message)"
         }
 
@@ -495,5 +519,7 @@ finally {
     Write-WatcherLog '变更检测已停止，正在清理后端与前端进程...'
     Stop-AppProcess -Process $appProcess
     Stop-AppProcess -Process $frontendProcess
+    if ($watcherMutexAcquired) { $watcherMutex.ReleaseMutex() }
+    $watcherMutex.Dispose()
     Write-WatcherLog '清理完成。'
 }

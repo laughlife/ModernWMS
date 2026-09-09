@@ -1,6 +1,8 @@
 ﻿[CmdletBinding()]
 param()
 
+# 由 PowerShell 7 运行；与启动器使用同一进程身份和互斥锁协议。
+
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
@@ -154,7 +156,12 @@ function Stop-TrackedService {
 $mutex = [System.Threading.Mutex]::new($false, $mutexName)
 $mutexAcquired = $false
 try {
-    $mutexAcquired = $mutex.WaitOne([TimeSpan]::FromSeconds(10))
+    try {
+        $mutexAcquired = $mutex.WaitOne([TimeSpan]::FromSeconds(10))
+    }
+    catch [System.Threading.AbandonedMutexException] {
+        $mutexAcquired = $true
+    }
     if (-not $mutexAcquired) {
         throw '启动器正在执行，请稍后重试停止命令。'
     }
@@ -178,8 +185,9 @@ try {
         throw "状态文件不属于当前仓库。为避免误杀进程，未执行终止：$statePath"
     }
 
-    $frontendStopped = Stop-TrackedService -Name '前端' -Entry $state.frontend
+    # 先停止自动恢复控制进程，防止停止前端的同时又被补起。
     $backendStopped = Stop-TrackedService -Name '后端' -Entry $state.backend
+    $frontendStopped = Stop-TrackedService -Name '前端' -Entry $state.frontend
 
     $occupiedPorts = @()
     foreach ($service in @(
