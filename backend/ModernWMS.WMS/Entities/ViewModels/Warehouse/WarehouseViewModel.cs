@@ -45,6 +45,11 @@ namespace ModernWMS.WMS.Entities.ViewModels
         public bool is_system { get; set; } = false;
 
         /// <summary>
+        /// 是否为 ERP 默认仓（仓库类型为 0），不代表用户的个人默认仓。
+        /// </summary>
+        public bool is_default { get; set; } = false;
+
+        /// <summary>
         /// city
         /// </summary>
         [Display(Name = "city")]

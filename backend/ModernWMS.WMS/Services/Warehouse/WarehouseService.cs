@@ -9,17 +9,19 @@ using ModernWMS.WMS.IServices;
 namespace ModernWMS.WMS.Services;
 
 /// <summary>
-/// 过渡期只读展示 ERP 深圳仓；仓库主数据由 ERP 统一维护。
+/// 只读展示 ERP 仓库；管理员可查询全部国内仓，作业选择范围保持独立。
 /// </summary>
 public class WarehouseService : IWarehouseService
 {
-    private const string WarehouseScope = "w.`id`=320118 AND w.`deleted`=0 AND w.`attr`='国内仓库'";
+    private const string DomesticWarehouseScope = "w.`deleted`=0 AND w.`attr`='国内仓库'";
+    private const string WarehouseScope = "w.`id`=320118 AND " + DomesticWarehouseScope;
     private const string SelectViewSql = """
         SELECT w.`id`, COALESCE(w.`name`,'') AS `warehouse_name`,
                COALESCE(w.`city`,'') AS `city`, COALESCE(w.`address_line`,'') AS `address`,
                COALESCE(w.`email`,'') AS `email`, COALESCE(w.`manager`,'') AS `manager`,
                COALESCE(w.`manager_mobile`,'') AS `contact_tel`, w.`creator`, w.`create_time`,
-               w.`update_time` AS `last_update_time`, TRUE AS `is_valid`, TRUE AS `is_system`
+               w.`update_time` AS `last_update_time`, TRUE AS `is_valid`,
+               (w.`id`=320118) AS `is_system`, (COALESCE(w.`type`,-1)=0) AS `is_default`
         FROM `erp_warehouse` w
         """;
     private static readonly IReadOnlyDictionary<string, string> SearchColumns =
@@ -31,6 +33,12 @@ public class WarehouseService : IWarehouseService
             ["is_valid"]="(w.`deleted`=0)",
         };
     private readonly IMySqlConnectionFactory _connectionFactory;
+
+    // 列表可见范围不授予收发货作业权限；非管理员沿用原有深圳仓范围。
+    private static string GetDisplayScope(CurrentUser currentUser) =>
+        string.Equals(currentUser.user_role?.Trim(), "admin", StringComparison.OrdinalIgnoreCase)
+            ? DomesticWarehouseScope
+            : WarehouseScope;
 
     /// <summary>初始化只读仓库服务。</summary>
     public WarehouseService(IMySqlConnectionFactory connectionFactory,
@@ -64,13 +72,13 @@ public class WarehouseService : IWarehouseService
     public async Task<(List<WarehouseViewModel> data, int totals)> PageAsync(PageSearch pageSearch, CurrentUser currentUser)
     {
         var filter = DapperSearchBuilder.Build(pageSearch.searchObjects, SearchColumns);
-        var where = WarehouseScope + (string.IsNullOrWhiteSpace(filter.Sql) ? "" : " AND " + filter.Sql);
+        var where = GetDisplayScope(currentUser) + (string.IsNullOrWhiteSpace(filter.Sql) ? "" : " AND " + filter.Sql);
         filter.Parameters.Add("offset", (pageSearch.pageIndex - 1) * pageSearch.pageSize);
         filter.Parameters.Add("pageSize", pageSearch.pageSize);
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         using var result = await connection.QueryMultipleAsync($"""
             SELECT COUNT(*) FROM `erp_warehouse` w WHERE {where};
-            {SelectViewSql} WHERE {where} ORDER BY w.`id` LIMIT @pageSize OFFSET @offset;
+            {SelectViewSql} WHERE {where} ORDER BY `is_default` DESC, w.`id` LIMIT @pageSize OFFSET @offset;
             """, filter.Parameters);
         var totals = await result.ReadSingleAsync<int>();
         return ((await result.ReadAsync<WarehouseViewModel>()).AsList(), totals);
@@ -80,7 +88,8 @@ public class WarehouseService : IWarehouseService
     public async Task<List<WarehouseViewModel>> GetAllAsync(CurrentUser currentUser)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
-        return (await connection.QueryAsync<WarehouseViewModel>($"{SelectViewSql} WHERE {WarehouseScope};")).AsList();
+        return (await connection.QueryAsync<WarehouseViewModel>(
+            $"{SelectViewSql} WHERE {GetDisplayScope(currentUser)} ORDER BY `is_default` DESC, w.`id`;")).AsList();
     }
 
     /// <inheritdoc />
@@ -88,7 +97,7 @@ public class WarehouseService : IWarehouseService
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         return await connection.QuerySingleOrDefaultAsync<WarehouseViewModel>(
-            $"{SelectViewSql} WHERE {WarehouseScope} AND w.`id`=@id LIMIT 1;", new { id });
+            $"{SelectViewSql} WHERE {GetDisplayScope(currentUser)} AND w.`id`=@id LIMIT 1;", new { id });
     }
 
 }

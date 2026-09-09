@@ -4,6 +4,8 @@ export interface WarehouseVO extends UniformFileNaming {
   id?: number
   warehouse_name: string
   is_system?: boolean
+  /** ERP 默认仓（type=0），不是个人默认仓。 */
+  is_default?: boolean
   city: string
   address: string
   contact_tel?: string
