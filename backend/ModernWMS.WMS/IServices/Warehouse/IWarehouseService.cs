@@ -45,36 +45,6 @@
          /// <param name="currentUser">current user</param>
          /// <returns></returns>
          Task<WarehouseViewModel?> GetAsync(long id, CurrentUser currentUser);
-        /// <summary>
-        /// add a new record
-        /// </summary>
-        /// <param name="viewModel">viewmodel</param>
-        /// <param name="currentUser">current user</param>
-        /// <returns></returns>
-        Task<(int id, string msg)> AddAsync(WarehouseViewModel viewModel, CurrentUser currentUser);
-        /// <summary>
-        /// update a record
-        /// </summary>
-        /// <param name="viewModel">viewmodel</param>
-        /// <param name="currentUser">currentUser</param>
-        /// <returns></returns>
-        Task<(bool flag, string msg)> UpdateAsync(WarehouseViewModel viewModel, CurrentUser currentUser);
- 
-         /// <summary>
-         /// delete a record
-         /// </summary>
-         /// <param name="id">id</param>
-         /// <param name="currentUser">current user</param>
-         /// <returns></returns>
-        Task<(bool flag, string msg)> DeleteAsync(long id, CurrentUser currentUser);
-
-        /// <summary>
-        /// import warehouses by excel
-        /// </summary>
-        /// <param name="datas">excel datas</param>
-        /// <param name="currentUser">current user</param>
-        /// <returns></returns>
-        Task<(bool flag, string msg)> ExcelAsync(List<WarehouseExcelImportViewModel> datas, CurrentUser currentUser);
          #endregion
      }
  }
