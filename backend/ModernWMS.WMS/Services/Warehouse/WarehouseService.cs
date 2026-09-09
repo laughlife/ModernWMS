@@ -13,7 +13,6 @@ namespace ModernWMS.WMS.Services;
 /// </summary>
 public class WarehouseService : IWarehouseService
 {
-    private const string ReadOnlyMessage = "仓库主数据由ERP统一维护，请前往ERP修改";
     private const string WarehouseScope = "w.`id`=320118 AND w.`deleted`=0 AND w.`attr`='国内仓库'";
     private const string SelectViewSql = """
         SELECT w.`id`, COALESCE(w.`name`,'') AS `warehouse_name`,
@@ -92,19 +91,4 @@ public class WarehouseService : IWarehouseService
             $"{SelectViewSql} WHERE {WarehouseScope} AND w.`id`=@id LIMIT 1;", new { id });
     }
 
-    /// <inheritdoc />
-    public Task<(int id, string msg)> AddAsync(WarehouseViewModel viewModel, CurrentUser currentUser) =>
-        Task.FromResult((0, ReadOnlyMessage));
-
-    /// <inheritdoc />
-    public Task<(bool flag, string msg)> UpdateAsync(WarehouseViewModel viewModel, CurrentUser currentUser) =>
-        Task.FromResult((false, ReadOnlyMessage));
-
-    /// <inheritdoc />
-    public Task<(bool flag, string msg)> DeleteAsync(long id, CurrentUser currentUser) =>
-        Task.FromResult((false, ReadOnlyMessage));
-
-    /// <inheritdoc />
-    public Task<(bool flag, string msg)> ExcelAsync(List<WarehouseExcelImportViewModel> datas, CurrentUser currentUser) =>
-        Task.FromResult((false, ReadOnlyMessage));
 }
