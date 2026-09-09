@@ -1,3 +1,4 @@
+#requires -Version 7.0
 [CmdletBinding()]
 param(
     [Parameter()]
@@ -102,35 +103,42 @@ function Get-ZipEntryNames {
     }
 }
 
-function Invoke-UnzipChecks {
+function Assert-ZipContent {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$Path
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string]$SourceRoot
     )
 
-    $nativeUnzip = Get-Command 'unzip' -ErrorAction SilentlyContinue
-    if ($null -ne $nativeUnzip) {
-        Invoke-CheckedCommand -Command $nativeUnzip.Source -Arguments @('-t', $Path)
-        Invoke-CheckedCommand -Command $nativeUnzip.Source -Arguments @('-l', $Path)
-        return
+    # Windows 原生流式解压并逐文件比对 SHA256，不依赖外部工具，不落地解压文件。
+    $sourcePrefix = [IO.Path]::GetFullPath($SourceRoot).TrimEnd('\') + '\'
+    $archive = [IO.Compression.ZipFile]::OpenRead($Path)
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        $entries = @($archive.Entries | Where-Object { $_.Name -ne '' })
+        $sourceFiles = @(Get-ChildItem -LiteralPath $SourceRoot -Recurse -Force -File)
+        if ($entries.Count -ne $sourceFiles.Count) { throw 'ZIP 文件数量与发布目录不一致。' }
+        foreach ($entry in $entries) {
+            $sourcePath = [IO.Path]::GetFullPath((Join-Path $SourceRoot $entry.FullName))
+            if (-not $sourcePath.StartsWith($sourcePrefix, [StringComparison]::OrdinalIgnoreCase) -or
+                -not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
+                throw "ZIP 文件路径无效：$($entry.FullName)"
+            }
+            $entryStream = $entry.Open()
+            try {
+                $entryHash = [BitConverter]::ToString($sha256.ComputeHash($entryStream)).Replace('-', '')
+            }
+            finally { $entryStream.Dispose() }
+            $sourceHash = (Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash
+            if ($entryHash -ne $sourceHash) { throw "ZIP 文件内容校验失败：$($entry.FullName)" }
+        }
     }
-
-    $wsl = Get-Command 'wsl.exe' -ErrorAction SilentlyContinue
-    if ($null -eq $wsl) {
-        throw '未找到 unzip，也未找到可用于执行 unzip 的 WSL。'
+    finally {
+        $sha256.Dispose()
+        $archive.Dispose()
     }
-
-    $wslUnzip = (& $wsl.Source -e sh -lc 'command -v unzip').Trim()
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($wslUnzip)) {
-        throw 'WSL 中未找到 unzip。'
-    }
-    $wslZipPath = (& $wsl.Source -e wslpath -a -u $Path).Trim()
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($wslZipPath)) {
-        throw "无法将 ZIP 路径转换为 WSL 路径：$Path"
-    }
-
-    Invoke-CheckedCommand -Command $wsl.Source -Arguments @('-e', $wslUnzip, '-t', $wslZipPath)
-    Invoke-CheckedCommand -Command $wsl.Source -Arguments @('-e', $wslUnzip, '-l', $wslZipPath)
 }
 
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -140,7 +148,7 @@ $backendSourceRoot = Join-Path $repositoryRoot 'backend'
 $flywaySqlRoot = Join-Path $repositoryRoot 'flyway\sql'
 $databaseUpdateScript = Join-Path $PSScriptRoot 'Update-Database.ps1'
 $publishRoot = Join-Path $repositoryRoot 'artifacts\publish'
-$timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+$timestamp = (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [Guid]::NewGuid().ToString('N').Substring(0, 8)
 $packageName = "ModernWMS-prod-$timestamp"
 $stagingRoot = Join-Path $publishRoot "$packageName.staging"
 $frontendBuildRoot = Join-Path $publishRoot "$packageName.frontend-build"
@@ -154,7 +162,7 @@ $resolvedStagingRoot = [IO.Path]::GetFullPath($stagingRoot)
 $resolvedFrontendBuildRoot = [IO.Path]::GetFullPath($frontendBuildRoot)
 $resolvedZipPath = [IO.Path]::GetFullPath($zipPath)
 
-foreach ($publishPath in @($resolvedStagingRoot, $resolvedFrontendBuildRoot, $resolvedZipPath)) {
+foreach ($publishPath in @($resolvedStagingRoot, $resolvedFrontendBuildRoot, $resolvedZipPath, ([IO.Path]::GetFullPath($zipTempPath)))) {
     if (-not $publishPath.StartsWith($resolvedPublishRoot, [StringComparison]::OrdinalIgnoreCase)) {
         throw "发布路径超出允许范围：$publishPath"
     }
@@ -213,15 +221,26 @@ if (-not $flywayVersionMatch.Success) {
 $flywayVersion = $flywayVersionMatch.Groups[1].Value
 $buildTime = Get-Date -Format 'yyyy-MM-ddTHH:mm:sszzz'
 
-New-Item -ItemType Directory -Path $frontendPackageRoot -Force | Out-Null
-New-Item -ItemType Directory -Path $backendPackageRoot -Force | Out-Null
-New-Item -ItemType Directory -Path $frontendBuildRoot -Force | Out-Null
-
 $previousViteBasePath = [Environment]::GetEnvironmentVariable('VITE_BASE_PATH', 'Process')
 $previousViteServerPort = [Environment]::GetEnvironmentVariable('VITE_SERVER_PORT', 'Process')
 $previousViteBaseApi = [Environment]::GetEnvironmentVariable('VITE_BASE_API', 'Process')
 
+$mutexHash = [Security.Cryptography.SHA256]::Create()
 try {
+    $mutexKey = [BitConverter]::ToString($mutexHash.ComputeHash([Text.Encoding]::UTF8.GetBytes($repositoryRoot.ToLowerInvariant()))).Replace('-', '')
+}
+finally { $mutexHash.Dispose() }
+$publishMutex = [Threading.Mutex]::new($false, "Local\ModernWMS-publish-$mutexKey")
+$mutexAcquired = $false
+
+try {
+    try { $mutexAcquired = $publishMutex.WaitOne(0) }
+    catch [Threading.AbandonedMutexException] { $mutexAcquired = $true }
+    if (-not $mutexAcquired) { throw '本仓库已有压包任务正在运行，请等待它完成。' }
+    New-Item -ItemType Directory -Path $frontendPackageRoot -Force | Out-Null
+    New-Item -ItemType Directory -Path $backendPackageRoot -Force | Out-Null
+    New-Item -ItemType Directory -Path $frontendBuildRoot -Force | Out-Null
+    Write-Host '[1/4] 构建前端生产资源（不启动开发服务）...'
     Get-ChildItem -LiteralPath $frontendRoot -Force |
         Where-Object { $_.Name -notin @('node_modules', 'dist', 'test-results', 'artifacts', '.git') } |
         Copy-Item -Destination $frontendBuildRoot -Recurse -Force
@@ -274,6 +293,7 @@ try {
         throw '前端生产产物中未找到相对 API 路径 /api/。'
     }
 
+    Write-Host '[2/4] 发布 Linux x64 后端（不执行 dotnet run/watch）...'
     $publishArguments = @(
         'publish',
         $backendProject,
@@ -286,7 +306,11 @@ try {
         '-p:DebugType=None',
         '-p:DebugSymbols=false'
     )
-    Invoke-CheckedCommand -Command 'dotnet' -Arguments $publishArguments
+    Push-Location $repositoryRoot
+    try {
+        Invoke-CheckedCommand -Command 'dotnet' -Arguments $publishArguments
+    }
+    finally { Pop-Location }
 
     $requiredBackendFiles = @(
         'ModernWMS.dll',
@@ -348,10 +372,9 @@ try {
     }
     $releaseLines | Set-Content -LiteralPath $releaseNotesPath -Encoding utf8
 
-    if (Test-Path -LiteralPath $resolvedZipPath -PathType Leaf) {
-        Remove-Item -LiteralPath $resolvedZipPath -Force
-    }
-    Compress-Archive -Path (Join-Path $stagingRoot '*') -DestinationPath $zipTempPath -CompressionLevel Optimal
+    Write-Host '[3/4] 生成临时 ZIP 并校验结构与全部文件内容...'
+    # ZipFile 包含隐藏文件，并以流处理大文件，避免 Compress-Archive 遗漏隐藏资源。
+    [IO.Compression.ZipFile]::CreateFromDirectory($stagingRoot, $zipTempPath, [IO.Compression.CompressionLevel]::Optimal, $false)
     if (-not (Test-Path -LiteralPath $zipTempPath -PathType Leaf)) {
         throw "ZIP 临时包生成失败：$zipTempPath"
     }
@@ -400,9 +423,17 @@ try {
         throw "ZIP 内容校验失败，包含禁止发布文件：$unexpectedEntry"
     }
 
-    Move-Item -LiteralPath $zipTempPath -Destination $zipPath
-    Invoke-UnzipChecks -Path $zipPath
-    Remove-Item -LiteralPath $resolvedStagingRoot -Recurse -Force
+    Assert-ZipContent -Path $zipTempPath -SourceRoot $stagingRoot
+    Write-Host '[4/4] 校验通过，替换正式发布包...'
+    # 所有校验先针对临时包；替换失败仍保留旧 wms.zip。
+    if (Test-Path -LiteralPath $resolvedZipPath -PathType Leaf) {
+        [IO.File]::Replace($zipTempPath, $resolvedZipPath, $null)
+    }
+    else {
+        Move-Item -LiteralPath $zipTempPath -Destination $resolvedZipPath
+    }
+    try { Remove-Item -LiteralPath $resolvedStagingRoot -Recurse -Force }
+    catch { Write-Warning "发布包已生成，临时目录清理失败：$resolvedStagingRoot" }
 }
 catch {
     if (Test-Path -LiteralPath $zipTempPath) {
@@ -425,12 +456,15 @@ finally {
             Write-Warning "前端临时构建目录清理失败，可稍后手动删除：$resolvedFrontendBuildRoot"
         }
     }
+    if ($mutexAcquired) { $publishMutex.ReleaseMutex() }
+    $publishMutex.Dispose()
 }
 
 Write-Host '生产发布包生成并校验完成。'
 Write-Host "ZIP 包：$zipPath"
 Write-Host 'ZIP 顶层：backend/、frontend/、RELEASE_NOTES.txt'
 Write-Host '后端启动：dotnet ModernWMS.dll'
+Write-Host '服务器需配置 Production 环境、数据库连接字符串与签名密钥；本包不包含这些秘密。'
 Write-Host '后端监听：http://127.0.0.1:21011'
 Write-Host '前端 API：/api/'
 Write-Host '数据库迁移：仅记录在 RELEASE_NOTES.txt，本脚本不会执行迁移。'
