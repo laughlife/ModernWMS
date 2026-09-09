@@ -64,6 +64,11 @@
       <vxe-column type="seq" width="60"></vxe-column>
       <vxe-column type="checkbox" width="50"></vxe-column>
       <vxe-column field="warehouse_name" :title="'仓库名称'"></vxe-column>
+      <vxe-column field="is_default" title="ERP默认仓" width="110">
+        <template #default="{ row }">
+          <span>{{ row.is_default ? '是' : '否' }}</span>
+        </template>
+      </vxe-column>
       <vxe-column field="city" :title="'城市'"></vxe-column>
       <vxe-column field="address" :title="'收货地址'"></vxe-column>
       <vxe-column field="contact_tel" :title="'联系电话'"></vxe-column>
