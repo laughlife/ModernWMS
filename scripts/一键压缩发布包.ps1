@@ -9,6 +9,16 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+function Write-PackageProgress {
+    param([Parameter(Mandatory = $true)][string]$Message)
+
+    $line = '[{0}] {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Message
+    Write-Host $line
+    # 仅记录受控阶段信息，不录制命令输出或配置秘密。
+    try { Add-Content -LiteralPath $progressLogPath -Value $line -Encoding utf8 }
+    catch { Write-Warning '进度日志写入失败，继续使用控制台输出。' }
+}
+
 function Invoke-CheckedCommand {
     param(
         [Parameter(Mandatory = $true)]
@@ -150,6 +160,7 @@ $databaseUpdateScript = Join-Path $PSScriptRoot 'Update-Database.ps1'
 $publishRoot = Join-Path $repositoryRoot 'artifacts\publish'
 $timestamp = (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [Guid]::NewGuid().ToString('N').Substring(0, 8)
 $packageName = "ModernWMS-prod-$timestamp"
+$progressLogPath = Join-Path $publishRoot "$packageName.progress.log"
 $stagingRoot = Join-Path $publishRoot "$packageName.staging"
 $frontendBuildRoot = Join-Path $publishRoot "$packageName.frontend-build"
 $frontendPackageRoot = Join-Path $stagingRoot 'frontend'
@@ -240,7 +251,8 @@ try {
     New-Item -ItemType Directory -Path $frontendPackageRoot -Force | Out-Null
     New-Item -ItemType Directory -Path $backendPackageRoot -Force | Out-Null
     New-Item -ItemType Directory -Path $frontendBuildRoot -Force | Out-Null
-    Write-Host '[1/4] 构建前端生产资源（不启动开发服务）...'
+    Write-Host "进度日志：$progressLogPath"
+    Write-PackageProgress '[1/4] 构建前端生产资源（不启动开发服务）...'
     Get-ChildItem -LiteralPath $frontendRoot -Force |
         Where-Object { $_.Name -notin @('node_modules', 'dist', 'test-results', 'artifacts', '.git') } |
         Copy-Item -Destination $frontendBuildRoot -Recurse -Force
@@ -252,7 +264,9 @@ try {
     Push-Location $frontendBuildRoot
     try {
         Invoke-CheckedCommand -Command 'npm.cmd' -Arguments @('ci')
+        Write-PackageProgress '前端依赖安装完成，开始类型检查和生产构建。'
         Invoke-CheckedCommand -Command 'npm.cmd' -Arguments @('run', 'build', '--', '--mode', 'production')
+        Write-PackageProgress '前端生产构建完成。'
     }
     finally {
         Pop-Location
@@ -293,7 +307,7 @@ try {
         throw '前端生产产物中未找到相对 API 路径 /api/。'
     }
 
-    Write-Host '[2/4] 发布 Linux x64 后端（不执行 dotnet run/watch）...'
+    Write-PackageProgress '[2/4] 发布 Linux x64 后端（不执行 dotnet run/watch）...'
     $publishArguments = @(
         'publish',
         $backendProject,
@@ -372,7 +386,7 @@ try {
     }
     $releaseLines | Set-Content -LiteralPath $releaseNotesPath -Encoding utf8
 
-    Write-Host '[3/4] 生成临时 ZIP 并校验结构与全部文件内容...'
+    Write-PackageProgress '[3/4] 生成临时 ZIP 并校验结构与全部文件内容...'
     # ZipFile 包含隐藏文件，并以流处理大文件，避免 Compress-Archive 遗漏隐藏资源。
     [IO.Compression.ZipFile]::CreateFromDirectory($stagingRoot, $zipTempPath, [IO.Compression.CompressionLevel]::Optimal, $false)
     if (-not (Test-Path -LiteralPath $zipTempPath -PathType Leaf)) {
@@ -424,10 +438,11 @@ try {
     }
 
     Assert-ZipContent -Path $zipTempPath -SourceRoot $stagingRoot
-    Write-Host '[4/4] 校验通过，替换正式发布包...'
+    Write-PackageProgress '[4/4] 校验通过，替换正式发布包...'
     # 所有校验先针对临时包；替换失败仍保留旧 wms.zip。
     if (Test-Path -LiteralPath $resolvedZipPath -PathType Leaf) {
-        [IO.File]::Replace($zipTempPath, $resolvedZipPath, $null)
+        # 普通 $null 会被 PowerShell 转为空字符串；.NET 需要真正的 null 备份路径。
+        [IO.File]::Replace($zipTempPath, $resolvedZipPath, [NullString]::Value)
     }
     else {
         Move-Item -LiteralPath $zipTempPath -Destination $resolvedZipPath
@@ -436,6 +451,11 @@ try {
     catch { Write-Warning "发布包已生成，临时目录清理失败：$resolvedStagingRoot" }
 }
 catch {
+    if ($mutexAcquired -and (Test-Path -LiteralPath $progressLogPath)) {
+        $failure = $_
+        try { Write-PackageProgress "压包失败：$($failure.Exception.GetType().FullName)，脚本行 $($failure.InvocationInfo.ScriptLineNumber)。" }
+        catch { Write-Warning '无法写入失败进度日志，请保留控制台错误。' }
+    }
     if (Test-Path -LiteralPath $zipTempPath) {
         Remove-Item -LiteralPath $zipTempPath -Force
     }
@@ -450,6 +470,7 @@ finally {
     Set-ProcessEnvironmentValue -Name 'VITE_BASE_API' -Value $(if ($null -eq $previousViteBaseApi) { '' } else { $previousViteBaseApi })
     if (Test-Path -LiteralPath $resolvedFrontendBuildRoot) {
         try {
+            Write-PackageProgress '正在清理前端临时依赖目录，文件较多时需要等待。'
             Remove-Item -LiteralPath $resolvedFrontendBuildRoot -Recurse -Force
         }
         catch {
@@ -460,7 +481,7 @@ finally {
     $publishMutex.Dispose()
 }
 
-Write-Host '生产发布包生成并校验完成。'
+Write-PackageProgress '生产发布包生成并校验完成。'
 Write-Host "ZIP 包：$zipPath"
 Write-Host 'ZIP 顶层：backend/、frontend/、RELEASE_NOTES.txt'
 Write-Host '后端启动：dotnet ModernWMS.dll'
