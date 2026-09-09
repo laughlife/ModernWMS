@@ -4,10 +4,10 @@
 
 ## 1. 一键生成发布包
 
-在仓库根目录执行：
+在 Windows PowerShell 7 中执行，无需参数，也不需要 WSL：
 
 ```powershell
-& '.\scripts\一键压缩发布包.ps1'
+& 'D:\ai-dev\ModernWMS\scripts\一键压缩发布包.ps1'
 ```
 
 脚本会在隔离的临时目录中执行前端 `npm ci` 和生产构建，并发布 `linux-x64`、framework-dependent 的 .NET 10 后端。最终只保留：
@@ -16,24 +16,28 @@
 artifacts/publish/wms.zip
 ```
 
-ZIP 一级目录为 `frontend`、`backend`、`deploy`，并包含 `部署说明.txt`。其中：
+ZIP 一级目录为 `frontend`、`backend`，并包含 `RELEASE_NOTES.txt`。其中：
 
 - `frontend` 可直接替换 `/opt/modernwms/frontend`。
 - `backend` 可直接替换 `/opt/modernwms/backend`。
-- `deploy/nginx/conf.d/wsm.nyamtn.conf` 是生产 Nginx 配置参考。
+- `RELEASE_NOTES.txt` 记录版本、构建时间、提交信息和数据库迁移清单；包内不包含 Nginx、systemd 或数据库迁移脚本。
 - 后端固定监听 `http://127.0.0.1:21011`，与 Nginx 的 `/api/` 代理一致。
+
+压包读取当前工作区代码，在隔离目录安装前端依赖并构建。ZIP 通过目录结构和逐文件 SHA256 校验后才替换旧 `wms.zip`；构建或校验失败会保留旧包。重复运行同仓库压包任务会被拒绝。
+
+压包过程只调用 `dotnet publish`，不会执行 `dotnet watch run`。如果控制台显示 `watch run`，它属于开发启动任务。开发默认监听回环地址；`wwwroot` 缺失警告与前后端分离部署有关，不能据此判定压包失败。
 
 ## 2. 发布包的配置和秘密
 
 目标服务器必须安装 .NET 10 ASP.NET Core Runtime 和 Nginx，并提前准备 `wms.nyamtn.com` 的 TLS 证书。
 
-脚本从本机 .NET User Secrets 读取 `ConnectionStrings:MySqlConn` 和 `TokenSettings:SigningKey`，把数据库主机、端口替换为脚本定义的生产值后写入发布包的 `backend/appsettings.Production.json`。因此 `wms.zip` 含生产可用的敏感配置：
+脚本不会读取本机 .NET User Secrets。发布包的 `appsettings.json` 和 `appsettings.Production.json` 中，连接字符串及 `TokenSettings:SigningKey` 会被清空；开发配置不进入发布包。服务器需要通过既有服务配置或安全配置来源提供：
 
-- 不得提交 `wms.zip`、解压后的生产配置或任何秘密到 Git。
-- 传输和保存发布包时必须使用受控权限。
-- 不得在控制台、日志、工单或聊天中输出连接字符串和签名密钥。
+- `ConnectionStrings__MySqlConn`：生产数据库连接字符串。
+- `TokenSettings__SigningKey`：生产签名密钥。
+- `ASPNETCORE_ENVIRONMENT=Production`：加载生产配置。
 
-仓库中的 `appsettings*.json` 仍不得保存真实密码或签名密钥。
+替换发布目录时保留服务器外部配置，不要指望 ZIP 携带可直接使用的生产凭据。仓库中的 `appsettings*.json` 不得保存真实密码或签名密钥。
 
 ## 3. 数据库结构升级
 
@@ -56,13 +60,13 @@ ASPNETCORE_ENVIRONMENT=Production dotnet ModernWMS.dll
 
 ## 5. 部署前端和 Nginx
 
-将 `frontend` 发布到 `/opt/modernwms/frontend`。把包内 Nginx 配置复制到服务器前，必须核对域名、证书路径和目录，并运行：
+将 `frontend` 发布到 `/opt/modernwms/frontend`。包内不包含 Nginx 配置，沿用服务器已有配置，并核对域名、证书路径和目录。生产变更流程中检查：
 
 ```bash
 nginx -t
 ```
 
-配置已包含单页应用回退、静态资源缓存和 `/api/` 到 `127.0.0.1:21011` 的反向代理。只有在 `nginx -t` 成功后，才按现有生产流程重新加载 Nginx。
+服务器配置需要包含单页应用回退、静态资源缓存和 `/api/` 到 `127.0.0.1:21011` 的反向代理。只有在 `nginx -t` 成功后，才按现有生产流程重新加载 Nginx。
 
 ## 6. 发布后检查
 
