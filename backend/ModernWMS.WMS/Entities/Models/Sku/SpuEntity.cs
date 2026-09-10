@@ -12,8 +12,11 @@ using ModernWMS.Core.Utility;
 namespace ModernWMS.WMS.Entities.Models
 {
     /// <summary>
-    /// spu  entity
+    /// 旧商品模型，仅为历史收货和库存关联保留。
     /// </summary>
+    // TODO(REQ-WMS-PRODUCT-003): SPU 不再作为业务维护概念使用，不再扩展或恢复手工维护入口。
+    // 暂时保留现有模型及运行依赖；后续专项梳理关联后再评估退役，不直接删除表或字段。
+    // ERP 的 spu/spu_name 字段保留；SKU、FNSKU、MSKU 继续使用。
     [Table("spu")]
     public class SpuEntity : BaseModel
     {
