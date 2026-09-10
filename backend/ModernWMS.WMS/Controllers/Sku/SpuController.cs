@@ -141,62 +141,6 @@ namespace ModernWMS.WMS.Controllers
             }
         }
 
-        /// <summary>
-        /// add a new record
-        /// </summary>
-        /// <param name="viewModel">args</param>
-        /// <returns></returns>
-        [HttpPost]
-        public async Task<ResultModel<int>> AddAsync(SpuBothViewModel viewModel)
-        {
-            var (id, msg) = await _spuService.AddAsync(viewModel, CurrentUser);
-            if (id > 0)
-            {
-                return ResultModel<int>.Success(id);
-            }
-            else
-            {
-                return ResultModel<int>.Error(msg);
-            }
-        }
-
-        /// <summary>
-        /// update a record
-        /// </summary>
-        /// <param name="viewModel">args</param>
-        /// <returns></returns>
-        [HttpPut]
-        public async Task<ResultModel<bool>> UpdateAsync(SpuBothViewModel viewModel)
-        {
-            var (flag, msg) = await _spuService.UpdateAsync(viewModel);
-            if (flag)
-            {
-                return ResultModel<bool>.Success(flag);
-            }
-            else
-            {
-                return ResultModel<bool>.Error(msg, 400, flag);
-            }
-        }
-
-        /// <summary>
-        /// delete a record
-        /// </summary>
-        /// <param name="id">id</param>
-        /// <returns></returns>
-        [HttpDelete]
-        public async Task<ResultModel<string>> DeleteAsync(int id)
-        {
-            var (flag, msg) = await _spuService.DeleteAsync(id);
-            if (flag)
-            {
-                return ResultModel<string>.Success(msg);
-            }
-            else
-            {
-                return ResultModel<string>.Error(msg);
-            }
-        }
         #endregion
 
         #region add or update sku_safety_stock
