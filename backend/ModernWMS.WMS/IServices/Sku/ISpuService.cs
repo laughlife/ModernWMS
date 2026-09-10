@@ -49,26 +49,6 @@ using ModernWMS.WMS.Entities.ViewModels;
         /// <returns></returns>
         Task<SkuDetailViewModel> GetSkuByBarCodeAsync(string bar_code);
 
-        /// <summary>
-        /// add a new record
-        /// </summary>
-        /// <param name="viewModel">viewmodel</param>
-        /// <param name="currentUser">currentUser</param>
-        /// <returns></returns>
-        Task<(int id, string msg)> AddAsync(SpuBothViewModel viewModel, CurrentUser currentUser);
-        /// <summary>
-        /// update a record
-        /// </summary>
-        /// <param name="viewModel">viewmodel</param>
-        /// <returns></returns>
-        Task<(bool flag, string msg)> UpdateAsync(SpuBothViewModel viewModel);
-
-        /// <summary>
-        /// delete a record
-        /// </summary>
-        /// <param name="id">id</param>
-        /// <returns></returns>
-        Task<(bool flag, string msg)> DeleteAsync(int id);
         #endregion
 
         #region add or update sku_safety_stock
