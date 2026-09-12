@@ -82,7 +82,7 @@ public partial class DispatchWorkflowService
             }
             foreach(var a in allocations)
                 await c.ExecuteAsync(new CommandDefinition("""
-                    INSERT INTO `wms_dispatchpicklist` (`dispatchlist_id`,`packing_task_item_id`,`stock_id`,`erp_stock_id`,`stock_allocation_id`,`reservation_id`,`reservation_item_id`,`goods_owner_id`,`goods_location_id`,`sku_id`,`pick_qty`,`picked_qty`,
+                    INSERT INTO `wms_dispatchpicklist` (`dispatchlist_id`,`packing_task_item_id`,`stock_id`,`trk_stock_id`,`stock_allocation_id`,`reservation_id`,`reservation_item_id`,`goods_owner_id`,`goods_location_id`,`sku_id`,`pick_qty`,`picked_qty`,
                       `is_update_stock`,`last_update_time`,`series_number`,`picker_id`,`picker`,`expiry_date`,`price`,`putaway_date`)
                     VALUES (@detailId,@itemId,@stockId,@erpStockId,@allocationId,@reservationId,@reservationItemId,@ownerId,@locationId,@skuId,@quantity,@quantity,0,@now,@series,@userId,@name,@expiry,@price,@putaway);
                     """,new{detailId=details[a.Item.id],itemId=a.Item.id,stockId=(int?)null,erpStockId=a.ErpStockId,
@@ -143,7 +143,7 @@ public partial class DispatchWorkflowService
     {
         var taskIds=items.Select(x=>x.packing_task_id).Distinct().ToArray();
         var bindings=(await c.QueryAsync<BoundSelectionRow>(new CommandDefinition("""
-            SELECT selection.`id`,selection.`sellfox_item_id`,selection.`erp_stock_id`,
+            SELECT selection.`id`,selection.`sellfox_item_id`,selection.`trk_stock_id`,
                    selection.`reservation_id`,selection.`reservation_item_id`,selection.`qty`,
                    reservation_item.`status` AS reservation_status,
                    reservation_item.`remaining_qty` AS reservation_remaining_qty,
@@ -154,26 +154,26 @@ public partial class DispatchWorkflowService
               JOIN `wms_dispatch_order` dispatch_order
                 ON dispatch_order.`id`=task.`dispatch_order_id`
               JOIN `trk_stock` stock
-                ON stock.`id`=selection.`erp_stock_id`
+                ON stock.`id`=selection.`trk_stock_id`
                AND stock.`warehouse_id`=dispatch_order.`warehouse_id`
                AND stock.`deleted`=b'0'
               LEFT JOIN `trk_stock_reservation_item` reservation_item
                 ON reservation_item.`id`=selection.`reservation_item_id`
                AND reservation_item.`reservation_id`=selection.`reservation_id`
-               AND reservation_item.`stock_id`=selection.`erp_stock_id`
+               AND reservation_item.`stock_id`=selection.`trk_stock_id`
                AND reservation_item.`deleted`=b'0'
              WHERE task.`id` IN @taskIds
                AND task.`is_active`=1
                AND selection.`status`='ACTIVE'
-               AND selection.`erp_stock_id` IS NOT NULL
-             ORDER BY selection.`erp_stock_id`,selection.`id`
+               AND selection.`trk_stock_id` IS NOT NULL
+             ORDER BY selection.`trk_stock_id`,selection.`id`
              FOR UPDATE;
             """,new{taskIds},tx,cancellationToken:ct))).AsList();
         if(bindings.Count==0)
             throw DispatchWorkflowCommandException.StockShortage("装箱任务未绑定ERP库存");
-        if(bindings.Any(x=>x.erp_stock_id<=0||x.reservation_id is null or <=0||x.reservation_item_id is null or <=0))
+        if(bindings.Any(x=>x.trk_stock_id<=0||x.reservation_id is null or <=0||x.reservation_item_id is null or <=0))
             throw DispatchWorkflowCommandException.StockShortage("装箱任务库存绑定缺少有效预占来源");
-        if(bindings.GroupBy(x=>(x.reservation_id,x.reservation_item_id,x.erp_stock_id)).Any(group=>
+        if(bindings.GroupBy(x=>(x.reservation_id,x.reservation_item_id,x.trk_stock_id)).Any(group=>
         {
             var owner=group.First();
             return owner.reservation_remaining_qty is not >0
@@ -192,7 +192,7 @@ public partial class DispatchWorkflowService
                 throw DispatchWorkflowCommandException.StockShortage($"装箱任务商品 {item.commodity_sku} 的绑定数量已变化");
             item.wms_sku_id=null;
             plan.AddRange(rows.Select(row=>new PickingAllocation(
-                item,row.erp_stock_id,row.reservation_id,row.reservation_item_id,row.qty,row.id)));
+                item,row.trk_stock_id,row.reservation_id,row.reservation_item_id,row.qty,row.id)));
         }
         return plan;
     }
@@ -207,7 +207,7 @@ public partial class DispatchWorkflowService
         public int id{get;init;}
         public int packing_task_id{get;init;}
         public long sellfox_item_id{get;init;}
-        public long erp_stock_id{get;init;}
+        public long trk_stock_id{get;init;}
         public long? reservation_id{get;init;}
         public long? reservation_item_id{get;init;}
         public string? reservation_status{get;init;}

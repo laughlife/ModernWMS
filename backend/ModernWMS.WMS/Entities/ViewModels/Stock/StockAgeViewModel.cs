@@ -20,9 +20,9 @@ namespace ModernWMS.WMS.Entities.ViewModels
     public class StockAgeViewModel
     {
         /// <summary>
-        /// 获取或设置 erp_stock_id。
+        /// 获取或设置 trk_stock_id。
         /// </summary>
-        public long? erp_stock_id { get; set; }
+        public long? trk_stock_id { get; set; }
 
         /// <summary>
         /// 获取或设置 stock_allocation_id。

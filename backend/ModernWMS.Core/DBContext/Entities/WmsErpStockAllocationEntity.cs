@@ -7,7 +7,7 @@ namespace ModernWMS.Core.DBContext.Entities;
 /// Location, owner and batch-attribute allocation of the ERP stock balance.
 /// Quantities decompose trk_stock and are not an independent inventory balance.
 /// </summary>
-[Table("wms_erp_stock_allocation")]
+[Table("wms_trk_stock_allocation")]
 public class WmsErpStockAllocationEntity
 {
     /// <summary>
@@ -17,9 +17,9 @@ public class WmsErpStockAllocationEntity
     public long id { get; set; }
 
     /// <summary>
-    /// 获取或设置 erp_stock_id。
+    /// 获取或设置 trk_stock_id。
     /// </summary>
-    public long erp_stock_id { get; set; }
+    public long trk_stock_id { get; set; }
     /// <summary>
     /// 获取或设置 warehouse_area_id。
     /// </summary>

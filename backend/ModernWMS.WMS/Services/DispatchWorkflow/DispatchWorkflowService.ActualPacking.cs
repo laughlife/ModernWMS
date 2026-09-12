@@ -40,12 +40,12 @@ public partial class DispatchWorkflowService
                 ||aggregate.Boxes.Any(box=>!aggregate.BoxItems.Any(item=>item.weighing_box_id==box.id)))
                 throw DispatchWorkflowCommandException.WeighingIncomplete("每个箱必须填写实际装箱商品");
 
-            var stockIds=aggregate.BoxItems.Select(x=>x.erp_stock_id).Distinct().Order().ToArray();
+            var stockIds=aggregate.BoxItems.Select(x=>x.trk_stock_id).Distinct().Order().ToArray();
             var identities=await LoadActualPackingStockIdentitiesAsync(connection,transaction,stockIds,ct);
             foreach(var box in aggregate.Boxes)
                 ActualPackingLinePolicy.ValidateBox(aggregate.BoxItems.Where(x=>x.weighing_box_id==box.id)
                     .Select(x=>new ActualPackingDraftLine(x.client_line_key,x.packing_task_item_id,
-                        x.erp_stock_id,x.actual_qty)).ToArray(),
+                        x.trk_stock_id,x.actual_qty)).ToArray(),
                     aggregate.Items.Select(x=>x.id).ToHashSet(),identities,aggregate.Order.warehouse_id);
 
             var details=(await connection.QueryAsync<DispatchlistEntity>(new CommandDefinition("""
@@ -55,20 +55,20 @@ public partial class DispatchWorkflowService
             var detailIds=details.Select(x=>x.id).ToArray();
             var picks=detailIds.Length==0?[]:(await connection.QueryAsync<DispatchpicklistEntity>(new CommandDefinition("""
                 SELECT * FROM `wms_dispatchpicklist`
-                 WHERE `dispatchlist_id` IN @detailIds ORDER BY `erp_stock_id`,`id` FOR UPDATE;
+                 WHERE `dispatchlist_id` IN @detailIds ORDER BY `trk_stock_id`,`id` FOR UPDATE;
                 """,new{detailIds},transaction,cancellationToken:ct))).AsList();
-            if(picks.Any(x=>x.is_update_stock||x.erp_stock_id is null or <=0))
+            if(picks.Any(x=>x.is_update_stock||x.trk_stock_id is null or <=0))
                 throw DispatchWorkflowCommandException.StockAlreadyDeducted();
 
             var groups=aggregate.BoxItems.GroupBy(x=>new ActualPackingKey(
-                    x.packing_task_item_id,x.erp_stock_id))
+                    x.packing_task_item_id,x.trk_stock_id))
                 .OrderBy(x=>x.Key)
                 .Select(group=>new ActualPackingGroup(group.Key,group.OrderBy(x=>x.id).ToList(),
                     checked(group.Sum(x=>x.actual_qty))))
                 .ToList();
             var materialization=ActualPackingMaterializationPolicy.Build(
                 picks.Select(x=>new ActualPackingCurrentPick(x.id,x.packing_task_item_id,
-                    x.erp_stock_id!.Value,x.picked_qty)).ToArray(),
+                    x.trk_stock_id!.Value,x.picked_qty)).ToArray(),
                 groups.Select(x=>new ActualPackingTarget(x.BusinessKey,x.Key.PackingTaskItemId,
                     x.Key.ErpStockId,x.Quantity)).ToArray());
 
@@ -82,9 +82,9 @@ public partial class DispatchWorkflowService
                 var pick=picksById[release.PickId];
                 prelocks.Add(new PackingStockPrelockRequest(
                     DispatchStockMutationContext(user,aggregate.Order.warehouse_id,"DISPATCH_RELEASE",orderId,pick.id,
-                        pick.erp_stock_id!.Value,release.Quantity,
+                        pick.trk_stock_id!.Value,release.Quantity,
                         $"ACTUAL_PACKING:{taskId}:{request.request_id}",pick.reservation_id,pick.reservation_item_id),
-                    pick.erp_stock_id.Value,"UNLOCK"));
+                    pick.trk_stock_id.Value,"UNLOCK"));
             }
             foreach(var reserve in materialization.Reserves)
             {
@@ -101,18 +101,18 @@ public partial class DispatchWorkflowService
                 await mutation.PrelockAsync(connection,transaction,
                     [aggregate.Order.warehouse_id],prelocks,ct);
 
-            foreach(var release in materialization.Releases.OrderBy(x=>picksById[x.PickId].erp_stock_id)
+            foreach(var release in materialization.Releases.OrderBy(x=>picksById[x.PickId].trk_stock_id)
                         .ThenBy(x=>x.PickId))
             {
                 var pick=picksById[release.PickId];
                 await mutation.ReleaseAsync(connection,transaction,
                     DispatchStockMutationContext(user,aggregate.Order.warehouse_id,"DISPATCH_RELEASE",orderId,pick.id,
-                        pick.erp_stock_id!.Value,release.Quantity,
+                        pick.trk_stock_id!.Value,release.Quantity,
                         $"ACTUAL_PACKING:{taskId}:{request.request_id}",pick.reservation_id,pick.reservation_item_id),
-                    pick.erp_stock_id.Value,release.Quantity,ct);
+                    pick.trk_stock_id.Value,release.Quantity,ct);
                 if(pick.stock_allocation_id is >0)
                     await RequireLegacyPackingReleaseAdapter().SettleReleaseAsync(
-                        connection,transaction,pick.erp_stock_id.Value,pick.stock_allocation_id.Value,
+                        connection,transaction,pick.trk_stock_id.Value,pick.stock_allocation_id.Value,
                         pick.reservation_item_id!.Value,release.Quantity,user.user_name??string.Empty,ct);
                 pick.pick_qty-=release.Quantity;pick.picked_qty-=release.Quantity;
             }
@@ -183,7 +183,7 @@ public partial class DispatchWorkflowService
                         var pickId=await InsertActualPackingPickAsync(connection,transaction,detail.id,group,
                             result,user,now,ct);
                         var created=new DispatchpicklistEntity{id=pickId,dispatchlist_id=detail.id,
-                            packing_task_item_id=group.Key.PackingTaskItemId,erp_stock_id=group.Key.ErpStockId,
+                            packing_task_item_id=group.Key.PackingTaskItemId,trk_stock_id=group.Key.ErpStockId,
                             stock_allocation_id=null,sku_id=0,
                             pick_qty=group.Quantity,picked_qty=group.Quantity,reservation_id=result.ReservationId,
                             reservation_item_id=result.ReservationItemId};
@@ -241,7 +241,7 @@ public partial class DispatchWorkflowService
     }
 
     private static bool Matches(DispatchpicklistEntity pick,ActualPackingKey key) =>
-        pick.packing_task_item_id==key.PackingTaskItemId&&pick.erp_stock_id==key.ErpStockId;
+        pick.packing_task_item_id==key.PackingTaskItemId&&pick.trk_stock_id==key.ErpStockId;
 
     private static async Task<int> InsertActualPackingDetailAsync(IDbConnection connection,IDbTransaction transaction,
         DispatchOrderEntity order,int taskId,int? taskItemId,int skuId,int quantity,CurrentUser user,DateTime now,
@@ -263,7 +263,7 @@ public partial class DispatchWorkflowService
         CurrentUser user,DateTime now,CancellationToken ct)=>
         await connection.ExecuteScalarAsync<int>(new CommandDefinition("""
             INSERT INTO `wms_dispatchpicklist` (`dispatchlist_id`,`packing_task_item_id`,`stock_id`,
-              `erp_stock_id`,`stock_allocation_id`,`reservation_id`,`reservation_item_id`,`goods_owner_id`,
+              `trk_stock_id`,`stock_allocation_id`,`reservation_id`,`reservation_item_id`,`goods_owner_id`,
               `goods_location_id`,`sku_id`,`pick_qty`,`picked_qty`,`is_update_stock`,`last_update_time`,
               `series_number`,`picker_id`,`picker`,`expiry_date`,`price`,`putaway_date`)
             VALUES (@detailId,@taskItemId,NULL,@erpStockId,NULL,@reservationId,@reservationItemId,

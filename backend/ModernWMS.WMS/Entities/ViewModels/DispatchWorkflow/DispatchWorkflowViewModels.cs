@@ -434,7 +434,7 @@ public sealed class PackingPlanBoxItemViewModel
     /// </summary>
     public int? packing_task_item_id { get; set; }
     /// <summary>Authoritative ERP stock identity.</summary>
-    public long erp_stock_id { get; set; }
+    public long trk_stock_id { get; set; }
     /// <summary>Server-resolved SKU-code snapshot.</summary>
     public string sku_code { get; set; } = string.Empty;
     /// <summary>Server-resolved commodity-name snapshot.</summary>
@@ -450,7 +450,7 @@ public sealed class PackingPlanBoxItemViewModel
 /// <summary>Selectable ERP stock for actual packing.</summary>
 public sealed class ActualPackingStockViewModel
 {
-    public long erp_stock_id { get; set; }
+    public long trk_stock_id { get; set; }
     public long? commodity_id { get; set; }
     public long order_user_id { get; set; }
     public string order_user_name { get; set; } = string.Empty;

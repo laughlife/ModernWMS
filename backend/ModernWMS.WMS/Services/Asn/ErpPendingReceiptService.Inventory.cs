@@ -93,7 +93,7 @@ public partial class ErpPendingReceiptService
                     (receipt_id, shipment_id, source_item_key, task_item_id, allocation_id,
                      commodity_id, commodity_sku, commodity_name, dept_id, order_user_id,
                       dept_name, order_user_name, warehouse_area_id, warehouse_area_name,
-                     shipment_qty, actual_receipt_qty, loss_qty, inbound_qty, erp_stock_id,
+                     shipment_qty, actual_receipt_qty, loss_qty, inbound_qty, trk_stock_id,
                      wms_sku_id, wms_stock_id, primary_stock_allocation_id,
                      receipt_time, total_weight, total_volume,
                      create_time)

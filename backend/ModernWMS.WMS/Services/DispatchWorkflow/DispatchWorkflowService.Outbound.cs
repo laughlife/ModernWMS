@@ -169,7 +169,7 @@ public partial class DispatchWorkflowService
             if (deduct) EnsureCarrierConfigured(details);
             var detailIds = details.Select(x => x.id).ToArray();
             var allocations = (await connection.QueryAsync<DispatchpicklistEntity>(new CommandDefinition("""
-                SELECT * FROM `wms_dispatchpicklist` WHERE `dispatchlist_id` IN @detailIds ORDER BY `erp_stock_id`,`id` FOR UPDATE;
+                SELECT * FROM `wms_dispatchpicklist` WHERE `dispatchlist_id` IN @detailIds ORDER BY `trk_stock_id`,`id` FOR UPDATE;
                 """, new { detailIds }, transaction, cancellationToken: cancellationToken))).AsList();
             await ValidateDetailAllocationsAsync(connection, transaction, order, details, allocations, deduct, cancellationToken);
             ValidateAllocationState(allocations, deduct);
@@ -269,7 +269,7 @@ public partial class DispatchWorkflowService
     private static void ValidateAllocationState(IReadOnlyCollection<DispatchpicklistEntity> allocations, bool deduct)
     {
         if (allocations.Count == 0 || allocations.Any(x => x.picked_qty <= 0
-            || x.erp_stock_id is null or <= 0
+            || x.trk_stock_id is null or <= 0
             || x.reservation_id is null or <= 0||x.reservation_item_id is null or <= 0
             || (deduct ? x.is_update_stock : !x.is_update_stock)))
             throw DispatchWorkflowCommandException.StockConflict("stock allocation state changed");
@@ -287,20 +287,20 @@ public partial class DispatchWorkflowService
         var mutation = RequirePackingStockMutationService();
         var prelocks=allocations.Select(allocation=>new PackingStockPrelockRequest(
             DispatchStockMutationContext(user,order.warehouse_id,"DISPATCH_SHIP_OUT",order.id,allocation.id,
-                allocation.erp_stock_id!.Value,allocation.picked_qty,requestId,
+                allocation.trk_stock_id!.Value,allocation.picked_qty,requestId,
                 allocation.reservation_id,allocation.reservation_item_id),
-            allocation.erp_stock_id.Value,"SHIP_OUT")).ToArray();
+            allocation.trk_stock_id.Value,"SHIP_OUT")).ToArray();
         await mutation.PrelockAsync(connection,transaction,[order.warehouse_id],prelocks,cancellationToken);
-        foreach (var allocation in allocations.OrderBy(x=>x.erp_stock_id).ThenBy(x=>x.id))
+        foreach (var allocation in allocations.OrderBy(x=>x.trk_stock_id).ThenBy(x=>x.id))
         {
             await mutation.ShipLockedAsync(connection,transaction,
                 DispatchStockMutationContext(user,order.warehouse_id,"DISPATCH_SHIP_OUT",order.id,allocation.id,
-                    allocation.erp_stock_id!.Value,allocation.picked_qty,requestId,
+                    allocation.trk_stock_id!.Value,allocation.picked_qty,requestId,
                     allocation.reservation_id,allocation.reservation_item_id),
-                allocation.erp_stock_id.Value,allocation.picked_qty,cancellationToken);
+                allocation.trk_stock_id.Value,allocation.picked_qty,cancellationToken);
             if(allocation.stock_allocation_id is >0)
                 await RequireLegacyPackingReleaseAdapter().SettleConsumeAsync(
-                    connection,transaction,allocation.erp_stock_id.Value,allocation.stock_allocation_id.Value,
+                    connection,transaction,allocation.trk_stock_id.Value,allocation.stock_allocation_id.Value,
                     allocation.reservation_item_id!.Value,allocation.picked_qty,user.user_name??string.Empty,
                     cancellationToken);
             await connection.ExecuteAsync(new CommandDefinition("""
@@ -316,9 +316,9 @@ public partial class DispatchWorkflowService
         CancellationToken cancellationToken)
     {
         var mutation=RequirePackingStockMutationService();
-        foreach(var allocation in allocations.OrderBy(x=>x.erp_stock_id).ThenBy(x=>x.id))
+        foreach(var allocation in allocations.OrderBy(x=>x.trk_stock_id).ThenBy(x=>x.id))
         {
-            var stockId=allocation.erp_stock_id!.Value;
+            var stockId=allocation.trk_stock_id!.Value;
             await mutation.AdjustAvailableAsync(connection,transaction,
                 DispatchStockMutationContext(user,order.warehouse_id,"DISPATCH_SHIP_RESTORE",order.id,
                     allocation.id,stockId,allocation.picked_qty,requestId,null,null),
@@ -372,7 +372,7 @@ public partial class DispatchWorkflowService
                     &&(item == null || !item.is_active || item.packing_task_id != detail.packing_task_id))
                 || rows.Count == 0
                 || rows.Any(x => x.packing_task_item_id != detail.packing_task_item_id
-                    ||x.erp_stock_id is null or <=0
+                    ||x.trk_stock_id is null or <=0
                     || x.picked_qty <= 0 || x.pick_qty != x.picked_qty)
                 || rows.Sum(x => x.picked_qty) != detail.picked_qty
                 || actualQuantity!=detail.picked_qty)

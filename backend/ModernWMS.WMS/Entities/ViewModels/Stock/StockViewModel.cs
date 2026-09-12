@@ -36,7 +36,7 @@ namespace ModernWMS.WMS.Entities.ViewModels
         /// <summary>
         /// ERP authoritative stock id. Canonical inventory actions must use this id.
         /// </summary>
-        public long? erp_stock_id { get; set; }
+        public long? trk_stock_id { get; set; }
 
         /// <summary>
         /// WMS location allocation id. Canonical inventory actions must use this id.

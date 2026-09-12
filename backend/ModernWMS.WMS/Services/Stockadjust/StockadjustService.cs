@@ -19,7 +19,7 @@ public class StockadjustService : BaseService<StockadjustEntity>, IStockadjustSe
     private const string EntityColumns = """
         a.`id`,a.`job_code`,a.`sku_id`,a.`goods_owner_id`,a.`goods_location_id`,a.`qty`,a.`creator`,
         a.`create_time`,a.`last_update_time`,a.`is_update_stock`,a.`job_type`,a.`source_table_id`,
-        a.`erp_stock_id`,a.`stock_allocation_id`,a.`series_number`,a.`expiry_date`,a.`price`,a.`putaway_date`
+        a.`trk_stock_id`,a.`stock_allocation_id`,a.`series_number`,a.`expiry_date`,a.`price`,a.`putaway_date`
         """;
 
     private const string PageSelect = """
@@ -27,7 +27,7 @@ public class StockadjustService : BaseService<StockadjustEntity>, IStockadjustSe
                sku.`id` sku_id,sku.`sku_code`,sku.`sku_name`,spu.`spu_code`,spu.`spu_name`,
                a.`goods_location_id`,gl.`warehouse_name`,gl.`location_name`,a.`goods_owner_id`,
                COALESCE(go.`goods_owner_name`,'') goods_owner_name,a.`creator`,a.`create_time`,a.`last_update_time`,
-               a.`erp_stock_id`,a.`stock_allocation_id`,a.`series_number`,a.`expiry_date`,a.`price`,a.`putaway_date`
+               a.`trk_stock_id`,a.`stock_allocation_id`,a.`series_number`,a.`expiry_date`,a.`price`,a.`putaway_date`
         FROM `wms_stockadjust` a
         JOIN `wms_sku` sku ON sku.`id`=a.`sku_id`
         JOIN `wms_spu` spu ON spu.`id`=sku.`spu_id`
@@ -117,7 +117,7 @@ public class StockadjustService : BaseService<StockadjustEntity>, IStockadjustSe
         var id = await connection.ExecuteScalarAsync<int>("""
             INSERT INTO `wms_stockadjust`
               (`job_code`,`sku_id`,`goods_owner_id`,`goods_location_id`,`qty`,`creator`,`create_time`,`last_update_time`,
-               `is_update_stock`,`job_type`,`source_table_id`,`erp_stock_id`,`stock_allocation_id`,
+               `is_update_stock`,`job_type`,`source_table_id`,`trk_stock_id`,`stock_allocation_id`,
                `series_number`,`expiry_date`,`price`,`putaway_date`)
             VALUES
               (@job_code,@sku_id,@goods_owner_id,@goods_location_id,@qty,@creator,@now,@now,
@@ -164,7 +164,7 @@ public class StockadjustService : BaseService<StockadjustEntity>, IStockadjustSe
               `job_code`=@job_code,`sku_id`=@sku_id,`goods_owner_id`=@goods_owner_id,
               `goods_location_id`=@goods_location_id,`qty`=@qty,`is_update_stock`=@is_update_stock,
               `job_type`=@job_type,`source_table_id`=@source_table_id,`last_update_time`=@now,
-              `erp_stock_id`=@erpStockId,`stock_allocation_id`=@allocationId,
+              `trk_stock_id`=@erpStockId,`stock_allocation_id`=@allocationId,
               `series_number`=@series_number,`expiry_date`=@expiry_date,`price`=@price,`putaway_date`=@putaway_date
             WHERE `id`=@id;
             """, new
@@ -242,21 +242,21 @@ public class StockadjustService : BaseService<StockadjustEntity>, IStockadjustSe
                     """, new { now, sourceId = adjustment.source_table_id }, transaction);
             }
 
-            if (!adjustment.erp_stock_id.HasValue || !adjustment.stock_allocation_id.HasValue)
+            if (!adjustment.trk_stock_id.HasValue || !adjustment.stock_allocation_id.HasValue)
                 throw new InvalidOperationException("调整单未绑定ERP库存分配，旧库存调整路径已停用");
             if (adjustment.qty != 0)
             {
                 await _stockMutationService.PrelockAsync(
                     connection, transaction,
                     [route.ErpWarehouseId],
-                    [adjustment.erp_stock_id.Value], [adjustment.stock_allocation_id.Value]);
+                    [adjustment.trk_stock_id.Value], [adjustment.stock_allocation_id.Value]);
                 await _stockMutationService.AdjustAvailableAsync(
                     connection, transaction,
                     CanonicalInventorySupport.Context(
                         route.ErpWarehouseId,
                         $"MWMS:ADJ:{adjustment.id}", "STOCK_ADJUST_CONFIRM",
                         adjustment.id, adjustment.source_table_id, null, adjustment.creator, "库存可用量调整"),
-                    adjustment.erp_stock_id.Value, adjustment.stock_allocation_id.Value,
+                    adjustment.trk_stock_id.Value, adjustment.stock_allocation_id.Value,
                     adjustment.qty);
                 affected++;
             }
@@ -367,11 +367,11 @@ internal static class CanonicalInventorySupport
         bool forUpdate = true)
     {
         var rows = (await connection.QueryAsync<CanonicalAllocation>($"""
-            SELECT a.`id` AllocationId,a.`erp_stock_id` ErpStockId,
+            SELECT a.`id` AllocationId,a.`trk_stock_id` ErpStockId,
                    a.`allocated_qty` AllocatedQty,a.`occupied_qty` OccupiedQty,
                    s.`warehouse_id` ErpWarehouseId
-              FROM `wms_erp_stock_allocation` a
-              JOIN `trk_stock` s ON s.`id`=a.`erp_stock_id` AND s.`deleted`=b'0'
+              FROM `wms_trk_stock_allocation` a
+              JOIN `trk_stock` s ON s.`id`=a.`trk_stock_id` AND s.`deleted`=b'0'
               JOIN `wms_erp_commodity_map` m
                 ON m.`erp_commodity_id`=s.`commodity_id`
              WHERE m.`wms_sku_id`=@skuId
@@ -404,11 +404,11 @@ internal static class CanonicalInventorySupport
         bool forUpdate = true)
     {
         var rows = (await connection.QueryAsync<CanonicalAllocation>($"""
-            SELECT a.`id` AllocationId,a.`erp_stock_id` ErpStockId,
+            SELECT a.`id` AllocationId,a.`trk_stock_id` ErpStockId,
                    a.`allocated_qty` AllocatedQty,a.`occupied_qty` OccupiedQty,
                    s.`warehouse_id` ErpWarehouseId
-              FROM `wms_erp_stock_allocation` a
-              JOIN `trk_stock` s ON s.`id`=a.`erp_stock_id` AND s.`deleted`=b'0'
+              FROM `wms_trk_stock_allocation` a
+              JOIN `trk_stock` s ON s.`id`=a.`trk_stock_id` AND s.`deleted`=b'0'
               JOIN `wms_erp_commodity_map` m
                 ON m.`erp_commodity_id`=s.`commodity_id`
              WHERE m.`wms_sku_id`=@skuId
@@ -434,8 +434,8 @@ internal static class CanonicalInventorySupport
         string operatorName)
     {
         var target = await connection.QuerySingleOrDefaultAsync<long?>("""
-            SELECT `id` FROM `wms_erp_stock_allocation`
-             WHERE `erp_stock_id`=@erpStockId
+            SELECT `id` FROM `wms_trk_stock_allocation`
+             WHERE `trk_stock_id`=@erpStockId
                AND `goods_location_id`=@targetLocationId AND `goods_owner_id`=@goodsOwnerId
                AND `series_number`=@seriesNumber AND `expiry_date`=@expiryDate
                AND `price`=@price AND `putaway_date`=@putawayDate
@@ -457,8 +457,8 @@ internal static class CanonicalInventorySupport
             throw new InvalidOperationException("目标库位不存在或已停用");
         var now = DateTime.Now;
         await connection.ExecuteAsync("""
-            INSERT INTO `wms_erp_stock_allocation`
-                (`erp_stock_id`,`warehouse_area_id`,`goods_location_id`,`goods_owner_id`,
+            INSERT INTO `wms_trk_stock_allocation`
+                (`trk_stock_id`,`warehouse_area_id`,`goods_location_id`,`goods_owner_id`,
                  `series_number`,`expiry_date`,`price`,`putaway_date`,`allocated_qty`,`occupied_qty`,
                  `location_state`,`row_version`,`creator`,`create_time`,`updater`,`update_time`)
             VALUES
@@ -479,8 +479,8 @@ internal static class CanonicalInventorySupport
         StockmoveEntity move,
         long erpStockId,
         int targetLocationId) => connection.QuerySingleOrDefaultAsync<long?>("""
-            SELECT `id` FROM `wms_erp_stock_allocation`
-             WHERE `erp_stock_id`=@erpStockId
+            SELECT `id` FROM `wms_trk_stock_allocation`
+             WHERE `trk_stock_id`=@erpStockId
                AND `goods_location_id`=@targetLocationId AND `goods_owner_id`=@goodsOwnerId
                AND `series_number`=@seriesNumber AND `expiry_date`=@expiryDate
                AND `price`=@price AND `putaway_date`=@putawayDate

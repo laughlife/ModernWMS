@@ -19,7 +19,7 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
     private const string ViewSql = """
         SELECT f.`id`,f.`job_code`,f.`job_type`,f.`sku_id`,f.`goods_owner_id`,f.`goods_location_id`,
                f.`handler`,f.`handle_time`,f.`last_update_time`,f.`series_number`,
-               f.`erp_stock_id`,f.`stock_allocation_id`,f.`reservation_id`,f.`reservation_item_id`,
+               f.`trk_stock_id`,f.`stock_allocation_id`,f.`reservation_id`,f.`reservation_item_id`,
                f.`source_freeze_id`,
                k.`sku_code`,p.`spu_code`,p.`spu_name`,l.`location_name`,l.`warehouse_name`
           FROM `wms_stockfreeze` f
@@ -87,7 +87,7 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         return (await connection.QueryAsync<StockfreezeViewModel>("""
             SELECT `id`,`job_code`,`job_type`,`sku_id`,`goods_owner_id`,`goods_location_id`,`handler`,
-                   `handle_time`,`last_update_time`,`erp_stock_id`,`stock_allocation_id`,
+                   `handle_time`,`last_update_time`,`trk_stock_id`,`stock_allocation_id`,
                    `source_freeze_id`,`series_number`
               FROM `wms_stockfreeze`;
             """)).AsList();
@@ -132,7 +132,7 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
             {
                 if (!viewModel.job_type)
                 {
-                    if (sourceFreeze == null || !sourceFreeze.erp_stock_id.HasValue
+                    if (sourceFreeze == null || !sourceFreeze.trk_stock_id.HasValue
                         || !sourceFreeze.stock_allocation_id.HasValue)
                         throw new InvalidOperationException("统一库存模式解冻必须明确关联有效的源冻结单");
                     if (sourceFreeze.sku_id != viewModel.sku_id
@@ -142,7 +142,7 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
                         throw new InvalidOperationException("解冻维度与源冻结单不一致");
                     allocation = new CanonicalInventorySupport.CanonicalAllocation
                     {
-                        ErpStockId = sourceFreeze.erp_stock_id.Value,
+                        ErpStockId = sourceFreeze.trk_stock_id.Value,
                         AllocationId = sourceFreeze.stock_allocation_id.Value,
                         ErpWarehouseId = route.ErpWarehouseId
                     };
@@ -193,7 +193,7 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
             var now = DateTime.Now;
             var id = await connection.ExecuteScalarAsync<int>("""
                 INSERT INTO `wms_stockfreeze` (`job_code`,`job_type`,`sku_id`,`goods_owner_id`,`goods_location_id`,
-                    `handler`,`handle_time`,`last_update_time`,`erp_stock_id`,`stock_allocation_id`,
+                    `handler`,`handle_time`,`last_update_time`,`trk_stock_id`,`stock_allocation_id`,
                     `source_freeze_id`,`series_number`)
                 VALUES (@jobCode,@jobType,@skuId,@goodsOwnerId,@goodsLocationId,@handler,@handleTime,@lastUpdate,
                     @erpStockId,@allocationId,@sourceFreezeId,@seriesNumber); SELECT LAST_INSERT_ID();
@@ -215,9 +215,9 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
             if (allocation != null)
             {
                 allocation = await connection.QuerySingleAsync<CanonicalInventorySupport.CanonicalAllocation>("""
-                    SELECT `id` AllocationId,`erp_stock_id` ErpStockId,
+                    SELECT `id` AllocationId,`trk_stock_id` ErpStockId,
                            `allocated_qty` AllocatedQty,`occupied_qty` OccupiedQty
-                      FROM `wms_erp_stock_allocation`
+                      FROM `wms_trk_stock_allocation`
                      WHERE `id`=@allocationId;
                     """, new {
                         allocationId = allocation.AllocationId }, transaction);
@@ -265,10 +265,10 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
                                        WHEN l.`biz_type`='STOCK_FREEZE_RELEASE'
                                         AND f.`source_freeze_id`=@sourceFreezeId THEN -l.`occupied_delta`
                                        ELSE 0 END),0) released_qty
-                              FROM `wms_erp_stock_allocation_log` l
+                              FROM `wms_trk_stock_allocation_log` l
                               LEFT JOIN `wms_stockfreeze` f
                                 ON f.`id`=l.`biz_id`
-                             WHERE l.`erp_stock_id`=@erpStockId
+                             WHERE l.`trk_stock_id`=@erpStockId
                                AND l.`allocation_id`=@allocationId
                                AND l.`biz_type` IN ('STOCK_FREEZE_RESERVE','STOCK_FREEZE_RELEASE')
                           ) hold_qty;
@@ -321,7 +321,7 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
             _ = await CanonicalInventorySupport.LockRouteAsync(
                 connection, transaction, routeSnapshot);
             var canonical = await connection.ExecuteScalarAsync<bool>("""
-                SELECT `erp_stock_id` IS NOT NULL FROM `wms_stockfreeze` WHERE `id`=@id;
+                SELECT `trk_stock_id` IS NOT NULL FROM `wms_stockfreeze` WHERE `id`=@id;
                 """, new { viewModel.id }, transaction);
             if (canonical)
             {
@@ -371,7 +371,7 @@ public class StockfreezeService : BaseService<StockfreezeEntity>, IStockfreezeSe
             _ = await CanonicalInventorySupport.LockRouteAsync(
                 connection, transaction, routeSnapshot);
             var canonical = await connection.ExecuteScalarAsync<bool>("""
-                SELECT COALESCE(`erp_stock_id` IS NOT NULL,0) FROM `wms_stockfreeze` WHERE `id`=@id FOR UPDATE;
+                SELECT COALESCE(`trk_stock_id` IS NOT NULL,0) FROM `wms_stockfreeze` WHERE `id`=@id FOR UPDATE;
                 """, new { id }, transaction);
             if (canonical)
             {

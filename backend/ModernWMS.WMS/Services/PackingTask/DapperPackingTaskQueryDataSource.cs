@@ -166,11 +166,11 @@ internal sealed class DapperPackingTaskQueryDataSource(
                    stock.`total_qty` TotalQty,COALESCE(selection.`selected_qty`,0) SelectedQty
               FROM `trk_stock` stock
               LEFT JOIN (
-                SELECT `erp_stock_id`,SUM(`qty`) selected_qty
+                SELECT `trk_stock_id`,SUM(`qty`) selected_qty
                   FROM `wms_packing_task_stock_selection`
                  WHERE `sellfox_task_id`=@TaskId AND `sellfox_item_id`=@ItemId
-                   AND `status`='ACTIVE' AND `erp_stock_id` IS NOT NULL
-                 GROUP BY `erp_stock_id`) selection ON selection.`erp_stock_id`=stock.`id`
+                   AND `status`='ACTIVE' AND `trk_stock_id` IS NOT NULL
+                 GROUP BY `trk_stock_id`) selection ON selection.`trk_stock_id`=stock.`id`
              WHERE stock.`warehouse_id`=@WarehouseId AND stock.`order_user_id`=@OwnerId
                AND stock.`deleted`=b'0'
                AND (@HasKeyword=0 OR stock.`commodity_sku` LIKE @Keyword
@@ -188,7 +188,7 @@ internal sealed class DapperPackingTaskQueryDataSource(
         var baseSku = BaseSku(context.CommoditySku);
         var result = rows.Select(row => new SelectableStockViewModel
         {
-            erp_stock_id = row.ErpStockId,
+            trk_stock_id = row.ErpStockId,
             commodity_id = row.CommodityId,
             sku_code = row.SkuCode,
             commodity_name = row.CommodityName,
@@ -213,7 +213,7 @@ internal sealed class DapperPackingTaskQueryDataSource(
         PackingTaskStockSelectRequest request,
         CurrentUser currentUser)
     {
-        if (request.erp_stock_id <= 0)
+        if (request.trk_stock_id <= 0)
             return new PackingTaskStockSaveResult(false, "必须提交有效的ERP库存ID");
         await using var connection = await _connectionFactory.OpenConnectionAsync();
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted);
@@ -232,7 +232,7 @@ internal sealed class DapperPackingTaskQueryDataSource(
 
             var activeRows = (await connection.QueryAsync<SelectionRow>(new CommandDefinition(
                 """
-                SELECT `id`,`erp_stock_id` ErpStockId,`stock_allocation_id` StockAllocationId,
+                SELECT `id`,`trk_stock_id` ErpStockId,`stock_allocation_id` StockAllocationId,
                        `reservation_id` ReservationId,`reservation_item_id` ReservationItemId,
                        `qty` Qty,`row_version` RowVersion
                   FROM `wms_packing_task_stock_selection`
@@ -254,7 +254,7 @@ internal sealed class DapperPackingTaskQueryDataSource(
                         action.Context, action.StockId, action.EventType)).ToArray());
             }
             var stockIds = actions.Select(action => action.StockId)
-                .Append(request.erp_stock_id).Distinct().Order().ToArray();
+                .Append(request.trk_stock_id).Distinct().Order().ToArray();
             var stocks = (await connection.QueryAsync<StockBoundaryRow>(new CommandDefinition(
                 """
                 SELECT `id` Id,`warehouse_id` WarehouseId,`order_user_id` OrderUserId,
@@ -280,7 +280,7 @@ internal sealed class DapperPackingTaskQueryDataSource(
                         connection, transaction, action.Context, action.StockId, action.Quantity),
                     _ => throw new InvalidOperationException("未知装箱绑定库存动作")
                 };
-                if (action.StockId == request.erp_stock_id && action.EventType == "LOCK")
+                if (action.StockId == request.trk_stock_id && action.EventType == "LOCK")
                     targetMutation = result;
                 if (action.EventType == "UNLOCK" && action.LegacyAllocationId is > 0)
                 {
@@ -293,9 +293,9 @@ internal sealed class DapperPackingTaskQueryDataSource(
                 }
             }
 
-            var targetStock = stocks.Single(stock => stock.Id == request.erp_stock_id);
+            var targetStock = stocks.Single(stock => stock.Id == request.trk_stock_id);
             var now = DateTime.Now;
-            if (existing == null || existing.ErpStockId != request.erp_stock_id
+            if (existing == null || existing.ErpStockId != request.trk_stock_id
                                  || existing.StockAllocationId != null)
             {
                 if (existing != null)
@@ -306,7 +306,7 @@ internal sealed class DapperPackingTaskQueryDataSource(
                 await connection.ExecuteAsync(new CommandDefinition(
                     """
                     INSERT INTO `wms_packing_task_stock_selection`
-                      (`sellfox_task_id`,`sellfox_item_id`,`wms_sku_id`,`stock_id`,`erp_stock_id`,
+                      (`sellfox_task_id`,`sellfox_item_id`,`wms_sku_id`,`stock_id`,`trk_stock_id`,
                        `stock_allocation_id`,`reservation_id`,`reservation_item_id`,`qty`,
                        `goods_location_id`,`goods_owner_id`,`sku_code`,`selected_by`,`selected_by_name`,
                        `create_time`,`last_update_time`,`status`,`operation_source`)
@@ -317,7 +317,7 @@ internal sealed class DapperPackingTaskQueryDataSource(
                 {
                     TaskId = request.sellfox_task_id,
                     ItemId = request.sellfox_item_id,
-                    ErpStockId = request.erp_stock_id,
+                    ErpStockId = request.trk_stock_id,
                     ReservationId = targetMutation?.ReservationId,
                     ReservationItemId = targetMutation?.ReservationItemId,
                     Qty = targetQty,
@@ -352,7 +352,7 @@ internal sealed class DapperPackingTaskQueryDataSource(
                 }, transaction));
             }
             await WriteActionLogAsync(connection, transaction, currentUser,
-                $"装箱任务{task.TaskNo}绑定ERP库存{request.erp_stock_id}，锁定数量{targetQty}", now);
+                $"装箱任务{task.TaskNo}绑定ERP库存{request.trk_stock_id}，锁定数量{targetQty}", now);
             await transaction.CommitAsync();
             return new PackingTaskStockSaveResult(true, "库存选择成功");
         }
@@ -377,18 +377,18 @@ internal sealed class DapperPackingTaskQueryDataSource(
             var ownerId = await ResolveOwnerIdAsync(connection, transaction, task.CreateName);
             var selection = await connection.QuerySingleOrDefaultAsync<SelectionRow>(new CommandDefinition(
                 """
-                SELECT `id`,`erp_stock_id` ErpStockId,`stock_allocation_id` StockAllocationId,
+                SELECT `id`,`trk_stock_id` ErpStockId,`stock_allocation_id` StockAllocationId,
                        `reservation_id` ReservationId,`reservation_item_id` ReservationItemId,
                        `qty` Qty,`row_version` RowVersion
                   FROM `wms_packing_task_stock_selection`
                  WHERE `sellfox_task_id`=@TaskId AND `sellfox_item_id`=@ItemId
-                   AND `erp_stock_id`=@ErpStockId AND `status`='ACTIVE'
+                   AND `trk_stock_id`=@ErpStockId AND `status`='ACTIVE'
                  ORDER BY `id` LIMIT 1 FOR UPDATE;
                 """, new
             {
                 TaskId = request.sellfox_task_id,
                 ItemId = request.sellfox_item_id,
-                ErpStockId = request.erp_stock_id
+                ErpStockId = request.trk_stock_id
             }, transaction));
             if (selection == null) return await RollbackAsync(transaction, "该ERP库存未在选择中");
             if (selection.ErpStockId is not > 0 || selection.ReservationId is null
@@ -447,7 +447,7 @@ internal sealed class DapperPackingTaskQueryDataSource(
         var actions = new List<MutationAction>();
         if (existing == null)
         {
-            actions.Add(Action("LOCK", request.erp_stock_id, targetQty, null, null, 1, null));
+            actions.Add(Action("LOCK", request.trk_stock_id, targetQty, null, null, 1, null));
             return actions;
         }
         if (existing.ErpStockId is not > 0)
@@ -457,22 +457,22 @@ internal sealed class DapperPackingTaskQueryDataSource(
             actions.Add(Action("UNLOCK", existing.ErpStockId.Value, existing.Qty,
                 existing.ReservationId, existing.ReservationItemId, existing.RowVersion + 1,
                 existing.StockAllocationId));
-            actions.Add(Action("LOCK", request.erp_stock_id, targetQty,
+            actions.Add(Action("LOCK", request.trk_stock_id, targetQty,
                 null, null, existing.RowVersion + 2, null));
             return actions;
         }
-        if (existing.ErpStockId == request.erp_stock_id)
+        if (existing.ErpStockId == request.trk_stock_id)
         {
             var delta = targetQty - existing.Qty;
-            if (delta > 0) actions.Add(Action("LOCK", request.erp_stock_id, delta,
+            if (delta > 0) actions.Add(Action("LOCK", request.trk_stock_id, delta,
                 existing.ReservationId, existing.ReservationItemId, existing.RowVersion + 1, null));
-            if (delta < 0) actions.Add(Action("UNLOCK", request.erp_stock_id, -delta,
+            if (delta < 0) actions.Add(Action("UNLOCK", request.trk_stock_id, -delta,
                 existing.ReservationId, existing.ReservationItemId, existing.RowVersion + 1, null));
             return actions;
         }
         actions.Add(Action("UNLOCK", existing.ErpStockId.Value, existing.Qty,
             existing.ReservationId, existing.ReservationItemId, existing.RowVersion + 1, null));
-        actions.Add(Action("LOCK", request.erp_stock_id, targetQty,
+        actions.Add(Action("LOCK", request.trk_stock_id, targetQty,
             null, null, existing.RowVersion + 2, null));
         return actions;
 

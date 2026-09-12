@@ -45,14 +45,14 @@ public partial class ErpPendingReceiptService
         var receiptRowsSql = """
             WITH `wms_receipt_stocks` AS
             (
-                SELECT DISTINCT receipt.`shipment_id`,item.`erp_stock_id`
+                SELECT DISTINCT receipt.`shipment_id`,item.`trk_stock_id`
                   FROM `wms_erp_receipt` receipt
                   JOIN `trk_logistics_info` receipt_shipment
                     ON receipt_shipment.`id`=receipt.`shipment_id`
                    AND receipt_shipment.`deleted`=b'0'
                    AND receipt_shipment.`to_warehouse_id`=@warehouseId
                   JOIN `wms_erp_receipt_item` item ON item.`receipt_id`=receipt.`id`
-                 WHERE item.`erp_stock_id`>0
+                 WHERE item.`trk_stock_id`>0
             ),
             `wms_ambiguous_receipts` AS
             (
@@ -63,12 +63,12 @@ public partial class ErpPendingReceiptService
                    AND receipt_shipment.`deleted`=b'0'
                    AND receipt_shipment.`to_warehouse_id`=@warehouseId
                   JOIN `wms_erp_receipt_item` item ON item.`receipt_id`=receipt.`id`
-                 WHERE COALESCE(item.`erp_stock_id`,0)<=0
+                 WHERE COALESCE(item.`trk_stock_id`,0)<=0
             ),
             `erp_history_records` AS
             (
                 SELECT r.`id`,r.`id` AS `stock_record_id`,r.`biz_id` AS `shipment_id`,
-                       r.`stock_id` AS `erp_stock_id`,
+                       r.`stock_id` AS `trk_stock_id`,
                        COALESCE(r.`commodity_id`,s.`commodity_id`) AS `commodity_id`,
                        COALESCE(r.`commodity_sku`,s.`commodity_sku`,'') AS `commodity_sku`,
                        COALESCE(r.`commodity_name`,s.`commodity_name`,'') AS `commodity_name`,
@@ -84,7 +84,7 @@ public partial class ErpPendingReceiptService
                    AND hl.`lifecycle_status`='RECEIVED' AND hl.`to_warehouse_id`=@warehouseId
                   LEFT JOIN `trk_stock` s ON s.`id`=r.`stock_id`
                   LEFT JOIN `wms_receipt_stocks` covered
-                    ON covered.`shipment_id`=r.`biz_id` AND covered.`erp_stock_id`=r.`stock_id`
+                    ON covered.`shipment_id`=r.`biz_id` AND covered.`trk_stock_id`=r.`stock_id`
                   LEFT JOIN `wms_ambiguous_receipts` ambiguous
                     ON ambiguous.`shipment_id`=r.`biz_id`
                  WHERE r.`deleted`=b'0' AND r.`biz_type`='RECEIPT_IN' AND r.`change_qty`>0
@@ -93,7 +93,7 @@ public partial class ErpPendingReceiptService
             `receipt_rows` AS
             (
                 SELECT CAST(i.`id` AS SIGNED) AS `id`,NULL AS `stock_record_id`,
-                       i.`shipment_id`,i.`erp_stock_id`,
+                       i.`shipment_id`,i.`trk_stock_id`,
                        COALESCE(l.`purchase_no`,'') AS `purchase_no`,
                        COALESCE(l.`shipment_batch_no`,'') AS `shipment_batch_no`,i.`commodity_id`,
                        i.`commodity_sku`,i.`commodity_name`,i.`dept_name`,i.`order_user_name`,
@@ -110,7 +110,7 @@ public partial class ErpPendingReceiptService
 
                 UNION ALL
 
-                SELECT h.`id`,h.`stock_record_id`,h.`shipment_id`,h.`erp_stock_id`,
+                SELECT h.`id`,h.`stock_record_id`,h.`shipment_id`,h.`trk_stock_id`,
                        COALESCE(l.`purchase_no`,'') AS `purchase_no`,
                        COALESCE(l.`shipment_batch_no`,'') AS `shipment_batch_no`,h.`commodity_id`,
                        h.`commodity_sku`,h.`commodity_name`,h.`dept_name`,h.`order_user_name`,
@@ -189,7 +189,7 @@ public partial class ErpPendingReceiptService
             {
                 id = row.id,
                 shipment_id = row.shipment_id,
-                erp_stock_id = row.erp_stock_id,
+                trk_stock_id = row.trk_stock_id,
                 purchase_no = row.purchase_no,
                 shipment_batch_no = row.shipment_batch_no,
                 commodity_sku = row.commodity_sku,
@@ -220,7 +220,7 @@ public partial class ErpPendingReceiptService
     }
 
     private sealed record ReceiptDetailRow(
-        long id, long? stock_record_id, long shipment_id, long? erp_stock_id,
+        long id, long? stock_record_id, long shipment_id, long? trk_stock_id,
         string purchase_no, string shipment_batch_no,
         long? commodity_id, string commodity_sku, string commodity_name, string dept_name,
         string order_user_name, int? warehouse_area_id, string warehouse_area_name,
