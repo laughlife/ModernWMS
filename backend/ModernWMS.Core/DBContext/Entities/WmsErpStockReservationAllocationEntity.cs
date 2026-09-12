@@ -7,7 +7,7 @@ namespace ModernWMS.Core.DBContext.Entities;
 /// Decomposes an ERP reservation item across WMS stock allocations.
 /// It is an occupied-quantity ownership projection, never an inventory balance.
 /// </summary>
-[Table("wms_erp_stock_reservation_allocation")]
+[Table("wms_trk_stock_reservation_allocation")]
 public class WmsErpStockReservationAllocationEntity
 {
     /// <summary>
@@ -21,9 +21,9 @@ public class WmsErpStockReservationAllocationEntity
     /// </summary>
     public long reservation_item_id { get; set; }
     /// <summary>
-    /// 获取或设置 erp_stock_id。
+    /// 获取或设置 trk_stock_id。
     /// </summary>
-    public long erp_stock_id { get; set; }
+    public long trk_stock_id { get; set; }
     /// <summary>
     /// 获取或设置 stock_allocation_id。
     /// </summary>

@@ -21,7 +21,7 @@ public class StockmoveService : BaseService<StockmoveEntity>, IStockmoveService
         SELECT m.`id`,m.`job_code`,m.`move_status`,m.`sku_id`,m.`orig_goods_location_id`,
                m.`dest_googs_location_id`,m.`qty`,m.`goods_owner_id`,m.`handler`,m.`handle_time`,
                m.`creator`,m.`create_time`,m.`last_update_time`,m.`series_number`,
-               m.`erp_stock_id`,m.`stock_allocation_id`,
+               m.`trk_stock_id`,m.`stock_allocation_id`,
                m.`expiry_date`,m.`price`,m.`putaway_date`,sku.`sku_code`,sku.`sku_name`,
                spu.`spu_code`,spu.`spu_name`,dest.`location_name` `dest_googs_location_name`,
                dest_wh.`name` `dest_googs_warehouse`,orig.`location_name` `orig_goods_location_name`,
@@ -133,7 +133,7 @@ public class StockmoveService : BaseService<StockmoveEntity>, IStockmoveService
                 INSERT INTO `wms_stockmove`
                   (`job_code`,`move_status`,`sku_id`,`orig_goods_location_id`,`dest_googs_location_id`,`qty`,
                    `goods_owner_id`,`handler`,`handle_time`,`creator`,`create_time`,`last_update_time`,
-                   `erp_stock_id`,`stock_allocation_id`,`series_number`,`expiry_date`,`price`,`putaway_date`)
+                   `trk_stock_id`,`stock_allocation_id`,`series_number`,`expiry_date`,`price`,`putaway_date`)
                 VALUES (@jobCode,0,@skuId,@originId,@destinationId,@qty,@ownerId,@handler,@handleTime,
                         @creator,@now,@now,@erpStockId,@allocationId,@seriesNumber,@expiryDate,@price,@putawayDate);
                 SELECT LAST_INSERT_ID();
@@ -164,16 +164,16 @@ public class StockmoveService : BaseService<StockmoveEntity>, IStockmoveService
             targetRouteSnapshot=await CanonicalInventorySupport.GetRouteAsync(
                 db,moveSnapshot.dest_googs_location_id);
         }
-        if(moveSnapshot?.erp_stock_id is >0)
+        if(moveSnapshot?.trk_stock_id is >0)
             targetCandidateSnapshot=await CanonicalInventorySupport.FindTargetAllocationIdAsync(
-                db,null,moveSnapshot,moveSnapshot.erp_stock_id.Value,moveSnapshot.dest_googs_location_id);
+                db,null,moveSnapshot,moveSnapshot.trk_stock_id.Value,moveSnapshot.dest_googs_location_id);
         await using var tx=await db.BeginTransactionAsync(IsolationLevel.Serializable);
         try
         {
             var move=await db.QuerySingleOrDefaultAsync<StockmoveEntity>("""
                 SELECT `id`,`job_code`,`move_status`,`sku_id`,`orig_goods_location_id`,`dest_googs_location_id`,
                        `qty`,`goods_owner_id`,`handler`,`handle_time`,`creator`,`create_time`,`last_update_time`,
-                       `erp_stock_id`,`stock_allocation_id`,`series_number`,`expiry_date`,`price`,`putaway_date`
+                       `trk_stock_id`,`stock_allocation_id`,`series_number`,`expiry_date`,`price`,`putaway_date`
                 FROM `wms_stockmove` WHERE `id`=@id LIMIT 1 FOR UPDATE;
                 """,new { id },tx);
             if(move==null) return await Rollback(false,_stringLocalizer["not_exists_entity"],tx);
@@ -187,24 +187,24 @@ public class StockmoveService : BaseService<StockmoveEntity>, IStockmoveService
             if(route.ErpWarehouseId!=targetRoute.ErpWarehouseId || route.Mode!=targetRoute.Mode)
                 return await Rollback(false,"移库起点和终点不属于同一库存运行模式及ERP仓库",tx);
             var now=DateTime.Now;
-            if(!move.erp_stock_id.HasValue || !move.stock_allocation_id.HasValue)
+            if(!move.trk_stock_id.HasValue || !move.stock_allocation_id.HasValue)
                 return await Rollback(false,"移库单未绑定ERP库存分配，旧库存移库路径已停用",tx);
                 var allocationIds=targetCandidateSnapshot.HasValue
                     ? new[]{move.stock_allocation_id.Value,targetCandidateSnapshot.Value}
                     : new[]{move.stock_allocation_id.Value};
                 await _stockMutationService.PrelockAsync(
                     db,tx,[route.ErpWarehouseId],
-                    [move.erp_stock_id.Value],allocationIds);
+                    [move.trk_stock_id.Value],allocationIds);
                 var source=new CanonicalInventorySupport.CanonicalAllocation
                 {
-                    ErpStockId=move.erp_stock_id.Value,
+                    ErpStockId=move.trk_stock_id.Value,
                     AllocationId=move.stock_allocation_id.Value,
                     ErpWarehouseId=route.ErpWarehouseId
                 };
                 var targetId=await CanonicalInventorySupport.GetOrCreateTargetAllocationAsync(
                     db,tx,move,source,move.dest_googs_location_id,currentUser.user_name);
                 await _stockMutationService.PrelockAsync(
-                    db,tx,[route.ErpWarehouseId],[move.erp_stock_id.Value],
+                    db,tx,[route.ErpWarehouseId],[move.trk_stock_id.Value],
                     [move.stock_allocation_id.Value,targetId]);
                 await _stockMutationService.MoveLocationAsync(
                     db,tx,
@@ -212,7 +212,7 @@ public class StockmoveService : BaseService<StockmoveEntity>, IStockmoveService
                         route.ErpWarehouseId,
                         $"MWMS:MV:{move.id}","STOCK_MOVE_LOCATION",move.id,move.id,
                         currentUser,move.creator,"库位移动"),
-                    move.erp_stock_id.Value,move.stock_allocation_id.Value,targetId,move.qty);
+                    move.trk_stock_id.Value,move.stock_allocation_id.Value,targetId,move.qty);
 
             var affected=await db.ExecuteAsync("""
                 UPDATE `wms_stockmove` SET `handler`=@handler,`handle_time`=@now,`move_status`=1,`last_update_time`=@now
@@ -260,7 +260,7 @@ public class StockmoveService : BaseService<StockmoveEntity>, IStockmoveService
     }
 
     private static bool SameMoveIdentity(StockmoveEntity x,StockmoveEntity y)=>
-        x.erp_stock_id==y.erp_stock_id && x.stock_allocation_id==y.stock_allocation_id
+        x.trk_stock_id==y.trk_stock_id && x.stock_allocation_id==y.stock_allocation_id
         && x.sku_id==y.sku_id && x.orig_goods_location_id==y.orig_goods_location_id
         && x.dest_googs_location_id==y.dest_googs_location_id && x.goods_owner_id==y.goods_owner_id
         && x.qty==y.qty && x.series_number==y.series_number && x.expiry_date==y.expiry_date

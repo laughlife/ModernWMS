@@ -135,39 +135,39 @@ public partial class DispatchWorkflowService
         var currentPicks = await LoadRollbackPicksAsync(connection, transaction, order.id, ct);
         if (currentPicks.Any(x => x.is_update_stock))
             throw DispatchWorkflowCommandException.StatusNotAllowedForStageRollback("已出库库存不能回退");
-        if (currentPicks.Any(x => x.erp_stock_id is null or <= 0
+        if (currentPicks.Any(x => x.trk_stock_id is null or <= 0
             || x.reservation_id is null or <= 0 || x.reservation_item_id is null or <= 0))
             throw DispatchWorkflowCommandException.StockConflict("当前拣货明细缺少ERP库存预占凭据");
 
         var mutation = RequirePackingStockMutationService();
         var prelocks = currentPicks.Select(pick => new PackingStockPrelockRequest(
                 DispatchStockMutationContext(user, order.warehouse_id, "DISPATCH_RELEASE", order.id,
-                    pick.id, pick.erp_stock_id!.Value, pick.picked_qty,
+                    pick.id, pick.trk_stock_id!.Value, pick.picked_qty,
                     $"ROLLBACK_WEIGHING:{requestId}", pick.reservation_id, pick.reservation_item_id),
-                pick.erp_stock_id.Value, "UNLOCK"))
+                pick.trk_stock_id.Value, "UNLOCK"))
             .Concat(selections.Select(selection => new PackingStockPrelockRequest(
                 DispatchStockMutationContext(user, order.warehouse_id, "DISPATCH_RESERVE", order.id,
-                    selection.selection_id, selection.erp_stock_id, selection.qty,
+                    selection.selection_id, selection.trk_stock_id, selection.qty,
                     $"ROLLBACK_WEIGHING:{requestId}", selection.reservation_id,
-                    selection.reservation_item_id), selection.erp_stock_id, "LOCK")))
+                    selection.reservation_item_id), selection.trk_stock_id, "LOCK")))
             .ToArray();
         if (prelocks.Length > 0)
             await mutation.PrelockAsync(connection, transaction, [order.warehouse_id], prelocks, ct);
 
-        foreach (var pick in currentPicks.OrderBy(x => x.erp_stock_id).ThenBy(x => x.id))
+        foreach (var pick in currentPicks.OrderBy(x => x.trk_stock_id).ThenBy(x => x.id))
             await mutation.ReleaseAsync(connection, transaction,
                 DispatchStockMutationContext(user, order.warehouse_id, "DISPATCH_RELEASE", order.id,
-                    pick.id, pick.erp_stock_id!.Value, pick.picked_qty,
+                    pick.id, pick.trk_stock_id!.Value, pick.picked_qty,
                     $"ROLLBACK_WEIGHING:{requestId}", pick.reservation_id, pick.reservation_item_id),
-                pick.erp_stock_id.Value, pick.picked_qty, ct);
+                pick.trk_stock_id.Value, pick.picked_qty, ct);
 
-        foreach (var selection in selections.OrderBy(x => x.erp_stock_id).ThenBy(x => x.selection_id))
+        foreach (var selection in selections.OrderBy(x => x.trk_stock_id).ThenBy(x => x.selection_id))
         {
             var reservation = await mutation.ReserveAsync(connection, transaction,
                 DispatchStockMutationContext(user, order.warehouse_id, "DISPATCH_RESERVE", order.id,
-                    selection.selection_id, selection.erp_stock_id, selection.qty,
+                    selection.selection_id, selection.trk_stock_id, selection.qty,
                     $"ROLLBACK_WEIGHING:{requestId}", selection.reservation_id,
-                    selection.reservation_item_id), selection.erp_stock_id, selection.qty, ct);
+                    selection.reservation_item_id), selection.trk_stock_id, selection.qty, ct);
             if (reservation.ReservationId != selection.reservation_id
                 || reservation.ReservationItemId != selection.reservation_item_id)
                 throw DispatchWorkflowCommandException.StockConflict("ERP库存预占身份恢复失败");
@@ -204,10 +204,10 @@ public partial class DispatchWorkflowService
             detailIds[item.item_id] = detailId;
         }
 
-        foreach (var selection in selections.OrderBy(x => x.erp_stock_id).ThenBy(x => x.selection_id))
+        foreach (var selection in selections.OrderBy(x => x.trk_stock_id).ThenBy(x => x.selection_id))
             await connection.ExecuteAsync(new CommandDefinition("""
                 INSERT INTO `wms_dispatchpicklist` (`dispatchlist_id`,`packing_task_item_id`,`stock_id`,
-                  `erp_stock_id`,`stock_allocation_id`,`reservation_id`,`reservation_item_id`,
+                  `trk_stock_id`,`stock_allocation_id`,`reservation_id`,`reservation_item_id`,
                   `goods_owner_id`,`goods_location_id`,`sku_id`,`pick_qty`,`picked_qty`,`is_update_stock`,
                   `last_update_time`,`series_number`,`picker_id`,`picker`,`expiry_date`,`price`,`putaway_date`)
                 VALUES (@detailId,@itemId,NULL,@erpStockId,NULL,@reservationId,@reservationItemId,
@@ -215,7 +215,7 @@ public partial class DispatchWorkflowService
                 """, new
             {
                 detailId = detailIds[selection.item_id], itemId = selection.item_id,
-                erpStockId = selection.erp_stock_id, reservationId = selection.reservation_id,
+                erpStockId = selection.trk_stock_id, reservationId = selection.reservation_id,
                 reservationItemId = selection.reservation_item_id, selection.qty, now,
                 userId = user.user_id, name = user.user_name ?? string.Empty,
                 minDate = UtilConvert.MinDate
@@ -258,7 +258,7 @@ public partial class DispatchWorkflowService
         IDbConnection connection, IDbTransaction transaction, int orderId, CancellationToken ct) =>
         (await connection.QueryAsync<RollbackSelectionRow>(new CommandDefinition("""
             SELECT selection.`id` selection_id,item.`id` item_id,task.`id` task_id,
-                   selection.`erp_stock_id`,selection.`reservation_id`,
+                   selection.`trk_stock_id`,selection.`reservation_id`,
                    selection.`reservation_item_id`,selection.`qty`
               FROM `wms_packing_task_stock_selection` selection
               JOIN `wms_dispatch_packing_task` task
@@ -267,8 +267,8 @@ public partial class DispatchWorkflowService
                 ON item.`packing_task_id`=task.`id`
                AND item.`source_item_id`=selection.`sellfox_item_id`
              WHERE task.`dispatch_order_id`=@orderId AND task.`is_active`=1 AND item.`is_active`=1
-               AND selection.`status`='TRANSFERRED' AND selection.`erp_stock_id` IS NOT NULL
-             ORDER BY selection.`erp_stock_id`,selection.`id` FOR UPDATE;
+               AND selection.`status`='TRANSFERRED' AND selection.`trk_stock_id` IS NOT NULL
+             ORDER BY selection.`trk_stock_id`,selection.`id` FOR UPDATE;
             """, new { orderId }, transaction, cancellationToken: ct))).AsList();
 
     private static async Task<List<RollbackItemRow>> LoadActiveRollbackItemsAsync(
@@ -284,19 +284,19 @@ public partial class DispatchWorkflowService
     private static async Task<List<RollbackPickRow>> LoadRollbackPicksAsync(
         IDbConnection connection, IDbTransaction transaction, int orderId, CancellationToken ct) =>
         (await connection.QueryAsync<RollbackPickRow>(new CommandDefinition("""
-            SELECT pick.`id`,pick.`packing_task_item_id` item_id,pick.`erp_stock_id`,
+            SELECT pick.`id`,pick.`packing_task_item_id` item_id,pick.`trk_stock_id`,
                    pick.`reservation_id`,pick.`reservation_item_id`,pick.`picked_qty`,pick.`is_update_stock`
               FROM `wms_dispatchpicklist` pick
               JOIN `wms_dispatchlist` detail ON detail.`id`=pick.`dispatchlist_id`
              WHERE detail.`dispatch_order_id`=@orderId
-             ORDER BY pick.`erp_stock_id`,pick.`id` FOR UPDATE;
+             ORDER BY pick.`trk_stock_id`,pick.`id` FOR UPDATE;
             """, new { orderId }, transaction, cancellationToken: ct))).AsList();
 
     private static void EnsureSelectionCoverage(
         IReadOnlyCollection<RollbackItemRow> items, IReadOnlyCollection<RollbackSelectionRow> selections)
     {
         if (items.Count == 0 || selections.Count == 0
-            || selections.Any(x => x.erp_stock_id <= 0 || x.reservation_id is null or <= 0
+            || selections.Any(x => x.trk_stock_id <= 0 || x.reservation_id is null or <= 0
                 || x.reservation_item_id is null or <= 0 || x.qty <= 0)
             || items.Any(item => item.required_qty is null or <= 0
                 || selections.Where(x => x.item_id == item.item_id).Sum(x => x.qty) != item.required_qty))
@@ -306,13 +306,13 @@ public partial class DispatchWorkflowService
     private static bool RollbackAllocationsMatch(
         IReadOnlyCollection<RollbackSelectionRow> selections, IReadOnlyCollection<RollbackPickRow> picks)
     {
-        if (picks.Any(x => x.is_update_stock || x.item_id is null || x.erp_stock_id is null
+        if (picks.Any(x => x.is_update_stock || x.item_id is null || x.trk_stock_id is null
             || x.reservation_id is null || x.reservation_item_id is null || x.picked_qty <= 0)) return false;
         var expected = selections.GroupBy(x => new RollbackAllocationKey(
-                x.item_id, x.erp_stock_id, x.reservation_id!.Value, x.reservation_item_id!.Value))
+                x.item_id, x.trk_stock_id, x.reservation_id!.Value, x.reservation_item_id!.Value))
             .ToDictionary(x => x.Key, x => x.Sum(y => y.qty));
         var actual = picks.GroupBy(x => new RollbackAllocationKey(
-                x.item_id!.Value, x.erp_stock_id!.Value, x.reservation_id!.Value,
+                x.item_id!.Value, x.trk_stock_id!.Value, x.reservation_id!.Value,
                 x.reservation_item_id!.Value))
             .ToDictionary(x => x.Key, x => x.Sum(y => y.picked_qty));
         return expected.Count == actual.Count
@@ -358,7 +358,7 @@ public partial class DispatchWorkflowService
         public int selection_id { get; init; }
         public int item_id { get; init; }
         public int task_id { get; init; }
-        public long erp_stock_id { get; init; }
+        public long trk_stock_id { get; init; }
         public long? reservation_id { get; init; }
         public long? reservation_item_id { get; init; }
         public int qty { get; init; }
@@ -375,7 +375,7 @@ public partial class DispatchWorkflowService
     {
         public int id { get; init; }
         public int? item_id { get; init; }
-        public long? erp_stock_id { get; init; }
+        public long? trk_stock_id { get; init; }
         public long? reservation_id { get; init; }
         public long? reservation_item_id { get; init; }
         public int picked_qty { get; init; }

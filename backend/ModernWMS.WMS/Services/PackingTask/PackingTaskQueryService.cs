@@ -162,7 +162,7 @@ public class PackingTaskQueryService : IPackingTaskQueryService
         }
         var ordered = loaded.Rows.OrderByDescending(row => row.selected)
             .ThenByDescending(row => row.matched)
-            .ThenBy(row => row.erp_stock_id)
+            .ThenBy(row => row.trk_stock_id)
             .ToList();
         var pageIndex = Math.Max(request.page_index, 1);
         var pageSize = Math.Clamp(request.page_size, 1, 200);

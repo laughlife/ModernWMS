@@ -24,7 +24,7 @@ internal static class StockReservationMutationCoordinator
     internal const string ReservationConservationSql = """
         SELECT item.`remaining_qty` ItemRemainingQty,
                CAST(COALESCE((SELECT SUM(location_owner.`remaining_qty`)
-                                FROM `wms_erp_stock_reservation_allocation` location_owner
+                                FROM `wms_trk_stock_reservation_allocation` location_owner
                                WHERE location_owner.`reservation_item_id`=item.`id`
                                  AND location_owner.`deleted`=b'0'),0) AS SIGNED) ItemLocationRemainingQty,
                stock.`occupied_qty` StockOccupiedQty,
@@ -34,12 +34,12 @@ internal static class StockReservationMutationCoordinator
                                  AND stock_owner.`deleted`=b'0'),0) AS SIGNED) StockOwnerRemainingQty,
                allocation.`occupied_qty` AllocationOccupiedQty,
                CAST(COALESCE((SELECT SUM(allocation_owner.`remaining_qty`)
-                                FROM `wms_erp_stock_reservation_allocation` allocation_owner
+                                FROM `wms_trk_stock_reservation_allocation` allocation_owner
                                WHERE allocation_owner.`stock_allocation_id`=@allocationId
                                  AND allocation_owner.`deleted`=b'0'),0) AS SIGNED) AllocationOwnerRemainingQty
           FROM `trk_stock_reservation_item` item
           JOIN `trk_stock` stock ON stock.`id`=@stockId AND stock.`deleted`=b'0'
-          JOIN `wms_erp_stock_allocation` allocation ON allocation.`id`=@allocationId
+          JOIN `wms_trk_stock_allocation` allocation ON allocation.`id`=@allocationId
          WHERE item.`id`=@reservationItemId
            AND item.`stock_id`=@stockId AND item.`deleted`=b'0'
         """;
@@ -439,7 +439,7 @@ internal static class StockReservationMutationCoordinator
             SELECT `id` Id,`reserved_qty` ReservedQty,`released_qty` ReleasedQty,
                    `consumed_qty` ConsumedQty,`remaining_qty` RemainingQty,
                    `status` Status,`row_version` RowVersion
-              FROM `wms_erp_stock_reservation_allocation`
+              FROM `wms_trk_stock_reservation_allocation`
              WHERE `reservation_item_id`=@reservationItemId
                AND `stock_allocation_id`=@allocationId AND `deleted`=b'0'
              FOR UPDATE
@@ -452,8 +452,8 @@ internal static class StockReservationMutationCoordinator
         var now = DateTime.Now;
         await connection.ExecuteAsync(new CommandDefinition(
             """
-            INSERT INTO `wms_erp_stock_reservation_allocation`
-                (`reservation_item_id`,`erp_stock_id`,`stock_allocation_id`,
+            INSERT INTO `wms_trk_stock_reservation_allocation`
+                (`reservation_item_id`,`trk_stock_id`,`stock_allocation_id`,
                  `reserved_qty`,`released_qty`,`consumed_qty`,`remaining_qty`,`status`,
                  `row_version`,`creator`,`create_time`,`updater`,`update_time`,`deleted`)
             VALUES
@@ -526,7 +526,7 @@ internal static class StockReservationMutationCoordinator
         var status = ItemStatus(remaining, released, consumed);
         var affected = await connection.ExecuteAsync(new CommandDefinition(
             """
-            UPDATE `wms_erp_stock_reservation_allocation`
+            UPDATE `wms_trk_stock_reservation_allocation`
                SET `reserved_qty`=@reserved,`released_qty`=@released,
                    `consumed_qty`=@consumed,`remaining_qty`=@remaining,`status`=@status,
                    `row_version`=`row_version`+1,`updater`=@operatorName,`update_time`=@now

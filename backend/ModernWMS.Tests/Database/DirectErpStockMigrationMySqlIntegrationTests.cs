@@ -23,7 +23,7 @@ public sealed class DirectErpStockMigrationMySqlIntegrationTests
             var marker = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             var inserted = await connection.ExecuteAsync("""
                 INSERT INTO `wms_packing_task_stock_selection`
-                  (`sellfox_task_id`,`sellfox_item_id`,`wms_sku_id`,`stock_id`,`erp_stock_id`,
+                  (`sellfox_task_id`,`sellfox_item_id`,`wms_sku_id`,`stock_id`,`trk_stock_id`,
                    `stock_allocation_id`,`reservation_id`,`reservation_item_id`,`qty`,
                    `goods_location_id`,`goods_owner_id`,`sku_code`,`selected_by`,`selected_by_name`,
                    `create_time`,`last_update_time`,`status`,`operation_source`)
@@ -74,7 +74,7 @@ public sealed class DirectErpStockMigrationMySqlIntegrationTests
             SELECT item.`id` ReservationItemId,item.`stock_id` StockId,allocation.`id` AllocationId
               FROM `trk_stock_reservation_item` item
               JOIN `trk_stock` stock ON stock.`id`=item.`stock_id` AND stock.`deleted`=b'0'
-              CROSS JOIN `wms_erp_stock_allocation` allocation
+              CROSS JOIN `wms_trk_stock_allocation` allocation
              WHERE item.`deleted`=b'0' LIMIT 1;
             """);
         var quantities = await connection.QuerySingleAsync<ConservationTotals>(

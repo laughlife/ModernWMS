@@ -34,7 +34,7 @@ export interface PackingTaskVO {
 }
 
 export interface SelectableStockVO {
-  erp_stock_id: number
+  trk_stock_id: number
   commodity_id?: number | null
   sku_code: string
   commodity_name: string
@@ -62,6 +62,6 @@ export interface PackingTaskStockPageRequest {
 export interface PackingTaskStockSelectRequest {
   sellfox_task_id: number
   sellfox_item_id: number
-  erp_stock_id: number
+  trk_stock_id: number
   variant: number
 }

@@ -167,7 +167,7 @@ export interface ErpPendingReceiptVO {
 export interface ErpReceiptDetailVO {
   id: number
   shipment_id: number
-  erp_stock_id?: number | null
+  trk_stock_id?: number | null
   purchase_no: string
   shipment_batch_no: string
   commodity_sku: string

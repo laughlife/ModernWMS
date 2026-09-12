@@ -53,10 +53,10 @@ public sealed class LegacyPackingSelectionReleaseAdapter : ILegacyPackingSelecti
         if (quantity <= 0) throw new ArgumentOutOfRangeException(nameof(quantity));
         var allocation = await connection.QuerySingleOrDefaultAsync<AllocationRow>(new CommandDefinition(
             """
-            SELECT `id` Id,`erp_stock_id` ErpStockId,`occupied_qty` OccupiedQty,
+            SELECT `id` Id,`trk_stock_id` ErpStockId,`occupied_qty` OccupiedQty,
                    `row_version` RowVersion
-              FROM `wms_erp_stock_allocation`
-             WHERE `id`=@AllocationId AND `erp_stock_id`=@ErpStockId
+              FROM `wms_trk_stock_allocation`
+             WHERE `id`=@AllocationId AND `trk_stock_id`=@ErpStockId
              FOR UPDATE;
             """, new { AllocationId = allocationId, ErpStockId = erpStockId }, transaction,
             cancellationToken: cancellationToken))
@@ -66,7 +66,7 @@ public sealed class LegacyPackingSelectionReleaseAdapter : ILegacyPackingSelecti
                 """
                 SELECT `id` Id,`remaining_qty` RemainingQty,`released_qty` ReleasedQty,
                        `row_version` RowVersion
-                  FROM `wms_erp_stock_reservation_allocation`
+                  FROM `wms_trk_stock_reservation_allocation`
                  WHERE `reservation_item_id`=@ReservationItemId
                    AND `stock_allocation_id`=@AllocationId AND `deleted`=b'0'
                  FOR UPDATE;
@@ -79,7 +79,7 @@ public sealed class LegacyPackingSelectionReleaseAdapter : ILegacyPackingSelecti
         var now = DateTime.Now;
         var allocationAffected = await connection.ExecuteAsync(new CommandDefinition(
             """
-            UPDATE `wms_erp_stock_allocation`
+            UPDATE `wms_trk_stock_allocation`
                SET `occupied_qty`=`occupied_qty`-@Quantity,
                    `row_version`=`row_version`+1,`updater`=@OperatorName,`update_time`=@Now
              WHERE `id`=@Id AND `row_version`=@RowVersion
@@ -99,7 +99,7 @@ public sealed class LegacyPackingSelectionReleaseAdapter : ILegacyPackingSelecti
         var remainingAfter = decomposition.RemainingQty - quantity;
         var decompositionAffected = await connection.ExecuteAsync(new CommandDefinition(
             """
-            UPDATE `wms_erp_stock_reservation_allocation`
+            UPDATE `wms_trk_stock_reservation_allocation`
                SET `released_qty`=`released_qty`+CASE WHEN @Consume=0 THEN @Quantity ELSE 0 END,
                    `consumed_qty`=`consumed_qty`+CASE WHEN @Consume=1 THEN @Quantity ELSE 0 END,
                    `remaining_qty`=@RemainingAfter,

@@ -27,7 +27,7 @@ public class StockService : BaseService<StockEntity>, IStockService
         "warehouse_name", "warehouse_id", "warehouse_area_id", "warehouse_area_name", "location_name",
         "spu_code", "spu_name", "sku_id", "sku_code", "sku_name", "qty", "qty_available", "qty_locked",
         "goods_owner_name", "series_number", "goods_location_id", "expiry_date", "price", "putaway_date",
-        "erp_stock_id", "stock_allocation_id", "inventory_mode", "location_state", "is_pending_location");
+        "trk_stock_id", "stock_allocation_id", "inventory_mode", "location_state", "is_pending_location");
     private static readonly IReadOnlyDictionary<string, string> SafetyColumns = Columns(
         "warehouse_name", "spu_code", "spu_name", "sku_code", "sku_name", "sku_id", "qty",
         "qty_available", "qty_locked", "qty_frozen", "safety_stock_qty");
@@ -35,7 +35,7 @@ public class StockService : BaseService<StockEntity>, IStockService
         "id", "sku_id", "goods_location_id", "qty", "goods_owner_id", "is_freeze", "last_update_time",
         "warehouse_name", "location_name", "spu_code", "spu_name", "sku_code", "sku_name",
         "unit", "qty_available", "goods_owner_name", "series_number", "expiry_date", "price", "putaway_date",
-        "erp_stock_id", "stock_allocation_id", "inventory_mode", "location_state", "is_pending_location");
+        "trk_stock_id", "stock_allocation_id", "inventory_mode", "location_state", "is_pending_location");
     private static readonly IReadOnlyDictionary<string, string> SkuColumns = Columns(
         "sku_id", "spu_id", "spu_code", "spu_name", "sku_code", "sku_name", "supplier_id",
         "supplier_name", "brand", "origin", "unit");
@@ -171,8 +171,8 @@ public class StockService : BaseService<StockEntity>, IStockService
             JOIN `wms_sku` sku ON sku.`id`=d.`sku_id` JOIN `wms_spu` spu ON spu.`id`=sku.`spu_id`
             LEFT JOIN `wms_goodslocation` gl ON gl.`id`=p.`goods_location_id`
             LEFT JOIN `erp_warehouse` wh_location ON wh_location.`id`=gl.`warehouse_id`
-            LEFT JOIN `wms_erp_stock_allocation` allocation ON allocation.`id`=p.`stock_allocation_id`
-            LEFT JOIN `trk_stock` stock ON stock.`id`=COALESCE(p.`erp_stock_id`,allocation.`erp_stock_id`) AND stock.`deleted`=b'0'
+            LEFT JOIN `wms_trk_stock_allocation` allocation ON allocation.`id`=p.`stock_allocation_id`
+            LEFT JOIN `trk_stock` stock ON stock.`id`=COALESCE(p.`trk_stock_id`,allocation.`trk_stock_id`) AND stock.`deleted`=b'0'
             LEFT JOIN `erp_warehouse` wh_erp ON wh_erp.`id`=stock.`warehouse_id` AND wh_erp.`deleted`=0
             JOIN `wms_goodsowner` go ON go.`id`=p.`goods_owner_id`
             WHERE d.`dispatch_status`>=6 AND COALESCE(gl.`warehouse_id`,stock.`warehouse_id`)=320118
@@ -198,7 +198,7 @@ public class StockService : BaseService<StockEntity>, IStockService
             offset = (input.pageIndex - 1) * input.pageSize, pageSize = input.pageSize
         });
         const string select = """
-            SELECT i.`erp_stock_id`,i.`stock_allocation_id`,i.`inventory_mode`,i.`location_state`,i.`is_pending_location`,
+            SELECT i.`trk_stock_id`,i.`stock_allocation_id`,i.`inventory_mode`,i.`location_state`,i.`is_pending_location`,
                    i.`sku_id`,i.`goods_owner_name`,i.`spu_name`,i.`spu_code`,i.`sku_code`,i.`sku_name`,i.`qty`,
                    i.`location_name`,i.`warehouse_name`,i.`series_number`,i.`expiry_date`,i.`price`,i.`putaway_date`,i.`goods_location_id`,
                    CASE WHEN i.`putaway_date`=@minDate THEN 0 ELSE DATEDIFF(@today,DATE(i.`putaway_date`)) END stock_age
@@ -247,7 +247,7 @@ public class StockService : BaseService<StockEntity>, IStockService
 
     private const string UnifiedInventoryCte = """
         WITH inventory_detail AS (
-          SELECT 0 id,stock.`id` erp_stock_id,NULL stock_allocation_id,
+          SELECT 0 id,stock.`id` trk_stock_id,NULL stock_allocation_id,
                  'ERP_STOCK' inventory_mode,'DIRECT' location_state,
                  FALSE is_pending_location,TRUE allocation_consistent,
                  COALESCE(map.`wms_sku_id`,0) sku_id,0 goods_location_id,0 goods_owner_id,
@@ -276,7 +276,7 @@ public class StockService : BaseService<StockEntity>, IStockService
         """;
 
     private const string StockSelectSql = """
-        SELECT i.`id`,i.`erp_stock_id`,i.`stock_allocation_id`,i.`inventory_mode`,i.`location_state`,i.`is_pending_location`,
+        SELECT i.`id`,i.`trk_stock_id`,i.`stock_allocation_id`,i.`inventory_mode`,i.`location_state`,i.`is_pending_location`,
           i.`allocation_consistent`,i.`sku_id`,i.`spu_name`,i.`spu_code`,i.`sku_code`,i.`sku_name`,i.`qty_available`,i.`qty_locked`,i.`qty`,
           i.`goods_location_id`,i.`goods_owner_id`,i.`location_name`,i.`warehouse_name`,i.`series_number`,i.`expiry_date`,i.`price`,i.`putaway_date`,
           i.`is_freeze`,i.`last_update_time`,i.`unit`,i.`goods_owner_name`,i.`erp_total_qty`,i.`erp_available_qty`,i.`erp_occupied_qty`
@@ -286,7 +286,7 @@ public class StockService : BaseService<StockEntity>, IStockService
     private const string LocationInventoryCte = UnifiedInventoryCte;
 
     private const string LocationInventorySelect = """
-        SELECT i.`erp_stock_id`,i.`stock_allocation_id`,i.`inventory_mode`,i.`location_state`,i.`is_pending_location`,i.`allocation_consistent`,
+        SELECT i.`trk_stock_id`,i.`stock_allocation_id`,i.`inventory_mode`,i.`location_state`,i.`is_pending_location`,i.`allocation_consistent`,
           i.`sku_id`,i.`goods_owner_name`,i.`spu_name`,i.`spu_code`,i.`sku_code`,i.`sku_name`,i.`qty_available`,i.`qty_locked`,i.`qty`,
           i.`location_name`,i.`warehouse_area_id`,i.`warehouse_area_name`,i.`warehouse_id`,i.`warehouse_name`,i.`series_number`,
           i.`expiry_date`,i.`price`,i.`putaway_date`,i.`goods_location_id`,i.`erp_total_qty`,i.`erp_available_qty`,i.`erp_occupied_qty`
@@ -309,7 +309,7 @@ public class StockService : BaseService<StockEntity>, IStockService
         """;
 
     private const string PhoneInventorySelect = """
-        SELECT i.`erp_stock_id`,i.`stock_allocation_id`,i.`inventory_mode`,i.`location_state`,i.`is_pending_location`,i.`allocation_consistent`,
+        SELECT i.`trk_stock_id`,i.`stock_allocation_id`,i.`inventory_mode`,i.`location_state`,i.`is_pending_location`,i.`allocation_consistent`,
           i.`sku_id`,i.`goods_owner_name`,i.`spu_name`,i.`spu_code`,i.`sku_code`,i.`sku_name`,i.`qty_available`,i.`qty_locked`,i.`qty`,
           i.`location_name`,i.`warehouse_id`,i.`warehouse_name`,i.`warehouse_area_id`,i.`warehouse_area_name`,i.`series_number`,
           i.`expiry_date`,i.`price`,i.`putaway_date`,i.`goods_location_id`,i.`erp_total_qty`,i.`erp_available_qty`,i.`erp_occupied_qty`
@@ -325,10 +325,10 @@ public class StockService : BaseService<StockEntity>, IStockService
                  SUM(i.`qty_pending_location`) qty_pending_location,MIN(i.`allocation_consistent`) allocation_consistent
           FROM inventory_detail i GROUP BY i.`sku_id`
         ), canonical_stock_unique AS (
-          SELECT i.`erp_stock_id`,i.`sku_id`,MAX(i.`erp_total_qty`) erp_total_qty,
+          SELECT i.`trk_stock_id`,i.`sku_id`,MAX(i.`erp_total_qty`) erp_total_qty,
                  MAX(i.`erp_available_qty`) erp_available_qty,MAX(i.`erp_occupied_qty`) erp_occupied_qty
           FROM inventory_detail i WHERE i.`inventory_mode`='ERP_STOCK'
-          GROUP BY i.`erp_stock_id`,i.`sku_id`
+          GROUP BY i.`trk_stock_id`,i.`sku_id`
         ), erp_group AS (
           SELECT sku_id,SUM(erp_total_qty) erp_total_qty,SUM(erp_available_qty) erp_available_qty,
                  SUM(erp_occupied_qty) erp_occupied_qty FROM canonical_stock_unique GROUP BY sku_id
@@ -358,10 +358,10 @@ public class StockService : BaseService<StockEntity>, IStockService
                  SUM(i.`qty_pending_location`) qty_pending_location,MIN(i.`allocation_consistent`) allocation_consistent
           FROM inventory_detail i GROUP BY i.`sku_id`,i.`warehouse_id`
         ), canonical_stock_unique AS (
-          SELECT i.`erp_stock_id`,i.`sku_id`,i.`warehouse_id`,MAX(i.`erp_total_qty`) erp_total_qty,
+          SELECT i.`trk_stock_id`,i.`sku_id`,i.`warehouse_id`,MAX(i.`erp_total_qty`) erp_total_qty,
                  MAX(i.`erp_available_qty`) erp_available_qty,MAX(i.`erp_occupied_qty`) erp_occupied_qty
           FROM inventory_detail i WHERE i.`inventory_mode`='ERP_STOCK'
-          GROUP BY i.`erp_stock_id`,i.`sku_id`,i.`warehouse_id`
+          GROUP BY i.`trk_stock_id`,i.`sku_id`,i.`warehouse_id`
         ), erp_group AS (
           SELECT sku_id,warehouse_id,SUM(erp_total_qty) erp_total_qty,SUM(erp_available_qty) erp_available_qty,
                  SUM(erp_occupied_qty) erp_occupied_qty FROM canonical_stock_unique GROUP BY sku_id,warehouse_id

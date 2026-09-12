@@ -605,7 +605,7 @@ public class WeighingBoxItemEntity : BaseModel
     /// <summary>Historical WMS SKU snapshot; new stock-only rows leave it null.</summary>
     public int? wms_sku_id { get; set; }
     /// <summary>ERP stock balance row used by this actual line.</summary>
-    public long erp_stock_id { get; set; }
+    public long trk_stock_id { get; set; }
     /// <summary>Historical position allocation snapshot; new rows leave it null.</summary>
     public long? stock_allocation_id { get; set; }
     /// <summary>Historical WMS owner snapshot; new rows leave it null.</summary>

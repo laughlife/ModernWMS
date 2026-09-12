@@ -216,9 +216,9 @@ public class ErpReceiptDetailViewModel
     /// </summary>
     public long shipment_id { get; set; }
     /// <summary>
-    /// 获取或设置 erp_stock_id。
+    /// 获取或设置 trk_stock_id。
     /// </summary>
-    public long? erp_stock_id { get; set; }
+    public long? trk_stock_id { get; set; }
     /// <summary>
     /// 获取或设置 purchase_no。
     /// </summary>
