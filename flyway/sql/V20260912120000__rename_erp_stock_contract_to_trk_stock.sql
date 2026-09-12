@@ -49,4 +49,3 @@ ALTER TABLE `wms_stocktaking`
 
 ALTER TABLE `wms_weighing_box_item`
   RENAME COLUMN `erp_stock_id` TO `trk_stock_id`;
-
