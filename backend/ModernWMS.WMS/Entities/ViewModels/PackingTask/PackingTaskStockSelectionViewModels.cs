@@ -23,7 +23,7 @@ public sealed class PackingTaskStockSelectRequest
     /// <summary>Sellfox task-item identifier.</summary>
     public long sellfox_item_id { get; set; }
     /// <summary>Authoritative <c>trk_stock.id</c>.</summary>
-    public long erp_stock_id { get; set; }
+    public long trk_stock_id { get; set; }
     /// <summary>Variant multiplier; locked quantity is current task quantity times this value.</summary>
     public int variant { get; set; }
 }
@@ -32,7 +32,7 @@ public sealed class PackingTaskStockSelectRequest
 public sealed class SelectableStockViewModel
 {
     /// <summary>Authoritative <c>trk_stock.id</c>.</summary>
-    public long erp_stock_id { get; set; }
+    public long trk_stock_id { get; set; }
     /// <summary>ERP commodity identifier.</summary>
     public long? commodity_id { get; set; }
     /// <summary>ERP commodity SKU snapshot.</summary>

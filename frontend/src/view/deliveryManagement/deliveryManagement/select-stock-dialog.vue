@@ -221,8 +221,8 @@ const selectedRows = ref<StockRow[]>([])
 const total = ref(0)
 const pageIndex = ref(1)
 const selectingStockId = ref<string | null>(null)
-const stockIdentity = (row: Pick<SelectableStockVO, 'erp_stock_id'>): string =>
-  `erp-stock:${row.erp_stock_id}`
+const stockIdentity = (row: Pick<SelectableStockVO, 'trk_stock_id'>): string =>
+  `erp-stock:${row.trk_stock_id}`
 const searchForm = reactive({ keyword: '' })
 
 // 装箱任务量（箱数），锁定数量 = 装箱任务量 × 变体数量。
@@ -319,7 +319,7 @@ const method = reactive({
       const result = await selectPackingTaskStock({
         sellfox_task_id: task.value.sellfox_task_id,
         sellfox_item_id: item.value.sellfox_item_id,
-        erp_stock_id: row.erp_stock_id,
+        trk_stock_id: row.trk_stock_id,
         variant
       })
       if (!result.isSuccess) {
@@ -356,7 +356,7 @@ const method = reactive({
       const result = await deletePackingTaskStockSelection({
         sellfox_task_id: task.value.sellfox_task_id,
         sellfox_item_id: item.value.sellfox_item_id,
-        erp_stock_id: row.erp_stock_id,
+        trk_stock_id: row.trk_stock_id,
         variant: row.variant
       })
       if (!result.isSuccess) {

@@ -91,7 +91,7 @@ public class StockprocessService : BaseService<StockprocessEntity>, IStockproces
         var details = (await connection.QueryAsync<StockprocessdetailViewModel>("""
             SELECT d.`id`,d.`stock_process_id`,d.`sku_id`,d.`goods_owner_id`,d.`goods_location_id`,
                 d.`qty`,d.`last_update_time`,d.`is_source`,d.`is_update_stock`,
-                d.`erp_stock_id`,d.`stock_allocation_id`,
+                d.`trk_stock_id`,d.`stock_allocation_id`,
                 d.`series_number`,d.`expiry_date`,d.`price`,d.`putaway_date`,
                 sku.`sku_code`,spu.`spu_code`,spu.`spu_name`,sku.`unit`,COALESCE(gl.`location_name`,'') `location_name`
             FROM `wms_stockprocessdetail` d
@@ -140,7 +140,7 @@ public class StockprocessService : BaseService<StockprocessEntity>, IStockproces
                         "加工产出无法唯一匹配已有ERP库存分配；ModernWMS不创建缺少货代/部门/订购人来源的ERP POOL，请先通过ERP入库建立目标库存后再加工",
                         ex);
                 }
-                detail.erp_stock_id = allocation.ErpStockId;
+                detail.trk_stock_id = allocation.ErpStockId;
                 detail.stock_allocation_id = allocation.AllocationId;
                 if (!detail.is_source) continue;
                 var lockedQty = await connection.ExecuteScalarAsync<long>("""
@@ -236,7 +236,7 @@ public class StockprocessService : BaseService<StockprocessEntity>, IStockproces
 
             var details = (await connection.QueryAsync<StockprocessdetailEntity>("""
                 SELECT `id`,`stock_process_id`,`sku_id`,`goods_owner_id`,`goods_location_id`,`qty`,
-                    `last_update_time`,`erp_stock_id`,`stock_allocation_id`,`is_source`,`is_update_stock`,
+                    `last_update_time`,`trk_stock_id`,`stock_allocation_id`,`is_source`,`is_update_stock`,
                     `series_number`,`expiry_date`,`price`,`putaway_date`
                 FROM `wms_stockprocessdetail` WHERE `stock_process_id`=@id FOR UPDATE;
                 """, new { id}, transaction)).AsList();
@@ -252,17 +252,17 @@ public class StockprocessService : BaseService<StockprocessEntity>, IStockproces
                 connection, transaction, routes);
             if (routes.Select(x => new { x.ErpWarehouseId, x.Mode }).Distinct().Count() > 1)
                 return await Rollback(false, "加工明细跨越不同ERP仓库或库存运行模式，禁止确认", transaction);
-            if (details.Any(x => !x.erp_stock_id.HasValue || !x.stock_allocation_id.HasValue))
+            if (details.Any(x => !x.trk_stock_id.HasValue || !x.stock_allocation_id.HasValue))
                 return await Rollback(false, "加工明细未绑定ERP库存分配，旧库存加工路径已停用", transaction);
             await _stockMutationService.PrelockAsync(
                 connection, transaction,
                 routes.Select(x => x.ErpWarehouseId).Distinct().OrderBy(x => x).ToArray(),
-                details.Select(x => x.erp_stock_id!.Value).Distinct().OrderBy(x => x).ToArray(),
+                details.Select(x => x.trk_stock_id!.Value).Distinct().OrderBy(x => x).ToArray(),
                 details.Select(x => x.stock_allocation_id!.Value).Distinct().OrderBy(x => x).ToArray());
             var now = DateTime.Now;
             foreach (var detail in details)
             {
-                var erpStockId = detail.erp_stock_id
+                var erpStockId = detail.trk_stock_id
                     ?? throw new InvalidOperationException("加工明细缺少ERP库存引用");
                 var stockAllocationId = detail.stock_allocation_id
                     ?? throw new InvalidOperationException("加工明细缺少库位分配引用");
@@ -288,13 +288,13 @@ public class StockprocessService : BaseService<StockprocessEntity>, IStockproces
                 await connection.ExecuteAsync("""
                     INSERT INTO `wms_stockadjust` (`job_code`,`sku_id`,`goods_owner_id`,`goods_location_id`,`qty`,`creator`,
                         `create_time`,`last_update_time`,`is_update_stock`,`job_type`,`source_table_id`,
-                        `erp_stock_id`,`stock_allocation_id`,`series_number`,`expiry_date`,`price`,`putaway_date`)
+                        `trk_stock_id`,`stock_allocation_id`,`series_number`,`expiry_date`,`price`,`putaway_date`)
                     VALUES (@jobCode,@sku_id,@goods_owner_id,@goods_location_id,@qty,@creator,@now,@now,1,2,@id,
-                        @erp_stock_id,@stock_allocation_id,@series_number,@expiry_date,@price,@putaway_date);
+                        @trk_stock_id,@stock_allocation_id,@series_number,@expiry_date,@price,@putaway_date);
                     """, new { jobCode = adjustCode, detail.sku_id, detail.goods_owner_id, detail.goods_location_id,
                         qty = detail.is_source ? -detail.qty : detail.qty, creator = currentUser.user_name, now,
                         detail.id, detail.series_number, detail.expiry_date,
-                        detail.price, detail.erp_stock_id, detail.stock_allocation_id,
+                        detail.price, detail.trk_stock_id, detail.stock_allocation_id,
                         putaway_date = adjustmentPutawayDates[detail.id] }, transaction);
             await connection.ExecuteAsync("UPDATE `wms_stockprocess` SET `last_update_time`=@now WHERE `id`=@id;", new { now, id }, transaction);
             await transaction.CommitAsync();
@@ -345,13 +345,13 @@ public class StockprocessService : BaseService<StockprocessEntity>, IStockproces
     private static Task InsertDetailAsync(MySqlConnection connection, IDbTransaction transaction, int processId,
         StockprocessdetailViewModel detail, DateTime now) => connection.ExecuteAsync("""
             INSERT INTO `wms_stockprocessdetail` (`stock_process_id`,`sku_id`,`goods_owner_id`,`goods_location_id`,`qty`,
-                `last_update_time`,`erp_stock_id`,`stock_allocation_id`,`is_source`,`is_update_stock`,
+                `last_update_time`,`trk_stock_id`,`stock_allocation_id`,`is_source`,`is_update_stock`,
                 `series_number`,`expiry_date`,`price`,`putaway_date`)
             VALUES (@processId,@sku_id,@goods_owner_id,@goods_location_id,@qty,@now,@
-                @erp_stock_id,@stock_allocation_id,@is_source,@is_update_stock,
+                @trk_stock_id,@stock_allocation_id,@is_source,@is_update_stock,
                 @series_number,@expiry_date,@price,@putaway_date);
             """, new { processId, detail.sku_id, detail.goods_owner_id, detail.goods_location_id, detail.qty, now,
-                detail.erp_stock_id, detail.stock_allocation_id, detail.is_source, detail.is_update_stock,
+                detail.trk_stock_id, detail.stock_allocation_id, detail.is_source, detail.is_update_stock,
                 detail.series_number, detail.expiry_date, detail.price, detail.putaway_date }, transaction);
 
     private static async Task<string> GetNextCodeAsync(MySqlConnection connection, IDbTransaction? transaction,

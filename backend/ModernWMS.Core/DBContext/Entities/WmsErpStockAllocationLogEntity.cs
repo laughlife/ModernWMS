@@ -7,7 +7,7 @@ namespace ModernWMS.Core.DBContext.Entities;
 /// Audit trail for ERP stock location allocation changes.
 /// This table is not an inventory balance ledger.
 /// </summary>
-[Table("wms_erp_stock_allocation_log")]
+[Table("wms_trk_stock_allocation_log")]
 public class WmsErpStockAllocationLogEntity
 {
     /// <summary>
@@ -58,9 +58,9 @@ public class WmsErpStockAllocationLogEntity
     public string event_type { get; set; } = string.Empty;
 
     /// <summary>
-    /// 获取或设置 erp_stock_id。
+    /// 获取或设置 trk_stock_id。
     /// </summary>
-    public long erp_stock_id { get; set; }
+    public long trk_stock_id { get; set; }
     /// <summary>
     /// 获取或设置 allocation_id。
     /// </summary>
@@ -70,9 +70,9 @@ public class WmsErpStockAllocationLogEntity
     /// </summary>
     public long? counterpart_allocation_id { get; set; }
     /// <summary>
-    /// 获取或设置 erp_stock_record_id。
+    /// 获取或设置 trk_stock_record_id。
     /// </summary>
-    public long? erp_stock_record_id { get; set; }
+    public long? trk_stock_record_id { get; set; }
     /// <summary>
     /// 获取或设置 allocated_delta。
     /// </summary>

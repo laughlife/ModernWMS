@@ -241,7 +241,7 @@ public class GoodslocationService : BaseService<GoodslocationEntity>, IGoodsloca
         }
         var existStock = await connection.ExecuteScalarAsync<bool>("""
             SELECT EXISTS(
-              SELECT 1 FROM `wms_erp_stock_allocation`
+              SELECT 1 FROM `wms_trk_stock_allocation`
                WHERE `goods_location_id` = @id AND `location_state` = 'ACTIVE'
             );
             """, new { id }, transaction);

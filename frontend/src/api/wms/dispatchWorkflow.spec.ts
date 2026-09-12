@@ -166,7 +166,7 @@ describe('dispatch workflow api contract', () => {
     expectLastRequest({ url: '/packing-task-query/selectable-stock', method: 'post', data: pagePayload })
 
     const selectPayload = {
-      sellfox_task_id: 20526, sellfox_item_id: 94691, erp_stock_id: 12, variant: 5
+      sellfox_task_id: 20526, sellfox_item_id: 94691, trk_stock_id: 12, variant: 5
     }
     selectPackingTaskStock(selectPayload)
     expectLastRequest({ url: '/packing-task-query/select-stock', method: 'post', data: selectPayload })

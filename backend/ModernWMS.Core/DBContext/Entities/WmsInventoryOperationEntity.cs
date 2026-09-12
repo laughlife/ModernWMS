@@ -58,9 +58,9 @@ public class WmsInventoryOperationEntity
     public string mutation_type { get; set; } = string.Empty;
 
     /// <summary>
-    /// 获取或设置 erp_stock_id。
+    /// 获取或设置 trk_stock_id。
     /// </summary>
-    public long erp_stock_id { get; set; }
+    public long trk_stock_id { get; set; }
     /// <summary>
     /// 获取或设置 allocation_id。
     /// </summary>
@@ -87,9 +87,9 @@ public class WmsInventoryOperationEntity
     public string result_status { get; set; } = "PENDING";
 
     /// <summary>
-    /// 获取或设置 erp_stock_record_id。
+    /// 获取或设置 trk_stock_record_id。
     /// </summary>
-    public long? erp_stock_record_id { get; set; }
+    public long? trk_stock_record_id { get; set; }
     /// <summary>
     /// 获取或设置 create_time。
     /// </summary>

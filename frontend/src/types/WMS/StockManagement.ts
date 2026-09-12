@@ -1,5 +1,5 @@
 export interface StockLocationVO {
-    erp_stock_id: number | null
+    trk_stock_id: number | null
     stock_allocation_id: number | null
     location_state: 'LEGACY' | 'ACTIVE' | 'UNLOCATED'
     is_pending_location: boolean

@@ -57,7 +57,7 @@ public partial class DispatchWorkflowService
         var ownerId=PackingTaskOwnerPolicy.Resolve(
             ownerCandidates.FirstOrDefault()?.Name,ownerCandidates);
         return (await c.QueryAsync<ActualPackingStockViewModel>(new CommandDefinition("""
-            SELECT stock.`id` erp_stock_id,stock.`commodity_id`,stock.`order_user_id`,
+            SELECT stock.`id` trk_stock_id,stock.`commodity_id`,stock.`order_user_id`,
                    @ownerName order_user_name,COALESCE(stock.`commodity_sku`,'') sku_code,
                    COALESCE(stock.`commodity_name`,'') commodity_name,stock.`available_qty`
               FROM `trk_stock` stock
@@ -88,7 +88,7 @@ public partial class DispatchWorkflowService
             if(order.status!=DispatchOrderStatus.Weighing||order.source_change_pending)throw DispatchWorkflowCommandException.StatusNotAllowedForWeighing();
             if(task.packing_plan_status!="DRAFT"&&task.packing_plan_status!="PACKING_CONFIRMED")throw DispatchWorkflowCommandException.StatusNotAllowedForWeighing();
             if(order.row_version!=r.row_version||task.row_version!=r.task_row_version)throw DispatchWorkflowCommandException.ConcurrencyConflict();
-            var stockIds=r.boxes.SelectMany(x=>x.items).Select(x=>x.erp_stock_id)
+            var stockIds=r.boxes.SelectMany(x=>x.items).Select(x=>x.trk_stock_id)
                 .Where(x=>x>0).Distinct().Order().ToArray();
             var identities=await LoadActualPackingStockIdentitiesAsync(c,tx,stockIds,ct);
             ValidateDraft(r.boxes,aggregate.Items,identities,order.warehouse_id);
@@ -116,11 +116,11 @@ public partial class DispatchWorkflowService
                 retained.Add(boxId);await c.ExecuteAsync(new CommandDefinition("DELETE FROM `wms_weighing_box_item` WHERE `weighing_box_id`=@boxId;",new{boxId},tx,cancellationToken:ct));
                 foreach(var item in draft.items)
                 {
-                    var stock=identities[item.erp_stock_id];
+                    var stock=identities[item.trk_stock_id];
                     await c.ExecuteAsync(new CommandDefinition("""
                         INSERT INTO `wms_weighing_box_item`
                           (`weighing_box_id`,`client_line_key`,`packing_task_item_id`,`wms_sku_id`,
-                           `erp_stock_id`,`stock_allocation_id`,`goods_owner_id`,`goods_location_id`,
+                           `trk_stock_id`,`stock_allocation_id`,`goods_owner_id`,`goods_location_id`,
                            `sku_code`,`commodity_name`,`actual_qty`,`dispatchpicklist_id`,
                            `create_time`,`last_update_time`,`row_version`)
                         VALUES (@boxId,@clientLineKey,@itemId,NULL,@erpStockId,NULL,
@@ -198,11 +198,11 @@ public partial class DispatchWorkflowService
         var itemIds=items.Select(x=>x.id).ToHashSet();
         foreach(var box in boxes)
             ActualPackingLinePolicy.ValidateBox(box.items.Select(x=>new ActualPackingDraftLine(
-                x.client_line_key,x.packing_task_item_id,x.erp_stock_id,x.actual_qty)).ToArray(),
+                x.client_line_key,x.packing_task_item_id,x.trk_stock_id,x.actual_qty)).ToArray(),
                 itemIds,identities,warehouseId);
     }
     private static string MeasurementStatus(PackingPlanBoxViewModel b)=>b.weight>0&&b.length>0&&b.width>0&&b.height>0?"MEASURED":"UNMEASURED";
     private static void ValidatePackingPlanCommand(int orderId,int taskId,string requestId,long orderVersion,long taskVersion){if(orderId<=0||taskId<=0||string.IsNullOrWhiteSpace(requestId)||requestId.Length>64||orderVersion<0||taskVersion<0)throw new ArgumentException("order, task, request id and versions are required");}
-    private static PackingPlanViewModel ToPackingPlan(DispatchOrderEntity o,DispatchPackingTaskEntity t,IReadOnlyCollection<DispatchPackingTaskItemEntity> items,IReadOnlyCollection<WeighingBoxEntity> boxes,IReadOnlyCollection<WeighingBoxItemEntity> boxItems)=>new(){order_id=o.id,packing_task_id=t.id,packing_task_no=t.source_task_no,packing_plan_status=t.packing_plan_status,row_version=o.row_version,task_row_version=t.row_version,items=items.Select(i=>new PackingPlanItemViewModel{id=i.id,commodity_sku=i.commodity_sku,commodity_name=i.commodity_name,fn_sku=i.fn_sku,msku=i.msku,main_image=SourceMainImage(i.source_snapshot),task_qty=i.source_quantity_shipped??0,variant_qty=i.variant_qty??0,required_qty=i.required_qty??0,actual_packed_task_qty=i.actual_packed_task_qty,actual_packed_required_qty=i.actual_packed_required_qty}).ToList(),boxes=boxes.Select(b=>new PackingPlanBoxViewModel{id=b.id,client_key=$"box-{b.id}",box_sequence=b.box_sequence,weight=b.weight,length=b.length,width=b.width,height=b.height,row_version=b.row_version,items=boxItems.Where(x=>x.weighing_box_id==b.id).Select(x=>new PackingPlanBoxItemViewModel{client_line_key=x.client_line_key,packing_task_item_id=x.packing_task_item_id,erp_stock_id=x.erp_stock_id,sku_code=x.sku_code,commodity_name=x.commodity_name,actual_qty=x.actual_qty,dispatchpicklist_id=x.dispatchpicklist_id}).ToList()}).ToList()};
+    private static PackingPlanViewModel ToPackingPlan(DispatchOrderEntity o,DispatchPackingTaskEntity t,IReadOnlyCollection<DispatchPackingTaskItemEntity> items,IReadOnlyCollection<WeighingBoxEntity> boxes,IReadOnlyCollection<WeighingBoxItemEntity> boxItems)=>new(){order_id=o.id,packing_task_id=t.id,packing_task_no=t.source_task_no,packing_plan_status=t.packing_plan_status,row_version=o.row_version,task_row_version=t.row_version,items=items.Select(i=>new PackingPlanItemViewModel{id=i.id,commodity_sku=i.commodity_sku,commodity_name=i.commodity_name,fn_sku=i.fn_sku,msku=i.msku,main_image=SourceMainImage(i.source_snapshot),task_qty=i.source_quantity_shipped??0,variant_qty=i.variant_qty??0,required_qty=i.required_qty??0,actual_packed_task_qty=i.actual_packed_task_qty,actual_packed_required_qty=i.actual_packed_required_qty}).ToList(),boxes=boxes.Select(b=>new PackingPlanBoxViewModel{id=b.id,client_key=$"box-{b.id}",box_sequence=b.box_sequence,weight=b.weight,length=b.length,width=b.width,height=b.height,row_version=b.row_version,items=boxItems.Where(x=>x.weighing_box_id==b.id).Select(x=>new PackingPlanBoxItemViewModel{client_line_key=x.client_line_key,packing_task_item_id=x.packing_task_item_id,trk_stock_id=x.trk_stock_id,sku_code=x.sku_code,commodity_name=x.commodity_name,actual_qty=x.actual_qty,dispatchpicklist_id=x.dispatchpicklist_id}).ToList()}).ToList()};
     private sealed record PackingPlanAggregate(DispatchOrderEntity Order,DispatchPackingTaskEntity Task,List<DispatchPackingTaskItemEntity> Items,List<WeighingBoxEntity> Boxes,List<WeighingBoxItemEntity> BoxItems);
 }

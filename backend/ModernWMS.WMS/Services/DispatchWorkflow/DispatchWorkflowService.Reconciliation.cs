@@ -139,21 +139,21 @@ public partial class DispatchWorkflowService
             """,new{ids},tx,cancellationToken:ct)))
             throw new InvalidOperationException("packing task has allocations that already updated stock; automatic reconciliation is forbidden");
         var reserved = (await c.QueryAsync<ReservedStockRow>(new CommandDefinition("""
-            SELECT selection.`id`,selection.`erp_stock_id`,selection.`stock_allocation_id`,
+            SELECT selection.`id`,selection.`trk_stock_id`,selection.`stock_allocation_id`,
                    selection.`reservation_id`,selection.`reservation_item_id`,selection.`qty`
               FROM `wms_packing_task_stock_selection` selection
              WHERE selection.`sellfox_task_id`=@sourceTaskId
                AND selection.`status`='ACTIVE'
-               AND selection.`erp_stock_id` IS NOT NULL
-             ORDER BY selection.`erp_stock_id`,selection.`id` FOR UPDATE;
+               AND selection.`trk_stock_id` IS NOT NULL
+             ORDER BY selection.`trk_stock_id`,selection.`id` FOR UPDATE;
             """,new { sourceTaskId=task.source_task_id},tx,cancellationToken:ct))).AsList();
         var pickReservations=(await c.QueryAsync<ReservedStockRow>(new CommandDefinition("""
-            SELECT `id`,`erp_stock_id`,`stock_allocation_id`,`reservation_id`,
+            SELECT `id`,`trk_stock_id`,`stock_allocation_id`,`reservation_id`,
                    `reservation_item_id`,`picked_qty` AS qty
               FROM `wms_dispatchpicklist`
              WHERE `packing_task_item_id` IN @ids AND `is_update_stock`=0
-               AND `erp_stock_id` IS NOT NULL
-             ORDER BY `erp_stock_id`,`id` FOR UPDATE;
+               AND `trk_stock_id` IS NOT NULL
+             ORDER BY `trk_stock_id`,`id` FOR UPDATE;
             """,new{ids},tx,cancellationToken:ct))).AsList();
         if(reserved.Count>0&&pickReservations.Count>0)
             throw new InvalidOperationException("装箱选择与拣货明细同时持有同一业务预占，已拒绝自动释放");
@@ -165,18 +165,18 @@ public partial class DispatchWorkflowService
             var mutation=RequirePackingStockMutationService();
             var prelocks=allReservations.Select(row=>new PackingStockPrelockRequest(
                 DispatchStockMutationContext(user,order.warehouse_id,"DISPATCH_RELEASE",order.id,row.id,
-                    row.erp_stock_id,row.qty,$"{requestIdentity}:{task.id}",
-                    row.reservation_id,row.reservation_item_id),row.erp_stock_id,"UNLOCK")).ToArray();
+                    row.trk_stock_id,row.qty,$"{requestIdentity}:{task.id}",
+                    row.reservation_id,row.reservation_item_id),row.trk_stock_id,"UNLOCK")).ToArray();
             await mutation.PrelockAsync(c,tx,[order.warehouse_id],prelocks,ct);
-            foreach (var row in allReservations.OrderBy(x=>x.erp_stock_id).ThenBy(x=>x.id))
+            foreach (var row in allReservations.OrderBy(x=>x.trk_stock_id).ThenBy(x=>x.id))
             {
                 await mutation.ReleaseAsync(c,tx,
                     DispatchStockMutationContext(user,order.warehouse_id,"DISPATCH_RELEASE",order.id,row.id,
-                        row.erp_stock_id,row.qty,$"{requestIdentity}:{task.id}",
-                        row.reservation_id,row.reservation_item_id),row.erp_stock_id,row.qty,ct);
+                        row.trk_stock_id,row.qty,$"{requestIdentity}:{task.id}",
+                        row.reservation_id,row.reservation_item_id),row.trk_stock_id,row.qty,ct);
                 if(row.stock_allocation_id is >0)
                     await RequireLegacyPackingReleaseAdapter().SettleReleaseAsync(
-                        c,tx,row.erp_stock_id,row.stock_allocation_id.Value,
+                        c,tx,row.trk_stock_id,row.stock_allocation_id.Value,
                         row.reservation_item_id!.Value,row.qty,user.user_name??string.Empty,ct);
             }
         }
@@ -218,7 +218,7 @@ public partial class DispatchWorkflowService
     private sealed class ReservedStockRow
     {
         public int id { get; init; }
-        public long erp_stock_id { get; init; }
+        public long trk_stock_id { get; init; }
         public long? stock_allocation_id { get; init; }
         public long? reservation_id { get; init; }
         public long? reservation_item_id { get; init; }

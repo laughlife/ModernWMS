@@ -231,7 +231,7 @@ public class PackingTaskQueryServiceTests
             CurrentUserContext());
 
         Assert.Equal(2, totals);
-        Assert.Equal([9001L, 9002L], rows.Select(row => row.erp_stock_id).ToArray());
+        Assert.Equal([9001L, 9002L], rows.Select(row => row.trk_stock_id).ToArray());
         Assert.All(rows, row =>
         {
             Assert.Equal(320118, row.warehouse_id);
@@ -240,7 +240,7 @@ public class PackingTaskQueryServiceTests
     }
 
     [Fact]
-    public void Packing_stock_api_contract_exposes_only_erp_stock_identity_and_no_location_filters()
+    public void Packing_stock_api_contract_exposes_only_trk_stock_identity_and_no_location_filters()
     {
         var pageProperties = typeof(PackingTaskStockPageRequest).GetProperties()
             .Select(property => property.Name).Order().ToArray();
@@ -251,7 +251,7 @@ public class PackingTaskQueryServiceTests
             ["keyword", "page_index", "page_size", "sellfox_item_id", "sellfox_task_id"],
             pageProperties);
         Assert.Equal(
-            ["erp_stock_id", "sellfox_item_id", "sellfox_task_id", "variant"],
+            ["sellfox_item_id", "sellfox_task_id", "trk_stock_id", "variant"],
             selectionProperties);
         Assert.DoesNotContain(typeof(SelectableStockViewModel).GetProperties(), property =>
             property.Name.Contains("allocation", StringComparison.OrdinalIgnoreCase)
@@ -279,7 +279,7 @@ public class PackingTaskQueryServiceTests
             {
                 sellfox_task_id = 101,
                 sellfox_item_id = 1001,
-                erp_stock_id = 12
+                trk_stock_id = 12
             },
             CurrentUserContext());
 
@@ -433,13 +433,13 @@ public class PackingTaskQueryServiceTests
     private static CurrentUser CurrentUserContext() => new();
 
     private static SelectableStockViewModel Stock(
-        long erpStockId, int warehouseId, int creatorId, bool matched) => new()
+        long trkStockId, int warehouseId, int creatorId, bool matched) => new()
         {
-            erp_stock_id = erpStockId,
+            trk_stock_id = trkStockId,
             warehouse_id = warehouseId,
             order_user_id = creatorId,
             matched = matched,
-            sku_code = $"SKU-{erpStockId}"
+            sku_code = $"SKU-{trkStockId}"
         };
 
     private static void AssertCancellationTransition(string sql, string reason)

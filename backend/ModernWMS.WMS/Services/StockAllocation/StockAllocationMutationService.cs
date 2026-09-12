@@ -77,12 +77,12 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
         if (requestedAllocationIds.Length == 0) return;
         var allocations = (await connection.QueryAsync<AllocationRow>(new CommandDefinition(
             """
-            SELECT `id` Id,`erp_stock_id` ErpStockId,`allocated_qty` AllocatedQty,
+            SELECT `id` Id,`trk_stock_id` ErpStockId,`allocated_qty` AllocatedQty,
                    `occupied_qty` OccupiedQty,`location_state` LocationState
-              FROM `wms_erp_stock_allocation`
-             WHERE `erp_stock_id` IN @stockIds
+              FROM `wms_trk_stock_allocation`
+             WHERE `trk_stock_id` IN @stockIds
                AND `id` IN @allocationIds
-             ORDER BY `erp_stock_id`,`id` FOR UPDATE
+             ORDER BY `trk_stock_id`,`id` FOR UPDATE
             """,
             new { stockIds, allocationIds = requestedAllocationIds },
             transaction,
@@ -505,9 +505,9 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
             """
             SELECT `id` Id,`operation_key` OperationKey,`biz_type` BizType,`biz_id` BizId,
                    `biz_item_id` BizItemId,`mutation_type` MutationType,
-                   `erp_stock_id` ErpStockId,`allocation_id` AllocationId,
+                   `trk_stock_id` ErpStockId,`allocation_id` AllocationId,
                    `counterpart_allocation_id` CounterpartAllocationId,`quantity` Quantity,
-                   `result_status` ResultStatus,`erp_stock_record_id` ErpStockRecordId
+                   `result_status` ResultStatus,`trk_stock_record_id` ErpStockRecordId
               FROM `wms_inventory_operation`
              WHERE `operation_key`=@operationKey
             """,
@@ -519,9 +519,9 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
             """
             SELECT `id` Id,`operation_key` OperationKey,`biz_type` BizType,`biz_id` BizId,
                    `biz_item_id` BizItemId,`mutation_type` MutationType,
-                   `erp_stock_id` ErpStockId,`allocation_id` AllocationId,
+                   `trk_stock_id` ErpStockId,`allocation_id` AllocationId,
                    `counterpart_allocation_id` CounterpartAllocationId,`quantity` Quantity,
-                   `result_status` ResultStatus,`erp_stock_record_id` ErpStockRecordId
+                   `result_status` ResultStatus,`trk_stock_record_id` ErpStockRecordId
               FROM `wms_inventory_operation`
              WHERE `id`=@id
              FOR UPDATE
@@ -549,8 +549,8 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
             INSERT INTO `wms_inventory_operation`
                 (`operation_key`,`shared_command_id`,`reservation_id`,`reservation_item_id`,
                  `biz_type`,`biz_id`,`biz_item_id`,`mutation_type`,
-                 `erp_stock_id`,`allocation_id`,`counterpart_allocation_id`,`quantity`,
-                 `result_status`,`erp_stock_record_id`,`operator`,`create_time`,`update_time`)
+                 `trk_stock_id`,`allocation_id`,`counterpart_allocation_id`,`quantity`,
+                 `result_status`,`trk_stock_record_id`,`operator`,`create_time`,`update_time`)
             VALUES
                 (@operationKey,@sharedCommandId,@reservationId,@reservationItemId,
                  @bizType,@bizId,@bizItemId,@mutationType,
@@ -587,7 +587,7 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
         var affected = await connection.ExecuteAsync(new CommandDefinition(
             """
             UPDATE `wms_inventory_operation`
-               SET `result_status`='SUCCEEDED',`erp_stock_record_id`=@erpStockRecordId,
+               SET `result_status`='SUCCEEDED',`trk_stock_record_id`=@erpStockRecordId,
                    `update_time`=@now
              WHERE `operation_key`=@operationKey
                AND `result_status`='PENDING'
@@ -638,13 +638,13 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
         (await connection.QueryAsync<AllocationLogRow>(new CommandDefinition(
             """
             SELECT `operation_key` OperationKey,`biz_type` BizType,`biz_id` BizId,
-                   `biz_item_id` BizItemId,`event_type` EventType,`erp_stock_id` ErpStockId,
+                   `biz_item_id` BizItemId,`event_type` EventType,`trk_stock_id` ErpStockId,
                    `allocation_id` AllocationId,`counterpart_allocation_id` CounterpartAllocationId,
-                   `erp_stock_record_id` ErpStockRecordId,`allocated_delta` AllocatedDelta,
+                   `trk_stock_record_id` ErpStockRecordId,`allocated_delta` AllocatedDelta,
                    `occupied_delta` OccupiedDelta,`before_allocated_qty` BeforeAllocatedQty,
                    `after_allocated_qty` AfterAllocatedQty,`before_occupied_qty` BeforeOccupiedQty,
                    `after_occupied_qty` AfterOccupiedQty
-             FROM `wms_erp_stock_allocation_log`
+             FROM `wms_trk_stock_allocation_log`
              WHERE `operation_key`=@operationKey
              ORDER BY `allocation_id`,`event_type`
             """,
@@ -690,10 +690,10 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
         var ids = allocationIds.Distinct().OrderBy(t => t).ToArray();
         var rows = (await connection.QueryAsync<AllocationRow>(new CommandDefinition(
             """
-            SELECT `id` Id,`erp_stock_id` ErpStockId,`allocated_qty` AllocatedQty,
+            SELECT `id` Id,`trk_stock_id` ErpStockId,`allocated_qty` AllocatedQty,
                    `occupied_qty` OccupiedQty,`location_state` LocationState
-              FROM `wms_erp_stock_allocation`
-             WHERE `erp_stock_id`=@erpStockId AND `id` IN @ids
+              FROM `wms_trk_stock_allocation`
+             WHERE `trk_stock_id`=@erpStockId AND `id` IN @ids
              ORDER BY `id` FOR UPDATE
             """,
             new { erpStockId, ids }, transaction, cancellationToken: cancellationToken))).AsList();
@@ -712,8 +712,8 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
         var invalidCount = await connection.ExecuteScalarAsync<long>(new CommandDefinition(
             """
             SELECT COUNT(*)
-              FROM `wms_erp_stock_allocation` allocation
-             WHERE allocation.`erp_stock_id`=@erpStockId
+              FROM `wms_trk_stock_allocation` allocation
+             WHERE allocation.`trk_stock_id`=@erpStockId
                AND allocation.`id` IN @allocationIds
                AND
                (
@@ -875,7 +875,7 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
     {
         var affected = await connection.ExecuteAsync(new CommandDefinition(
             """
-            UPDATE `wms_erp_stock_allocation`
+            UPDATE `wms_trk_stock_allocation`
                SET `allocated_qty`=@allocatedQty,`occupied_qty`=@occupiedQty,
                    `location_state`=@afterLocationState,
                    `row_version`=`row_version`+1,`updater`=@operatorName,`update_time`=@now
@@ -984,10 +984,10 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
         CancellationToken cancellationToken) =>
         await connection.ExecuteAsync(new CommandDefinition(
             """
-            INSERT INTO `wms_erp_stock_allocation_log`
+            INSERT INTO `wms_trk_stock_allocation_log`
                 (`operation_key`,`shared_command_id`,`reservation_id`,`reservation_item_id`,
                  `biz_type`,`biz_id`,`biz_item_id`,`event_type`,
-                 `erp_stock_id`,`allocation_id`,`counterpart_allocation_id`,`erp_stock_record_id`,
+                 `trk_stock_id`,`allocation_id`,`counterpart_allocation_id`,`trk_stock_record_id`,
                  `allocated_delta`,`occupied_delta`,`before_allocated_qty`,`after_allocated_qty`,
                  `before_occupied_qty`,`after_occupied_qty`,`operator`,`operate_time`,`remark`)
             VALUES
@@ -1034,8 +1034,8 @@ public sealed class StockAllocationMutationService : IStockAllocationMutationSer
                    COALESCE(SUM(CASE WHEN a.`location_state`<>'RETIRED' THEN a.`allocated_qty` ELSE 0 END),0) AllocatedQty,
                    COALESCE(SUM(CASE WHEN a.`location_state`<>'RETIRED' THEN a.`occupied_qty` ELSE 0 END),0) AllocationOccupiedQty
               FROM `trk_stock` s
-              LEFT JOIN `wms_erp_stock_allocation` a
-                ON a.`erp_stock_id`=s.`id`
+              LEFT JOIN `wms_trk_stock_allocation` a
+                ON a.`trk_stock_id`=s.`id`
              WHERE s.`id`=@erpStockId AND s.`deleted`=b'0'
              GROUP BY s.`id`,s.`available_qty`,s.`occupied_qty`,s.`total_qty`
             """,

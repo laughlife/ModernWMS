@@ -16,15 +16,15 @@ public sealed class LegacyPackingSelectionReleaseAdapterTests
             .SelectMany(type => type.GetMethods(
                 BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static))
             .SelectMany(ReadStringLiterals)
-            .Where(value => value.Contains("wms_erp_stock_reservation_allocation",
+            .Where(value => value.Contains("wms_trk_stock_reservation_allocation",
                 StringComparison.OrdinalIgnoreCase))
             .ToArray();
 
         Assert.NotEmpty(sql);
         Assert.DoesNotContain(sql, value => value.Contains(
-            "INSERT INTO `wms_erp_stock_reservation_allocation`", StringComparison.OrdinalIgnoreCase));
+            "INSERT INTO `wms_trk_stock_reservation_allocation`", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(sql, value => value.Contains(
-            "UPDATE `wms_erp_stock_reservation_allocation`", StringComparison.OrdinalIgnoreCase));
+            "UPDATE `wms_trk_stock_reservation_allocation`", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

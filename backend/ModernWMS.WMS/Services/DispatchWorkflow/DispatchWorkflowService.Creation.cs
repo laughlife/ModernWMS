@@ -119,15 +119,15 @@ public partial class DispatchWorkflowService
     {
         const string sql = """
                 SELECT selection.`sellfox_task_id` AS TaskId,selection.`sellfox_item_id` AS ItemId,
-                       selection.`erp_stock_id` AS StockKey,selection.`qty` AS LockedQty,
+                       selection.`trk_stock_id` AS StockKey,selection.`qty` AS LockedQty,
                        stock.`available_qty`+selection.`qty` AS AvailableBeforeTask
                   FROM `wms_packing_task_stock_selection` selection
-                  JOIN `trk_stock` stock ON stock.`id`=selection.`erp_stock_id`
+                  JOIN `trk_stock` stock ON stock.`id`=selection.`trk_stock_id`
                    AND stock.`deleted`=b'0'
                  WHERE selection.`sellfox_task_id` IN @taskIds
                    AND selection.`status`='ACTIVE'
-                   AND selection.`erp_stock_id` IS NOT NULL
-                 ORDER BY selection.`erp_stock_id`,selection.`sellfox_item_id`,selection.`id` FOR UPDATE;
+                   AND selection.`trk_stock_id` IS NOT NULL
+                 ORDER BY selection.`trk_stock_id`,selection.`sellfox_item_id`,selection.`id` FOR UPDATE;
                 """;
         return (await connection.QueryAsync<CreationBindingRow>(new CommandDefinition(
             sql,new{taskIds},transaction,cancellationToken:cancellationToken))).AsList();

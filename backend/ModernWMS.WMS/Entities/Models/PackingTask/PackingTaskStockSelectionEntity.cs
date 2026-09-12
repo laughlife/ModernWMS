@@ -28,7 +28,7 @@ public class PackingTaskStockSelectionEntity : BaseModel
     /// <summary>WMS stock row selected for allocation.</summary>
     public int stock_id { get; set; }
     /// <summary>Mapped ERP stock identifier.</summary>
-    public long? erp_stock_id { get; set; }
+    public long? trk_stock_id { get; set; }
     /// <summary>Stock-allocation identifier, when allocated.</summary>
     public long? stock_allocation_id { get; set; }
     /// <summary>Reservation identifier, when reserved.</summary>
