@@ -299,7 +299,7 @@ function Start-AppProcess {
     $env:ASPNETCORE_ENVIRONMENT = 'Development'
     $env:Cors__AllowedOrigins__6 = "http://localhost:$FrontendPort"
     $env:Cors__AllowedOrigins__7 = "http://127.0.0.1:$FrontendPort"
-    $env:Cors__AllowedOrigins__8 = "http://192.168.100.102:$FrontendPort"
+    $env:Cors__AllowedOrigins__8 = "http://192.168.100.2:$FrontendPort"
 
     return Start-Process -FilePath $DotnetPath `
         -ArgumentList @('run', '--project', ('"{0}"' -f $Project), '--no-launch-profile', '--no-restore') `
@@ -320,7 +320,7 @@ function Start-FrontendProcess {
     $previousViteServerPort = [Environment]::GetEnvironmentVariable('VITE_SERVER_PORT', 'Process')
     $previousViteCliPort = [Environment]::GetEnvironmentVariable('VITE_CLI_PORT', 'Process')
     try {
-        $env:VITE_BASE_PATH = 'http://127.0.0.1'
+        $env:VITE_BASE_PATH = 'http://192.168.100.2'
         $env:VITE_SERVER_PORT = [string]$Port
         $env:VITE_CLI_PORT = [string]$FrontendPort
         return Start-Process -FilePath $NodePath `

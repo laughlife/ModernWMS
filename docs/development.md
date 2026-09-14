@@ -31,22 +31,22 @@ JWT 签名密钥必须至少包含 32 个 UTF-8 字节。共享或部署环境�
 日常开发从仓库根目录运行统一启动器：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\Start-Development.ps1
+powershell -ExecutionPolicy Bypass -File scripts\一键启动前后端.ps1
 ```
 
 启动器会依次完成以下操作：
 
-1. 检查 `dotnet`、`npm`、前端依赖和 21011/80 端口；端口被占用时会报告 PID，但不会终止未知进程。
+1. 检查 `dotnet`、`npm`、前端依赖和 21011/81 端口；端口被占用时会报告 PID，但不会终止未知进程。
 2. 普通启动不会检查或修改数据库；数据库迁移使用下文独立的 Flyway 命令。
 3. 启动后端变更检测进程 `scripts\Watch-Backend.ps1`：每 60 秒检测一次后端源码变更；检测到变更后，等待源码连续 60 秒无新变化、且距上次自动重启满 60 秒，才重新编译并重启后端。这样可以避免 AI 批量修改多个文件时后端反复重启、甚至上一次重启还没完成就再次触发。检测与重启的事件都会写入日志目录下的 `backend.watcher.log`，后端运行日志仍为 `backend.stdout.log` / `backend.stderr.log`。
-4. 后端健康检查通过后，由 `Watch-Backend.ps1` 启动前端 Vite（端口 80）并把日志保存到输出中显示的临时目录；变更检测进程会持续确保前后端都在运行（后端变更自动重启、前端掉线自动拉起）。统一启动器会给前端进程覆盖本机 API 地址为 `http://127.0.0.1:21011`；手工执行 `npm run dev` 时仍使用前端环境文件中的地址。
+4. 后端健康检查通过后，由 `Watch-Backend.ps1` 启动前端 Vite（端口 81）并把日志保存到输出中显示的临时目录；变更检测进程会持续确保前后端都在运行（后端变更自动重启、前端掉线自动拉起）。统一启动器会给前端进程覆盖本机局域网 API 地址为 `http://192.168.100.2:21011`；手工执行 `npm run dev` 时使用前端环境文件中的同一地址。
 
 数据库迁移与常驻进程完全分离，不会影响代码自动更新：后端由 `scripts\Watch-Backend.ps1` 每分钟检测源码变更，在源码稳定满 60 秒且距上次重启满 60 秒后才自动重启（限制重启频率）；前端仍由 Vite 开发服务器提供文件监听和 HMR。需要立即应用最新后端代码时，运行 `scripts\一键停止前后端.ps1` 后重新执行启动器即可。
 
 只做环境和端口检查，不初始化数据库或启动进程：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\Start-Development.ps1 -CheckOnly
+powershell -ExecutionPolicy Bypass -File scripts\一键启动前后端.ps1 -CheckOnly
 ```
 
 停止本启动器启动的前后端：
@@ -63,7 +63,7 @@ powershell -ExecutionPolicy Bypass -File scripts\一键停止前后端.ps1
 powershell -ExecutionPolicy Bypass -File scripts\Watch-Backend.ps1
 ```
 
-可选参数：`-Project <csproj 路径>`、`-Port <后端端口>`（默认 21011）、`-FrontendPort <前端端口>`（默认 80）、`-IntervalSeconds <秒>`（默认 60，最小 10）。脚本会先检查端口占用和后端控制进程冲突，确认无误后启动后端并进入每分钟检测循环；检测循环里同时确保前端 Vite 运行（端口空闲则自动启动），后端源码稳定后自动重启后端。按 `Ctrl+C` 退出时会自动清理后端与前端进程。停止该脚本启动的进程同样使用 `scripts\一键停止前后端.ps1`。
+可选参数：`-Project <csproj 路径>`、`-Port <后端端口>`（默认 21011）、`-FrontendPort <前端端口>`（默认 81）、`-IntervalSeconds <秒>`（默认 60，最小 10）。脚本会先检查端口占用和后端控制进程冲突，确认无误后启动后端并进入每分钟检测循环；检测循环里同时确保前端 Vite 运行（端口空闲则自动启动），后端源码稳定后自动重启后端。按 `Ctrl+C` 退出时会自动清理后端与前端进程。停止该脚本启动的进程同样使用 `scripts\一键停止前后端.ps1`。
 
 ## 4. 显式检查或更新数据库
 
@@ -92,12 +92,12 @@ powershell -ExecutionPolicy Bypass -File scripts\Update-Database.ps1 `
 dotnet run --project backend/ModernWMS
 ```
 
-后端默认监听 `http://localhost:21011`：
+后端开发监听 `http://0.0.0.0:21011`（局域网访问地址为 `http://192.168.100.2:21011`）：
 
 - Swagger：`http://localhost:21011/`
 - 健康检查：`http://localhost:21011/health`
 
-开发环境仅允许来自 `http://localhost`、`http://127.0.0.1`、`http://localhost:80` 和 `http://127.0.0.1:80` 的跨域请求。
+开发环境允许来自 `http://localhost`、`http://127.0.0.1`、`http://localhost:81`、`http://127.0.0.1:81`、`http://192.168.100.2` 和 `http://192.168.100.2:81` 的跨域请求。
 
 ## 6. 手工安装并启动前端
 
@@ -107,7 +107,7 @@ npm ci
 npm run dev
 ```
 
-浏览器访问 `http://127.0.0.1:80`。开发配置会把 API 请求发送到 `http://127.0.0.1:21011`。
+浏览器访问 `http://192.168.100.2:81`。开发配置会把 API 请求发送到 `http://192.168.100.2:21011`。本机也可以继续使用 `http://127.0.0.1:81`。
 
 当前仓库路径包含 `#`。如果 npm、Vite 或浏览器测试在该路径下解析异常，可在临时盘符中运行前端命令：
 

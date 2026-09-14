@@ -23,6 +23,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$developmentHost = '192.168.100.2'
 $backendProject = Join-Path $repositoryRoot 'backend\ModernWMS\ModernWMS.csproj'
 $frontendDirectory = Join-Path $repositoryRoot 'frontend'
 $stateKeyBytes = [System.Text.Encoding]::UTF8.GetBytes($repositoryRoot.ToLowerInvariant())
@@ -367,7 +368,7 @@ try {
 
     Write-Host '[数据库] 开发启动不检查、不修改数据库；结构变更只通过 scripts\Update-Database.ps1 显式执行。'
 
-    Write-Host "[1/2] 启动后端变更检测（每 $IntervalSeconds 秒扫描，连续 $QuietPeriodSeconds 秒无修改后重启）：http://127.0.0.1:$BackendPort"
+    Write-Host "[1/2] 启动后端变更检测（每 $IntervalSeconds 秒扫描，连续 $QuietPeriodSeconds 秒无修改后重启）：http://${developmentHost}:$BackendPort"
     $backendProcess = Start-Process -FilePath $pwshCommand `
         -ArgumentList @(
             '-NoProfile',
@@ -423,7 +424,7 @@ try {
         throw "后端在 $StartupTimeoutSeconds 秒内未通过健康检查 $healthUrl（含编译时间）。详见当前控制台输出。"
     }
 
-    Write-Host "[2/2] 等待前端就绪（前端由后端变更检测进程统一管理）：http://127.0.0.1:$FrontendPort"
+    Write-Host "[2/2] 等待前端就绪（前端由后端变更检测进程统一管理）：http://${developmentHost}:$FrontendPort"
     $frontendReady = $false
     for ($attempt = 1; $attempt -le 60; $attempt++) {
         if ($backendProcess.HasExited) {
@@ -445,8 +446,8 @@ try {
     }
 
     Write-Host '[启动完成]'
-    Write-Host "  前端：http://127.0.0.1:$FrontendPort"
-    Write-Host "  后端：http://127.0.0.1:$BackendPort"
+    Write-Host "  前端：http://${developmentHost}:$FrontendPort"
+    Write-Host "  后端：http://${developmentHost}:$BackendPort"
     Write-Host '  实时日志：当前控制台'
     Write-Host "  运行状态：$statePath"
     Write-Host '  停止：pwsh -NoProfile -File scripts\一键停止前后端.ps1'
