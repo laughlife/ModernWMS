@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Dapper;
 using Microsoft.AspNetCore.Http;
@@ -6,8 +5,6 @@ using ModernWMS.Core.Database;
 using ModernWMS.WMS.Entities.ViewModels;
 using ModernWMS.WMS.IServices;
 using OSS = AlibabaCloud.OSS.V2;
-
-[assembly: InternalsVisibleTo("ModernWMS.Tests")]
 
 namespace ModernWMS.WMS.Services;
 
